@@ -1,0 +1,26 @@
+# Iris Memory Plugin 依赖列表
+# Python版本要求: 3.8+
+
+# 向量数据库
+chromadb>=0.4.0
+
+# 嵌入模型（可选，用于更好的文本向量）
+# sentence-transformers>=2.2.0
+
+# 情感分析（可选，用于更准确的情感识别）
+# transformers>=4.30.0
+# torch>=2.0.0
+
+# 数据处理
+numpy
+
+# 异步支持
+aiofiles
+
+# 其他工具
+python-dateutil
+
+# 测试依赖
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+pytest-cov>=4.1.0
