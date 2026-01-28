@@ -234,7 +234,11 @@ class LRUCache(BaseCache):
 
 
 class LFUCache(BaseCache):
-    """LFU缓存实现"""
+    """LFU缓存实现
+    
+    基于访问频率的缓存淘汰策略。
+    注意：set() 不会增加访问计数，只有 get() 才会。
+    """
 
     def __init__(self, max_size: int = 1000, ttl: Optional[int] = None):
         """初始化LFU缓存
@@ -245,7 +249,7 @@ class LFUCache(BaseCache):
         """
         super().__init__(max_size, ttl)
         self._cache: Dict[str, CacheEntry] = {}
-        self._min_freq = 1  # 最小访问频率
+        self._min_freq = 0  # 最小访问频率
     
     def get(self, key: str) -> Optional[Any]:
         """获取缓存值"""
@@ -269,48 +273,60 @@ class LFUCache(BaseCache):
         # 如果当前条目是唯一的最小频率条目，更新最小频率
         if old_count == self._min_freq:
             # 检查是否还有其他条目也是这个频率
-            remaining = [v for v in self._cache.values() if v.access_count == old_count]
+            remaining = [v for v in self._cache.values() if v.access_count == old_count and v.key != key]
             if not remaining:
-                self._min_freq = entry.access_count
+                # 提升最小频率
+                self._min_freq = min(v.access_count for v in self._cache.values())
 
         return entry.value
 
     def set(self, key: str, value: Any, ttl: Optional[int] = None) -> bool:
         """设置缓存值"""
-        # 如果键已存在，更新值
+        # 如果键已存在，更新值（但不增加访问计数，只有 get() 才会增加）
         if key in self._cache:
             entry = self._cache[key]
             old_count = entry.access_count
             entry.value = value
             if ttl is not None:
                 entry.ttl = ttl
-            entry.touch()
+            
+            # 注意：set() 不增加访问计数，只有 get() 才会增加
             
             # 更新最小频率
             if old_count == self._min_freq:
-                remaining = [v for v in self._cache.values() if v.access_count == old_count]
+                remaining = [v for v in self._cache.values() if v.access_count == old_count and v.key != key]
                 if not remaining:
-                    self._min_freq = entry.access_count
+                    self._min_freq = min(v.access_count for v in self._cache.values())
             
             return True
 
         # 检查是否达到最大容量，执行LFU淘汰
-        if len(self._cache) >= self.max_size:
+        current_size = len(self._cache)
+        if current_size >= self.max_size:
             self._evict_lfu()
 
-        # 创建新条目
+        # 创建新条目（access_count 初始为 0）
         entry = CacheEntry(
             key=key,
             value=value,
             ttl=ttl if ttl is not None else self.default_ttl
         )
         self._cache[key] = entry
+        
+        # 更新最小频率
+        self._min_freq = min(entry.access_count for entry in self._cache.values())
 
         return True
 
     def delete(self, key: str) -> bool:
         """删除缓存"""
         if key in self._cache:
+            # 如果删除的是最小频率的条目，需要重新计算最小频率
+            if self._cache[key].access_count == self._min_freq:
+                if len(self._cache) > 1:
+                    self._min_freq = min(v.access_count for v in self._cache.values())
+                else:
+                    self._min_freq = 0
             del self._cache[key]
             return True
         return False
@@ -326,23 +342,29 @@ class LFUCache(BaseCache):
         return len(self._cache)
 
     def _evict_lfu(self):
-        """执行LFU淘汰（移除访问次数最少的条目）"""
+        """执行LFU淘汰（移除访问次数最少的条目）
+        
+        策略：找到所有条目中访问次数最少的，如果有多个，选择创建时间最早的。
+        总是重新计算最小访问次数，不使用缓存的 _min_freq。
+        """
         if not self._cache:
             return
 
-        # 使用记录的最小频率
-        candidates = [k for k, v in self._cache.items() if v.access_count == self._min_freq]
+        # 找到所有条目中访问次数最少的
+        min_count = min(entry.access_count for entry in self._cache.values())
+        candidates = [k for k, v in self._cache.items() if v.access_count == min_count]
         
-        # 如果没有找到（可能频率变化了），重新计算最小频率
-        if not candidates:
-            min_access_count = min(entry.access_count for entry in self._cache.values())
-            candidates = [k for k, v in self._cache.items() if v.access_count == min_access_count]
-            self._min_freq = min_access_count
-
         # 如果有多个，选择最老的（按创建时间）
         lfu_key = min(candidates, key=lambda k: self._cache[k].created_time)
 
         del self._cache[lfu_key]
+        
+        # 更新最小频率
+        if self._cache:
+            self._min_freq = min(entry.access_count for entry in self._cache.values())
+        else:
+            self._min_freq = 0
+            
         self.stats.evictions += 1
 
 

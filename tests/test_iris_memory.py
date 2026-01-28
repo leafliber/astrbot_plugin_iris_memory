@@ -406,26 +406,20 @@ def test_lru_cache_stats():
 def test_lfu_cache_basic():
     """测试LFU缓存基本功能"""
     cache = LFUCache(max_size=3)
-    
+
     cache.set('key1', 'value1')
     cache.set('key2', 'value2')
-    
-    # 频繁访问key1
+
     for _ in range(5):
         cache.get('key1')
-    
-    # 访问key2一次
+
     cache.get('key2')
-    
-    # 添加key3
     cache.set('key3', 'value3')
-    
-    # 添加key4，应该淘汰key2（访问次数最少）
     cache.set('key4', 'value4')
-    
-    assert cache.get('key1') == 'value1'  # 访问次数最多，保留
-    assert cache.get('key2') is None  # 被淘汰
-    assert cache.get('key3') == 'value3'
+
+    assert cache.get('key1') == 'value1'
+    assert cache.get('key2') == 'value2'
+    assert cache.get('key3') is None
     assert cache.get('key4') == 'value4'
 
 
