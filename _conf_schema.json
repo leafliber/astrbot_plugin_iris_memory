@@ -1,0 +1,129 @@
+{
+  "memory_config": {
+    "description": "记忆配置",
+    "type": "object",
+    "items": {
+      "auto_capture": {
+        "description": "是否自动捕获记忆",
+        "type": "bool",
+        "default": true
+      },
+      "max_working_memory": {
+        "description": "工作记忆最大条数",
+        "type": "int",
+        "default": 10,
+        "hint": "会话内的临时记忆数量，超过数量会自动移除最旧的记忆"
+      },
+      "rif_threshold": {
+        "description": "RIF评分删除阈值",
+        "type": "float",
+        "default": 0.4,
+        "hint": "低于此值的记忆将被归档"
+      },
+      "session_cleanup_interval": {
+        "description": "会话清理间隔（秒）",
+        "type": "int",
+        "default": 3600,
+        "hint": "定期清理过期会话的间隔时间，默认1小时"
+      },
+      "session_timeout": {
+        "description": "会话超时时间（秒）",
+        "type": "int",
+        "default": 86400,
+        "hint": "会话多少时间未活动后将被关闭，默认24小时"
+      },
+      "session_inactive_timeout": {
+        "description": "会话非活跃超时（秒）",
+        "type": "int",
+        "default": 1800,
+        "hint": "会话多久无活动后转为非活跃状态，默认30分钟"
+      }
+    }
+  },
+  "chroma_config": {
+    "description": "Chroma向量数据库配置",
+    "type": "object",
+    "items": {
+      "embedding_model": {
+        "description": "嵌入模型名称",
+        "type": "string",
+        "default": "BAAI/bge-m3",
+        "hint": "支持sentence-transformers的所有模型，推荐使用BAAI/bge-m3或openai/text-embedding-3-large"
+      },
+      "embedding_dimension": {
+        "description": "嵌入向量维度",
+        "type": "int",
+        "default": 1024,
+        "hint": "根据模型调整，bge-m3为1024，text-embedding-3-large为3072"
+      },
+      "collection_name": {
+        "description": "Chroma集合名称",
+        "type": "string",
+        "default": "iris_memory",
+        "hint": "Chroma数据库中的集合名称，一般不需要修改"
+      }
+    }
+  },
+  "emotion_config": {
+    "description": "情感分析配置",
+    "type": "object",
+    "items": {
+      "enable_emotion": {
+        "description": "是否启用情感分析",
+        "type": "bool",
+        "default": true,
+        "hint": "情感分析会影响记忆检索和过滤"
+      },
+      "emotion_model": {
+        "description": "情感分析模型",
+        "type": "string",
+        "default": "builtin",
+        "hint": "目前使用内置模型，未来支持HuggingFace模型"
+      }
+    }
+  },
+  "llm_integration": {
+    "description": "LLM集成配置",
+    "type": "object",
+    "items": {
+      "enable_inject": {
+        "description": "是否在LLM请求中注入记忆",
+        "type": "bool",
+        "default": true,
+        "hint": "开启后会在AI对话中自动注入相关记忆上下文"
+      },
+      "max_context_memories": {
+        "description": "注入到LLM的最大记忆数",
+        "type": "int",
+        "default": 3,
+        "hint": "超过token限制时会自动减少"
+      },
+      "token_budget": {
+        "description": "记忆上下文的token预算",
+        "type": "int",
+        "default": 512,
+        "hint": "用于记忆注入的token数量，超出时会动态减少记忆数量或使用摘要"
+      },
+      "enable_token_budget": {
+        "description": "是否启用token预算管理",
+        "type": "bool",
+        "default": true,
+        "hint": "启用后会根据token预算动态调整注入的记忆数量"
+      },
+      "injection_mode": {
+        "description": "记忆注入模式",
+        "type": "string",
+        "default": "suffix",
+        "enum": ["prefix", "suffix", "embedded", "hybrid"],
+        "hint": "prefix-前置模式，suffix-后置模式，embedded-嵌入式，hybrid-混合模式"
+      },
+      "coordination_strategy": {
+        "description": "人格协调策略",
+        "type": "string",
+        "default": "hybrid",
+        "enum": ["bot_priority", "user_priority", "hybrid", "dynamic"],
+        "hint": "bot_priority-Bot优先，user_priority-用户优先，hybrid-混合平衡，dynamic-动态选择"
+      }
+    }
+  }
+}
