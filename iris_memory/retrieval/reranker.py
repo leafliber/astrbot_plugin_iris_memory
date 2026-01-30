@@ -7,22 +7,36 @@ from typing import List, Optional
 from datetime import datetime, timedelta
 
 from iris_memory.models.memory import Memory
-from iris_memory.core.types import StorageLayer, QualityLevel
+from iris_memory.core.types import StorageLayer, QualityLevel, EmotionType
 
 
 class Reranker:
     """结果重排序器
-    
+
     对检索结果进行重排序：
     - 质量等级优先：CONFIRMED > HIGH_CONFIDENCE > MODERATE
     - RIF评分：高RIF得分优先
     - 时间衰减：新记忆优先
     - 情感一致性：与当前情感一致的记忆优先
     - 访问频率：高频访问的记忆优先
+    - 向量相似度：Chroma向量检索的补充权重
+
+    合并后的权重分配：
+    - 质量等级：0.25
+    - RIF评分：0.25
+    - 时间衰减：0.20
+    - 向量相似度：0.15
+    - 访问频率：0.10
+    - 情感一致性：0.05
     """
-    
-    def __init__(self):
-        """初始化重排序器"""
+
+    def __init__(self, enable_vector_score: bool = True):
+        """初始化重排序器
+
+        Args:
+            enable_vector_score: 是否启用向量相似度权重（默认True）
+                如果记忆对象中没有vector_similarity字段，则自动忽略
+        """
         # 质量等级权重
         self.quality_weights = {
             QualityLevel.CONFIRMED: 1.5,
@@ -31,6 +45,9 @@ class Reranker:
             QualityLevel.LOW_CONFIDENCE: 0.7,
             QualityLevel.UNCERTAIN: 0.4
         }
+
+        # 配置
+        self.enable_vector_score = enable_vector_score
     
     def rerank(
         self,
@@ -70,70 +87,93 @@ class Reranker:
         context: Optional[dict]
     ) -> float:
         """计算重排序得分
-        
-        综合因素：
-        - 质量等级：0.35权重
-        - RIF评分：0.25权重
-        - 时间得分：0.2权重
-        - 访问频率：0.15权重
-        - 情感一致性：0.05权重
-        
+
+        合并后的权重分配：
+        - 质量等级：0.25
+        - RIF评分：0.25
+        - 时间衰减：0.20
+        - 向量相似度：0.15
+        - 访问频率：0.10
+        - 情感一致性：0.05
+
         Args:
             memory: 记忆对象
-            query: 查询文本（可选）
-            context: 上下文信息（可选）
-            
+            query: 查询文本（可选，暂未使用）
+            context: 上下文信息（可选，包含emotional_state）
+
         Returns:
             float: 综合得分
         """
         # 1. 质量等级得分
         quality_score = self.quality_weights.get(memory.quality_level, 1.0)
-        
+
         # 2. RIF评分
         rif_score = memory.rif_score
-        
-        # 3. 时间得分
+
+        # 3. 时间衰减得分
         time_score = self._calculate_time_score(memory)
-        
+
         # 4. 访问频率得分
         access_score = min(1.0, memory.access_count / 10.0)
-        
+
         # 5. 情感一致性得分
         emotion_score = self._calculate_emotion_score(memory, context)
-        
+
+        # 6. 向量相似度得分（如果有）
+        vector_score = 0.0
+        if self.enable_vector_score and hasattr(memory, 'vector_similarity'):
+            vector_score = memory.vector_similarity
+        elif self.enable_vector_score and hasattr(memory, 'similarity'):
+            vector_score = memory.similarity
+
         # 综合得分
         comprehensive_score = (
-            0.35 * quality_score +
+            0.25 * quality_score +
             0.25 * rif_score +
             0.20 * time_score +
-            0.15 * access_score +
+            0.10 * access_score +
             0.05 * emotion_score
         )
-        
+
+        # 如果有向量相似度，加入计算
+        if vector_score > 0:
+            comprehensive_score += 0.15 * vector_score
+
         return comprehensive_score
     
     def _calculate_time_score(self, memory: Memory) -> float:
         """计算时间得分
-        
+
+        使用Memory对象的calculate_time_weight()方法，该方法根据framework文档：
+        - 新记忆（7天内）：时间权重×1.2
+        - 中期记忆（7-30天）：时间权重×1.0
+        - 旧记忆（30-90天）：时间权重×0.8
+        - 远期记忆（>90天）：时间权重×0.6
+
         Args:
             memory: 记忆对象
-            
+
         Returns:
             float: 时间得分（0-1）
         """
-        days = (datetime.now() - memory.last_access_time).days
-        
-        # 时间衰减函数
-        if days < 1:
-            return 1.0
-        elif days < 7:
-            return 0.9
-        elif days < 30:
-            return 0.7
-        elif days < 90:
-            return 0.5
-        else:
-            return 0.3
+        try:
+            # 使用Memory对象的内置方法
+            return memory.calculate_time_weight() / 1.2  # 归一化到0-1
+        except Exception:
+            # 如果Memory对象没有该方法，使用备用计算方式
+            days = (datetime.now() - memory.last_access_time).days
+
+            # 时间衰减函数（备用）
+            if days < 1:
+                return 1.0
+            elif days < 7:
+                return 0.9
+            elif days < 30:
+                return 0.7
+            elif days < 90:
+                return 0.5
+            else:
+                return 0.3
     
     def _calculate_emotion_score(
         self,
@@ -141,36 +181,49 @@ class Reranker:
         context: Optional[dict]
     ) -> float:
         """计算情感一致性得分
-        
+
+        合并了两种实现的逻辑：
+        1. 负面情感时避免高强度正面记忆
+        2. 情感类型三级评分（完全一致/相似/不一致）
+
         Args:
             memory: 记忆对象
-            context: 上下文信息
-            
+            context: 上下文信息（包含emotional_state）
+
         Returns:
             float: 情感一致性得分（0-1）
         """
         if not context or 'emotional_state' not in context:
             return 0.5  # 默认中等得分
-        
+
         emotional_state = context['emotional_state']
-        
+
         # 如果记忆不是情感类型，返回中等得分
         if memory.type != "emotion":
             return 0.5
-        
-        # 检查情感是否一致
-        if hasattr(emotional_state, 'current'):
-            current_emotion = emotional_state.current.primary.value
-            memory_emotion = memory.subtype
-            
-            if current_emotion == memory_emotion:
-                return 1.0  # 完全一致
-            elif self._is_similar_emotion(current_emotion, memory_emotion):
-                return 0.7  # 相似情感
-            else:
-                return 0.3  # 不一致的情感
-        
-        return 0.5
+
+        # 获取当前情感和记忆情感
+        if not hasattr(emotional_state, 'current'):
+            return 0.5
+
+        current_emotion = emotional_state.current.primary
+        memory_emotion = memory.subtype
+
+        # 特殊规则：如果当前情感是负面，避免高强度正面记忆
+        if current_emotion in [EmotionType.SADNESS, EmotionType.ANGER, EmotionType.ANXIETY]:
+            if memory.emotional_weight > 0.8:
+                if memory_emotion in ["joy", "excitement"]:
+                    return 0.0  # 负面情感时，高强度正面记忆相关性为0
+
+        # 三级评分系统
+        current_emotion_str = current_emotion.value if hasattr(current_emotion, 'value') else str(current_emotion)
+
+        if current_emotion_str == memory_emotion:
+            return 1.0  # 完全一致
+        elif self._is_similar_emotion(current_emotion_str, memory_emotion):
+            return 0.7  # 相似情感
+        else:
+            return 0.3  # 不一致的情感
     
     def _is_similar_emotion(self, emotion1: str, emotion2: str) -> bool:
         """判断两个情感是否相似

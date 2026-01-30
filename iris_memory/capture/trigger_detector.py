@@ -50,6 +50,7 @@ class TriggerDetector:
             TriggerType.FACT: [
                 r"我是", r"我有", r"我做", r"我在", r"我叫",
                 r"我的工作是", r"我住", r"我来自", r"我的爱好是",
+                r"出生于", r"出生在", r"生日是",
                 r"i am", r"i have", r"i do", r"i work as", r"i live in"
             ],
             TriggerType.BOUNDARY: [

@@ -36,12 +36,13 @@ class ChromaManager:
     - 会话隔离（基于user_id和group_id的元数据过滤）
     """
     
-    def __init__(self, config, data_path: Path):
+    def __init__(self, config, data_path: Path, plugin_context=None):
         """初始化Chroma管理器
         
         Args:
             config: 插件配置对象（从AstrBotConfig获取）
             data_path: 插件数据目录路径
+            plugin_context: AstrBot 插件上下文（用于嵌入API）
         """
         self.config = config
         self.data_path = data_path
@@ -52,9 +53,13 @@ class ChromaManager:
         self.embedding_model_name = self._get_config("chroma_config.embedding_model", "BAAI/bge-m3")
         self.embedding_dimension = self._get_config("chroma_config.embedding_dimension", 1024)
         self.collection_name = self._get_config("chroma_config.collection_name", "iris_memory")
+        self.auto_detect_dimension = self._get_config("chroma_config.auto_detect_dimension", True)
         
-        # 嵌入函数
-        self.embedding_function = None
+        # 嵌入管理器（策略模式）
+        from iris_memory.embedding.manager import EmbeddingManager
+        self.embedding_manager = EmbeddingManager(config, data_path)
+        if plugin_context:
+            self.embedding_manager.set_plugin_context(plugin_context)
     
     def _get_config(self, key: str, default: Any = None) -> Any:
         """获取配置值
@@ -94,20 +99,57 @@ class ChromaManager:
                 )
             )
             
-            # 获取或创建集合
-            self.collection = self.client.get_or_create_collection(
-                name=self.collection_name,
-                metadata={"description": "Iris Memory Plugin - Three-layer memory system"}
-            )
+            # 检查集合是否存在
+            existing_collection = None
+            try:
+                existing_collection = self.client.get_collection(name=self.collection_name)
+            except:
+                pass  # 集合不存在，需要创建
             
-            logger.info(f"Chroma manager initialized successfully. Collection: {self.collection_name}")
+            # 自动检测现有集合的维度（如果启用）
+            if self.auto_detect_dimension and existing_collection:
+                detected_dimension = await self.embedding_manager.detect_existing_dimension(existing_collection)
+                if detected_dimension:
+                    logger.info(f"Auto-detected embedding dimension: {detected_dimension}")
+                    self.embedding_dimension = detected_dimension
+            
+            # 初始化嵌入管理器
+            await self.embedding_manager.initialize()
+            
+            # 获取实际使用的维度
+            actual_dimension = self.embedding_manager.get_dimension()
+            if self.embedding_dimension != actual_dimension:
+                logger.warning(f"Configured dimension ({self.embedding_dimension}) differs from provider dimension ({actual_dimension}), using provider dimension")
+                self.embedding_dimension = actual_dimension
+            
+            # 获取或创建集合
+            if existing_collection:
+                self.collection = existing_collection
+                logger.info(f"Using existing collection: {self.collection_name}")
+            else:
+                self.collection = self.client.create_collection(
+                    name=self.collection_name,
+                    metadata={
+                        "description": "Iris Memory Plugin - Three-layer memory system",
+                        "embedding_model": self.embedding_manager.get_model(),
+                        "embedding_dimension": self.embedding_dimension
+                    }
+                )
+                logger.info(f"Created new collection: {self.collection_name}")
+            
+            logger.info(
+                f"Chroma manager initialized. "
+                f"Collection: {self.collection_name}, "
+                f"Model: {self.embedding_manager.get_model()}, "
+                f"Dimension: {self.embedding_dimension}"
+            )
             
         except Exception as e:
             logger.error(f"Failed to initialize Chroma manager: {e}")
             raise
     
     async def _generate_embedding(self, text: str) -> List[float]:
-        """生成文本嵌入向量
+        """生成文本嵌入向量（使用策略模式的嵌入管理器）
         
         Args:
             text: 文本内容
@@ -115,26 +157,26 @@ class ChromaManager:
         Returns:
             List[float]: 嵌入向量
         """
-        # TODO: 实现实际的嵌入生成
-        # 这里先使用简单的词频+随机向量作为占位符
-        # 实际应该使用sentence-transformers或OpenAI的embedding模型
-        
-        # 暂时使用伪随机向量（确保相同文本生成相同向量）
-        import hashlib
-        hash_obj = hashlib.md5(text.encode())
-        hash_bytes = hash_obj.digest()
-        
-        # 将哈希转换为浮点数向量
-        embedding = []
-        for i in range(0, min(len(hash_bytes), self.embedding_dimension // 4)):
-            byte_val = hash_bytes[i]
-            embedding.append(byte_val / 255.0)
-        
-        # 填充到指定维度
-        while len(embedding) < self.embedding_dimension:
-            embedding.append(0.0)
-        
-        return embedding
+        try:
+            # 使用嵌入管理器生成嵌入（自动降级）
+            embedding = await self.embedding_manager.embed(text, self.embedding_dimension)
+            return embedding
+        except Exception as e:
+            logger.error(f"Failed to generate embedding: {e}")
+            # 作为最后的保底，使用简单的哈希
+            import hashlib
+            hash_obj = hashlib.md5(text.encode())
+            hash_bytes = hash_obj.digest()
+            
+            embedding = []
+            for i in range(0, min(len(hash_bytes), self.embedding_dimension // 4)):
+                byte_val = hash_bytes[i]
+                embedding.append(byte_val / 255.0)
+            
+            while len(embedding) < self.embedding_dimension:
+                embedding.append(0.0)
+            
+            return embedding
     
     async def add_memory(self, memory: Memory) -> str:
         """添加记忆到Chroma

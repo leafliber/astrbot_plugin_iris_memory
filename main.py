@@ -75,8 +75,8 @@ class IrisMemoryPlugin(Star):
             # 初始化RIF评分器
             self.rif_scorer = RIFScorer()
             
-            # 初始化Chroma管理器
-            self.chroma_manager = ChromaManager(self.config, self.plugin_data_path)
+            # 初始化Chroma管理器（传入插件上下文用于嵌入API）
+            self.chroma_manager = ChromaManager(self.config, self.plugin_data_path, context)
             await self.chroma_manager.initialize()
             
             # 初始化会话管理器

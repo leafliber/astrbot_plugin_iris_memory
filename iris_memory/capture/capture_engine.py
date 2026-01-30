@@ -344,24 +344,31 @@ class MemoryCaptureEngine:
     
     def _is_opposite(self, text1: str, text2: str) -> bool:
         """判断两个文本是否相反
-        
+
         Args:
             text1: 文本1
             text2: 文本2
-            
+
         Returns:
             bool: 是否相反
         """
         # 简化实现：检查否定词
         negation_words = ["不", "没", "不是", "don't", "not", "no"]
-        
+
         for neg in negation_words:
+            # 情况1: 否定词在text1但不在text2
             if neg in text1 and neg not in text2:
                 # 移除否定词后比较
                 text1_clean = text1.replace(neg, "")
                 if text1_clean in text2 or text2 in text1_clean:
                     return True
-        
+            # 情况2: 否定词在text2但不在text1
+            elif neg in text2 and neg not in text1:
+                # 移除否定词后比较
+                text2_clean = text2.replace(neg, "")
+                if text2_clean in text1 or text1 in text2_clean:
+                    return True
+
         return False
     
     def set_config(self, config: Dict[str, Any]):

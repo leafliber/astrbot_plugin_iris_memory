@@ -16,48 +16,53 @@ from iris_memory.analysis.emotion_analyzer import EmotionAnalyzer
 from iris_memory.models.emotion_state import EmotionalState
 from iris_memory.utils.token_manager import TokenBudget, MemoryCompressor, DynamicMemorySelector
 from iris_memory.utils.persona_coordinator import PersonaCoordinator, CoordinationStrategy
+from iris_memory.retrieval.reranker import Reranker
 
 
 class MemoryRetrievalEngine:
     """记忆检索引擎
-    
+
     实现混合检索：
     - 简单查询：纯向量检索
     - 多跳推理：图遍历检索（暂未实现）
     - 时间感知：时间向量编码检索
     - 情感感知：情感过滤检索
     - 复杂查询：混合检索
-    
-    结果重排序：
-    - 向量相似度：0.4
-    - RIF评分：0.3
-    - 时间衰减：0.15
-    - 情感相关性：0.15
+
+    结果重排序（使用统一的Reranker模块）：
+    - 质量等级：0.25 (CONFIRMED > HIGH_CONFIDENCE > MODERATE)
+    - RIF评分：0.25 (基于时近性、相关性、频率的科学评分)
+    - 时间衰减：0.20 (新记忆优先)
+    - 向量相似度：0.15 (Chroma检索结果的补充)
+    - 访问频率：0.10 (高频访问的记忆优先)
+    - 情感一致性：0.05 (与当前情感一致的记忆优先)
     """
-    
+
     def __init__(
         self,
         chroma_manager,
         rif_scorer: Optional[RIFScorer] = None,
-        emotion_analyzer: Optional[EmotionAnalyzer] = None
+        emotion_analyzer: Optional[EmotionAnalyzer] = None,
+        reranker: Optional[Reranker] = None
     ):
         """初始化记忆检索引擎
-        
+
         Args:
             chroma_manager: Chroma存储管理器
             rif_scorer: RIF评分器（可选）
             emotion_analyzer: 情感分析器（可选）
+            reranker: 重排序器（可选，默认创建新实例）
         """
         self.chroma_manager = chroma_manager
         self.rif_scorer = rif_scorer or RIFScorer()
         self.emotion_analyzer = emotion_analyzer or EmotionAnalyzer()
-        
+
         # 配置
         self.max_context_memories = 3
         self.enable_time_aware = True
         self.enable_emotion_aware = True
         self.enable_token_budget = True  # 启用token预算管理
-        
+
         # Token管理器
         self.token_budget = TokenBudget(total_budget=512)
         self.memory_compressor = MemoryCompressor(max_summary_length=100)
@@ -65,11 +70,14 @@ class MemoryRetrievalEngine:
             token_budget=self.token_budget,
             compressor=self.memory_compressor
         )
-        
+
         # 人格协调器
         self.persona_coordinator = PersonaCoordinator(
             strategy=CoordinationStrategy.HYBRID
         )
+
+        # 重排序器
+        self.reranker = reranker or Reranker(enable_vector_score=True)
     
     async def retrieve(
         self,
@@ -171,124 +179,24 @@ class MemoryRetrievalEngine:
         query: str,
         emotional_state: Optional[EmotionalState] = None
     ) -> List[Memory]:
-        """重排序记忆
-        
+        """重排序记忆（使用统一的Reranker）
+
         Args:
             memories: 记忆列表
             query: 查询文本
             emotional_state: 情感状态（可选）
-            
+
         Returns:
             List[Memory]: 排序后的记忆列表
         """
-        scored_memories = []
-        
-        for memory in memories:
-            # 计算综合得分
-            score = self._calculate_comprehensive_score(
-                memory,
-                query,
-                emotional_state
-            )
-            scored_memories.append((memory, score))
-        
-        # 按得分降序排序
-        scored_memories.sort(key=lambda x: x[1], reverse=True)
-        
-        return [m for m, s in scored_memories]
-    
-    def _calculate_comprehensive_score(
-        self,
-        memory: Memory,
-        query: str,
-        emotional_state: Optional[EmotionalState] = None
-    ) -> float:
-        """计算综合得分
-        
-        权重分配：
-        - 向量相似度：0.4
-        - RIF评分：0.3
-        - 时间衰减：0.15
-        - 情感相关性：0.15
-        
-        Args:
-            memory: 记忆对象
-            query: 查询文本
-            emotional_state: 情感状态（可选）
-            
-        Returns:
-            float: 综合得分（0-1）
-        """
-        # 1. 向量相似度（假设已经由Chroma返回相似度排序）
-        # 这里简化处理：使用RIF评分作为替代
-        vector_score = memory.rif_score
-        
-        # 2. RIF评分
-        rif_score = memory.rif_score
-        
-        # 3. 时间衰减
-        time_score = self._calculate_time_score(memory)
-        
-        # 4. 情感相关性
-        emotion_score = 0.0
-        if emotional_state and self.enable_emotion_aware:
-            emotion_score = self._calculate_emotion_score(memory, emotional_state)
-        
-        # 综合得分
-        comprehensive_score = (
-            0.4 * vector_score +
-            0.3 * rif_score +
-            0.15 * time_score +
-            0.15 * emotion_score
-        )
-        
-        return comprehensive_score
-    
-    def _calculate_time_score(self, memory: Memory) -> float:
-        """计算时间得分
-        
-        根据framework文档：
-        - 新记忆（7天内）：时间权重×1.2
-        - 中期记忆（7-30天）：时间权重×1.0
-        - 旧记忆（30-90天）：时间权重×0.8
-        - 远期记忆（>90天）：时间权重×0.6
-        
-        Args:
-            memory: 记忆对象
-            
-        Returns:
-            float: 时间得分（0-1）
-        """
-        return memory.calculate_time_weight() / 1.2  # 归一化到0-1
-    
-    def _calculate_emotion_score(
-        self,
-        memory: Memory,
-        emotional_state: EmotionalState
-    ) -> float:
-        """计算情感相关性得分
-        
-        Args:
-            memory: 记忆对象
-            emotional_state: 情感状态
-            
-        Returns:
-            float: 情感相关性得分（0-1）
-        """
-        # 如果当前情感是负面，避免高强度正面记忆
-        current_emotion = emotional_state.current.primary
-        if current_emotion in [EmotionType.SADNESS, EmotionType.ANGER, EmotionType.ANXIETY]:
-            if memory.emotional_weight > 0.8:
-                if memory.subtype in ["joy", "excitement"]:
-                    return 0.0  # 低相关性
-        
-        # 如果记忆的情感类型与当前情感相同，提升相关性
-        if memory.type == "emotion" and memory.subtype == current_emotion.value:
-            return 0.9
-        
-        # 默认中等相关性
-        return 0.5
-    
+        # 构建上下文
+        context = {}
+        if emotional_state:
+            context['emotional_state'] = emotional_state
+
+        # 使用Reranker重排序
+        return self.reranker.rerank(memories, query, context)
+
     async def retrieve_with_strategy(
         self,
         query: str,

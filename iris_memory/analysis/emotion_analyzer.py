@@ -193,9 +193,9 @@ class EmotionAnalyzer:
         for emotion, keywords in self.emotion_dict.items():
             count = 0
             for keyword in keywords:
-                # 使用正则匹配，支持边界
-                pattern = r'\b' + re.escape(keyword) + r'\b'
-                matches = re.findall(pattern, text, re.IGNORECASE)
+                # 使用正则匹配，对中文和英文都适用
+                # 不使用单词边界，直接匹配
+                matches = re.findall(re.escape(keyword), text, re.IGNORECASE)
                 count += len(matches)
             
             emotion_scores[emotion] = count
@@ -387,15 +387,17 @@ class EmotionAnalyzer:
     
     def should_filter_positive_memories(self, emotional_state: EmotionalState) -> bool:
         """判断是否应该过滤高强度正面记忆
-        
+
         当用户心情不好时，避免检索高强度正面记忆
-        
+
         Args:
             emotional_state: 情感状态对象
-            
+
         Returns:
             bool: 是否应该过滤
         """
+        if emotional_state is None:
+            return False
         return emotional_state.should_filter_positive()
     
     def analyze_time_series(

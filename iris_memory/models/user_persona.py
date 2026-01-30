@@ -5,7 +5,9 @@ UserPersona数据模型
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
+
+from iris_memory.core.types import DecayRate
 
 
 @dataclass

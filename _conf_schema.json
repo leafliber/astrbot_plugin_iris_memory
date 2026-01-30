@@ -44,6 +44,13 @@
     "description": "Chroma向量数据库配置",
     "type": "object",
     "items": {
+      "embedding_strategy": {
+        "description": "嵌入策略",
+        "type": "string",
+        "default": "auto",
+        "enum": ["auto", "astrbot", "local", "fallback"],
+        "hint": "auto-自动降级（优先使用AstrBot），astrbot-仅使用AstrBot API，local-仅使用本地模型，fallback-仅使用降级（不推荐）"
+      },
       "embedding_model": {
         "description": "嵌入模型名称",
         "type": "string",
@@ -54,13 +61,19 @@
         "description": "嵌入向量维度",
         "type": "int",
         "default": 1024,
-        "hint": "根据模型调整，bge-m3为1024，text-embedding-3-large为3072"
+        "hint": "根据模型调整，bge-m3为1024，text-embedding-3-large为3072，text-embedding-ada-002为1536"
       },
       "collection_name": {
         "description": "Chroma集合名称",
         "type": "string",
         "default": "iris_memory",
         "hint": "Chroma数据库中的集合名称，一般不需要修改"
+      },
+      "auto_detect_dimension": {
+        "description": "自动检测现有集合的嵌入维度",
+        "type": "bool",
+        "default": true,
+        "hint": "开启后会自动适配现有集合的维度，避免维度不匹配问题"
       }
     }
   },
