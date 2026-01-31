@@ -307,19 +307,33 @@ class DynamicMemorySelector:
             )
             
             time_str = memory.created_time.strftime("%m-%d %H:%M")
-            type_label = memory.type.value.upper()
+            # 处理type可能是枚举或字符串的情况
+            if hasattr(memory.type, 'value'):
+                type_label = memory.type.value.upper()
+            else:
+                type_label = str(memory.type).upper()
             lines.append(f"{i}. [{type_label}] {time_str}")
             lines.append(f"   {compressed}")
         
         context = "\n".join(lines)
-        
+
         # 记录统计信息
-        from astrbot.api import logger
-        logger.debug(
-            f"Memory context generated: {stats['selected_count']}/{stats['total_candidates']} memories, "
-            f"{stats['used_tokens']} tokens, "
-            f"{stats['skipped_count']} skipped, "
-            f"{stats['summary_used']} summaries used"
-        )
-        
+        try:
+            from astrbot.api import logger
+            logger.debug(
+                f"Memory context generated: {stats['selected_count']}/{stats['total_candidates']} memories, "
+                f"{stats['used_tokens']} tokens, "
+                f"{stats['skipped_count']} skipped, "
+                f"{stats['summary_used']} summaries used"
+            )
+        except ImportError:
+            # 如果在测试环境中，使用标准logging
+            import logging
+            logging.debug(
+                f"Memory context generated: {stats['selected_count']}/{stats['total_candidates']} memories, "
+                f"{stats['used_tokens']} tokens, "
+                f"{stats['skipped_count']} skipped, "
+                f"{stats['summary_used']} summaries used"
+            )
+
         return context

@@ -51,11 +51,12 @@ class TestMemoryMethods:
         """测试升级到情景记忆的条件"""
         memory = Memory(
             id="mem_001",
+            storage_layer=StorageLayer.WORKING,
             quality_level=QualityLevel.CONFIRMED,
             access_count=10,
             importance_score=0.9
         )
-        
+
         result = memory.should_upgrade_to_episodic()
         assert result is True
     

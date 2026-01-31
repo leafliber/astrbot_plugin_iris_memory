@@ -29,23 +29,24 @@ class SensitivityDetector:
         # CRITICAL（极度敏感）
         self.critical_patterns = [
             # 身份证号（18位数字，最后一位可能是X）
-            r'\b\d{17}[\dXx]\b',
+            # 使用 lookaround 来确保匹配独立的数字序列
+            r'(?<![0-9])\d{17}[\dXx](?![0-9])',
             # 银行卡号（16-19位数字）
-            r'\b\d{16,19}\b',
+            r'(?<![0-9])\d{16,19}(?![0-9])',
             # 密码相关
-            r'密码[:：]\S+', r'password[:：]\S+',
+            r'密码[:：是]\S+', r'password[:：]\S+',
             # 手机号（11位）
-            r'\b1[3-9]\d{9}\b',
-            # 邮箱
-            r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b',
+            r'(?<![0-9])1[3-9]\d{9}(?![0-9])',
+            # 邮箱（不使用 \b 以支持中文环境）
+            r'[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}',
         ]
-        
+
         # SENSITIVE（敏感）
         self.sensitive_patterns = [
             # 健康状况
             r'病情|疾病|治疗|医院|医生|药|症状|诊断',
             # 财务信息
-            r'工资|收入|存款|贷款|信用卡|债务|财务|资产',
+            r'工资|收入|存款|贷款|信用卡|债务|财务|资产|房贷',
             # 住址
             r'地址|住在|居住地|家庭地址|住址',
         ]
@@ -177,12 +178,12 @@ class SensitivityDetector:
     
     def get_encryption_required(self, sensitivity_level: SensitivityLevel) -> bool:
         """判断是否需要加密
-        
+
         Args:
             sensitivity_level: 敏感度等级
-            
+
         Returns:
             bool: 是否需要加密
         """
-        # SENSITIVE及以上级别需要加密
-        return sensitivity_level.value >= SensitivityLevel.SENSITIVE.value
+        # PRIVATE及以上级别需要加密（私人信息和敏感信息都需要保护）
+        return sensitivity_level.value >= SensitivityLevel.PRIVATE.value

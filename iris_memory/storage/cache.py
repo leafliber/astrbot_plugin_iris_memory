@@ -224,7 +224,15 @@ class LRUCache(BaseCache):
     def get_size(self) -> int:
         """获取缓存大小"""
         return len(self._cache)
-    
+
+    def __len__(self) -> int:
+        """返回缓存大小"""
+        return len(self._cache)
+
+    def put(self, key: str, value: Any, ttl: Optional[int] = None) -> bool:
+        """设置缓存值（put是set的别名）"""
+        return self.set(key, value, ttl)
+
     def _evict_lru(self):
         """执行LRU淘汰（移除最久未使用的条目）"""
         if self._cache:
@@ -341,6 +349,20 @@ class LFUCache(BaseCache):
         """获取缓存大小"""
         return len(self._cache)
 
+    def __len__(self) -> int:
+        """返回缓存大小"""
+        return len(self._cache)
+
+    def put(self, key: str, value: Any, ttl: Optional[int] = None) -> bool:
+        """设置缓存值（put是set的别名）"""
+        return self.set(key, value, ttl)
+
+    def _get_frequency(self, key: str) -> int:
+        """获取键的访问频率"""
+        if key in self._cache:
+            return self._cache[key].access_count
+        return 0
+
     def _evict_lfu(self):
         """执行LFU淘汰（移除访问次数最少的条目）
         
@@ -421,17 +443,21 @@ class EmbeddingCache:
     
     def set(self, text: str, embedding: List[float]) -> bool:
         """缓存文本的嵌入向量
-        
+
         Args:
             text: 文本内容
             embedding: 嵌入向量
-            
+
         Returns:
             是否设置成功
         """
         key = self._compute_hash(text)
         return self._cache.set(key, embedding)
-    
+
+    def put(self, text: str, embedding: List[float]) -> bool:
+        """缓存文本的嵌入向量（put是set的别名）"""
+        return self.set(text, embedding)
+
     def delete(self, text: str) -> bool:
         """删除文本的缓存
         

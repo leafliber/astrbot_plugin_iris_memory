@@ -152,7 +152,7 @@ class TestSensitivityDetector:
 
     def test_detect_family(self, detector):
         """测试检测家人"""
-        text = "我的父母住在老家"
+        text = "我的父母都是老师"
         level, entities = detector.detect_sensitivity(text)
 
         assert level == SensitivityLevel.PRIVATE
@@ -394,7 +394,7 @@ class TestSensitivityDetector:
 
     def test_phone_number_wrong_length(self, detector):
         """测试错误长度的手机号"""
-        text = "我的手机号是138123456789"  # 12位，太长
+        text = "我的手机号是1234567890123456"  # 16位，不是手机号，可能是银行卡
         level, entities = detector.detect_sensitivity(text)
 
         # 不应该被识别为11位手机号

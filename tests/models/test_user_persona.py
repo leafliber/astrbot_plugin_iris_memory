@@ -5,6 +5,7 @@ UserPersona测试
 
 import pytest
 from datetime import datetime
+from unittest.mock import Mock
 from iris_memory.models.user_persona import UserPersona
 from iris_memory.models.memory import Memory
 from iris_memory.core.types import MemoryType, EmotionType
@@ -555,10 +556,10 @@ class TestUserPersonaBehaviorPatterns:
         """测试24小时活跃度分布值"""
         # 设置一些值
         sample_persona.hourly_distribution = [0.1 * i for i in range(24)]
-        
-        assert sample_persona.hourly_distribution[0] == 0.0
-        assert sample_persona.hourly_distribution[12] == 1.2
-        assert sample_persona.hourly_distribution[23] == 2.3
+
+        assert sample_persona.hourly_distribution[0] == pytest.approx(0.0)
+        assert sample_persona.hourly_distribution[12] == pytest.approx(1.2)
+        assert sample_persona.hourly_distribution[23] == pytest.approx(2.3)
     
     def test_topic_sequences(self, sample_persona):
         """测试话题转换序列"""

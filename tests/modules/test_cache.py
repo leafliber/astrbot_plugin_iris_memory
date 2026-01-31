@@ -5,6 +5,7 @@
 
 import pytest
 import time
+from unittest.mock import Mock
 from iris_memory.storage.cache import (
     LRUCache,
     LFUCache,
@@ -67,12 +68,13 @@ class TestLFUCache:
     def test_frequency_tracking(self):
         """测试频率追踪"""
         cache = LFUCache(max_size=10)
-        
+
         cache.put("key1", "value1")
+        cache.put("key2", "value2")
         cache.get("key1")
         cache.get("key1")
         cache.get("key2")
-        
+
         assert cache._get_frequency("key1") == 2
         assert cache._get_frequency("key2") == 1
     
@@ -140,16 +142,17 @@ class TestWorkingMemoryCache:
         assert cache.max_sessions == 10
         assert cache.max_memories_per_session == 20
         assert cache.ttl == 3600
-    
-    def test_add_memory(self):
+
+    @pytest.mark.asyncio
+    async def test_add_memory(self):
         """测试添加记忆"""
         cache = WorkingMemoryCache(max_sessions=10, max_memories_per_session=20)
-        
+
         memory = Mock(id="mem_001", user_id="user_123", group_id="group_456")
-        cache.add_memory(memory)
-        
+        result = await cache.add_memory("user_123", "group_456", "mem_001", memory)
+
         # 应该成功添加
-        assert True
+        assert result is True
 
 
 if __name__ == "__main__":

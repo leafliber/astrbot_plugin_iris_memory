@@ -270,8 +270,38 @@ class MemoryRetrievalEngine:
         # 按时间得分重新排序
         scored = [(m, self._calculate_time_score(m)) for m in memories]
         scored.sort(key=lambda x: x[1], reverse=True)
-        
+
         return [m for m, s in scored[:top_k]]
+
+    def _calculate_time_score(self, memory: Memory) -> float:
+        """计算时间得分
+
+        基于记忆的新旧程度计算得分，越新的记忆得分越高
+
+        Args:
+            memory: 记忆对象
+
+        Returns:
+            时间得分 (0-1)
+        """
+        from datetime import datetime, timedelta
+
+        now = datetime.now()
+        days_ago = (now - memory.created_time).total_seconds() / 86400  # 转换为天数
+
+        # 使用指数衰减：越新的记忆得分越高
+        # 30天内：得分0.9-1.0
+        # 30-90天：得分0.7-0.9
+        # 90-365天：得分0.4-0.7
+        # 365天以上：得分0-0.4
+        if days_ago < 30:
+            return 1.0 - (days_ago / 30) * 0.1
+        elif days_ago < 90:
+            return 0.9 - ((days_ago - 30) / 60) * 0.2
+        elif days_ago < 365:
+            return 0.7 - ((days_ago - 90) / 275) * 0.3
+        else:
+            return max(0, 0.4 - ((days_ago - 365) / 365) * 0.4)
     
     async def _emotion_aware_retrieval(
         self,
@@ -325,17 +355,21 @@ class MemoryRetrievalEngine:
         formatted = "【相关记忆】\n"
         for i, memory in enumerate(memories, 1):
             time_str = memory.created_time.strftime("%Y-%m-%d %H:%M")
-            type_label = memory.type.value.upper()
-            
+            # 处理type可能是枚举或字符串的情况
+            if hasattr(memory.type, 'value'):
+                type_label = memory.type.value.upper()
+            else:
+                type_label = str(memory.type).upper()
+
             formatted += f"{i}. [{type_label}] {time_str}\n"
             formatted += f"   内容: {memory.content}\n"
-            
+
             if memory.summary:
                 formatted += f"   摘要: {memory.summary}\n"
-            
+
             if memory.emotional_weight > 0.5:
                 formatted += f"   情感强度: {memory.emotional_weight:.2f}\n"
-            
+
             formatted += "\n"
         
         # 如果有用户画像，应用人格协调

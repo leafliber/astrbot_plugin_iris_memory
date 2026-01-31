@@ -23,6 +23,7 @@ except ImportError:
 from iris_memory.utils.logger import logger
 
 from iris_memory.models.memory import Memory
+from iris_memory.core.types import QualityLevel, SensitivityLevel
 from iris_memory.core.types import StorageLayer, MemoryType, ModalityType
 
 
@@ -310,8 +311,8 @@ class ChromaManager:
             group_id=metadata.get('group_id') if metadata.get('group_id') else None,
             type=MemoryType(metadata.get('type', 'fact')),
             modality=ModalityType(metadata.get('modality', 'text')),
-            quality_level=metadata.get('quality_level', 3),
-            sensitivity_level=metadata.get('sensitivity_level', 0),
+            quality_level=QualityLevel(metadata.get('quality_level', 3)),
+            sensitivity_level=SensitivityLevel(metadata.get('sensitivity_level', 0)),
             storage_layer=StorageLayer(metadata.get('storage_layer', 'episodic')),
             access_count=metadata.get('access_count', 0),
             rif_score=metadata.get('rif_score', 0.5),
@@ -480,11 +481,38 @@ class ChromaManager:
             memories = []
             if results['ids']:
                 for i in range(len(results['ids'])):
+                    # 处理documents和embeddings
+                    documents = results.get('documents', [])
+                    embeddings = results.get('embeddings', [])
+                    metadatas = results.get('metadatas', [])
+
+                    # 处理content
+                    if documents and i < len(documents):
+                        content = documents[i]
+                        if isinstance(content, list) and len(content) > 0:
+                            content = content[0]
+                    else:
+                        content = ''
+
+                    # 处理embedding
+                    if embeddings and i < len(embeddings):
+                        embedding = embeddings[i]
+                    else:
+                        embedding = None
+
+                    # 处理metadatas
+                    if metadatas and i < len(metadatas):
+                        metadata = metadatas[i]
+                        if isinstance(metadata, list) and len(metadata) > 0:
+                            metadata = metadata[0]  # 取第一个元素
+                    else:
+                        metadata = {}
+
                     memory_data = {
                         'id': results['ids'][i],
-                        'content': results['documents'][i],
-                        'embedding': results['embeddings'][i] if 'embeddings' in results else None,
-                        'metadata': results['metadatas'][i]
+                        'content': content,
+                        'embedding': embedding,
+                        'metadata': metadata
                     }
                     memory = self._result_to_memory(memory_data)
                     memories.append(memory)

@@ -13,7 +13,9 @@ import numpy as np
 
 from iris_memory.storage.chroma_manager import ChromaManager
 from iris_memory.models.memory import Memory
-from iris_memory.core.types import StorageLayer, MemoryType, ModalityType
+from iris_memory.core.types import (
+    StorageLayer, MemoryType, ModalityType, QualityLevel, SensitivityLevel
+)
 
 
 @pytest.fixture
@@ -272,8 +274,8 @@ class TestChromaManagerAddMemory:
             type=MemoryType.FACT,
             modality=ModalityType.TEXT,
             storage_layer=StorageLayer.SEMANTIC,
-            quality_level=5,
-            sensitivity_level=2,
+            quality_level=QualityLevel.CONFIRMED,
+            sensitivity_level=SensitivityLevel.PRIVATE,
             rif_score=0.8,
             importance_score=0.9,
             is_user_requested=True

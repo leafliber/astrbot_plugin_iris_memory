@@ -230,11 +230,14 @@ class TestApplyEmotionFilter:
         assert len(results) == 3
 
     def test_emotion_filter_positive_memories(
-        self, mock_chroma_manager, sample_memories, emotional_state
+        self, mock_chroma_manager, mock_emotion_analyzer, sample_memories, emotional_state
     ):
         """测试过滤高强度正面记忆"""
-        engine = MemoryRetrievalEngine(chroma_manager=mock_chroma_manager)
-        engine.emotion_analyzer.should_filter_positive_memories.return_value = True
+        mock_emotion_analyzer.should_filter_positive_memories.return_value = True
+        engine = MemoryRetrievalEngine(
+            chroma_manager=mock_chroma_manager,
+            emotion_analyzer=mock_emotion_analyzer
+        )
 
         results = engine._apply_emotion_filter(
             memories=sample_memories,
@@ -249,11 +252,14 @@ class TestApplyEmotionFilter:
         )
 
     def test_emotion_filter_no_positive_memories(
-        self, mock_chroma_manager, sample_memories, emotional_state
+        self, mock_chroma_manager, mock_emotion_analyzer, sample_memories, emotional_state
     ):
         """测试没有高强度正面记忆时不过滤"""
-        engine = MemoryRetrievalEngine(chroma_manager=mock_chroma_manager)
-        engine.emotion_analyzer.should_filter_positive_memories.return_value = True
+        mock_emotion_analyzer.should_filter_positive_memories.return_value = True
+        engine = MemoryRetrievalEngine(
+            chroma_manager=mock_chroma_manager,
+            emotion_analyzer=mock_emotion_analyzer
+        )
 
         # 降低所有记忆的情感权重
         low_weight_memories = [
