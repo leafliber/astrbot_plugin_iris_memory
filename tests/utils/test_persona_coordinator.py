@@ -537,7 +537,9 @@ class TestDynamicPrompt:
         conflicts = [
             {
                 "type": ConflictType.STYLE_CONFLICT,
-                "severity": 2
+                "severity": 2,
+                "description": "测试冲突描述",
+                "bot_style": "friendly"
             }
         ]
         prompt = coordinator._dynamic_prompt("friendly", {}, "", conflicts)

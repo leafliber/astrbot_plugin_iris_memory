@@ -7,17 +7,17 @@ from astrbot.api.star import Context, Star, register
 from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api import AstrBotConfig, logger
 from astrbot.core.utils.astrbot_path import get_astrbot_data_path
-from pathlib import Path
 
 from iris_memory.models.memory import Memory
+from iris_memory.models.user_persona import UserPersona
 from iris_memory.storage.chroma_manager import ChromaManager
 from iris_memory.capture.capture_engine import MemoryCaptureEngine
 from iris_memory.retrieval.retrieval_engine import MemoryRetrievalEngine
 from iris_memory.storage.session_manager import SessionManager
+from iris_memory.storage.lifecycle_manager import SessionLifecycleManager
 from iris_memory.analysis.emotion_analyzer import EmotionAnalyzer
 from iris_memory.analysis.rif_scorer import RIFScorer
 from iris_memory.models.emotion_state import EmotionalState
-from iris_memory.utils.token_manager import TokenBudget, MemoryCompressor, DynamicMemorySelector
 from iris_memory.utils.hook_manager import MemoryInjector, InjectionMode, HookPriority
 
 
@@ -54,6 +54,7 @@ class IrisMemoryPlugin(Star):
         self.lifecycle_manager = None
         self.emotion_analyzer = None
         self.rif_scorer = None
+        self.memory_injector = None
         
         # 用户情感状态缓存：{user_id: EmotionalState}
         self.user_emotional_states: dict = {}
@@ -82,25 +83,31 @@ class IrisMemoryPlugin(Star):
             # 初始化会话管理器
             self.session_manager = SessionManager()
             
+            # 初始化生命周期管理器
+            self.lifecycle_manager = SessionLifecycleManager(
+                session_manager=self.session_manager
+            )
+            await self.lifecycle_manager.start()
+            
             # 初始化记忆捕获引擎
             self.capture_engine = MemoryCaptureEngine(
                 emotion_analyzer=self.emotion_analyzer,
                 rif_scorer=self.rif_scorer
             )
             
-        # 初始化记忆检索引擎
-        self.retrieval_engine = MemoryRetrievalEngine(
-            chroma_manager=self.chroma_manager,
-            rif_scorer=self.rif_scorer,
-            emotion_analyzer=self.emotion_analyzer
-        )
-        
-        # 初始化记忆注入器
-        self.memory_injector = MemoryInjector(
-            injection_mode=InjectionMode.SUFFIX,
-            priority=HookPriority.NORMAL,
-            namespace="iris_memory"
-        )
+            # 初始化记忆检索引擎
+            self.retrieval_engine = MemoryRetrievalEngine(
+                chroma_manager=self.chroma_manager,
+                rif_scorer=self.rif_scorer,
+                emotion_analyzer=self.emotion_analyzer
+            )
+            
+            # 初始化记忆注入器
+            self.memory_injector = MemoryInjector(
+                injection_mode=InjectionMode.SUFFIX,
+                priority=HookPriority.NORMAL,
+                namespace="iris_memory"
+            )
             
             # 配置参数
             self._apply_config()
@@ -142,40 +149,28 @@ class IrisMemoryPlugin(Star):
                 "memory_config.session_inactive_timeout", 1800
             )
         
-            # 获取LLM集成配置
-            enable_inject = self._get_config("llm_integration.enable_inject", True)
-            max_context_memories = self._get_config("llm_integration.max_context_memories", 3)
-            
-            self.retrieval_engine.set_config({
-                "max_context_memories": max_context_memories,
-                "enable_time_aware": True,
-                "enable_emotion_aware": True,
-                "enable_token_budget": enable_inject,  # 启用注入时也启用token预算
-                "token_budget": self._get_config("llm_integration.token_budget", 512)
-            })
-            
-            # 配置记忆注入器
-            injection_mode_str = self._get_config("llm_integration.injection_mode", "suffix")
-            injection_mode = InjectionMode(injection_mode_str.lower())
-            self.memory_injector.injection_mode = injection_mode
-            
-            # 配置生命周期管理器
-            if self.lifecycle_manager:
-                self.lifecycle_manager.cleanup_interval = self._get_config(
-                    "memory_config.session_cleanup_interval", 3600
-                )
-                self.lifecycle_manager.session_timeout = self._get_config(
-                    "memory_config.session_timeout", 86400
-                )
-                self.lifecycle_manager.inactive_timeout = self._get_config(
-                    "memory_config.session_inactive_timeout", 1800
-                )
-            
-            logger.info(
-                f"Config applied: auto_capture={auto_capture}, "
-                f"max_working_memory={max_working_memory}, "
-                f"injection_mode={injection_mode_str}"
-            )
+        # 获取LLM集成配置
+        enable_inject = self._get_config("llm_integration.enable_inject", True)
+        max_context_memories = self._get_config("llm_integration.max_context_memories", 3)
+        
+        self.retrieval_engine.set_config({
+            "max_context_memories": max_context_memories,
+            "enable_time_aware": True,
+            "enable_emotion_aware": True,
+            "enable_token_budget": enable_inject,  # 启用注入时也启用token预算
+            "token_budget": self._get_config("llm_integration.token_budget", 512)
+        })
+        
+        # 配置记忆注入器
+        injection_mode_str = self._get_config("llm_integration.injection_mode", "suffix")
+        injection_mode = InjectionMode(injection_mode_str.lower())
+        self.memory_injector.injection_mode = injection_mode
+        
+        logger.info(
+            f"Config applied: auto_capture={auto_capture}, "
+            f"max_working_memory={max_working_memory}, "
+            f"injection_mode={injection_mode_str}"
+        )
     
     def _get_config(self, key: str, default: any = None) -> any:
         """获取配置值
@@ -207,13 +202,14 @@ class IrisMemoryPlugin(Star):
             
             # 加载生命周期状态
             lifecycle_state = await self.get_kv_data("lifecycle_state", {})
-            if lifecycle_state:
+            if lifecycle_state and self.lifecycle_manager:
                 await self.lifecycle_manager.deserialize_state(lifecycle_state)
                 logger.info("Loaded lifecycle state")
             
             # 输出统计信息
-            stats = self.lifecycle_manager.get_session_statistics()
-            logger.info(f"Session statistics: {stats}")
+            if self.lifecycle_manager:
+                stats = self.lifecycle_manager.get_session_statistics()
+                logger.info(f"Session statistics: {stats}")
             
         except Exception as e:
             logger.warning(f"Failed to load sessions: {e}")
@@ -365,12 +361,13 @@ class IrisMemoryPlugin(Star):
         # 统计各层记忆数量
         working_count = len(self.session_manager.get_working_memory(user_id, group_id))
         episodic_count = await self.chroma_manager.count_memories(
-            user_id, group_id,
-            self.chroma_manager.collection.get(name="iris_memory")
+            user_id=user_id,
+            group_id=group_id
         )
         
         # 获取会话信息
-        session = self.session_manager.get_session(user_id, group_id)
+        session_key = self.session_manager.get_session_key(user_id, group_id)
+        session = self.session_manager.get_session(session_key)
         message_count = session["message_count"] if session else 0
         
         result = f"""记忆统计：
@@ -462,6 +459,10 @@ class IrisMemoryPlugin(Star):
     async def terminate(self):
         """插件销毁"""
         try:
+            # 停止生命周期管理器
+            if self.lifecycle_manager:
+                await self.lifecycle_manager.stop()
+            
             # 保存会话状态
             await self._save_sessions()
             

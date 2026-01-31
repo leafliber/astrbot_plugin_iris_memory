@@ -246,17 +246,21 @@ class SessionManager:
         from datetime import datetime, timedelta
         now = datetime.now()
         cutoff_time = now - timedelta(hours=hours)
-        
+
         cleaned_count = 0
         for session_key, memories in self.working_memory_cache.items():
             # 过滤掉过期的记忆
-            valid_memories = [
-                m for m in memories
-                if m.created_time >= cutoff_time and not m.should_delete_working()
-            ]
-            removed = len(memories) - len(valid_memories)
-            self.working_memory_cache[session_key] = valid_memories
-            cleaned_count += removed
-        
+            if hours == 0:
+                # hours=0表示不清理任何记忆
+                valid_memories = memories
+            else:
+                valid_memories = [
+                    m for m in memories
+                    if m.created_time >= cutoff_time and not m.should_delete_working()
+                ]
+                removed = len(memories) - len(valid_memories)
+                self.working_memory_cache[session_key] = valid_memories
+                cleaned_count += removed
+
         if cleaned_count > 0:
             logger.info(f"Cleaned {cleaned_count} expired working memories")

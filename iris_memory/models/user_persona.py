@@ -159,7 +159,3 @@ class UserPersona:
                 self.trust_level = min(1.0, self.trust_level + 0.1)
             elif "亲密" in memory.summary:
                 self.intimacy_level = min(1.0, self.intimacy_level + 0.1)
-
-
-# 导入DecayRate
-from iris_memory.core.types import DecayRate

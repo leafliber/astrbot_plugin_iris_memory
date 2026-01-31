@@ -198,9 +198,9 @@ class MemoryInjector:
             [{"namespace": str, "content": str, "mode": str}]
         """
         import re
-        
+
         # 匹配结构化上下文
-        pattern = r'\[([A-Z_]+)\s*(CONTEXT|REFERENCE|DETAILS)?\]\n(.*?)(?=\n\n\[|$)'
+        pattern = r'\[([A-Z_0-9]+)\s*(CONTEXT|REFERENCE|DETAILS)?\]\n(.*?)(?=\n\n|\Z)'
         matches = re.findall(pattern, system_prompt, re.DOTALL)
         
         contexts = []
@@ -256,24 +256,38 @@ class MemoryInjector:
         return conflicts
     
     def _calculate_similarity(self, text1: str, text2: str) -> float:
-        """计算文本相似度（简化版Jaccard）
-        
+        """计算文本相似度（基于单词的简单算法）
+
         Args:
             text1: 文本1
             text2: 文本2
-            
+
         Returns:
             float: 相似度（0-1）
         """
-        set1 = set(text1.lower().split())
-        set2 = set(text2.lower().split())
-        
+        # 判断是否为中文（简单判断）
+        is_chinese = any('\u4e00' <= c <= '\u9fff' for c in text1 + text2)
+
+        if is_chinese:
+            # 中文：使用正则分割中文词汇（包括中英混合）
+            import re as regex
+            words1 = regex.findall(r'[\u4e00-\u9fff]+|[a-zA-Z]+', text1)
+            words2 = regex.findall(r'[\u4e00-\u9fff]+|[a-zA-Z]+', text2)
+        else:
+            # 英文：按单词分割
+            words1 = text1.lower().split()
+            words2 = text2.lower().split()
+
+        # 将单词列表转换为集合
+        set1 = set(words1)
+        set2 = set(words2)
+
         intersection = len(set1 & set2)
         union = len(set1 | set2)
-        
+
         if union == 0:
             return 0.0
-        
+
         return intersection / union
 
 

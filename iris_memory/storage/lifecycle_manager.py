@@ -9,6 +9,7 @@ from enum import Enum
 from typing import Optional, Dict, Any
 
 from iris_memory.utils.logger import logger
+from iris_memory.core.types import StorageLayer
 
 
 class SessionState(str, Enum):
@@ -205,7 +206,7 @@ class SessionLifecycleManager:
             for memory in working_memories:
                 if memory.should_upgrade_to_episodic():
                     # 更改存储层
-                    memory.storage_layer = memory.storage_layer.__class__("EPISODIC")
+                    memory.storage_layer = StorageLayer.EPISODIC
                     upgraded_count += 1
                     logger.debug(
                         f"Memory {memory.id} upgraded from WORKING to EPISODIC"

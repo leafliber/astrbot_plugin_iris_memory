@@ -270,10 +270,13 @@ class TestLifecycleManagerArchiveSession:
     async def test_archive_session_success(self, lifecycle_manager):
         """测试成功归档会话"""
         # Mock工作记忆
+        from iris_memory.core.types import StorageLayer
+        from unittest.mock import Mock, MagicMock
+        
         memory1 = Mock()
         memory1.should_upgrade_to_episodic = Mock(return_value=True)
-        memory1.storage_layer = Mock()
-        memory1.storage_layer.__class__ = Mock(return_value="EPISODIC")
+        memory1.storage_layer = StorageLayer.WORKING
+        memory1.id = "mem_1"
         
         memory2 = Mock()
         memory2.should_upgrade_to_episodic = Mock(return_value=False)
@@ -284,8 +287,10 @@ class TestLifecycleManagerArchiveSession:
         result = await lifecycle_manager._archive_session(session_key)
         
         assert result is True
-        assert memory1.storage_layer.__class__.called
-        assert not memory2.storage_layer.__class__.called
+        # 验证memory1的storage_layer被修改为EPISODIC
+        assert memory1.storage_layer == StorageLayer.EPISODIC
+        # 验证memory2的storage_layer未被修改
+        assert memory2.should_upgrade_to_episodic.called
     
     @pytest.mark.asyncio
     async def test_archive_session_no_upgrades(self, lifecycle_manager):

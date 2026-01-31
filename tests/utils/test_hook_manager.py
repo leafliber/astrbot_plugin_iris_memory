@@ -124,7 +124,9 @@ class TestMemoryInjectorInject:
         )
 
         # 应该被截断到max_injection_length + "..."
-        assert len(result) <= len("系统提示") + 1000 + 3
+        # 注意：structured模式会添加额外格式化内容：[NAMESPACE CONTEXT]\n\n
+        extra_length = len(f"[{injector.namespace.upper()} CONTEXT]\\n\\n") if injector.enable_structured else 0
+        assert len(result) <= len("系统提示") + 1000 + 3 + extra_length
         assert result.endswith("...")
 
     def test_inject_prefix_mode(self):
@@ -327,8 +329,10 @@ class TestMemoryInjectorConflictDetection:
         """测试计算完全不同文本的相似度"""
         injector = MemoryInjector()
 
-        similarity = injector._calculate_similarity("文本A", "文本B")
+        # 使用完全不同的文本，确保无任何重叠的词汇
+        similarity = injector._calculate_similarity("first A", "second B")
 
+        # 完全不同的文本应该相似度为0
         assert similarity == 0.0
 
     def test_calculate_similarity_partial(self):

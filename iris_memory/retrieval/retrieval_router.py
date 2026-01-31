@@ -79,17 +79,7 @@ class RetrievalRouter:
         if is_multi_hop:
             return RetrievalStrategy.GRAPH_ONLY
 
-        # 复杂查询判断（优先级第四）
-        # 检查是否包含大量特殊字符（不是真正的复杂查询）
-        special_char_ratio = len(re.sub(r'[\w\u4e00-\u9fff]', '', query)) / len(query) if len(query) > 0 else 0
-
-        # 先处理无时间特征的复杂查询
-        # 需要同时满足长度和关键词条件，或者非常长
-        if not is_time_aware and special_char_ratio < 0.3:
-            if (len(query) > 15 and keyword_count >= 5) or len(query) > 20:
-                return RetrievalStrategy.HYBRID
-
-        # 再处理有时间特征的复杂查询
+        # 时间感知查询（优先级第四）- 纯时间查询优先
         if is_time_aware:
             # 检查是否有其他语义特征（多个实体或复杂主题）
             semantic_keywords = [
@@ -101,15 +91,21 @@ class RetrievalRouter:
                 for pattern in semantic_keywords
             )
 
+            # 纯时间查询（无复杂语义特征）使用时间感知检索
+            if not has_semantic_features and not is_multi_hop:
+                return RetrievalStrategy.TIME_AWARE
+            
             # 有时间特征且复杂：使用混合检索
-            if has_semantic_features or keyword_count >= 10 or len(query) > 20:
-                return RetrievalStrategy.HYBRID
-            # 否则使用时间感知检索
-            return RetrievalStrategy.TIME_AWARE
+            return RetrievalStrategy.HYBRID
 
-        # 时间感知查询（优先级第五）
-        if is_time_aware:
-            return RetrievalStrategy.TIME_AWARE
+        # 复杂查询判断（优先级第五）
+        # 检查是否包含大量特殊字符（不是真正的复杂查询）
+        special_char_ratio = len(re.sub(r'[\w\u4e00-\u9fff]', '', query)) / len(query) if len(query) > 0 else 0
+
+        # 需要同时满足长度和关键词条件，或者非常长
+        if special_char_ratio < 0.3:
+            if (len(query) > 15 and keyword_count >= 5) or len(query) > 20:
+                return RetrievalStrategy.HYBRID
 
         # 默认：简单查询使用纯向量检索
         return RetrievalStrategy.VECTOR_ONLY
