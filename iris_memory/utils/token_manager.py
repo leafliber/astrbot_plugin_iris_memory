@@ -155,25 +155,28 @@ class MemoryCompressor:
         summary: Optional[str] = None
     ) -> Tuple[str, bool]:
         """压缩记忆
-        
+
         Args:
             content: 记忆内容
             summary: 记忆摘要（如果存在）
-            
+
         Returns:
             Tuple[str, bool]: (压缩后的文本, 是否使用了摘要)
         """
         # 优先使用摘要
         if summary and len(summary) > 0:
-            compressed = summary[:self.max_summary_length]
+            # 确保 max_summary_length 非负
+            max_len = max(0, self.max_summary_length)
+            compressed = summary[:max_len]
             return compressed, True
-        
+
         # 提取摘要（简化版：截取前面部分）
-        if len(content) <= self.max_summary_length:
+        max_len = max(0, self.max_summary_length)
+        if len(content) <= max_len:
             return content, False
-        
+
         # 截取关键部分
-        compressed = content[:self.max_summary_length] + "..."
+        compressed = content[:max_len] + "..."
         return compressed, False
     
     def compress_memories(

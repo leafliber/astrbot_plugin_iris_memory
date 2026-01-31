@@ -252,7 +252,7 @@ class SessionManager:
             # 过滤掉过期的记忆
             valid_memories = [
                 m for m in memories
-                if m.created_time > cutoff_time and not m.should_delete_working()
+                if m.created_time >= cutoff_time and not m.should_delete_working()
             ]
             removed = len(memories) - len(valid_memories)
             self.working_memory_cache[session_key] = valid_memories

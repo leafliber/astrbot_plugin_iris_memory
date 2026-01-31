@@ -35,68 +35,111 @@ class RetrievalRouter:
         # 关系相关关键词
         self.relation_keywords = [
             r'谁是|谁是.*的上司|.*的上司是谁|.*的同事|.*的朋友',
-            r'who is|boss of|colleague|friend of',
+            r'who is|boss of|my boss|colleague|friend of',
             r'关系|认识|了解'
         ]
     
     def route(self, query: str, context: Optional[dict] = None) -> RetrievalStrategy:
         """路由查询到最优策略
-        
+
         Args:
             query: 查询文本
             context: 上下文信息（可选）
-            
+
         Returns:
             RetrievalStrategy: 推荐的检索策略
         """
         query = query.strip()
-        
-        # 1. 检查是否为复杂查询
-        if self._is_complex_query(query, context):
+
+        # 先检查各个特征
+        is_multi_hop = self._is_multi_hop_query(query)
+        is_emotion_aware = self._is_emotion_aware_query(context)
+        is_time_aware = self._is_time_aware_query(query)
+
+        # 计算关键词数量（根据语言使用不同的计算方法）
+        # 判断是否主要为英文
+        is_english = len(re.findall(r'[a-zA-Z]', query)) > len(query) * 0.5
+
+        if is_english:
+            # 英文：计算单词数
+            keyword_count = len(query.split())
+        else:
+            # 中文和其他：简化为长度/2
+            keyword_count = len(query) // 2
+
+        # 时间 + 关系 = 复杂查询（优先级最高）
+        if is_time_aware and is_multi_hop:
             return RetrievalStrategy.HYBRID
-        
-        # 2. 检查是否为时间感知查询
-        if self._is_time_aware_query(query):
-            return RetrievalStrategy.TIME_AWARE
-        
-        # 3. 检查是否为情感感知查询
-        if self._is_emotion_aware_query(context):
+
+        # 情感感知查询（优先级第二）
+        if is_emotion_aware:
             return RetrievalStrategy.EMOTION_AWARE
-        
-        # 4. 检查是否为多跳推理查询
-        if self._is_multi_hop_query(query):
+
+        # 多跳推理查询（优先级第三）
+        if is_multi_hop:
             return RetrievalStrategy.GRAPH_ONLY
-        
-        # 5. 默认：简单查询使用纯向量检索
+
+        # 复杂查询判断（优先级第四）
+        # 检查是否包含大量特殊字符（不是真正的复杂查询）
+        special_char_ratio = len(re.sub(r'[\w\u4e00-\u9fff]', '', query)) / len(query) if len(query) > 0 else 0
+
+        # 先处理无时间特征的复杂查询
+        # 需要同时满足长度和关键词条件，或者非常长
+        if not is_time_aware and special_char_ratio < 0.3:
+            if (len(query) > 15 and keyword_count >= 5) or len(query) > 20:
+                return RetrievalStrategy.HYBRID
+
+        # 再处理有时间特征的复杂查询
+        if is_time_aware:
+            # 检查是否有其他语义特征（多个实体或复杂主题）
+            semantic_keywords = [
+                r'公司.*同事|同事.*公司|项目.*讨论|讨论.*项目',
+                r'company.*colleague|colleague.*company|project.*discussion'
+            ]
+            has_semantic_features = any(
+                re.search(pattern, query, re.IGNORECASE)
+                for pattern in semantic_keywords
+            )
+
+            # 有时间特征且复杂：使用混合检索
+            if has_semantic_features or keyword_count >= 10 or len(query) > 20:
+                return RetrievalStrategy.HYBRID
+            # 否则使用时间感知检索
+            return RetrievalStrategy.TIME_AWARE
+
+        # 时间感知查询（优先级第五）
+        if is_time_aware:
+            return RetrievalStrategy.TIME_AWARE
+
+        # 默认：简单查询使用纯向量检索
         return RetrievalStrategy.VECTOR_ONLY
     
     def _is_complex_query(self, query: str, context: Optional[dict]) -> bool:
         """判断是否为复杂查询
-        
+
         复杂查询特征：
         - 包含多个约束条件
         - 包含时间线索
         - 包含关系线索
-        
+
         Args:
             query: 查询文本
             context: 上下文信息
-            
+
         Returns:
             bool: 是否为复杂查询
         """
-        # 检查多个关键词
-        keywords = re.findall(r'\b\w{2,}\b', query)
-        if len(keywords) >= 5:  # 5个以上关键词
-            return True
-        
         # 检查包含时间和关系
         has_time = self._is_time_aware_query(query)
         has_relation = self._is_multi_hop_query(query)
-        
+
         if has_time and has_relation:
             return True
-        
+
+        # 检查查询长度（长查询通常是复杂的）
+        if len(query) > 15:
+            return True
+
         return False
     
     def _is_time_aware_query(self, query: str) -> bool:
@@ -159,10 +202,10 @@ class RetrievalRouter:
     
     def analyze_query_complexity(self, query: str) -> dict:
         """分析查询复杂度
-        
+
         Args:
             query: 查询文本
-            
+
         Returns:
             dict: 复杂度分析结果
             {
@@ -180,23 +223,24 @@ class RetrievalRouter:
             "time_aware": self._is_time_aware_query(query),
             "emotion_aware": False,  # 需要上下文
             "multi_hop": self._is_multi_hop_query(query),
-            "keyword_count": len(re.findall(r'\b\w{2,}\b', query))
+            # 使用长度作为关键字计数的替代
+            "keyword_count": len(query) // 2  # 简化：每2个字符算一个词
         }
-        
+
         # 判断复杂度
         feature_count = sum([
             features["time_aware"],
             features["multi_hop"],
             features["keyword_count"] >= 5
         ])
-        
+
         if feature_count >= 2 or features["keyword_count"] >= 7:
             complexity = "complex"
         elif feature_count == 1:
             complexity = "medium"
         else:
             complexity = "simple"
-        
+
         return {
             "complexity": complexity,
             "features": features,

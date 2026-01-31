@@ -6,6 +6,8 @@ Hook管理器
 from enum import Enum
 from typing import List, Dict, Any, Optional
 
+from iris_memory.utils.logger import logger
+
 
 class InjectionMode(str, Enum):
     """记忆注入模式"""
@@ -88,7 +90,6 @@ class MemoryInjector:
         
         # 检查长度限制
         if len(memory_context) > self.max_injection_length:
-            from astrbot.api import logger
             logger.warning(
                 f"Memory context too long ({len(memory_context)} chars), "
                 f"truncating to {self.max_injection_length} chars"
@@ -325,7 +326,6 @@ class HookCoordinator:
                         result = handler(*args, **kwargs)
                         results.append(result)
                     except Exception as e:
-                        from astrbot.api import logger
                         logger.error(
                             f"Hook execution failed (priority: {priority.value}): {e}"
                         )
