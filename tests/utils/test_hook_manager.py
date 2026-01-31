@@ -221,8 +221,8 @@ class TestMemoryInjectorHelperMethods:
         hint = injector.get_priority_hint()
 
         assert "test_namespace" in hint
-        assert "PREFIX" in hint
-        assert "HIGH" in hint
+        assert "prefix" in hint
+        assert "high" in hint
 
     def test_parse_existing_context_empty(self):
         """测试解析空上下文"""

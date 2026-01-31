@@ -471,7 +471,8 @@ class TestUserPriorityPrompt:
         conflicts = [
             {
                 "type": ConflictType.STYLE_CONFLICT,
-                "description": "测试冲突"
+                "description": "测试冲突",
+                "bot_style": "friendly"
             }
         ]
         prompt = coordinator._user_priority_prompt(user_persona, "", conflicts)

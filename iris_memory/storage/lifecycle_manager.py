@@ -392,21 +392,43 @@ class SessionLifecycleManager:
     
     async def deserialize_state(self, data: Dict[str, Any]):
         """反序列化会话状态
-        
+
         Args:
             data: 序列化的状态数据
         """
         for session_key, state_data in data.items():
-            self.session_states[session_key] = {
-                "state": SessionState(state_data.get("state", "inactive")),
-                "last_active": datetime.fromisoformat(
+            try:
+                state_str = state_data.get("state", "inactive")
+                state = SessionState(state_str)
+            except (ValueError, KeyError):
+                # 如果状态无效，使用默认值
+                logger.warning(f"Invalid state '{state_data.get('state')}' for session {session_key}, using default 'inactive'")
+                state = SessionState.INACTIVE
+
+            try:
+                last_active = datetime.fromisoformat(
                     state_data.get("last_active", datetime.now().isoformat())
-                ),
-                "last_updated": datetime.fromisoformat(
+                )
+            except (ValueError, TypeError):
+                # 如果日期无效，使用当前时间
+                logger.warning(f"Invalid last_active for session {session_key}, using current time")
+                last_active = datetime.now()
+
+            try:
+                last_updated = datetime.fromisoformat(
                     state_data.get("last_updated", datetime.now().isoformat())
                 )
+            except (ValueError, TypeError):
+                # 如果日期无效，使用当前时间
+                logger.warning(f"Invalid last_updated for session {session_key}, using current time")
+                last_updated = datetime.now()
+
+            self.session_states[session_key] = {
+                "state": state,
+                "last_active": last_active,
+                "last_updated": last_updated
             }
-        
+
         logger.info(f"Loaded {len(self.session_states)} session states")
 
 
