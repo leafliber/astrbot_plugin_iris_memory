@@ -10,13 +10,14 @@ from datetime import datetime
 from iris_memory.utils.logger import logger
 
 from iris_memory.models.memory import Memory
-from iris_memory.core.types import StorageLayer, RetrievalStrategy, EmotionType
+from iris_memory.core.types import StorageLayer, RetrievalStrategy, EmotionType, MemoryType
 from iris_memory.analysis.rif_scorer import RIFScorer
 from iris_memory.analysis.emotion_analyzer import EmotionAnalyzer
 from iris_memory.models.emotion_state import EmotionalState
 from iris_memory.utils.token_manager import TokenBudget, MemoryCompressor, DynamicMemorySelector
 from iris_memory.utils.persona_coordinator import PersonaCoordinator, CoordinationStrategy
 from iris_memory.retrieval.reranker import Reranker
+from iris_memory.retrieval.retrieval_router import RetrievalRouter
 
 
 class MemoryRetrievalEngine:
@@ -62,6 +63,7 @@ class MemoryRetrievalEngine:
         self.enable_time_aware = True
         self.enable_emotion_aware = True
         self.enable_token_budget = True  # 启用token预算管理
+        self.enable_routing = True  # 启用检索路由
 
         # Token管理器
         self.token_budget = TokenBudget(total_budget=512)
@@ -78,6 +80,9 @@ class MemoryRetrievalEngine:
 
         # 重排序器
         self.reranker = reranker or Reranker(enable_vector_score=True)
+        
+        # 检索路由器
+        self.router = RetrievalRouter()
     
     async def retrieve(
         self,
@@ -102,43 +107,17 @@ class MemoryRetrievalEngine:
             List[Memory]: 相关记忆列表（已排序）
         """
         try:
-            # 1. 从Chroma检索候选记忆
-            candidate_memories = await self.chroma_manager.query_memories(
-                query_text=query,
-                user_id=user_id,
-                group_id=group_id,
-                top_k=top_k * 2,  # 获取更多候选
-                storage_layer=storage_layer
+            # 使用检索路由器选择策略
+            strategy = RetrievalStrategy.HYBRID
+            if self.enable_routing:
+                context = {'emotional_state': emotional_state}
+                strategy = self.router.route(query, context)
+                logger.debug(f"Retrieval router selected strategy: {strategy}")
+            
+            # 使用选定策略检索
+            return await self.retrieve_with_strategy(
+                query, user_id, group_id, strategy, top_k, emotional_state, storage_layer
             )
-            
-            if not candidate_memories:
-                logger.debug(f"No memories found for query: {query[:50]}...")
-                return []
-            
-            # 2. 应用情感过滤
-            if self.enable_emotion_aware and emotional_state:
-                candidate_memories = self._apply_emotion_filter(
-                    candidate_memories,
-                    emotional_state
-                )
-            
-            # 3. 更新访问统计
-            for memory in candidate_memories:
-                memory.update_access()
-            
-            # 4. 结果重排序
-            ranked_memories = self._rerank_memories(
-                candidate_memories,
-                query,
-                emotional_state
-            )
-            
-            # 5. 返回Top-N结果
-            result = ranked_memories[:top_k]
-            
-            logger.info(f"Retrieved {len(result)} memories for query: {query[:50]}...")
-            
-            return result
             
         except Exception as e:
             logger.error(f"Failed to retrieve memories: {e}")
@@ -165,7 +144,7 @@ class MemoryRetrievalEngine:
         # 过滤掉高强度正面记忆
         filtered = []
         for memory in memories:
-            if memory.type == "emotion" and memory.subtype in ["joy", "excitement"]:
+            if memory.type == MemoryType.EMOTION and memory.subtype in ["joy", "excitement"]:
                 if memory.emotional_weight > 0.8:
                     logger.debug(f"Filtered high-intensity positive memory: {memory.id}")
                     continue
@@ -204,7 +183,8 @@ class MemoryRetrievalEngine:
         group_id: Optional[str] = None,
         strategy: RetrievalStrategy = RetrievalStrategy.HYBRID,
         top_k: int = 10,
-        emotional_state: Optional[EmotionalState] = None
+        emotional_state: Optional[EmotionalState] = None,
+        storage_layer: Optional[StorageLayer] = None
     ) -> List[Memory]:
         """使用指定策略检索记忆
         
@@ -215,6 +195,7 @@ class MemoryRetrievalEngine:
             strategy: 检索策略
             top_k: 返回的最大数量
             emotional_state: 情感状态（可选）
+            storage_layer: 存储层过滤（可选）
             
         Returns:
             List[Memory]: 相关记忆列表
@@ -222,50 +203,122 @@ class MemoryRetrievalEngine:
         # 根据策略选择检索方法
         if strategy == RetrievalStrategy.VECTOR_ONLY:
             return await self._vector_only_retrieval(
-                query, user_id, group_id, top_k
+                query, user_id, group_id, top_k, storage_layer
             )
         elif strategy == RetrievalStrategy.TIME_AWARE:
             return await self._time_aware_retrieval(
-                query, user_id, group_id, top_k
+                query, user_id, group_id, top_k, storage_layer
             )
         elif strategy == RetrievalStrategy.EMOTION_AWARE:
             return await self._emotion_aware_retrieval(
-                query, user_id, group_id, top_k, emotional_state
+                query, user_id, group_id, top_k, emotional_state, storage_layer
             )
         else:  # HYBRID
-            return await self.retrieve(
-                query, user_id, group_id, top_k, None, emotional_state
+            return await self._hybrid_retrieval(
+                query, user_id, group_id, top_k, emotional_state, storage_layer
             )
+    
+    async def _hybrid_retrieval(
+        self,
+        query: str,
+        user_id: str,
+        group_id: Optional[str] = None,
+        top_k: int = 10,
+        emotional_state: Optional[EmotionalState] = None,
+        storage_layer: Optional[StorageLayer] = None
+    ) -> List[Memory]:
+        """混合检索（原来的核心逻辑）
+        
+        Args:
+            query: 查询文本
+            user_id: 用户ID
+            group_id: 群组ID（可选）
+            top_k: 返回的最大数量
+            emotional_state: 情感状态（用于情感感知检索）
+            storage_layer: 存储层过滤（可选）
+            
+        Returns:
+            List[Memory]: 相关记忆列表（已排序）
+        """
+        # 1. 从Chroma检索候选记忆
+        candidate_memories = await self.chroma_manager.query_memories(
+            query_text=query,
+            user_id=user_id,
+            group_id=group_id,
+            top_k=top_k * 2,  # 获取更多候选
+            storage_layer=storage_layer
+        )
+        
+        if not candidate_memories:
+            logger.debug(f"No memories found for query: {query[:50]}...")
+            return []
+        
+        # 2. 应用情感过滤
+        if self.enable_emotion_aware and emotional_state:
+            candidate_memories = self._apply_emotion_filter(
+                candidate_memories,
+                emotional_state
+            )
+        
+        # 3. 更新访问统计
+        for memory in candidate_memories:
+            memory.update_access()
+        
+        # 4. 结果重排序
+        ranked_memories = self._rerank_memories(
+            candidate_memories,
+            query,
+            emotional_state
+        )
+        
+        # 5. 返回Top-N结果
+        result = ranked_memories[:top_k]
+        
+        logger.info(f"Retrieved {len(result)} memories for query: {query[:50]}...")
+        
+        return result
     
     async def _vector_only_retrieval(
         self,
         query: str,
         user_id: str,
         group_id: Optional[str],
-        top_k: int
+        top_k: int,
+        storage_layer: Optional[StorageLayer] = None
     ) -> List[Memory]:
         """纯向量检索"""
-        return await self.chroma_manager.query_memories(
+        memories = await self.chroma_manager.query_memories(
             query_text=query,
             user_id=user_id,
             group_id=group_id,
-            top_k=top_k
+            top_k=top_k,
+            storage_layer=storage_layer
         )
+        # 更新访问统计
+        for memory in memories:
+            memory.update_access()
+        return memories
     
     async def _time_aware_retrieval(
         self,
         query: str,
         user_id: str,
         group_id: Optional[str],
-        top_k: int
+        top_k: int,
+        storage_layer: Optional[StorageLayer] = None
     ) -> List[Memory]:
         """时间感知检索"""
         memories = await self.chroma_manager.query_memories(
             query_text=query,
             user_id=user_id,
             group_id=group_id,
-            top_k=top_k * 2
+            top_k=top_k * 2,
+            storage_layer=storage_layer
         )
+        
+        # 更新访问统计
+        for memory in memories:
+            memory.update_access()
         
         # 按时间得分重新排序
         scored = [(m, self._calculate_time_score(m)) for m in memories]
@@ -309,15 +362,21 @@ class MemoryRetrievalEngine:
         user_id: str,
         group_id: Optional[str],
         top_k: int,
-        emotional_state: Optional[EmotionalState]
+        emotional_state: Optional[EmotionalState],
+        storage_layer: Optional[StorageLayer] = None
     ) -> List[Memory]:
         """情感感知检索"""
         memories = await self.chroma_manager.query_memories(
             query_text=query,
             user_id=user_id,
             group_id=group_id,
-            top_k=top_k * 2
+            top_k=top_k * 2,
+            storage_layer=storage_layer
         )
+        
+        # 更新访问统计
+        for memory in memories:
+            memory.update_access()
         
         # 应用情感过滤
         if emotional_state:
@@ -392,6 +451,7 @@ class MemoryRetrievalEngine:
         self.enable_time_aware = config.get("enable_time_aware", True)
         self.enable_emotion_aware = config.get("enable_emotion_aware", True)
         self.enable_token_budget = config.get("enable_token_budget", True)
+        self.enable_routing = config.get("enable_routing", True)
         
         # 更新token预算
         token_budget = config.get("token_budget", 512)
@@ -404,10 +464,3 @@ class MemoryRetrievalEngine:
         self.persona_coordinator.set_strategy(
             CoordinationStrategy(coordination_strategy)
         )
-        self.enable_token_budget = config.get("enable_token_budget", True)
-        
-        # 更新token预算
-        token_budget = config.get("token_budget", 512)
-        if token_budget != self.token_budget.total_budget:
-            self.token_budget = TokenBudget(total_budget=token_budget)
-            self.memory_selector.token_budget = self.token_budget

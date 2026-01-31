@@ -6,19 +6,20 @@
       "auto_capture": {
         "description": "是否自动捕获记忆",
         "type": "bool",
-        "default": true
+        "default": true,
+        "hint": "AI对话后自动提取并保存重要记忆"
       },
       "max_working_memory": {
         "description": "工作记忆最大条数",
         "type": "int",
         "default": 10,
-        "hint": "会话内的临时记忆数量，超过数量会自动移除最旧的记忆"
+        "hint": "会话内的临时记忆数量，超过会自动移除最旧的记忆"
       },
       "rif_threshold": {
         "description": "RIF评分删除阈值",
         "type": "float",
         "default": 0.4,
-        "hint": "低于此值的记忆将被归档"
+        "hint": "低于此值的记忆将被归档或删除"
       },
       "session_cleanup_interval": {
         "description": "会话清理间隔（秒）",
@@ -40,6 +41,43 @@
       }
     }
   },
+  "cache_config": {
+    "description": "缓存配置",
+    "type": "object",
+    "items": {
+      "embedding_cache_size": {
+        "description": "嵌入向量缓存大小",
+        "type": "int",
+        "default": 1000,
+        "hint": "缓存的嵌入向量数量，用于避免重复计算"
+      },
+      "embedding_cache_strategy": {
+        "description": "嵌入缓存策略",
+        "type": "string",
+        "default": "lru",
+        "enum": ["lru", "lfu", "fifo"],
+        "hint": "lru-最近最少使用，lfu-最不经常使用，fifo-先进先出"
+      },
+      "max_sessions": {
+        "description": "最大缓存会话数",
+        "type": "int",
+        "default": 100,
+        "hint": "工作记忆缓存中同时保留的会话数量"
+      },
+      "working_cache_ttl": {
+        "description": "工作记忆缓存生存时间（秒）",
+        "type": "int",
+        "default": 86400,
+        "hint": "工作记忆在缓存中的存活时间，默认24小时"
+      },
+      "compression_max_length": {
+        "description": "记忆压缩最大长度",
+        "type": "int",
+        "default": 200,
+        "hint": "记忆压缩后的最大字符长度"
+      }
+    }
+  },
   "chroma_config": {
     "description": "Chroma向量数据库配置",
     "type": "object",
@@ -49,19 +87,19 @@
         "type": "string",
         "default": "auto",
         "enum": ["auto", "astrbot", "local", "fallback"],
-        "hint": "auto-自动降级（优先使用AstrBot），astrbot-仅使用AstrBot API，local-仅使用本地模型，fallback-仅使用降级（不推荐）"
+        "hint": "auto-自动降级（优先AstrBot），astrbot-仅AstrBot API，local-仅本地模型"
       },
       "embedding_model": {
         "description": "嵌入模型名称",
         "type": "string",
         "default": "BAAI/bge-m3",
-        "hint": "支持sentence-transformers的所有模型，推荐使用BAAI/bge-m3或openai/text-embedding-3-large"
+        "hint": "本地模型名称或AstrBot模型名称"
       },
       "embedding_dimension": {
         "description": "嵌入向量维度",
         "type": "int",
         "default": 1024,
-        "hint": "根据模型调整，bge-m3为1024，text-embedding-3-large为3072，text-embedding-ada-002为1536"
+        "hint": "bge-m3为1024，text-embedding-3-large为3072，text-embedding-ada-002为1536"
       },
       "collection_name": {
         "description": "Chroma集合名称",
@@ -115,7 +153,7 @@
         "description": "记忆上下文的token预算",
         "type": "int",
         "default": 512,
-        "hint": "用于记忆注入的token数量，超出时会动态减少记忆数量或使用摘要"
+        "hint": "用于记忆注入的token数量，超出时会动态调整"
       },
       "enable_token_budget": {
         "description": "是否启用token预算管理",
@@ -128,7 +166,7 @@
         "type": "string",
         "default": "suffix",
         "enum": ["prefix", "suffix", "embedded", "hybrid"],
-        "hint": "prefix-前置模式，suffix-后置模式，embedded-嵌入式，hybrid-混合模式"
+        "hint": "prefix-前置，suffix-后置，embedded-嵌入式，hybrid-混合"
       },
       "coordination_strategy": {
         "description": "人格协调策略",
@@ -136,6 +174,18 @@
         "default": "hybrid",
         "enum": ["bot_priority", "user_priority", "hybrid", "dynamic"],
         "hint": "bot_priority-Bot优先，user_priority-用户优先，hybrid-混合平衡，dynamic-动态选择"
+      },
+      "enable_time_aware": {
+        "description": "启用时间感知检索",
+        "type": "bool",
+        "default": true,
+        "hint": "考虑记忆的时间衰减，优先检索近期的相关记忆"
+      },
+      "enable_emotion_aware": {
+        "description": "启用情感感知检索",
+        "type": "bool",
+        "default": true,
+        "hint": "根据当前情感状态调整记忆检索权重"
       }
     }
   }

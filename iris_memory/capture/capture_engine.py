@@ -15,6 +15,7 @@ from iris_memory.core.types import (
     StorageLayer, VerificationMethod, TriggerType
 )
 from iris_memory.analysis.emotion_analyzer import EmotionAnalyzer
+from iris_memory.analysis.entity_extractor import EntityExtractor
 from iris_memory.capture.trigger_detector import TriggerDetector
 from iris_memory.capture.sensitivity_detector import SensitivityDetector
 from iris_memory.analysis.rif_scorer import RIFScorer
@@ -35,24 +36,31 @@ class MemoryCaptureEngine:
     
     def __init__(
         self,
+        chroma_manager=None,
         emotion_analyzer: Optional[EmotionAnalyzer] = None,
         rif_scorer: Optional[RIFScorer] = None
     ):
         """初始化记忆捕获引擎
         
         Args:
+            chroma_manager: Chroma存储管理器（用于去重和冲突检测）
             emotion_analyzer: 情感分析器（可选）
             rif_scorer: RIF评分器（可选）
         """
+        self.chroma_manager = chroma_manager
         self.emotion_analyzer = emotion_analyzer or EmotionAnalyzer()
         self.rif_scorer = rif_scorer or RIFScorer()
         self.trigger_detector = TriggerDetector()
         self.sensitivity_detector = SensitivityDetector()
+        self.entity_extractor = EntityExtractor()  # 实体提取器
         
         # 配置
         self.auto_capture = True
         self.min_confidence = 0.3
         self.rif_threshold = 0.4
+        self.enable_duplicate_check = True  # 启用去重检查
+        self.enable_conflict_check = True   # 启用冲突检测
+        self.enable_entity_extraction = True  # 启用实体提取
     
     async def capture_memory(
         self,
@@ -89,6 +97,13 @@ class MemoryCaptureEngine:
             # 3. 敏感度检测
             sensitivity_level, detected_entities = \
                 self.sensitivity_detector.detect_sensitivity(message, context)
+            
+            # 3.5 实体提取（如果启用）
+            if self.enable_entity_extraction:
+                extracted_entities = self.entity_extractor.extract_entities(message)
+                # 合并实体（敏感度检测的entities + 实体提取的entities）
+                entity_texts = [e.text for e in extracted_entities]
+                detected_entities = list(set(detected_entities + entity_texts))
             
             # 4. 判断是否应该过滤
             if self.sensitivity_detector.should_filter(sensitivity_level):
@@ -131,6 +146,24 @@ class MemoryCaptureEngine:
             
             # 12. 确定初始存储层
             self._determine_storage_layer(memory, is_user_requested)
+            
+            # 13. 去重检查（如果启用了chroma_manager）
+            if self.enable_duplicate_check and self.chroma_manager:
+                existing_memories = await self.chroma_manager.get_all_memories(user_id)
+                if existing_memories:
+                    duplicate = await self.check_duplicate(memory, existing_memories)
+                    if duplicate:
+                        logger.info(f"Duplicate memory detected, skipping: {memory.id}")
+                        return None
+            
+            # 14. 冲突检测（如果启用了chroma_manager）
+            if self.enable_conflict_check and self.chroma_manager:
+                existing_memories = await self.chroma_manager.get_all_memories(user_id)
+                if existing_memories:
+                    conflicts = self.check_conflicts(memory, existing_memories)
+                    if conflicts:
+                        logger.info(f"Memory conflicts detected: {memory.id}, conflicts: {[c.id for c in conflicts]}")
+                        # 标记冲突但仍然存储（冲突信息已添加到memory中）
             
             logger.info(f"Memory captured: {memory.id}, type: {memory_type}, confidence: {memory.confidence}")
             
@@ -380,3 +413,6 @@ class MemoryCaptureEngine:
         self.auto_capture = config.get("auto_capture", True)
         self.min_confidence = config.get("min_confidence", 0.3)
         self.rif_threshold = config.get("rif_threshold", 0.4)
+        self.enable_duplicate_check = config.get("enable_duplicate_check", True)
+        self.enable_conflict_check = config.get("enable_conflict_check", True)
+        self.enable_entity_extraction = config.get("enable_entity_extraction", True)

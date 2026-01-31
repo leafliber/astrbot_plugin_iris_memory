@@ -3,7 +3,7 @@ Token管理器
 管理记忆注入的token预算，避免超出LLM限制
 """
 
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 from enum import Enum
 
 

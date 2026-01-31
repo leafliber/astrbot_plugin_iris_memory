@@ -3,6 +3,14 @@ Iris Memory Plugin - 主入口
 基于companion-memory框架的三层记忆插件
 """
 
+import sys
+from pathlib import Path
+
+# 将插件根目录添加到Python路径，以便能够导入iris_memory模块
+plugin_root = Path(__file__).parent
+if str(plugin_root) not in sys.path:
+    sys.path.insert(0, str(plugin_root))
+
 from astrbot.api.star import Context, Star, register
 from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api import AstrBotConfig, logger
@@ -15,6 +23,7 @@ from iris_memory.capture.capture_engine import MemoryCaptureEngine
 from iris_memory.retrieval.retrieval_engine import MemoryRetrievalEngine
 from iris_memory.storage.session_manager import SessionManager
 from iris_memory.storage.lifecycle_manager import SessionLifecycleManager
+from iris_memory.storage.cache import CacheManager, WorkingMemoryCache
 from iris_memory.analysis.emotion_analyzer import EmotionAnalyzer
 from iris_memory.analysis.rif_scorer import RIFScorer
 from iris_memory.models.emotion_state import EmotionalState
@@ -41,6 +50,7 @@ class IrisMemoryPlugin(Star):
             config: 插件配置对象
         """
         super().__init__(context)
+        self.context = context
         self.config = config
         
         # 插件数据目录
@@ -52,6 +62,8 @@ class IrisMemoryPlugin(Star):
         self.retrieval_engine = None
         self.session_manager = None
         self.lifecycle_manager = None
+        self.cache_manager = None
+        self.working_memory_cache = None
         self.emotion_analyzer = None
         self.rif_scorer = None
         self.memory_injector = None
@@ -77,11 +89,21 @@ class IrisMemoryPlugin(Star):
             self.rif_scorer = RIFScorer()
             
             # 初始化Chroma管理器（传入插件上下文用于嵌入API）
-            self.chroma_manager = ChromaManager(self.config, self.plugin_data_path, context)
+            self.chroma_manager = ChromaManager(self.config, self.plugin_data_path, self.context)
             await self.chroma_manager.initialize()
             
             # 初始化会话管理器
             self.session_manager = SessionManager()
+            
+            # 初始化缓存管理器
+            self.cache_manager = CacheManager({})
+            
+            # 初始化工作记忆缓存（默认配置，在_apply_config中更新）
+            self.working_memory_cache = WorkingMemoryCache(
+                max_sessions=100,
+                max_memories_per_session=10,
+                ttl=86400
+            )
             
             # 初始化生命周期管理器
             self.lifecycle_manager = SessionLifecycleManager(
@@ -89,8 +111,9 @@ class IrisMemoryPlugin(Star):
             )
             await self.lifecycle_manager.start()
             
-            # 初始化记忆捕获引擎
+            # 初始化记忆捕获引擎（传入chroma_manager以启用去重和冲突检测）
             self.capture_engine = MemoryCaptureEngine(
+                chroma_manager=self.chroma_manager,
                 emotion_analyzer=self.emotion_analyzer,
                 rif_scorer=self.rif_scorer
             )
@@ -128,6 +151,24 @@ class IrisMemoryPlugin(Star):
         max_working_memory = self._get_config("memory_config.max_working_memory", 10)
         rif_threshold = self._get_config("memory_config.rif_threshold", 0.4)
         
+        # 应用缓存配置
+        cache_config = self._get_config("cache_config", {})
+        if self.cache_manager:
+            self.cache_manager = CacheManager({
+                'embedding_cache': {
+                    'max_size': cache_config.get('embedding_cache_size', 1000),
+                    'strategy': cache_config.get('embedding_cache_strategy', 'lru')
+                },
+                'working_cache': {
+                    'max_sessions': cache_config.get('max_sessions', 100),
+                    'max_memories_per_session': cache_config.get('max_working_memory', max_working_memory),
+                    'ttl': cache_config.get('working_cache_ttl', 86400)
+                },
+                'compression': {
+                    'max_length': cache_config.get('compression_max_length', 200)
+                }
+            })
+        
         # 应用配置
         self.capture_engine.set_config({
             "auto_capture": auto_capture,
@@ -136,6 +177,12 @@ class IrisMemoryPlugin(Star):
         })
         
         self.session_manager.set_max_working_memory(max_working_memory)
+        
+        # 更新工作记忆缓存配置
+        if self.working_memory_cache:
+            self.working_memory_cache.max_sessions = cache_config.get('max_sessions', 100)
+            self.working_memory_cache.max_memories_per_session = cache_config.get('max_working_memory', max_working_memory)
+            self.working_memory_cache.ttl = cache_config.get('working_cache_ttl', 86400)
         
         # 应用生命周期管理器配置
         if self.lifecycle_manager:
@@ -341,8 +388,10 @@ class IrisMemoryPlugin(Star):
         # 清除Chroma中的记忆
         await self.chroma_manager.delete_session(user_id, group_id)
         
-        # 清除工作记忆缓存
+        # 清除工作记忆缓存（同时清除SessionManager和WorkingMemoryCache）
         self.session_manager.clear_working_memory(user_id, group_id)
+        if self.working_memory_cache:
+            await self.working_memory_cache.clear_session(user_id, group_id)
         
         # 删除保存时间记录
         await self.delete_kv_data(f"last_save_{user_id}_{group_id or 'private'}")
@@ -359,7 +408,14 @@ class IrisMemoryPlugin(Star):
         group_id = event.get_sender_group_id()
         
         # 统计各层记忆数量
+        # 同时从SessionManager和WorkingMemoryCache获取
         working_count = len(self.session_manager.get_working_memory(user_id, group_id))
+        if self.working_memory_cache:
+            memories = await self.working_memory_cache.get_recent_memories(
+                user_id, group_id, limit=1000
+            )
+            working_count = max(working_count, len(memories))
+        
         episodic_count = await self.chroma_manager.count_memories(
             user_id=user_id,
             group_id=group_id
@@ -450,9 +506,13 @@ class IrisMemoryPlugin(Star):
             # 存储到Chroma
             await self.chroma_manager.add_memory(memory)
             
-            # 如果是工作记忆，添加到缓存
+            # 如果是工作记忆，添加到缓存（同时添加到SessionManager和WorkingMemoryCache）
             if memory.storage_layer.value == "working":
                 self.session_manager.add_working_memory(memory)
+                if self.working_memory_cache:
+                    await self.working_memory_cache.add_memory(
+                        user_id, group_id, memory.id, memory
+                    )
             
             logger.debug(f"Auto-captured memory: {memory.id}")
     

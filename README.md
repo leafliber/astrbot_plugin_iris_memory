@@ -24,7 +24,40 @@
 
 ## 安装
 
-### 1. 安装依赖
+### Docker快速测试（推荐）
+
+使用Docker进行快速测试，适合日常开发和验证：
+
+```bash
+cd docker
+./manager.sh start
+```
+
+或运行测试示例：
+
+```bash
+cd docker
+./test-example.sh
+```
+
+访问 http://localhost:6185 测试插件功能。
+
+**管理命令**：
+```bash
+./manager.sh start    # 启动环境
+./manager.sh stop     # 停止环境
+./manager.sh restart  # 重启容器
+./manager.sh logs     # 查看日志
+./manager.sh test     # 运行测试
+./manager.sh status   # 查看状态
+./manager.sh help     # 查看所有命令
+```
+
+详细说明请参考：[Docker测试环境](./docker/)
+
+### 本地安装
+
+#### 1. 安装依赖
 ```bash
 pip install -r requirements.txt
 ```
