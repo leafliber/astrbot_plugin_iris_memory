@@ -18,10 +18,12 @@ try:
     import chromadb
     from chromadb.config import Settings
     from chromadb.utils import embedding_functions
+    from chromadb.errors import NotFoundError as ChromaNotFoundError
 except ImportError:
     chromadb = None
     Settings = None
     embedding_functions = None
+    ChromaNotFoundError = None
 
 from iris_memory.utils.logger import get_logger
 
@@ -62,11 +64,19 @@ class ChromaManager:
         
         cfg = get_config_manager()
         
-        # 从配置获取Chroma参数
-        self.embedding_model_name = cfg.embedding_model
-        self.embedding_dimension = cfg.embedding_dimension
-        self.collection_name = DEFAULTS.embedding.collection_name
-        self.auto_detect_dimension = DEFAULTS.embedding.auto_detect_dimension
+        # 从配置获取Chroma参数（优先使用传入的配置对象）
+        self.embedding_model_name = self._get_config_from_object(
+            config, 'chroma_config.embedding_model', cfg.embedding_model
+        )
+        self.embedding_dimension = self._get_config_from_object(
+            config, 'chroma_config.embedding_dimension', cfg.embedding_dimension
+        )
+        self.collection_name = self._get_config_from_object(
+            config, 'chroma_config.collection_name', DEFAULTS.embedding.collection_name
+        )
+        self.auto_detect_dimension = self._get_config_from_object(
+            config, 'chroma_config.auto_detect_dimension', DEFAULTS.embedding.auto_detect_dimension
+        )
         
         # 嵌入管理器（策略模式）
         from iris_memory.embedding.manager import EmbeddingManager
@@ -86,6 +96,34 @@ class ChromaManager:
         """
         from iris_memory.core.config_manager import get_config_manager
         return get_config_manager().get(key, default)
+    
+    def _get_config_from_object(self, config: Any, key: str, default: Any = None) -> Any:
+        """从配置对象获取值（支持嵌套键）
+        
+        Args:
+            config: 配置对象（可能为None）
+            key: 配置键（支持点分隔的嵌套键，如 'chroma_config.embedding_dimension'）
+            default: 默认值
+            
+        Returns:
+            配置值或默认值
+        """
+        if config is None:
+            return default
+        
+        try:
+            keys = key.split('.')
+            value = config
+            for k in keys:
+                if isinstance(value, dict):
+                    value = value.get(k)
+                else:
+                    value = getattr(value, k, None)
+                if value is None:
+                    return default
+            return value if value is not None else default
+        except Exception:
+            return default
     
     async def initialize(self):
         """异步初始化Chroma客户端和集合"""
@@ -115,9 +153,22 @@ class ChromaManager:
             try:
                 existing_collection = self.client.get_collection(name=self.collection_name)
                 logger.debug(f"Found existing collection: {self.collection_name}")
-            except Exception:
-                logger.debug(f"Collection does not exist: {self.collection_name}")
-                pass  # 集合不存在，需要创建
+            except Exception as e:
+                # 捕获所有异常（包括 ValueError, NotFoundError, 通用 Exception 等）
+                # 检查是否是 NotFoundError 或通过异常消息判断集合不存在
+                is_not_found = (
+                    (ChromaNotFoundError and isinstance(e, ChromaNotFoundError)) or
+                    isinstance(e, ValueError) or
+                    "not exist" in str(e).lower() or
+                    "not found" in str(e).lower() or
+                    "does not exist" in str(e).lower()
+                )
+                if is_not_found:
+                    logger.debug(f"Collection does not exist: {self.collection_name}")
+                else:
+                    # 其他异常（如权限问题、磁盘问题）需要记录和抛出
+                    logger.error(f"Error accessing collection {self.collection_name}: {e}")
+                    raise
             
             # 自动检测现有集合的维度（如果启用）
             if self.auto_detect_dimension and existing_collection:
@@ -165,14 +216,14 @@ class ChromaManager:
             logger.error(f"Failed to initialize Chroma manager: {e}", exc_info=True)
             raise
     
-    async def _generate_embedding(self, text: str) -> List[float]:
+    async def _generate_embedding(self, text: str) -> Optional[List[float]]:
         """生成文本嵌入向量（使用策略模式的嵌入管理器）
         
         Args:
             text: 文本内容
             
         Returns:
-            List[float]: 嵌入向量
+            Optional[List[float]]: 嵌入向量，如果生成失败则返回None
         """
         try:
             # 使用嵌入管理器生成嵌入（自动降级）
@@ -180,29 +231,18 @@ class ChromaManager:
             return embedding
         except Exception as e:
             logger.error(f"Failed to generate embedding: {e}")
-            # 作为最后的保底，使用简单的哈希
-            import hashlib
-            hash_obj = hashlib.md5(text.encode())
-            hash_bytes = hash_obj.digest()
-            
-            embedding = []
-            for i in range(0, min(len(hash_bytes), self.embedding_dimension // 4)):
-                byte_val = hash_bytes[i]
-                embedding.append(byte_val / 255.0)
-            
-            while len(embedding) < self.embedding_dimension:
-                embedding.append(0.0)
-            
-            return embedding
+            # 不再使用MD5哈希作为降级方案，因为它与真实语义嵌入不兼容
+            # 返回None让调用者处理失败情况
+            return None
     
-    async def add_memory(self, memory: Memory) -> str:
+    async def add_memory(self, memory: Memory) -> Optional[str]:
         """添加记忆到Chroma
         
         Args:
             memory: 记忆对象
             
         Returns:
-            str: 记忆ID
+            Optional[str]: 记忆ID，如果嵌入生成失败则返回None
         """
         try:
             logger.debug(f"Adding memory to Chroma: id={memory.id}, user={memory.user_id}, type={memory.type.value}")
@@ -211,6 +251,9 @@ class ChromaManager:
             if memory.embedding is None:
                 logger.debug(f"Generating embedding for memory {memory.id}...")
                 embedding = await self._generate_embedding(memory.content)
+                if embedding is None:
+                    logger.error(f"Failed to generate embedding for memory {memory.id}, skipping storage")
+                    return None
                 memory.embedding = np.array(embedding)
                 logger.debug(f"Embedding generated: dimension={len(embedding)}")
             else:
@@ -283,7 +326,7 @@ class ChromaManager:
             storage_layer: 存储层过滤（可选）
 
         Returns:
-            List[Memory]: 相关记忆列表
+            List[Memory]: 相关记忆列表（如果嵌入生成失败则返回空列表）
         """
         try:
             logger.debug(f"Querying memories: user={user_id}, group={group_id}, top_k={top_k}, storage_layer={storage_layer.value if storage_layer else 'all'}")
@@ -291,6 +334,9 @@ class ChromaManager:
             # 生成查询嵌入
             logger.debug(f"Generating query embedding for: '{query_text[:50]}...' " if len(query_text) > 50 else f"Generating query embedding for: '{query_text}'")
             query_embedding = await self._generate_embedding(query_text)
+            if query_embedding is None:
+                logger.error("Failed to generate query embedding, returning empty results")
+                return []
             logger.debug(f"Query embedding generated: dimension={len(query_embedding)}")
 
             # 构建多个查询条件，分别查询不同的记忆范围

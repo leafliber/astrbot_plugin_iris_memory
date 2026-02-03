@@ -16,6 +16,22 @@ from iris_memory.models.memory import Memory
 from iris_memory.core.types import (
     StorageLayer, MemoryType, ModalityType, QualityLevel, SensitivityLevel
 )
+from iris_memory.core.test_utils import setup_test_config, reset_config_manager
+
+
+@pytest.fixture(autouse=True)
+def setup_config():
+    """设置测试配置（自动应用于所有测试）"""
+    setup_test_config({
+        'chroma_config': {
+            'embedding_model': 'BAAI/bge-m3',
+            'embedding_dimension': 1024,
+            'collection_name': 'test_collection',
+            'auto_detect_dimension': True
+        }
+    })
+    yield
+    reset_config_manager()
 
 
 @pytest.fixture
@@ -73,12 +89,12 @@ class TestChromaManagerInit:
     
     @pytest.mark.asyncio
     async def test_get_config_nested_key(self, chroma_manager):
-        """测试嵌套配置读取"""
+        """测试嵌套配置读取（从全局配置管理器）"""
         model = chroma_manager._get_config("chroma_config.embedding_model", "default")
-        assert model == "text-embedding-ada-002"  # 更新为当前配置值
+        assert model == "BAAI/bge-m3"  # 从全局测试配置获取的值
         
         dim = chroma_manager._get_config("chroma_config.embedding_dimension", 512)
-        assert dim == 1536  # 更新为当前配置值
+        assert dim == 1024  # 从全局测试配置获取的值
     
     @pytest.mark.asyncio
     async def test_get_config_missing_key(self, chroma_manager):
@@ -88,8 +104,13 @@ class TestChromaManagerInit:
 
     @pytest.mark.asyncio
     async def test_get_config_with_dict(self, chroma_manager):
-        """测试字典配置读取"""
-        chroma_manager.config.test_dict = {"key1": "value1", "key2": "value2"}
+        """测试字典配置读取（从全局配置管理器）"""
+        # 修改全局配置
+        from iris_memory.core.config_manager import get_config_manager
+        cfg = get_config_manager()
+        cfg._user_config = cfg._user_config or {}
+        cfg._user_config['test_dict'] = {"key1": "value1", "key2": "value2"}
+        
         value = chroma_manager._get_config("test_dict.key1", "default")
         assert value == "value1"
 
@@ -753,18 +774,17 @@ class TestChromaManagerEmbeddingGeneration:
         chroma_manager.embedding_manager.embed.assert_called_once_with("Test text", 1024)
     
     @pytest.mark.asyncio
-    async def test_generate_embedding_fallback_to_hash(
+    async def test_generate_embedding_failure_returns_none(
         self, chroma_manager, monkeypatch
     ):
-        """测试嵌入生成失败时的降级到哈希"""
+        """测试嵌入生成失败时返回None"""
         chroma_manager.embedding_manager = AsyncMock()
         chroma_manager.embedding_manager.embed = AsyncMock(side_effect=Exception("API failed"))
         
         embedding = await chroma_manager._generate_embedding("Test text for fallback")
         
-        # 降级应该生成指定维度的向量
-        assert len(embedding) == 1024
-        assert all(0.0 <= x <= 1.0 for x in embedding)
+        # 当嵌入生成失败时返回None（业务代码不再使用哈希降级）
+        assert embedding is None
     
     @pytest.mark.asyncio
     async def test_generate_embedding_different_dimensions(

@@ -91,6 +91,49 @@
     "enum": ["DEBUG", "INFO", "WARNING", "ERROR"],
     "hint": "DEBUG显示最详细信息，推荐使用INFO"
   },
+  "image_analysis": {
+    "description": "图片分析",
+    "type": "object",
+    "items": {
+      "enable": {
+        "description": "启用图片分析",
+        "type": "bool",
+        "default": true,
+        "hint": "使用Vision LLM分析对话中的图片内容"
+      },
+      "mode": {
+        "description": "分析模式",
+        "type": "string",
+        "default": "auto",
+        "options": ["auto", "brief", "detailed", "skip"],
+        "hint": "auto-智能判断, brief-简要描述, detailed-详细分析, skip-跳过"
+      },
+      "max_images": {
+        "description": "每条消息最多分析图片数",
+        "type": "int",
+        "default": 2,
+        "hint": "超过此数量的图片将被跳过以节省Token"
+      },
+      "daily_budget": {
+        "description": "每日分析次数上限",
+        "type": "int",
+        "default": 100,
+        "hint": "每天最多分析的图片数量，0表示无限制"
+      },
+      "session_budget": {
+        "description": "每会话分析次数上限",
+        "type": "int",
+        "default": 20,
+        "hint": "每个会话最多分析的图片数量，0表示无限制"
+      },
+      "require_context": {
+        "description": "需要上下文相关性",
+        "type": "bool",
+        "default": true,
+        "hint": "仅当图片与对话相关时才分析，可减少无意义分析"
+      }
+    }
+  },
   "advanced": {
     "description": "高级设置",
     "type": "object",

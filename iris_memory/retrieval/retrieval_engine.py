@@ -309,7 +309,7 @@ class MemoryRetrievalEngine:
         
         # 2. 合并工作记忆（如果启用且有session_manager）
         if self.enable_working_memory_merge and self.session_manager:
-            working_memories = self._get_relevant_working_memories(
+            working_memories = await self._get_relevant_working_memories(
                 query, user_id, group_id, storage_layer
             )
             if working_memories:
@@ -453,7 +453,7 @@ class MemoryRetrievalEngine:
         
         return memories[:top_k]
     
-    def _get_relevant_working_memories(
+    async def _get_relevant_working_memories(
         self,
         query: str,
         user_id: str,
@@ -479,7 +479,7 @@ class MemoryRetrievalEngine:
             return []
         
         try:
-            working_memories = self.session_manager.get_working_memory(user_id, group_id)
+            working_memories = await self.session_manager.get_working_memory(user_id, group_id)
             
             if not working_memories:
                 return []

@@ -4,11 +4,13 @@
 """
 
 import pytest
+import pytest_asyncio
 from datetime import datetime, timedelta
 
 from iris_memory.storage.session_manager import SessionManager
 from iris_memory.models.memory import Memory
 from iris_memory.core.types import StorageLayer
+from iris_memory.core.defaults import DEFAULTS
 
 
 @pytest.fixture
@@ -53,7 +55,7 @@ class TestSessionManagerInit:
 
         assert manager.working_memory_cache == {}
         assert manager.session_metadata == {}
-        assert manager.max_working_memory == 10
+        assert manager.max_working_memory == DEFAULTS.memory.max_working_memory
 
     def test_init_custom_max(self):
         """测试自定义最大工作记忆数"""
@@ -197,38 +199,42 @@ class TestUpdateSessionActivity:
 class TestAddWorkingMemory:
     """测试add_working_memory方法"""
 
-    def test_add_to_private_session(self, session_manager, sample_memory):
+    @pytest.mark.asyncio
+    async def test_add_to_private_session(self, session_manager, sample_memory):
         """测试添加到私聊会话"""
-        session_manager.add_working_memory(sample_memory)
+        await session_manager.add_working_memory(sample_memory)
 
         key = "user_1:private"
-        memories = session_manager.get_working_memory("user_1", None)
+        memories = await session_manager.get_working_memory("user_1", None)
 
         assert len(memories) == 1
         assert memories[0].id == "mem_1"
 
-    def test_add_to_group_session(self, session_manager, sample_memory_with_group):
+    @pytest.mark.asyncio
+    async def test_add_to_group_session(self, session_manager, sample_memory_with_group):
         """测试添加到群聊会话"""
-        session_manager.add_working_memory(sample_memory_with_group)
+        await session_manager.add_working_memory(sample_memory_with_group)
 
         key = "user_1:group_1"
-        memories = session_manager.get_working_memory("user_1", "group_1")
+        memories = await session_manager.get_working_memory("user_1", "group_1")
 
         assert len(memories) == 1
         assert memories[0].id == "mem_2"
 
-    def test_add_auto_create_session(self, session_manager, sample_memory):
+    @pytest.mark.asyncio
+    async def test_add_auto_create_session(self, session_manager, sample_memory):
         """测试自动创建会话"""
         # 会话不存在
         assert "user_1:private" not in session_manager.session_metadata
 
-        session_manager.add_working_memory(sample_memory)
+        await session_manager.add_working_memory(sample_memory)
 
         # 会话应该被创建
         assert "user_1:private" in session_manager.session_metadata
         assert "user_1:private" in session_manager.working_memory_cache
 
-    def test_add_multiple_memories(self, session_manager, sample_memory):
+    @pytest.mark.asyncio
+    async def test_add_multiple_memories(self, session_manager, sample_memory):
         """测试添加多个记忆"""
         for i in range(3):
             memory = Memory(
@@ -239,40 +245,44 @@ class TestAddWorkingMemory:
                 storage_layer=StorageLayer.WORKING,
                 created_time=datetime.now()
             )
-            session_manager.add_working_memory(memory)
+            await session_manager.add_working_memory(memory)
 
-        memories = session_manager.get_working_memory("user_1", None)
+        memories = await session_manager.get_working_memory("user_1", None)
         assert len(memories) == 3
 
 
 class TestGetWorkingMemory:
     """测试get_working_memory方法"""
 
-    def test_get_from_private_session(self, session_manager, sample_memory):
+    @pytest.mark.asyncio
+    async def test_get_from_private_session(self, session_manager, sample_memory):
         """测试获取私聊会话工作记忆"""
-        session_manager.add_working_memory(sample_memory)
+        await session_manager.add_working_memory(sample_memory)
 
-        memories = session_manager.get_working_memory("user_1", None)
+        memories = await session_manager.get_working_memory("user_1", None)
 
         assert len(memories) == 1
         assert memories[0].id == "mem_1"
 
-    def test_get_from_group_session(self, session_manager, sample_memory_with_group):
+    @pytest.mark.asyncio
+    async def test_get_from_group_session(self, session_manager, sample_memory_with_group):
         """测试获取群聊会话工作记忆"""
-        session_manager.add_working_memory(sample_memory_with_group)
+        await session_manager.add_working_memory(sample_memory_with_group)
 
-        memories = session_manager.get_working_memory("user_1", "group_1")
+        memories = await session_manager.get_working_memory("user_1", "group_1")
 
         assert len(memories) == 1
         assert memories[0].id == "mem_2"
 
-    def test_get_empty_session(self, session_manager):
+    @pytest.mark.asyncio
+    async def test_get_empty_session(self, session_manager):
         """测试获取空会话的工作记忆"""
-        memories = session_manager.get_working_memory("user_1", None)
+        memories = await session_manager.get_working_memory("user_1", None)
 
         assert memories == []
 
-    def test_get_different_users(self, session_manager):
+    @pytest.mark.asyncio
+    async def test_get_different_users(self, session_manager):
         """测试获取不同用户的工作记忆"""
         mem1 = Memory(
             id="mem_1",
@@ -291,11 +301,11 @@ class TestGetWorkingMemory:
             created_time=datetime.now()
         )
 
-        session_manager.add_working_memory(mem1)
-        session_manager.add_working_memory(mem2)
+        await session_manager.add_working_memory(mem1)
+        await session_manager.add_working_memory(mem2)
 
-        memories1 = session_manager.get_working_memory("user_1", None)
-        memories2 = session_manager.get_working_memory("user_2", None)
+        memories1 = await session_manager.get_working_memory("user_1", None)
+        memories2 = await session_manager.get_working_memory("user_2", None)
 
         assert len(memories1) == 1
         assert len(memories2) == 1
@@ -306,36 +316,40 @@ class TestGetWorkingMemory:
 class TestClearWorkingMemory:
     """测试clear_working_memory方法"""
 
-    def test_clear_private_session(self, session_manager, sample_memory):
+    @pytest.mark.asyncio
+    async def test_clear_private_session(self, session_manager, sample_memory):
         """测试清除私聊会话工作记忆"""
-        session_manager.add_working_memory(sample_memory)
-        assert len(session_manager.get_working_memory("user_1", None)) == 1
+        await session_manager.add_working_memory(sample_memory)
+        assert len(await session_manager.get_working_memory("user_1", None)) == 1
 
-        session_manager.clear_working_memory("user_1", None)
+        await session_manager.clear_working_memory("user_1", None)
 
-        assert len(session_manager.get_working_memory("user_1", None)) == 0
+        assert len(await session_manager.get_working_memory("user_1", None)) == 0
 
-    def test_clear_group_session(self, session_manager, sample_memory_with_group):
+    @pytest.mark.asyncio
+    async def test_clear_group_session(self, session_manager, sample_memory_with_group):
         """测试清除群聊会话工作记忆"""
-        session_manager.add_working_memory(sample_memory_with_group)
-        assert len(session_manager.get_working_memory("user_1", "group_1")) == 1
+        await session_manager.add_working_memory(sample_memory_with_group)
+        assert len(await session_manager.get_working_memory("user_1", "group_1")) == 1
 
-        session_manager.clear_working_memory("user_1", "group_1")
+        await session_manager.clear_working_memory("user_1", "group_1")
 
-        assert len(session_manager.get_working_memory("user_1", "group_1")) == 0
+        assert len(await session_manager.get_working_memory("user_1", "group_1")) == 0
 
-    def test_clear_nonexistent_session(self, session_manager):
+    @pytest.mark.asyncio
+    async def test_clear_nonexistent_session(self, session_manager):
         """测试清除不存在的会话（应该不报错）"""
         # 不应该抛出异常
-        session_manager.clear_working_memory("user_999", None)
+        await session_manager.clear_working_memory("user_999", None)
 
 
 class TestDeleteSession:
     """测试delete_session方法"""
 
-    def test_delete_existing_session(self, session_manager, sample_memory):
+    @pytest.mark.asyncio
+    async def test_delete_existing_session(self, session_manager, sample_memory):
         """测试删除已存在的会话"""
-        session_manager.add_working_memory(sample_memory)
+        await session_manager.add_working_memory(sample_memory)
         key = "user_1:private"
 
         assert key in session_manager.session_metadata
@@ -398,7 +412,8 @@ class TestGetSessionCount:
 class TestLRUWorkingMemory:
     """测试工作记忆LRU机制"""
 
-    def test_lru_exceeded_max(self, session_manager):
+    @pytest.mark.asyncio
+    async def test_lru_exceeded_max(self, session_manager):
         """测试超过最大数量时的LRU淘汰"""
         manager = SessionManager()
         manager.set_max_working_memory(3)
@@ -413,9 +428,9 @@ class TestLRUWorkingMemory:
                 storage_layer=StorageLayer.WORKING,
                 created_time=datetime.now()
             )
-            manager.add_working_memory(memory)
+            await manager.add_working_memory(memory)
 
-        memories = manager.get_working_memory("user_1", None)
+        memories = await manager.get_working_memory("user_1", None)
 
         # 应该只保留最后3个
         assert len(memories) == 3
@@ -440,7 +455,7 @@ class TestSerialization:
     @pytest.mark.asyncio
     async def test_serialize_with_data(self, session_manager, sample_memory):
         """测试序列化带数据的会话"""
-        session_manager.add_working_memory(sample_memory)
+        await session_manager.add_working_memory(sample_memory)
 
         data = await session_manager.serialize_for_kv_storage()
 
@@ -488,7 +503,7 @@ class TestSerialization:
 
         # 验证反序列化结果
         assert session_manager.get_session_count() == 1
-        memories = session_manager.get_working_memory("user_1", None)
+        memories = await session_manager.get_working_memory("user_1", None)
         assert len(memories) == 1
         assert memories[0].id == "mem_1"
 
@@ -513,18 +528,20 @@ class TestCleanExpiredWorkingMemory:
         # 不应该报错
         assert session_manager.get_session_count() == 0
 
-    def test_clean_no_expired(self, session_manager, sample_memory):
+    @pytest.mark.asyncio
+    async def test_clean_no_expired(self, session_manager, sample_memory):
         """测试清理没有过期的记忆"""
-        session_manager.add_working_memory(sample_memory)
+        await session_manager.add_working_memory(sample_memory)
 
         # 清理0小时前（清理所有过期记忆）
         session_manager.clean_expired_working_memory(hours=0)
 
         # 所有记忆都应该被保留（因为是刚创建的）
-        memories = session_manager.get_working_memory("user_1", None)
+        memories = await session_manager.get_working_memory("user_1", None)
         assert len(memories) == 1
 
-    def test_clean_expired(self, session_manager):
+    @pytest.mark.asyncio
+    async def test_clean_expired(self, session_manager):
         """测试清理过期记忆"""
         # 添加一个旧记忆
         old_time = datetime.now() - timedelta(hours=25)
@@ -547,13 +564,13 @@ class TestCleanExpiredWorkingMemory:
             created_time=datetime.now()
         )
 
-        session_manager.add_working_memory(old_memory)
-        session_manager.add_working_memory(new_memory)
+        await session_manager.add_working_memory(old_memory)
+        await session_manager.add_working_memory(new_memory)
 
         # 清理24小时前的记忆
         session_manager.clean_expired_working_memory(hours=24)
 
-        memories = session_manager.get_working_memory("user_1", None)
+        memories = await session_manager.get_working_memory("user_1", None)
 
         # 应该只保留新记忆
         assert len(memories) == 1
@@ -563,22 +580,24 @@ class TestCleanExpiredWorkingMemory:
 class TestSessionIsolation:
     """测试会话隔离"""
 
-    def test_private_and_group_isolated(
+    @pytest.mark.asyncio
+    async def test_private_and_group_isolated(
         self, session_manager, sample_memory, sample_memory_with_group
     ):
         """测试私聊和群聊会话隔离"""
-        session_manager.add_working_memory(sample_memory)
-        session_manager.add_working_memory(sample_memory_with_group)
+        await session_manager.add_working_memory(sample_memory)
+        await session_manager.add_working_memory(sample_memory_with_group)
 
-        private_memories = session_manager.get_working_memory("user_1", None)
-        group_memories = session_manager.get_working_memory("user_1", "group_1")
+        private_memories = await session_manager.get_working_memory("user_1", None)
+        group_memories = await session_manager.get_working_memory("user_1", "group_1")
 
         assert len(private_memories) == 1
         assert len(group_memories) == 1
         assert private_memories[0].id == "mem_1"
         assert group_memories[0].id == "mem_2"
 
-    def test_user_isolation(self, session_manager):
+    @pytest.mark.asyncio
+    async def test_user_isolation(self, session_manager):
         """测试用户隔离"""
         mem1 = Memory(
             id="mem_1",
@@ -597,11 +616,11 @@ class TestSessionIsolation:
             created_time=datetime.now()
         )
 
-        session_manager.add_working_memory(mem1)
-        session_manager.add_working_memory(mem2)
+        await session_manager.add_working_memory(mem1)
+        await session_manager.add_working_memory(mem2)
 
-        memories1 = session_manager.get_working_memory("user_1", None)
-        memories2 = session_manager.get_working_memory("user_2", None)
+        memories1 = await session_manager.get_working_memory("user_1", None)
+        memories2 = await session_manager.get_working_memory("user_2", None)
 
         # 验证用户隔离
         assert len(memories1) == 1

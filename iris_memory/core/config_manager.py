@@ -7,6 +7,7 @@
 3. 配置键映射（新旧格式兼容）
 """
 
+import threading
 from typing import Any, Dict, Optional
 from iris_memory.core.defaults import DEFAULTS, get_default
 
@@ -307,18 +308,22 @@ class ConfigManager:
 
 # 全局配置管理器实例
 _config_manager: Optional[ConfigManager] = None
+_config_manager_lock = threading.Lock()
 
 
 def get_config_manager() -> ConfigManager:
-    """获取全局配置管理器"""
+    """获取全局配置管理器（线程安全）"""
     global _config_manager
     if _config_manager is None:
-        _config_manager = ConfigManager()
+        with _config_manager_lock:
+            # 双重检查锁定
+            if _config_manager is None:
+                _config_manager = ConfigManager()
     return _config_manager
 
 
 def init_config_manager(user_config: Any) -> ConfigManager:
-    """初始化全局配置管理器
+    """初始化全局配置管理器（线程安全）
     
     Args:
         user_config: AstrBot用户配置对象
@@ -327,11 +332,13 @@ def init_config_manager(user_config: Any) -> ConfigManager:
         配置管理器实例
     """
     global _config_manager
-    _config_manager = ConfigManager(user_config)
+    with _config_manager_lock:
+        _config_manager = ConfigManager(user_config)
     return _config_manager
 
 
 def reset_config_manager():
     """重置配置管理器（主要用于测试）"""
     global _config_manager
-    _config_manager = None
+    with _config_manager_lock:
+        _config_manager = None

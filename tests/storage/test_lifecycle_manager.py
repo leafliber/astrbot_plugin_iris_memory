@@ -22,8 +22,8 @@ def mock_session_manager():
     manager = Mock()
     manager.get_session_key = Mock(side_effect=lambda user_id, group_id: f"{user_id}:{group_id or 'private'}")
     manager.update_session_activity = Mock()
-    manager.get_working_memory = Mock(return_value=[])
-    manager.clear_working_memory = Mock()
+    manager.get_working_memory = AsyncMock(return_value=[])
+    manager.clear_working_memory = AsyncMock()
     manager.delete_session = Mock()
     return manager
 
@@ -288,7 +288,7 @@ class TestLifecycleManagerArchiveSession:
         memory2.access_count = 1
         memory2.importance = 0.3
         
-        lifecycle_manager.session_manager.get_working_memory = Mock(return_value=[memory1, memory2])
+        lifecycle_manager.session_manager.get_working_memory = AsyncMock(return_value=[memory1, memory2])
         
         # Mock升级评估器返回结果
         lifecycle_manager.upgrade_evaluator.evaluate_working_to_episodic = AsyncMock(
@@ -315,7 +315,7 @@ class TestLifecycleManagerArchiveSession:
         memory.id = "mem_1"
         memory.rif_score = 0.3
         
-        lifecycle_manager.session_manager.get_working_memory = Mock(return_value=[memory])
+        lifecycle_manager.session_manager.get_working_memory = AsyncMock(return_value=[memory])
         lifecycle_manager.upgrade_evaluator.evaluate_working_to_episodic = AsyncMock(
             return_value={"mem_1": (False, 0.3, "low importance")}
         )
@@ -345,7 +345,7 @@ class TestLifecycleManagerArchiveSession:
         memory.rif_score = 0.8
         memory.storage_layer = StorageLayer.WORKING
         
-        lifecycle_manager.session_manager.get_working_memory = Mock(return_value=[memory])
+        lifecycle_manager.session_manager.get_working_memory = AsyncMock(return_value=[memory])
         lifecycle_manager.upgrade_evaluator.evaluate_working_to_episodic = AsyncMock(
             return_value={"mem_1": (True, 0.85, "high importance")}
         )

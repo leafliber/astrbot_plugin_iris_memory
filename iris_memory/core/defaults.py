@@ -162,6 +162,36 @@ class ProactiveReplyDefaults:
 
 
 @dataclass
+class ImageAnalysisDefaults:
+    """图片分析默认配置"""
+    # 基础配置（用户可调）
+    enable_image_analysis: bool = True
+    analysis_mode: str = "auto"  # auto/brief/detailed/skip
+    max_images_per_message: int = 2
+    
+    # 高级配置
+    skip_sticker: bool = True
+    analysis_cooldown: float = 3.0  # 秒
+    cache_ttl: int = 3600  # 1小时
+    max_cache_size: int = 200
+    
+    # Token预算
+    brief_token_cost: int = 100
+    detailed_token_cost: int = 300
+    
+    # 新增：分析预算控制
+    daily_analysis_budget: int = 100  # 每日最大分析次数
+    session_analysis_budget: int = 20  # 每会话最大分析次数
+    
+    # 新增：相似图片去重
+    similar_image_window: int = 60  # 秒，相似图片检测时间窗口
+    recent_image_limit: int = 20  # 保留的最近图片哈希数量
+    
+    # 新增：上下文相关性过滤
+    require_context_relevance: bool = True  # 是否要求上下文相关才分析
+
+
+@dataclass
 class LogDefaults:
     """日志默认配置"""
     level: str = "INFO"
@@ -181,6 +211,7 @@ class AllDefaults:
     llm_integration: LLMIntegrationDefaults = field(default_factory=LLMIntegrationDefaults)
     message_processing: MessageProcessingDefaults = field(default_factory=MessageProcessingDefaults)
     proactive_reply: ProactiveReplyDefaults = field(default_factory=ProactiveReplyDefaults)
+    image_analysis: ImageAnalysisDefaults = field(default_factory=ImageAnalysisDefaults)
     log: LogDefaults = field(default_factory=LogDefaults)
 
 
@@ -215,7 +246,7 @@ def get_defaults_dict() -> Dict[str, Dict[str, Any]]:
     result = {}
     for section_name in ['memory', 'session', 'cache', 'embedding', 
                          'llm_integration', 'message_processing', 
-                         'proactive_reply', 'log']:
+                         'proactive_reply', 'image_analysis', 'log']:
         section_obj = getattr(DEFAULTS, section_name, None)
         if section_obj:
             result[section_name] = asdict(section_obj)

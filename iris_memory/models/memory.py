@@ -42,11 +42,15 @@ class Memory:
     content: str = ""
     text: Optional[str] = None
     audio: Optional[Dict[str, Any]] = None  # 存储音频相关信息
-    image: Optional[Dict[str, Any]] = None  # 存储图像相关信息
+    image: Optional[Dict[str, Any]] = None  # 存储图像相关信息: {url, description, analysis_level}
     video: Optional[Dict[str, Any]] = None  # 存储视频相关信息
     summary: Optional[str] = None
     embedding: Optional[np.ndarray] = None  # 向量嵌入
     keywords: List[str] = field(default_factory=list)
+    
+    # ========== 图片分析扩展 ==========
+    image_description: Optional[str] = None  # 图片智能分析描述
+    has_image: bool = False  # 是否包含图片
     
     # ========== 质量 ==========
     quality_level: QualityLevel = QualityLevel.MODERATE

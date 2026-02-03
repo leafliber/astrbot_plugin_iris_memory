@@ -31,6 +31,9 @@ class QueuedMessage:
 class MessageBatchProcessor:
     """消息批量处理器"""
     
+    # 自动保存间隔（秒）
+    AUTO_SAVE_INTERVAL = 60
+    
     def __init__(
         self,
         capture_engine: MemoryCaptureEngine,
@@ -40,7 +43,8 @@ class MessageBatchProcessor:
         threshold_interval: int = 300,
         processing_mode: str = "hybrid",
         use_llm_summary: bool = False,
-        summary_prompt: str = None
+        summary_prompt: str = None,
+        on_save_callback: Optional[callable] = None
     ):
         self.capture_engine = capture_engine
         self.llm_processor = llm_processor
@@ -50,6 +54,7 @@ class MessageBatchProcessor:
         self.processing_mode = processing_mode
         self.use_llm_summary = use_llm_summary
         self.summary_prompt = summary_prompt
+        self.on_save_callback = on_save_callback  # 保存回调函数
         
         # 消息队列: {session_key: [QueuedMessage]}
         self.message_queues: Dict[str, List[QueuedMessage]] = {}
@@ -57,22 +62,28 @@ class MessageBatchProcessor:
         
         # 后台任务
         self.cleanup_task: Optional[asyncio.Task] = None
+        self.auto_save_task: Optional[asyncio.Task] = None
         self.is_running = False
+        self._last_save_time: float = time.time()
+        self._dirty: bool = False  # 标记是否有未保存的更改
         
         # 统计
         self.stats = {
             "batches_processed": 0,
             "messages_processed": 0,
             "llm_summaries": 0,
-            "local_summaries": 0
+            "local_summaries": 0,
+            "auto_saves": 0
         }
     
     async def start(self):
         """启动处理器"""
         self.is_running = True
         self.cleanup_task = asyncio.create_task(self._cleanup_loop())
+        self.auto_save_task = asyncio.create_task(self._auto_save_loop())
         logger.info(f"MessageBatchProcessor started (LLM: {self.use_llm_summary}, "
-                   f"Proactive: {self.proactive_manager is not None})")
+                   f"Proactive: {self.proactive_manager is not None}, "
+                   f"AutoSave: {self.AUTO_SAVE_INTERVAL}s)")
     
     async def stop(self):
         """停止处理器"""
@@ -85,8 +96,19 @@ class MessageBatchProcessor:
             except asyncio.CancelledError:
                 pass
         
+        if self.auto_save_task:
+            self.auto_save_task.cancel()
+            try:
+                await self.auto_save_task
+            except asyncio.CancelledError:
+                pass
+        
         # 处理剩余消息
         await self._process_all_queues()
+        
+        # 最终保存
+        await self._trigger_save()
+        
         logger.info("MessageBatchProcessor stopped")
     
     async def add_message(
@@ -109,6 +131,9 @@ class MessageBatchProcessor:
             group_id=group_id,
             context=context or {}
         ))
+        
+        # 标记有未保存的更改
+        self._dirty = True
         
         logger.debug(f"Message queued for {session_key}, "
                     f"queue size: {len(self.message_queues[session_key])}")
@@ -517,3 +542,41 @@ class MessageBatchProcessor:
         
         total_messages = sum(len(q) for q in self.message_queues.values())
         logger.info(f"Restored batch processor queues: {len(self.message_queues)} sessions, {total_messages} messages")
+    
+    async def _auto_save_loop(self):
+        """自动保存循环 - 定期保存队列状态以防止数据丢失"""
+        while self.is_running:
+            try:
+                await asyncio.sleep(self.AUTO_SAVE_INTERVAL)
+                
+                # 只有在有未保存的更改时才保存
+                if self._dirty:
+                    await self._trigger_save()
+                    
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"Auto save loop error: {e}")
+    
+    async def _trigger_save(self):
+        """触发保存回调"""
+        if not self._dirty:
+            return
+            
+        if self.on_save_callback:
+            try:
+                await self.on_save_callback()
+                self._dirty = False
+                self._last_save_time = time.time()
+                self.stats["auto_saves"] += 1
+                logger.debug("Batch processor queues auto-saved")
+            except Exception as e:
+                logger.error(f"Failed to trigger save callback: {e}")
+    
+    def set_save_callback(self, callback: callable):
+        """设置保存回调函数
+        
+        Args:
+            callback: 异步回调函数，用于持久化队列数据
+        """
+        self.on_save_callback = callback

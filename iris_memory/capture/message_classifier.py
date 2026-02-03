@@ -5,11 +5,14 @@ from enum import Enum
 from typing import Dict, Any, Optional
 from dataclasses import dataclass
 
+from iris_memory.utils.logger import get_logger
 from iris_memory.capture.trigger_detector import TriggerDetector
 from iris_memory.analysis.emotion_analyzer import EmotionAnalyzer
 from iris_memory.processing.llm_processor import (
     LLMMessageProcessor, LLMClassificationResult
 )
+
+logger = get_logger("message_classifier")
 
 
 class ProcessingLayer(Enum):
@@ -192,8 +195,9 @@ class MessageClassifier:
                             },
                             source="llm"
                         )
-            except Exception:
+            except Exception as e:
                 # LLM失败，回退到本地结果
+                logger.warning(f"LLM classification failed, falling back to local: {e}")
                 self.stats["llm_fallbacks"] += 1
         
         return local_result

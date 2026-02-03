@@ -320,7 +320,7 @@ class SessionLifecycleManager:
                 return False
             
             # 获取工作记忆
-            working_memories = self.session_manager.get_working_memory(
+            working_memories = await self.session_manager.get_working_memory(
                 user_id, group_id
             )
             
@@ -367,7 +367,7 @@ class SessionLifecycleManager:
                         )
             
             # 清除工作记忆缓存
-            self.session_manager.clear_working_memory(user_id, group_id)
+            await self.session_manager.clear_working_memory(user_id, group_id)
             
             if upgraded_memories:
                 logger.info(
@@ -397,7 +397,7 @@ class SessionLifecycleManager:
                 group_id = group_id_str if group_id_str != "private" else None
                 
                 # 清除工作记忆
-                self.session_manager.clear_working_memory(user_id, group_id)
+                await self.session_manager.clear_working_memory(user_id, group_id)
                 
                 logger.debug(f"Cleaned up session data: {session_key}")
             

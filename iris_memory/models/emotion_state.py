@@ -3,9 +3,10 @@ EmotionalState数据模型
 根据companion-memory框架文档定义的完整情感状态数据结构
 """
 
+from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Deque
 from enum import Enum
 
 from iris_memory.core.types import EmotionType
@@ -67,7 +68,8 @@ class EmotionalState:
     current: CurrentEmotionState = field(default_factory=CurrentEmotionState)
     
     # ========== 历史记录 ==========
-    history: List[CurrentEmotionState] = field(default_factory=list)
+    # 使用 deque 替代 list 以提供 O(1) 的头部删除操作
+    history: Deque[CurrentEmotionState] = field(default_factory=lambda: deque(maxlen=100))
     
     # ========== 时序分析 ==========
     trajectory: EmotionalTrajectory = field(default_factory=EmotionalTrajectory)
@@ -86,6 +88,15 @@ class EmotionalState:
     # ========== 元数据 ==========
     metadata: Dict[str, Any] = field(default_factory=dict)  # 额外元数据
     
+    def __post_init__(self):
+        """初始化后处理，确保 history 的 maxlen 与配置一致"""
+        if not isinstance(self.history, deque):
+            # 如果从序列化数据恢复，将 list 转换为 deque
+            self.history = deque(self.history, maxlen=self.config.history_size)
+        elif self.history.maxlen != self.config.history_size:
+            # 如果 maxlen 不匹配，重新创建
+            self.history = deque(self.history, maxlen=self.config.history_size)
+    
     def update_current_emotion(
         self,
         primary: EmotionType,
@@ -94,12 +105,12 @@ class EmotionalState:
         secondary: List[EmotionType] = None
     ):
         """更新当前情感状态"""
-        # 保存到历史
-        self.history.append(self.current)
+        # 确保 deque 的 maxlen 与配置一致（配置可能已更改）
+        if self.history.maxlen != self.config.history_size:
+            self.history = deque(self.history, maxlen=self.config.history_size)
         
-        # 限制历史记录大小
-        if len(self.history) > self.config.history_size:
-            self.history.pop(0)
+        # 保存到历史（deque 会自动处理 maxlen 限制，O(1) 复杂度）
+        self.history.append(self.current)
         
         # 更新当前状态
         self.current = CurrentEmotionState(
@@ -121,8 +132,9 @@ class EmotionalState:
         if len(self.history) < self.config.window_size:
             return
         
-        # 获取最近N天的情感历史
-        recent_emotions = self.history[-self.config.window_size:]
+        # 获取最近N天的情感历史（deque 转 list 以支持切片）
+        history_list = list(self.history)
+        recent_emotions = history_list[-self.config.window_size:]
         
         # 计算情感变化
         positive_count = sum(1 for e in recent_emotions if e.primary in [EmotionType.JOY, EmotionType.EXCITEMENT, EmotionType.CALM])
@@ -135,10 +147,10 @@ class EmotionalState:
         self.trajectory.volatility = min(1.0, variance)  # 归一化到0-1
         
         # 判断趋势
-        if len(self.history) >= 2:
-            prev_positive = sum(1 for e in self.history[-self.config.window_size*2:-self.config.window_size] 
+        if len(self.history) >= self.config.window_size * 2:
+            prev_positive = sum(1 for e in history_list[-self.config.window_size*2:-self.config.window_size] 
                               if e.primary in [EmotionType.JOY, EmotionType.EXCITEMENT])
-            prev_negative = sum(1 for e in self.history[-self.config.window_size*2:-self.config.window_size] 
+            prev_negative = sum(1 for e in history_list[-self.config.window_size*2:-self.config.window_size] 
                               if e.primary in [EmotionType.SADNESS, EmotionType.ANGER, EmotionType.ANXIETY])
             
             if positive_count > prev_positive and negative_count < prev_negative:

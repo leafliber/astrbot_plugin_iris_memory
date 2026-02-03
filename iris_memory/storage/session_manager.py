@@ -12,6 +12,7 @@ from iris_memory.utils.logger import get_logger
 
 from iris_memory.models.memory import Memory
 from iris_memory.core.types import StorageLayer
+from iris_memory.core.defaults import DEFAULTS
 
 # 模块logger
 logger = get_logger("session_manager")
@@ -29,9 +30,9 @@ class SessionManager:
     
     def __init__(
         self,
-        max_working_memory: int = 10,
-        max_sessions: int = 100,
-        ttl: int = 86400
+        max_working_memory: int = None,
+        max_sessions: int = None,
+        ttl: int = None
     ):
         """初始化会话管理器
         
@@ -47,7 +48,9 @@ class SessionManager:
         self.session_metadata: Dict[str, Dict[str, Any]] = {}
         
         # 配置
-        self.max_working_memory = max_working_memory
+        self.max_working_memory = max_working_memory or DEFAULTS.memory.max_working_memory
+        self.max_sessions = max_sessions or DEFAULTS.session.max_sessions
+        self.ttl = ttl or DEFAULTS.cache.working_cache_ttl
         self.max_sessions = max_sessions
         self.ttl = ttl
         
@@ -140,54 +143,57 @@ class SessionManager:
             self.session_metadata[session_key]["last_active"] = datetime.now().isoformat()
             self.session_metadata[session_key]["message_count"] += 1
     
-    def add_working_memory(self, memory: Memory):
-        """添加工作记忆
+    async def add_working_memory(self, memory: Memory):
+        """添加工作记忆（线程安全）
         
         Args:
             memory: 记忆对象
         """
-        session_key = self.get_session_key(memory.user_id, memory.group_id)
-        
-        # 确保会话存在
-        if session_key not in self.working_memory_cache:
-            self.create_session(memory.user_id, memory.group_id)
-        
-        # 添加到工作记忆
-        self.working_memory_cache[session_key].append(memory)
-        
-        # 限制最大数量（LRU策略：移除最旧的）
-        if len(self.working_memory_cache[session_key]) > self.max_working_memory:
-            removed = self.working_memory_cache[session_key].pop(0)
-            logger.debug(f"Working memory LRU removed: {removed.id}")
+        async with self._lock:
+            session_key = self.get_session_key(memory.user_id, memory.group_id)
+            
+            # 确保会话存在
+            if session_key not in self.working_memory_cache:
+                self.create_session(memory.user_id, memory.group_id)
+            
+            # 添加到工作记忆
+            self.working_memory_cache[session_key].append(memory)
+            
+            # 限制最大数量（LRU策略：移除最旧的）
+            if len(self.working_memory_cache[session_key]) > self.max_working_memory:
+                removed = self.working_memory_cache[session_key].pop(0)
+                logger.debug(f"Working memory LRU removed: {removed.id}")
     
-    def get_working_memory(
+    async def get_working_memory(
         self,
         user_id: str,
         group_id: Optional[str] = None
-    ) -> list[Memory]:
-        """获取工作记忆
+    ) -> List[Memory]:
+        """获取工作记忆（线程安全）
         
         Args:
             user_id: 用户ID
             group_id: 群组ID（可选）
             
         Returns:
-            list[Memory]: 工作记忆列表
+            List[Memory]: 工作记忆列表
         """
-        session_key = self.get_session_key(user_id, group_id)
-        return self.working_memory_cache.get(session_key, [])
+        async with self._lock:
+            session_key = self.get_session_key(user_id, group_id)
+            return list(self.working_memory_cache.get(session_key, []))
     
-    def clear_working_memory(self, user_id: str, group_id: Optional[str] = None):
-        """清除工作记忆
+    async def clear_working_memory(self, user_id: str, group_id: Optional[str] = None):
+        """清除工作记忆（线程安全）
         
         Args:
             user_id: 用户ID
             group_id: 群组ID（可选）
         """
-        session_key = self.get_session_key(user_id, group_id)
-        if session_key in self.working_memory_cache:
-            self.working_memory_cache[session_key] = []
-            logger.debug(f"Working memory cleared for session: {session_key}")
+        async with self._lock:
+            session_key = self.get_session_key(user_id, group_id)
+            if session_key in self.working_memory_cache:
+                self.working_memory_cache[session_key] = []
+                logger.debug(f"Working memory cleared for session: {session_key}")
     
     def delete_session(self, session_key: str) -> bool:
         """删除会话
@@ -213,11 +219,11 @@ class SessionManager:
         logger.info(f"Session deleted: {session_key}")
         return True
     
-    def get_all_sessions(self) -> list[Dict[str, Any]]:
+    def get_all_sessions(self) -> List[Dict[str, Any]]:
         """获取所有会话信息
         
         Returns:
-            list[Dict[str, Any]]: 所有会话的元数据列表
+            List[Dict[str, Any]]: 所有会话的元数据列表
         """
         return list(self.session_metadata.values())
     

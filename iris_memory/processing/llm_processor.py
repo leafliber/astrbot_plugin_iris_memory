@@ -2,6 +2,7 @@
 LLM消息处理器
 使用AstrBot默认LLM进行消息分类和摘要生成
 """
+import asyncio
 import json
 import re
 from typing import Dict, Any, Optional, List
@@ -10,6 +11,13 @@ from dataclasses import dataclass
 from iris_memory.utils.logger import get_logger
 
 logger = get_logger("llm_processor")
+
+
+# 重试配置
+MAX_RETRIES = 3
+INITIAL_BACKOFF = 1.0  # 初始退避时间（秒）
+MAX_BACKOFF = 30.0  # 最大退避时间（秒）
+BACKOFF_MULTIPLIER = 2.0  # 退避乘数
 
 
 @dataclass
@@ -216,52 +224,97 @@ class LLMMessageProcessor:
         max_tokens: int = 200,
         temperature: float = 0.3
     ) -> Optional[str]:
-        """调用LLM API"""
+        """调用LLM API（带指数退避重试机制）
+        
+        Args:
+            prompt: 提示词
+            max_tokens: 最大返回token数
+            temperature: 温度参数
+            
+        Returns:
+            Optional[str]: LLM响应文本，失败则返回None
+        """
         if not self.llm_api:
             return None
         
-        try:
-            if hasattr(self.llm_api, 'text_chat'):
-                response = await self.llm_api.text_chat(
-                    prompt=prompt,
-                    max_tokens=max_tokens,
-                    temperature=temperature
-                )
+        backoff = INITIAL_BACKOFF
+        last_error = None
+        
+        for attempt in range(MAX_RETRIES):
+            try:
+                result = await self._call_llm_once(prompt, max_tokens, temperature)
+                if result is not None:
+                    return result
+                    
+            except Exception as e:
+                last_error = e
+                logger.warning(f"LLM API call failed (attempt {attempt + 1}/{MAX_RETRIES}): {e}")
                 
-                if isinstance(response, dict):
-                    text = response.get("text", "") or response.get("content", "")
-                else:
-                    text = str(response)
-                
-                self.stats["total_tokens_used"] += len(prompt) // 4 + len(text) // 4
-                return text.strip()
+                if attempt < MAX_RETRIES - 1:
+                    # 等待退避时间后重试
+                    await asyncio.sleep(backoff)
+                    backoff = min(backoff * BACKOFF_MULTIPLIER, MAX_BACKOFF)
+        
+        # 所有重试都失败
+        logger.error(f"LLM API call failed after {MAX_RETRIES} attempts: {last_error}")
+        self.stats["failed_calls"] += 1
+        return None
+    
+    async def _call_llm_once(
+        self,
+        prompt: str,
+        max_tokens: int,
+        temperature: float
+    ) -> Optional[str]:
+        """单次调用LLM API（不带重试）
+        
+        Args:
+            prompt: 提示词
+            max_tokens: 最大返回token数
+            temperature: 温度参数
             
-            elif hasattr(self.llm_api, 'chat_completion'):
-                response = await self.llm_api.chat_completion(
-                    messages=[{"role": "user", "content": prompt}],
-                    max_tokens=max_tokens,
-                    temperature=temperature
-                )
-                
-                if isinstance(response, dict):
-                    choices = response.get("choices", [])
-                    if choices:
-                        text = choices[0].get("message", {}).get("content", "")
-                    else:
-                        text = ""
-                else:
-                    text = str(response)
-                
-                self.stats["total_tokens_used"] += len(prompt) // 4 + len(text) // 4
-                return text.strip()
+        Returns:
+            Optional[str]: LLM响应文本
             
+        Raises:
+            Exception: API调用异常
+        """
+        if hasattr(self.llm_api, 'text_chat'):
+            response = await self.llm_api.text_chat(
+                prompt=prompt,
+                max_tokens=max_tokens,
+                temperature=temperature
+            )
+            
+            if isinstance(response, dict):
+                text = response.get("text", "") or response.get("content", "")
             else:
-                logger.warning("No suitable LLM method found")
-                return None
-                
-        except Exception as e:
-            logger.error(f"LLM API call failed: {e}")
-            self.stats["failed_calls"] += 1
+                text = str(response)
+            
+            self.stats["total_tokens_used"] += len(prompt) // 4 + len(text) // 4
+            return text.strip()
+        
+        elif hasattr(self.llm_api, 'chat_completion'):
+            response = await self.llm_api.chat_completion(
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=max_tokens,
+                temperature=temperature
+            )
+            
+            if isinstance(response, dict):
+                choices = response.get("choices", [])
+                if choices:
+                    text = choices[0].get("message", {}).get("content", "")
+                else:
+                    text = ""
+            else:
+                text = str(response)
+            
+            self.stats["total_tokens_used"] += len(prompt) // 4 + len(text) // 4
+            return text.strip()
+        
+        else:
+            logger.warning("No suitable LLM method found")
             return None
     
     def _parse_json_response(self, response: str) -> Optional[Dict]:

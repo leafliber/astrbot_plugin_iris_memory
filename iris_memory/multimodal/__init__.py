@@ -3,12 +3,16 @@
 利用 AstrBot 现有模型实现图像、语音处理
 """
 
-# from .image_processor import ImageProcessor
-# from .audio_processor import AudioProcessor
-# from .multimodal_capture import MultimodalCaptureEngine
+from .image_analyzer import (
+    ImageAnalyzer,
+    ImageAnalysisLevel,
+    ImageAnalysisResult,
+    ImageInfo
+)
 
-# __all__ = [
-#     'ImageProcessor',
-#     'AudioProcessor', 
-#     'MultimodalCaptureEngine'
-# ]
+__all__ = [
+    'ImageAnalyzer',
+    'ImageAnalysisLevel',
+    'ImageAnalysisResult',
+    'ImageInfo'
+]

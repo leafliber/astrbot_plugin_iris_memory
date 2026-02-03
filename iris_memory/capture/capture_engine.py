@@ -20,9 +20,44 @@ from iris_memory.analysis.entity_extractor import EntityExtractor
 from iris_memory.capture.trigger_detector import TriggerDetector
 from iris_memory.capture.sensitivity_detector import SensitivityDetector
 from iris_memory.analysis.rif_scorer import RIFScorer
+from iris_memory.core.defaults import DEFAULTS
 
 # 模块logger
 logger = get_logger("capture_engine")
+
+
+def sanitize_for_log(text: str, max_length: int = 50) -> str:
+    """对文本进行脱敏处理后用于日志记录
+    
+    Args:
+        text: 原始文本
+        max_length: 最大长度
+        
+    Returns:
+        str: 脱敏后的文本
+    """
+    if not text:
+        return "[empty]"
+    
+    # 敏感模式替换
+    sanitized = text
+    
+    # 手机号（11位数字）
+    sanitized = re.sub(r'1[3-9]\d{9}', '[PHONE]', sanitized)
+    # 身份证号
+    sanitized = re.sub(r'\d{17}[\dXx]', '[ID_CARD]', sanitized)
+    # 银行卡号（16-19位数字）
+    sanitized = re.sub(r'\d{16,19}', '[BANK_CARD]', sanitized)
+    # 密码相关
+    sanitized = re.sub(r'密码[:：是]\S+', '密码:[MASKED]', sanitized)
+    sanitized = re.sub(r'password[:：]\S+', 'password:[MASKED]', sanitized, flags=re.IGNORECASE)
+    # 邮箱
+    sanitized = re.sub(r'[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}', '[EMAIL]', sanitized)
+    
+    # 截断
+    if len(sanitized) > max_length:
+        return sanitized[:max_length] + "..."
+    return sanitized
 
 
 class MemoryCaptureEngine:
@@ -60,11 +95,11 @@ class MemoryCaptureEngine:
         
         # 配置
         self.auto_capture = True
-        self.min_confidence = 0.3
-        self.rif_threshold = 0.4
-        self.enable_duplicate_check = True  # 启用去重检查
-        self.enable_conflict_check = True   # 启用冲突检测
-        self.enable_entity_extraction = True  # 启用实体提取
+        self.min_confidence = DEFAULTS.memory.min_confidence
+        self.rif_threshold = DEFAULTS.memory.rif_threshold
+        self.enable_duplicate_check = DEFAULTS.memory.enable_duplicate_check
+        self.enable_conflict_check = DEFAULTS.memory.enable_conflict_check
+        self.enable_entity_extraction = DEFAULTS.memory.enable_entity_extraction
     
     async def capture_memory(
         self,
@@ -110,9 +145,9 @@ class MemoryCaptureEngine:
                 - 重复记忆会被跳过
         """
         try:
-            msg_preview = message[:50] + "..." if len(message) > 50 else message
+            msg_preview = sanitize_for_log(message, 50)
             logger.debug(f"Starting memory capture: user={user_id}, group={group_id}, is_user_requested={is_user_requested}")
-            logger.debug(f"Message content: '{msg_preview}'")
+            logger.debug(f"Message content (sanitized): '{msg_preview}'")
             
             # 1. 检查负样本
             logger.debug("Step 1: Checking for negative samples...")
@@ -169,6 +204,10 @@ class MemoryCaptureEngine:
             # 根据场景确定 scope：私聊用 USER_PRIVATE，群聊用 GROUP_PRIVATE
             from iris_memory.core.memory_scope import MemoryScope
             memory_scope = MemoryScope.GROUP_PRIVATE if group_id else MemoryScope.USER_PRIVATE
+            
+            # 检查是否需要加密（PRIVATE 及以上级别）
+            requires_encryption = self.sensitivity_detector.get_encryption_required(sensitivity_level)
+            
             memory = Memory(
                 user_id=user_id,
                 group_id=group_id,
@@ -180,6 +219,12 @@ class MemoryCaptureEngine:
                 detected_entities=detected_entities,
                 is_user_requested=is_user_requested
             )
+            
+            # 在元数据中标记是否需要加密
+            if requires_encryption:
+                memory.metadata["requires_encryption"] = True
+                logger.debug(f"Memory marked as requiring encryption due to sensitivity level: {sensitivity_level.value}")
+            
             logger.debug(f"Memory object created: id={memory.id}, scope={memory_scope.value}")
             
             # 8. 设置情感信息
@@ -1013,8 +1058,8 @@ class MemoryCaptureEngine:
             config: 配置字典
         """
         self.auto_capture = config.get("auto_capture", True)
-        self.min_confidence = config.get("min_confidence", 0.3)
-        self.rif_threshold = config.get("rif_threshold", 0.4)
-        self.enable_duplicate_check = config.get("enable_duplicate_check", True)
-        self.enable_conflict_check = config.get("enable_conflict_check", True)
-        self.enable_entity_extraction = config.get("enable_entity_extraction", True)
+        self.min_confidence = config.get("min_confidence", DEFAULTS.memory.min_confidence)
+        self.rif_threshold = config.get("rif_threshold", DEFAULTS.memory.rif_threshold)
+        self.enable_duplicate_check = config.get("enable_duplicate_check", DEFAULTS.memory.enable_duplicate_check)
+        self.enable_conflict_check = config.get("enable_conflict_check", DEFAULTS.memory.enable_conflict_check)
+        self.enable_entity_extraction = config.get("enable_entity_extraction", DEFAULTS.memory.enable_entity_extraction)

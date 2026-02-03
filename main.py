@@ -42,6 +42,9 @@ from iris_memory.proactive.proactive_reply_detector import ProactiveReplyDetecto
 from iris_memory.proactive.reply_generator import ProactiveReplyGenerator
 from iris_memory.proactive.proactive_manager import ProactiveReplyManager
 
+# 新增：图片智能分析
+from iris_memory.multimodal.image_analyzer import ImageAnalyzer, ImageAnalysisLevel
+
 
 @register("iris_memory", "YourName", "基于companion-memory框架的三层记忆插件", "1.0.0")
 class IrisMemoryPlugin(Star):
@@ -96,11 +99,14 @@ class IrisMemoryPlugin(Star):
         self.reply_generator = None
         self.proactive_manager = None
         
+        # 新增：图片分析器
+        self.image_analyzer = None
+        
         # 用户情感状态缓存：{user_id: EmotionalState}
-        self.user_emotional_states: dict = {}
+        self.user_emotional_states: Dict[str, EmotionalState] = {}
         
         # 用户画像缓存：{user_id: UserPersona}
-        self.user_personas: dict = {}
+        self.user_personas: Dict[str, UserPersona] = {}
     
     async def initialize(self):
         """异步初始化插件"""
@@ -174,8 +180,14 @@ class IrisMemoryPlugin(Star):
             # ========== 新增：主动回复初始化 ==========
             await self._init_proactive_reply()
             
+            # ========== 新增：图片分析器初始化 ==========
+            await self._init_image_analyzer()
+            
             # 配置参数
             self._apply_config()
+            
+            # 初始化批量处理器（依赖配置，需要在 _apply_config 之后）
+            await self._init_batch_processor()
             
             # 加载会话数据
             await self._load_sessions()
@@ -277,6 +289,46 @@ class IrisMemoryPlugin(Star):
         
         self.logger.info("Proactive reply components initialized")
     
+    async def _init_image_analyzer(self):
+        """初始化图片分析器"""
+        self.logger.info("Initializing image analyzer...")
+        
+        # 从配置获取图片分析设置
+        enable_analysis = self.cfg.get("image_analysis.enable", DEFAULTS.image_analysis.enable_image_analysis)
+        analysis_mode = self.cfg.get("image_analysis.mode", DEFAULTS.image_analysis.analysis_mode)
+        max_images = self.cfg.get("image_analysis.max_images", DEFAULTS.image_analysis.max_images_per_message)
+        
+        # 新增：预算和过滤配置
+        daily_budget = self.cfg.get("image_analysis.daily_budget", DEFAULTS.image_analysis.daily_analysis_budget)
+        session_budget = self.cfg.get("image_analysis.session_budget", DEFAULTS.image_analysis.session_analysis_budget)
+        require_context = self.cfg.get("image_analysis.require_context", DEFAULTS.image_analysis.require_context_relevance)
+        
+        if not enable_analysis:
+            self.logger.info("Image analysis is disabled")
+            return
+        
+        self.image_analyzer = ImageAnalyzer(
+            astrbot_context=self.context,
+            config={
+                "enable_image_analysis": enable_analysis,
+                "default_level": analysis_mode,
+                "max_images_per_message": max_images,
+                "skip_sticker": DEFAULTS.image_analysis.skip_sticker,
+                "analysis_cooldown": DEFAULTS.image_analysis.analysis_cooldown,
+                "cache_ttl": DEFAULTS.image_analysis.cache_ttl,
+                "max_cache_size": DEFAULTS.image_analysis.max_cache_size,
+                # 新增配置
+                "daily_analysis_budget": daily_budget if daily_budget > 0 else 999999,
+                "session_analysis_budget": session_budget if session_budget > 0 else 999999,
+                "similar_image_window": DEFAULTS.image_analysis.similar_image_window,
+                "recent_image_limit": DEFAULTS.image_analysis.recent_image_limit,
+                "require_context_relevance": require_context
+            }
+        )
+        
+        self.logger.info(f"Image analyzer initialized: mode={analysis_mode}, max_images={max_images}, "
+                        f"daily_budget={daily_budget}, require_context={require_context}")
+    
     async def _init_batch_processor(self):
         """初始化批量处理器（在_apply_config后调用）"""
         use_llm = self.cfg.use_llm
@@ -288,11 +340,21 @@ class IrisMemoryPlugin(Star):
             threshold_count=DEFAULTS.message_processing.batch_threshold_count,
             threshold_interval=DEFAULTS.message_processing.batch_threshold_interval,
             processing_mode=DEFAULTS.message_processing.batch_processing_mode,
-            use_llm_summary=use_llm and self.llm_processor is not None
+            use_llm_summary=use_llm and self.llm_processor is not None,
+            on_save_callback=self._save_batch_queues
         )
         await self.batch_processor.start()
         
         self.logger.info("Batch processor initialized")
+    
+    async def _save_batch_queues(self):
+        """保存批量处理器队列到KV存储（供自动保存回调使用）"""
+        if self.batch_processor:
+            try:
+                batch_queues = await self.batch_processor.serialize_queues()
+                await self.put_kv_data("batch_queues", batch_queues)
+            except Exception as e:
+                self.logger.warning(f"Failed to auto-save batch queues: {e}")
     
     def _apply_config(self):
         """应用配置"""
@@ -358,10 +420,6 @@ class IrisMemoryPlugin(Star):
             f"max_working_memory={max_working_memory}, "
             f"max_context_memories={max_context_memories}"
         )
-        
-        # 初始化批量处理器（依赖配置）
-        import asyncio
-        asyncio.create_task(self._init_batch_processor())
     
     def _is_admin(self, event: AstrMessageEvent) -> bool:
         """检查用户是否为管理员（使用 AstrBot 全局管理员设置）
@@ -495,7 +553,7 @@ class IrisMemoryPlugin(Star):
             # - EPISODIC/SEMANTIC 记忆存入Chroma
             if memory.storage_layer.value == "working":
                 # 工作记忆仅存入SessionManager（统一缓存）
-                self.session_manager.add_working_memory(memory)
+                await self.session_manager.add_working_memory(memory)
             else:
                 # 情景/语义记忆存入Chroma
                 await self.chroma_manager.add_memory(memory)
@@ -566,7 +624,7 @@ class IrisMemoryPlugin(Star):
         await self.chroma_manager.delete_session(user_id, group_id)
         
         # 清除工作记忆缓存
-        self.session_manager.clear_working_memory(user_id, group_id)
+        await self.session_manager.clear_working_memory(user_id, group_id)
         
         # 删除保存时间记录
         await self.delete_kv_data(f"last_save_{user_id}_{group_id or 'private'}")
@@ -592,7 +650,7 @@ class IrisMemoryPlugin(Star):
         success, count = await self.chroma_manager.delete_user_memories(user_id, in_private_only=True)
         
         # 清除工作记忆缓存
-        self.session_manager.clear_working_memory(user_id, None)
+        await self.session_manager.clear_working_memory(user_id, None)
         
         # 删除保存时间记录
         await self.delete_kv_data(f"last_save_{user_id}_private")
@@ -646,7 +704,7 @@ class IrisMemoryPlugin(Star):
         # 清除相关的工作记忆缓存（所有用户在该群的记忆）
         # 注意：这里只能清除当前用户的缓存，其他用户的缓存会在下次访问时自动同步
         if scope_filter != "group_shared":  # 如果不是只删除共享记忆，则清空工作记忆
-            self.session_manager.clear_working_memory(user_id, group_id)
+            await self.session_manager.clear_working_memory(user_id, group_id)
         
         if success:
             scope_desc = "共享" if scope_filter == "group_shared" else "个人" if scope_filter == "group_private" else "所有"
@@ -700,7 +758,8 @@ class IrisMemoryPlugin(Star):
         group_id = get_group_id(event)
 
         # 统计各层记忆数量
-        working_count = len(self.session_manager.get_working_memory(user_id, group_id))
+        working_memories = await self.session_manager.get_working_memory(user_id, group_id)
+        working_count = len(working_memories)
         
         episodic_count = await self.chroma_manager.count_memories(
             user_id=user_id,
@@ -712,10 +771,18 @@ class IrisMemoryPlugin(Star):
         session = self.session_manager.get_session(session_key)
         message_count = session["message_count"] if session else 0
         
+        # 图片分析统计
+        image_stats = ""
+        if self.image_analyzer:
+            stats = self.image_analyzer.get_statistics()
+            image_stats = f"""
+- 图片分析：{stats.get('total_analyzed', 0)} 张
+- 缓存命中：{stats.get('cache_hits', 0)} 次"""
+        
         result = f"""记忆统计：
 - 工作记忆：{working_count} 条
 - 情景记忆：{episodic_count} 条
-- 会话消息：{message_count} 条"""
+- 会话消息：{message_count} 条{image_stats}"""
         
         yield event.plain_result(result)
     
@@ -723,7 +790,10 @@ class IrisMemoryPlugin(Star):
     
     @filter.on_llm_request()
     async def on_llm_request(self, event: AstrMessageEvent, req):
-        """在LLM请求前注入记忆上下文"""
+        """在LLM请求前注入记忆上下文
+        
+        同时分析消息中的图片，将描述注入到上下文
+        """
         if not self.cfg.enable_inject:
             return
 
@@ -734,6 +804,24 @@ class IrisMemoryPlugin(Star):
         # 激活会话（更新生命周期）
         if self.lifecycle_manager:
             await self.lifecycle_manager.activate_session(user_id, group_id)
+        
+        # ========== 图片分析（LLM上下文增强） ==========
+        image_context = ""
+        if self.image_analyzer:
+            try:
+                message_chain = event.message_obj.message
+                session_key = f"{user_id}:{group_id}" if group_id else user_id
+                image_results = await self.image_analyzer.analyze_message_images(
+                    message_chain=message_chain,
+                    user_id=user_id,
+                    context_text=query,
+                    umo=event.unified_msg_origin,
+                    session_id=session_key
+                )
+                if image_results:
+                    image_context = self.image_analyzer.format_for_llm_context(image_results)
+            except Exception as e:
+                self.logger.warning(f"Image analysis in LLM hook failed: {e}")
         
         # 获取情感状态
         emotional_state = self._get_or_create_emotional_state(user_id)
@@ -762,6 +850,11 @@ class IrisMemoryPlugin(Star):
             memory_context = self.retrieval_engine.format_memories_for_llm(memories)
             req.system_prompt += f"\n\n{memory_context}\n"
             self.logger.debug(f"Injected {len(memories)} memories into LLM context")
+        
+        # 注入图片上下文描述（如果有）
+        if image_context:
+            req.system_prompt += f"\n{image_context}\n"
+            self.logger.debug("Injected image context into LLM prompt")
     
     @filter.on_llm_response()
     async def on_llm_response(self, event: AstrMessageEvent, resp):
@@ -789,7 +882,7 @@ class IrisMemoryPlugin(Star):
             # - EPISODIC/SEMANTIC 记忆存入Chroma
             if memory.storage_layer.value == "working":
                 # 工作记忆仅存入SessionManager
-                self.session_manager.add_working_memory(memory)
+                await self.session_manager.add_working_memory(memory)
             else:
                 # 情景/语义记忆存入Chroma
                 await self.chroma_manager.add_memory(memory)
@@ -806,6 +899,8 @@ class IrisMemoryPlugin(Star):
         1. immediate - 立即捕获高价值消息
         2. batch - 累积批量处理普通消息
         3. discard - 丢弃无价值消息
+        
+        支持图片智能分析：将图片描述添加到消息内容中
         """
         # 如果批量处理器未初始化，跳过
         if not self.batch_processor:
@@ -829,11 +924,40 @@ class IrisMemoryPlugin(Star):
         # 更新会话活动
         self.session_manager.update_session_activity(user_id, group_id)
         
+        # ========== 图片分析 ==========
+        image_description = ""
+        if self.image_analyzer:
+            try:
+                message_chain = event.message_obj.message
+                session_key = f"{user_id}:{group_id}" if group_id else user_id
+                image_results = await self.image_analyzer.analyze_message_images(
+                    message_chain=message_chain,
+                    user_id=user_id,
+                    context_text=message,
+                    umo=event.unified_msg_origin,
+                    session_id=session_key
+                )
+                if image_results:
+                    image_description = self.image_analyzer.format_for_memory(image_results)
+                    self.logger.debug(f"Image analysis result: {image_description}")
+            except Exception as e:
+                self.logger.warning(f"Image analysis failed: {e}")
+        
+        # 合并文字和图片描述
+        full_message = message
+        if image_description:
+            full_message = f"{message} {image_description}".strip()
+        
         # 构建消息上下文
         context = await self._build_message_context(user_id, group_id)
         
+        # 添加图片信息到上下文
+        if image_description:
+            context["has_image"] = True
+            context["image_description"] = image_description
+        
         # 分类消息
-        classification = await self.message_classifier.classify(message, context)
+        classification = await self.message_classifier.classify(full_message, context)
         
         self.logger.debug(f"Message classified: {classification.layer.value} "
                          f"(confidence: {classification.confidence:.2f}, "
@@ -845,15 +969,15 @@ class IrisMemoryPlugin(Star):
             return
         
         elif classification.layer == ProcessingLayer.IMMEDIATE:
-            # 立即处理层：直接捕获
+            # 立即处理层：直接捕获（使用包含图片描述的完整消息）
             await self._capture_immediate_memory(
-                message, user_id, group_id, classification
+                full_message, user_id, group_id, classification
             )
         
         else:  # BATCH
-            # 批量处理层：加入队列
+            # 批量处理层：加入队列（使用包含图片描述的完整消息）
             await self.batch_processor.add_message(
-                content=message,
+                content=full_message,
                 user_id=user_id,
                 group_id=group_id,
                 context=context
@@ -902,7 +1026,7 @@ class IrisMemoryPlugin(Star):
             # - EPISODIC/SEMANTIC 记忆存入Chroma
             if memory.storage_layer.value == "working":
                 # 工作记忆仅存入SessionManager
-                self.session_manager.add_working_memory(memory)
+                await self.session_manager.add_working_memory(memory)
             else:
                 # 情景/语义记忆存入Chroma
                 await self.chroma_manager.add_memory(memory)
@@ -958,3 +1082,7 @@ class IrisMemoryPlugin(Star):
         if self.proactive_manager:
             stats = self.proactive_manager.get_stats()
             self.logger.info(f"Proactive Manager: {stats}")
+        
+        if self.image_analyzer:
+            stats = self.image_analyzer.get_statistics()
+            self.logger.info(f"Image Analyzer: {stats}")
