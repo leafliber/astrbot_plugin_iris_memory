@@ -272,7 +272,7 @@ class IrisMemoryPlugin(Star):
         await self.reply_generator.initialize()
         
         # 获取每日最大回复数
-        max_daily = self.cfg.get("proactive_reply.max_daily", DEFAULTS.proactive_reply.max_daily_replies)
+        max_daily = self.cfg.proactive_reply_max_daily
         
         # 初始化主动回复管理器
         self.proactive_manager = ProactiveReplyManager(
@@ -294,9 +294,9 @@ class IrisMemoryPlugin(Star):
         self.logger.info("Initializing image analyzer...")
         
         # 从配置获取图片分析设置
-        enable_analysis = self.cfg.get("image_analysis.enable", DEFAULTS.image_analysis.enable_image_analysis)
-        analysis_mode = self.cfg.get("image_analysis.mode", DEFAULTS.image_analysis.analysis_mode)
-        max_images = self.cfg.get("image_analysis.max_images", DEFAULTS.image_analysis.max_images_per_message)
+        enable_analysis = self.cfg.image_analysis_enabled
+        analysis_mode = self.cfg.image_analysis_mode
+        max_images = self.cfg.image_analysis_max_images
         
         # 新增：预算和过滤配置
         daily_budget = self.cfg.image_analysis_daily_budget
