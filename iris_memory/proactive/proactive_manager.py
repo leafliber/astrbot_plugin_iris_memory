@@ -26,6 +26,7 @@ class ProactiveReplyTask:
     group_id: Optional[str]
     decision: ProactiveReplyDecision
     context: Dict[str, Any]
+    umo: str = ""  # 新增：unified_msg_origin
 
 
 class ProactiveReplyManager:
@@ -114,7 +115,8 @@ class ProactiveReplyManager:
         messages: List[str],
         user_id: str,
         group_id: Optional[str] = None,
-        context: Optional[Dict] = None
+        context: Optional[Dict] = None,
+        umo: str = ""
     ):
         """处理批量消息，判断是否需要主动回复"""
         if not self.enabled or not messages:
@@ -150,7 +152,8 @@ class ProactiveReplyManager:
                     user_id=user_id,
                     group_id=group_id,
                     decision=decision,
-                    context=context or {}
+                    context=context or {},
+                    umo=umo
                 )
                 
                 # 加入队列
@@ -204,7 +207,8 @@ class ProactiveReplyManager:
                 user_id=task.user_id,
                 group_id=task.group_id,
                 reply_context=task.decision.reply_context,
-                emotional_state=task.context.get("emotional_state")
+                emotional_state=task.context.get("emotional_state"),
+                umo=task.umo
             )
             
             if not reply or not reply.content:

@@ -52,30 +52,33 @@ class ProactiveReplyGenerator:
     async def initialize(self) -> bool:
         """初始化LLM API"""
         if not self.astrbot_context:
+            logger.warning("No astrbot_context provided")
             return False
         
-        try:
-            from astrbot.api import AstrBotApi
-            self.llm_api = AstrBotApi(self.astrbot_context)
-            logger.info("Reply generator initialized")
-            return True
-        except Exception as e:
-            logger.warning(f"Failed to initialize reply generator: {e}")
-            return False
+        logger.info("Reply generator initialized with context")
+        return True
     
     async def generate_reply(
         self,
         messages: List[str],
         user_id: str,
         group_id: Optional[str] = None,
-        reply_context: Optional[Dict] = None,
-        emotional_state: Optional[EmotionalState] = None
+        emotional_state: Optional[EmotionalState] = None,
+        umo: str = "",
+        reply_context: Optional[Dict] = None
     ) -> Optional[GeneratedReply]:
         """生成主动回复"""
-        if not self.llm_api or not messages:
+        if not self.astrbot_context or not messages:
+            logger.warning("No astrbot_context or messages provided")
             return None
         
         try:
+            # 获取LLM provider
+            provider = self.astrbot_context.get_using_provider(umo=umo)
+            if not provider:
+                logger.warning("No LLM provider available for reply generation")
+                return None
+            
             # 检索相关记忆
             relevant_memories = []
             if self.retrieval_engine and len(messages) > 0:
@@ -104,7 +107,7 @@ class ProactiveReplyGenerator:
             )
             
             # 调用LLM生成回复
-            response = await self._call_llm(prompt)
+            response = await self._call_llm(provider, prompt)
             
             if not response:
                 return None
@@ -198,41 +201,26 @@ class ProactiveReplyGenerator:
         
         return prompt
     
-    async def _call_llm(self, prompt: str) -> Optional[str]:
+    async def _call_llm(self, provider, prompt: str) -> Optional[str]:
         """调用LLM"""
-        if not self.llm_api:
+        if not provider:
             return None
         
         try:
-            if hasattr(self.llm_api, 'text_chat'):
-                response = await self.llm_api.text_chat(
-                    prompt=prompt,
-                    max_tokens=self.max_tokens,
-                    temperature=self.temperature
-                )
-                
-                if isinstance(response, dict):
-                    return response.get("text", "") or response.get("content", "")
-                return str(response)
+            # 使用text_chat方法，类似image_analyzer的做法
+            response = await provider.text_chat(
+                prompt=prompt,
+                max_tokens=self.max_tokens,
+                temperature=self.temperature
+            )
             
-            elif hasattr(self.llm_api, 'chat_completion'):
-                response = await self.llm_api.chat_completion(
-                    messages=[{"role": "user", "content": prompt}],
-                    max_tokens=self.max_tokens,
-                    temperature=self.temperature
-                )
-                
-                if isinstance(response, dict):
-                    choices = response.get("choices", [])
-                    if choices:
-                        return choices[0].get("message", {}).get("content", "")
-                return str(response)
+            if isinstance(response, dict):
+                return response.get("text", "") or response.get("content", "")
+            return str(response) if response else ""
             
         except Exception as e:
             logger.error(f"LLM call failed: {e}")
             return None
-        
-        return None
     
     def _extract_reply(self, response: str) -> str:
         """从LLM响应中提取回复内容"""
@@ -250,4 +238,4 @@ class ProactiveReplyGenerator:
     
     def is_available(self) -> bool:
         """检查是否可用"""
-        return self.llm_api is not None
+        return self.astrbot_context is not None

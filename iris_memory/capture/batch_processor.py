@@ -26,6 +26,7 @@ class QueuedMessage:
     group_id: Optional[str]
     timestamp: float = field(default_factory=time.time)
     context: Dict[str, Any] = field(default_factory=dict)
+    umo: str = ""  # 新增：unified_msg_origin
 
 
 class MessageBatchProcessor:
@@ -116,7 +117,8 @@ class MessageBatchProcessor:
         content: str,
         user_id: str,
         group_id: Optional[str] = None,
-        context: Dict = None
+        context: Dict = None,
+        umo: str = ""
     ) -> bool:
         """添加消息到队列"""
         session_key = f"{user_id}:{group_id or 'private'}"
@@ -129,7 +131,8 @@ class MessageBatchProcessor:
             content=content,
             user_id=user_id,
             group_id=group_id,
-            context=context or {}
+            context=context or {},
+            umo=umo
         ))
         
         # 标记有未保存的更改
@@ -234,7 +237,8 @@ class MessageBatchProcessor:
                     "user_persona": first_msg.context.get("user_persona", {}),
                     "emotional_state": first_msg.context.get("emotional_state"),
                     "session_info": {"message_count": len(queue)}
-                }
+                },
+                umo=first_msg.umo
             )
         except Exception as e:
             logger.error(f"Proactive reply trigger failed: {e}")
@@ -484,6 +488,49 @@ class MessageBatchProcessor:
     
     # ========== 队列持久化方法 ==========
     
+    def _make_json_serializable(self, obj: Any) -> Any:
+        """将对象转换为 JSON 可序列化的格式
+        
+        Args:
+            obj: 任意对象
+            
+        Returns:
+            JSON 可序列化的对象
+        """
+        from iris_memory.models.emotion_state import EmotionalState
+        from datetime import datetime, date
+        from collections import deque
+        from enum import Enum
+        
+        if isinstance(obj, EmotionalState):
+            return obj.to_dict()
+        elif isinstance(obj, datetime):
+            return obj.isoformat()
+        elif isinstance(obj, date):
+            return obj.isoformat()
+        elif isinstance(obj, Enum):
+            return obj.value
+        elif isinstance(obj, deque):
+            return [self._make_json_serializable(item) for item in obj]
+        elif isinstance(obj, (list, tuple)):
+            return [self._make_json_serializable(item) for item in obj]
+        elif isinstance(obj, dict):
+            return {key: self._make_json_serializable(value) for key, value in obj.items()}
+        elif isinstance(obj, (str, int, float, bool, type(None))):
+            return obj
+        else:
+            # 对于其他类型，尝试转换为字符串
+            try:
+                # 检查是否是自定义对象，尝试获取 __dict__
+                if hasattr(obj, '__dict__'):
+                    return self._make_json_serializable(obj.__dict__)
+                elif hasattr(obj, 'to_dict') and callable(getattr(obj, 'to_dict')):
+                    return obj.to_dict()
+                else:
+                    return str(obj)
+            except Exception:
+                return str(obj)
+    
     async def serialize_queues(self) -> Dict[str, Any]:
         """序列化队列数据用于持久化
         
@@ -501,19 +548,21 @@ class MessageBatchProcessor:
         for session_key, messages in self.message_queues.items():
             serialized["queues"][session_key] = []
             for msg in messages:
-                # 处理 context 中的 EmotionalState 对象
+                # 处理 context 中的所有可能无法序列化的对象
                 context = msg.context.copy() if msg.context else {}
-                if "emotional_state" in context and isinstance(context["emotional_state"], EmotionalState):
-                    context["emotional_state"] = context["emotional_state"].to_dict()
-                if "EmotionalState" in context:
-                    del context["EmotionalState"]  # 删除无法序列化的类引用
+                serializable_context = self._make_json_serializable(context)
+                
+                # 确保移除任何类引用
+                keys_to_remove = [k for k in serializable_context.keys() if k.startswith('_') or k == 'EmotionalState']
+                for key in keys_to_remove:
+                    del serializable_context[key]
                     
                 serialized["queues"][session_key].append({
                     "content": msg.content,
                     "user_id": msg.user_id,
                     "group_id": msg.group_id,
                     "timestamp": msg.timestamp,
-                    "context": context
+                    "context": serializable_context
                 })
         
         return serialized
@@ -549,7 +598,8 @@ class MessageBatchProcessor:
                         user_id=msg["user_id"],
                         group_id=msg["group_id"],
                         timestamp=msg.get("timestamp", time.time()),
-                        context=context
+                        context=context,
+                        umo=msg.get("umo", "")  # 从保存的数据恢复umo
                     )
                 )
             self.message_queues[session_key] = restored_messages
