@@ -7,6 +7,10 @@ from typing import List, Dict, Any, Optional
 import numpy as np
 
 from .base import EmbeddingProvider, EmbeddingRequest, EmbeddingResponse
+from iris_memory.utils.logger import get_logger
+
+# 模块logger
+logger = get_logger("local_provider")
 
 
 class LocalProvider(EmbeddingProvider):
@@ -24,6 +28,7 @@ class LocalProvider(EmbeddingProvider):
         """
         super().__init__(config)
         self._model = None
+        self._model_instance = None
         self.model_path = None
         self.device = "cpu"
 
@@ -38,33 +43,34 @@ class LocalProvider(EmbeddingProvider):
             try:
                 from sentence_transformers import SentenceTransformer
             except ImportError:
-                from iris_memory.utils.logger import logger
                 logger.warning("sentence-transformers not installed. Run: pip install sentence-transformers")
+                return False
+            
+            # 检查 torch
+            try:
+                import torch
+                self.device = "cuda" if torch.cuda.is_available() else "cpu"
+            except ImportError:
+                logger.warning("torch not installed. Run: pip install torch")
                 return False
             
             # 获取配置
             model_name = self._get_config(
                 "chroma_config.embedding_model",
-                "BAAI/bge-m3"
+                "BAAI/bge-small-zh-v1.5"
             )
-            
-            # 设备选择
-            import torch
-            self.device = "cuda" if torch.cuda.is_available() else "cpu"
-            
+
             # 加载模型
-            from iris_memory.utils.logger import logger
             logger.info(f"Loading local embedding model: {model_name} on {self.device}")
             
-            self.model = SentenceTransformer(model_name, device=self.device)
+            self._model_instance = SentenceTransformer(model_name, device=self.device)
             self._model = model_name
-            self._dimension = self.model.get_sentence_embedding_dimension()
+            self._dimension = self._model_instance.get_sentence_embedding_dimension()
             
             logger.info(f"Local embedding provider initialized: {self._model} (dim={self._dimension})")
             return True
-            
+
         except Exception as e:
-            from iris_memory.utils.logger import logger
             logger.warning(f"Failed to initialize local provider: {e}")
             return False
 
@@ -77,12 +83,12 @@ class LocalProvider(EmbeddingProvider):
         Returns:
             EmbeddingResponse: 嵌入响应对象
         """
-        if not self.model:
+        if not self._model_instance:
             raise RuntimeError("Local provider not initialized. Call initialize() first.")
         
         try:
             # 生成嵌入
-            embedding = self.model.encode(
+            embedding = self._model_instance.encode(
                 request.text,
                 convert_to_numpy=True,
                 normalize_embeddings=True  # 标准化向量
@@ -101,7 +107,6 @@ class LocalProvider(EmbeddingProvider):
             )
             
         except Exception as e:
-            from iris_memory.utils.logger import logger
             logger.error(f"Failed to generate embedding with local model: {e}")
             raise
 
@@ -114,14 +119,14 @@ class LocalProvider(EmbeddingProvider):
         Returns:
             List[EmbeddingResponse]: 嵌入响应列表
         """
-        if not self.model:
+        if not self._model_instance:
             raise RuntimeError("Local provider not initialized. Call initialize() first.")
         
         try:
             texts = [req.text for req in requests]
             
             # 批量生成嵌入（更高效）
-            embeddings = self.model.encode(
+            embeddings = self._model_instance.encode(
                 texts,
                 convert_to_numpy=True,
                 normalize_embeddings=True,
@@ -144,9 +149,8 @@ class LocalProvider(EmbeddingProvider):
                 ))
             
             return responses
-            
+
         except Exception as e:
-            from iris_memory.utils.logger import logger
             logger.error(f"Failed to batch generate embeddings: {e}")
             raise
 
@@ -158,15 +162,15 @@ class LocalProvider(EmbeddingProvider):
         """
         status = {
             "provider": "local",
-            "status": "ok" if self.model else "not_initialized",
+            "status": "ok" if self._model_instance else "not_initialized",
             "model": self._model,
             "dimension": self._dimension,
             "device": self.device,
-            "available": self.model is not None
+            "available": self._model_instance is not None
         }
         
         # 测试调用
-        if self.model:
+        if self._model_instance:
             try:
                 test_result = await self.embed(EmbeddingRequest(text="test"))
                 status["status"] = "ok"

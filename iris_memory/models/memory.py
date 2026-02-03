@@ -19,6 +19,7 @@ from iris_memory.core.types import (
     VerificationMethod,
     DecayRate
 )
+from iris_memory.core.memory_scope import MemoryScope
 
 
 @dataclass
@@ -32,6 +33,7 @@ class Memory:
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     user_id: str = ""
     group_id: Optional[str] = None  # 群聊ID，私聊为None
+    scope: MemoryScope = MemoryScope.GROUP_PRIVATE  # 记忆可见性范围
     type: MemoryType = MemoryType.FACT
     subtype: Optional[str] = None  # 子类型（如emotion中的具体情绪）
     modality: ModalityType = ModalityType.TEXT

@@ -5,6 +5,7 @@ Iris Memory Plugin - 主入口
 
 import sys
 from pathlib import Path
+from typing import Optional, Dict, Any
 
 # 将插件根目录添加到Python路径，以便能够导入iris_memory模块
 plugin_root = Path(__file__).parent
@@ -23,11 +24,23 @@ from iris_memory.capture.capture_engine import MemoryCaptureEngine
 from iris_memory.retrieval.retrieval_engine import MemoryRetrievalEngine
 from iris_memory.storage.session_manager import SessionManager
 from iris_memory.storage.lifecycle_manager import SessionLifecycleManager
-from iris_memory.storage.cache import CacheManager, WorkingMemoryCache
+from iris_memory.storage.cache import CacheManager  # WorkingMemoryCache已整合到SessionManager
 from iris_memory.analysis.emotion_analyzer import EmotionAnalyzer
 from iris_memory.analysis.rif_scorer import RIFScorer
 from iris_memory.models.emotion_state import EmotionalState
 from iris_memory.utils.hook_manager import MemoryInjector, InjectionMode, HookPriority
+from iris_memory.utils.event_utils import get_group_id
+from iris_memory.utils.logger import init_logging_from_config, get_logger
+from iris_memory.core.config_manager import ConfigManager, init_config_manager
+from iris_memory.core.defaults import DEFAULTS
+
+# 新增：分层消息处理和主动回复
+from iris_memory.capture.message_classifier import MessageClassifier, ProcessingLayer
+from iris_memory.capture.batch_processor import MessageBatchProcessor
+from iris_memory.processing.llm_processor import LLMMessageProcessor
+from iris_memory.proactive.proactive_reply_detector import ProactiveReplyDetector
+from iris_memory.proactive.reply_generator import ProactiveReplyGenerator
+from iris_memory.proactive.proactive_manager import ProactiveReplyManager
 
 
 @register("iris_memory", "YourName", "基于companion-memory框架的三层记忆插件", "1.0.0")
@@ -53,8 +66,14 @@ class IrisMemoryPlugin(Star):
         self.context = context
         self.config = config
         
+        # 初始化配置管理器（统一配置访问）
+        self.cfg = init_config_manager(config)
+        
+        # 插件名称（与register装饰器第一个参数一致）
+        self.name = "iris_memory"
+        
         # 插件数据目录
-        self.plugin_data_path = get_astrbot_data_path() / "plugin_data" / self.name
+        self.plugin_data_path = Path(get_astrbot_data_path()) / "plugin_data" / self.name
         
         # 初始化核心组件（将在initialize中完成）
         self.chroma_manager = None
@@ -63,10 +82,19 @@ class IrisMemoryPlugin(Star):
         self.session_manager = None
         self.lifecycle_manager = None
         self.cache_manager = None
-        self.working_memory_cache = None
         self.emotion_analyzer = None
         self.rif_scorer = None
         self.memory_injector = None
+        
+        # 新增：分层消息处理组件
+        self.message_classifier = None
+        self.batch_processor = None
+        self.llm_processor = None
+        
+        # 新增：主动回复组件
+        self.reply_detector = None
+        self.reply_generator = None
+        self.proactive_manager = None
         
         # 用户情感状态缓存：{user_id: EmotionalState}
         self.user_emotional_states: dict = {}
@@ -77,10 +105,16 @@ class IrisMemoryPlugin(Star):
     async def initialize(self):
         """异步初始化插件"""
         try:
-            logger.info("IrisMemory plugin initializing...")
-            
             # 创建插件数据目录
             self.plugin_data_path.mkdir(parents=True, exist_ok=True)
+            
+            # 初始化日志系统（使用配置管理器）
+            init_logging_from_config(self.config, self.plugin_data_path)
+            
+            # 获取模块logger
+            self.logger = get_logger("main")
+            self.logger.info("IrisMemory plugin initializing...")
+            self.logger.debug(f"Plugin data path: {self.plugin_data_path}")
             
             # 初始化情感分析器
             self.emotion_analyzer = EmotionAnalyzer(self.config)
@@ -92,22 +126,23 @@ class IrisMemoryPlugin(Star):
             self.chroma_manager = ChromaManager(self.config, self.plugin_data_path, self.context)
             await self.chroma_manager.initialize()
             
-            # 初始化会话管理器
-            self.session_manager = SessionManager()
-            
-            # 初始化缓存管理器
-            self.cache_manager = CacheManager({})
-            
-            # 初始化工作记忆缓存（默认配置，在_apply_config中更新）
-            self.working_memory_cache = WorkingMemoryCache(
-                max_sessions=100,
-                max_memories_per_session=10,
-                ttl=86400
+            # 初始化会话管理器（使用配置管理器获取配置）
+            self.session_manager = SessionManager(
+                max_working_memory=self.cfg.max_working_memory,
+                max_sessions=DEFAULTS.session.max_sessions,
+                ttl=self.cfg.session_timeout
             )
             
-            # 初始化生命周期管理器
+            # 初始化缓存管理器（用于嵌入向量缓存）
+            self.cache_manager = CacheManager({})
+            
+            # 初始化生命周期管理器（注入chroma_manager用于记忆升级持久化）
             self.lifecycle_manager = SessionLifecycleManager(
-                session_manager=self.session_manager
+                session_manager=self.session_manager,
+                chroma_manager=self.chroma_manager,
+                upgrade_mode=self.cfg.upgrade_mode,
+                llm_upgrade_batch_size=DEFAULTS.memory.llm_upgrade_batch_size,
+                llm_upgrade_threshold=DEFAULTS.memory.llm_upgrade_threshold
             )
             await self.lifecycle_manager.start()
             
@@ -118,11 +153,12 @@ class IrisMemoryPlugin(Star):
                 rif_scorer=self.rif_scorer
             )
             
-            # 初始化记忆检索引擎
+            # 初始化记忆检索引擎（注入session_manager以支持工作记忆合并）
             self.retrieval_engine = MemoryRetrievalEngine(
                 chroma_manager=self.chroma_manager,
                 rif_scorer=self.rif_scorer,
-                emotion_analyzer=self.emotion_analyzer
+                emotion_analyzer=self.emotion_analyzer,
+                session_manager=self.session_manager
             )
             
             # 初始化记忆注入器
@@ -132,95 +168,214 @@ class IrisMemoryPlugin(Star):
                 namespace="iris_memory"
             )
             
+            # ========== 新增：分层消息处理初始化 ==========
+            await self._init_message_processing()
+            
+            # ========== 新增：主动回复初始化 ==========
+            await self._init_proactive_reply()
+            
             # 配置参数
             self._apply_config()
             
             # 加载会话数据
             await self._load_sessions()
             
-            logger.info("IrisMemory plugin initialized successfully")
+            self.logger.info("IrisMemory plugin initialized successfully")
             
         except Exception as e:
-            logger.error(f"IrisMemory plugin initialization failed: {e}")
+            self.logger.error(f"IrisMemory plugin initialization failed: {e}", exc_info=True)
             raise
+    
+    async def _init_message_processing(self):
+        """初始化分层消息处理组件"""
+        self.logger.info("Initializing message processing components...")
+        
+        # 检查是否启用批量处理（默认启用）
+        enable_batch = DEFAULTS.message_processing.batch_threshold_count > 0
+        use_llm = self.cfg.use_llm
+        
+        if not enable_batch:
+            self.logger.info("Batch processing is disabled")
+            return
+        
+        # 初始化LLM处理器（如果启用）
+        if use_llm:
+            self.llm_processor = LLMMessageProcessor(
+                astrbot_context=self.context,
+                max_tokens=DEFAULTS.message_processing.llm_max_tokens_for_summary
+            )
+            llm_initialized = await self.llm_processor.initialize()
+            if not llm_initialized:
+                self.logger.warning("LLM processor failed to initialize, using local mode")
+                self.llm_processor = None
+            else:
+                # 如果LLM初始化成功，设置给生命周期管理器用于升级判断
+                if self.lifecycle_manager:
+                    self.lifecycle_manager.set_llm_provider(self.llm_processor)
+                    self.logger.info("LLM provider set for memory upgrade evaluation")
+        
+        # 初始化消息分类器
+        self.message_classifier = MessageClassifier(
+            trigger_detector=self.capture_engine.trigger_detector if self.capture_engine else None,
+            emotion_analyzer=self.emotion_analyzer,
+            llm_processor=self.llm_processor,
+            config={
+                "llm_processing_mode": DEFAULTS.message_processing.llm_processing_mode,
+                "immediate_trigger_confidence": DEFAULTS.message_processing.immediate_trigger_confidence,
+                "immediate_emotion_intensity": DEFAULTS.message_processing.immediate_emotion_intensity
+            }
+        )
+        
+        self.logger.info("Message classifier initialized")
+    
+    async def _init_proactive_reply(self):
+        """初始化主动回复组件"""
+        self.logger.info("Initializing proactive reply components...")
+        
+        # 检查是否启用主动回复
+        enable_proactive = self.cfg.proactive_reply_enabled
+        
+        if not enable_proactive:
+            self.logger.info("Proactive reply is disabled")
+            return
+        
+        # 初始化主动回复检测器
+        self.reply_detector = ProactiveReplyDetector(
+            emotion_analyzer=self.emotion_analyzer,
+            config={
+                "high_emotion_threshold": DEFAULTS.proactive_reply.high_emotion_threshold,
+                "question_threshold": DEFAULTS.proactive_reply.question_threshold
+            }
+        )
+        
+        # 初始化回复生成器
+        self.reply_generator = ProactiveReplyGenerator(
+            astrbot_context=self.context,
+            retrieval_engine=self.retrieval_engine,
+            config={
+                "max_reply_tokens": DEFAULTS.proactive_reply.max_reply_tokens,
+                "reply_temperature": DEFAULTS.proactive_reply.reply_temperature
+            }
+        )
+        await self.reply_generator.initialize()
+        
+        # 获取每日最大回复数
+        max_daily = self.cfg.get("proactive_reply.max_daily", DEFAULTS.proactive_reply.max_daily_replies)
+        
+        # 初始化主动回复管理器
+        self.proactive_manager = ProactiveReplyManager(
+            astrbot_context=self.context,
+            reply_detector=self.reply_detector,
+            reply_generator=self.reply_generator,
+            config={
+                "enable_proactive_reply": enable_proactive,
+                "reply_cooldown": DEFAULTS.proactive_reply.cooldown_seconds,
+                "max_daily_replies": max_daily
+            }
+        )
+        await self.proactive_manager.initialize()
+        
+        self.logger.info("Proactive reply components initialized")
+    
+    async def _init_batch_processor(self):
+        """初始化批量处理器（在_apply_config后调用）"""
+        use_llm = self.cfg.use_llm
+        
+        self.batch_processor = MessageBatchProcessor(
+            capture_engine=self.capture_engine,
+            llm_processor=self.llm_processor,
+            proactive_manager=self.proactive_manager,
+            threshold_count=DEFAULTS.message_processing.batch_threshold_count,
+            threshold_interval=DEFAULTS.message_processing.batch_threshold_interval,
+            processing_mode=DEFAULTS.message_processing.batch_processing_mode,
+            use_llm_summary=use_llm and self.llm_processor is not None
+        )
+        await self.batch_processor.start()
+        
+        self.logger.info("Batch processor initialized")
     
     def _apply_config(self):
         """应用配置"""
-        # 获取记忆配置
-        auto_capture = self._get_config("memory_config.auto_capture", True)
-        max_working_memory = self._get_config("memory_config.max_working_memory", 10)
-        rif_threshold = self._get_config("memory_config.rif_threshold", 0.4)
+        # 使用配置管理器获取配置
+        auto_capture = self.cfg.enable_memory
+        max_working_memory = self.cfg.max_working_memory
+        rif_threshold = self.cfg.rif_threshold
         
-        # 应用缓存配置
-        cache_config = self._get_config("cache_config", {})
+        # 应用缓存配置（使用默认值）
         if self.cache_manager:
             self.cache_manager = CacheManager({
                 'embedding_cache': {
-                    'max_size': cache_config.get('embedding_cache_size', 1000),
-                    'strategy': cache_config.get('embedding_cache_strategy', 'lru')
+                    'max_size': DEFAULTS.cache.embedding_cache_size,
+                    'strategy': DEFAULTS.cache.embedding_cache_strategy
                 },
                 'working_cache': {
-                    'max_sessions': cache_config.get('max_sessions', 100),
-                    'max_memories_per_session': cache_config.get('max_working_memory', max_working_memory),
-                    'ttl': cache_config.get('working_cache_ttl', 86400)
+                    'max_sessions': DEFAULTS.session.max_sessions,
+                    'max_memories_per_session': max_working_memory,
+                    'ttl': DEFAULTS.cache.working_cache_ttl
                 },
                 'compression': {
-                    'max_length': cache_config.get('compression_max_length', 200)
+                    'max_length': DEFAULTS.cache.compression_max_length
                 }
             })
         
-        # 应用配置
+        # 应用配置到捕获引擎
         self.capture_engine.set_config({
             "auto_capture": auto_capture,
-            "min_confidence": 0.3,
+            "min_confidence": DEFAULTS.memory.min_confidence,
             "rif_threshold": rif_threshold
         })
         
-        self.session_manager.set_max_working_memory(max_working_memory)
-        
-        # 更新工作记忆缓存配置
-        if self.working_memory_cache:
-            self.working_memory_cache.max_sessions = cache_config.get('max_sessions', 100)
-            self.working_memory_cache.max_memories_per_session = cache_config.get('max_working_memory', max_working_memory)
-            self.working_memory_cache.ttl = cache_config.get('working_cache_ttl', 86400)
+        # 更新SessionManager配置
+        self.session_manager.max_working_memory = max_working_memory
+        self.session_manager.max_sessions = DEFAULTS.session.max_sessions
+        self.session_manager.ttl = self.cfg.session_timeout
         
         # 应用生命周期管理器配置
         if self.lifecycle_manager:
-            self.lifecycle_manager.cleanup_interval = self._get_config(
-                "memory_config.session_cleanup_interval", 3600
-            )
-            self.lifecycle_manager.session_timeout = self._get_config(
-                "memory_config.session_timeout", 86400
-            )
-            self.lifecycle_manager.inactive_timeout = self._get_config(
-                "memory_config.session_inactive_timeout", 1800
-            )
+            self.lifecycle_manager.cleanup_interval = DEFAULTS.session.session_cleanup_interval
+            self.lifecycle_manager.session_timeout = self.cfg.session_timeout
+            self.lifecycle_manager.inactive_timeout = DEFAULTS.session.session_inactive_timeout
         
         # 获取LLM集成配置
-        enable_inject = self._get_config("llm_integration.enable_inject", True)
-        max_context_memories = self._get_config("llm_integration.max_context_memories", 3)
+        enable_inject = self.cfg.enable_inject
+        max_context_memories = self.cfg.max_context_memories
         
         self.retrieval_engine.set_config({
             "max_context_memories": max_context_memories,
-            "enable_time_aware": True,
-            "enable_emotion_aware": True,
-            "enable_token_budget": enable_inject,  # 启用注入时也启用token预算
-            "token_budget": self._get_config("llm_integration.token_budget", 512)
+            "enable_time_aware": DEFAULTS.llm_integration.enable_time_aware,
+            "enable_emotion_aware": DEFAULTS.llm_integration.enable_emotion_aware,
+            "enable_token_budget": enable_inject,
+            "token_budget": self.cfg.token_budget,
+            "coordination_strategy": DEFAULTS.llm_integration.coordination_strategy
         })
         
         # 配置记忆注入器
-        injection_mode_str = self._get_config("llm_integration.injection_mode", "suffix")
-        injection_mode = InjectionMode(injection_mode_str.lower())
+        injection_mode = InjectionMode(DEFAULTS.llm_integration.injection_mode)
         self.memory_injector.injection_mode = injection_mode
         
-        logger.info(
+        self.logger.info(
             f"Config applied: auto_capture={auto_capture}, "
             f"max_working_memory={max_working_memory}, "
-            f"injection_mode={injection_mode_str}"
+            f"max_context_memories={max_context_memories}"
         )
+        
+        # 初始化批量处理器（依赖配置）
+        import asyncio
+        asyncio.create_task(self._init_batch_processor())
+    
+    def _is_admin(self, event: AstrMessageEvent) -> bool:
+        """检查用户是否为管理员（使用 AstrBot 全局管理员设置）
+        
+        Args:
+            event: 消息事件对象
+            
+        Returns:
+            bool: 是否为管理员
+        """
+        return event.is_admin()
     
     def _get_config(self, key: str, default: any = None) -> any:
-        """获取配置值
+        """获取配置值（兼容旧代码，内部使用配置管理器）
         
         Args:
             key: 配置键（支持点分隔）
@@ -229,14 +384,7 @@ class IrisMemoryPlugin(Star):
         Returns:
             配置值
         """
-        try:
-            keys = key.split('.')
-            value = self.config
-            for k in keys:
-                value = getattr(value, k, value.get(k) if isinstance(value, dict) else default)
-            return value if value is not None else default
-        except (AttributeError, KeyError):
-            return default
+        return self.cfg.get(key, default)
     
     async def _load_sessions(self):
         """从KV存储加载会话数据"""
@@ -245,30 +393,44 @@ class IrisMemoryPlugin(Star):
             sessions_data = await self.get_kv_data("sessions", {})
             if sessions_data:
                 await self.session_manager.deserialize_from_kv_storage(sessions_data)
-                logger.info(f"Loaded {self.session_manager.get_session_count()} sessions")
+                self.logger.info(f"Loaded {self.session_manager.get_session_count()} sessions")
             
             # 加载生命周期状态
             lifecycle_state = await self.get_kv_data("lifecycle_state", {})
             if lifecycle_state and self.lifecycle_manager:
                 await self.lifecycle_manager.deserialize_state(lifecycle_state)
-                logger.info("Loaded lifecycle state")
+                self.logger.info("Loaded lifecycle state")
+            
+            # 加载批量处理器队列
+            batch_queues = await self.get_kv_data("batch_queues", {})
+            if batch_queues and self.batch_processor:
+                await self.batch_processor.deserialize_queues(batch_queues)
+                self.logger.info("Loaded batch processor queues")
             
             # 输出统计信息
             if self.lifecycle_manager:
                 stats = self.lifecycle_manager.get_session_statistics()
-                logger.info(f"Session statistics: {stats}")
+                self.logger.info(f"Session statistics: {stats}")
             
         except Exception as e:
-            logger.warning(f"Failed to load sessions: {e}")
+            self.logger.warning(f"Failed to load sessions: {e}")
     
     async def _save_sessions(self):
         """保存会话数据到KV存储"""
         try:
+            # 保存会话数据
             sessions_data = await self.session_manager.serialize_for_kv_storage()
             await self.put_kv_data("sessions", sessions_data)
-            logger.info(f"Saved {self.session_manager.get_session_count()} sessions")
+            self.logger.info(f"Saved {self.session_manager.get_session_count()} sessions")
+            
+            # 保存批量处理器队列
+            if self.batch_processor:
+                batch_queues = await self.batch_processor.serialize_queues()
+                await self.put_kv_data("batch_queues", batch_queues)
+                self.logger.info("Saved batch processor queues")
+                
         except Exception as e:
-            logger.warning(f"Failed to save sessions: {e}")
+            self.logger.warning(f"Failed to save sessions: {e}")
     
     def _get_or_create_emotional_state(self, user_id: str) -> EmotionalState:
         """获取或创建用户情感状态
@@ -285,17 +447,17 @@ class IrisMemoryPlugin(Star):
     
     def _get_or_create_user_persona(self, user_id: str) -> UserPersona:
         """获取或创建用户画像
-        
+
         Args:
             user_id: 用户ID
-            
+
         Returns:
             UserPersona: 用户画像对象
         """
         if user_id not in self.user_personas:
             self.user_personas[user_id] = UserPersona(user_id=user_id)
         return self.user_personas[user_id]
-    
+
     # ========== 指令处理器 ==========
     
     @filter.command("memory_save")
@@ -305,9 +467,16 @@ class IrisMemoryPlugin(Star):
         用法：/memory_save <内容>
         """
         user_id = event.get_sender_id()
-        group_id = event.get_sender_group_id()
-        message = event.message_str.replace("/memory_save", "").strip()
+        group_id = get_group_id(event)
+        # 尝试多种方式移除指令前缀（先strip去除前导空格）
+        message = event.message_str.strip()
+        for prefix in ["/memory_save", "memory_save"]:
+            if message.startswith(prefix):
+                message = message[len(prefix):].strip()
+                break
         
+        self.logger.debug(f"save_memory: raw='{event.message_str}', processed='{message}'")
+
         if not message:
             yield event.plain_result("请输入要保存的内容")
             return
@@ -321,12 +490,15 @@ class IrisMemoryPlugin(Star):
         )
         
         if memory:
-            # 存储到Chroma
-            await self.chroma_manager.add_memory(memory)
-            
-            # 如果是工作记忆，添加到缓存
+            # 分层存储逻辑：
+            # - WORKING 记忆只存内存缓存，不存Chroma
+            # - EPISODIC/SEMANTIC 记忆存入Chroma
             if memory.storage_layer.value == "working":
+                # 工作记忆仅存入SessionManager（统一缓存）
                 self.session_manager.add_working_memory(memory)
+            else:
+                # 情景/语义记忆存入Chroma
+                await self.chroma_manager.add_memory(memory)
             
             # 记录保存时间
             await self.put_kv_data(
@@ -345,9 +517,14 @@ class IrisMemoryPlugin(Star):
         用法：/memory_search <查询内容>
         """
         user_id = event.get_sender_id()
-        group_id = event.get_sender_group_id()
-        query = event.message_str.replace("/memory_search", "").strip()
-        
+        group_id = get_group_id(event)
+        # 尝试多种方式移除指令前缀（先strip去除前导空格）
+        query = event.message_str.strip()
+        for prefix in ["/memory_search", "memory_search"]:
+            if query.startswith(prefix):
+                query = query[len(prefix):].strip()
+                break
+
         if not query:
             yield event.plain_result("请输入搜索内容")
             return
@@ -379,42 +556,151 @@ class IrisMemoryPlugin(Star):
     @filter.command("memory_clear")
     async def clear_memory(self, event: AstrMessageEvent):
         """清除记忆指令
-        
+
         用法：/memory_clear
         """
         user_id = event.get_sender_id()
-        group_id = event.get_sender_group_id()
-        
+        group_id = get_group_id(event)
+
         # 清除Chroma中的记忆
         await self.chroma_manager.delete_session(user_id, group_id)
         
-        # 清除工作记忆缓存（同时清除SessionManager和WorkingMemoryCache）
+        # 清除工作记忆缓存
         self.session_manager.clear_working_memory(user_id, group_id)
-        if self.working_memory_cache:
-            await self.working_memory_cache.clear_session(user_id, group_id)
         
         # 删除保存时间记录
         await self.delete_kv_data(f"last_save_{user_id}_{group_id or 'private'}")
         
         yield event.plain_result("记忆已清除")
     
+    @filter.command("memory_delete_private")
+    async def delete_private_memories(self, event: AstrMessageEvent):
+        """删除个人私聊记忆指令
+
+        用法：/memory_delete_private
+        功能：删除当前用户在私聊场景下的所有记忆
+        """
+        user_id = event.get_sender_id()
+        group_id = get_group_id(event)
+        
+        # 检查是否在私聊场景
+        if group_id:
+            yield event.plain_result("此命令仅限私聊使用")
+            return
+        
+        # 删除Chroma中的私聊记忆
+        success, count = await self.chroma_manager.delete_user_memories(user_id, in_private_only=True)
+        
+        # 清除工作记忆缓存
+        self.session_manager.clear_working_memory(user_id, None)
+        
+        # 删除保存时间记录
+        await self.delete_kv_data(f"last_save_{user_id}_private")
+        
+        if success:
+            yield event.plain_result(f"已删除 {count} 条个人私聊记忆")
+        else:
+            yield event.plain_result("未找到记忆或删除失败")
+    
+    @filter.command("memory_delete_group")
+    async def delete_group_memories(self, event: AstrMessageEvent):
+        """删除当前群聊记忆指令（仅管理员）
+
+        用法：/memory_delete_group [shared|private|all]
+        功能：删除当前群聊的记忆
+        - shared: 仅删除群组共享记忆
+        - private: 仅删除个人在群聊的记忆
+        - all: 删除群组所有记忆（默认）
+        """
+        user_id = event.get_sender_id()
+        group_id = get_group_id(event)
+        
+        # 检查是否在群聊场景
+        if not group_id:
+            yield event.plain_result("此命令仅限群聊使用")
+            return
+        
+        # 检查管理员权限
+        if not self._is_admin(event):
+            yield event.plain_result("权限不足，仅管理员可以删除群聊记忆")
+            return
+        
+        # 解析参数
+        message_parts = event.message_str.split()
+        scope_filter = None
+        if len(message_parts) > 1:
+            param = message_parts[1].lower()
+            if param == "shared":
+                scope_filter = "group_shared"
+            elif param == "private":
+                scope_filter = "group_private"
+            elif param == "all":
+                scope_filter = None
+            else:
+                yield event.plain_result("参数错误，请使用: shared, private 或 all")
+                return
+        
+        # 删除Chroma中的群聊记忆
+        success, count = await self.chroma_manager.delete_group_memories(group_id, scope_filter)
+        
+        # 清除相关的工作记忆缓存（所有用户在该群的记忆）
+        # 注意：这里只能清除当前用户的缓存，其他用户的缓存会在下次访问时自动同步
+        if scope_filter != "group_shared":  # 如果不是只删除共享记忆，则清空工作记忆
+            self.session_manager.clear_working_memory(user_id, group_id)
+        
+        if success:
+            scope_desc = "共享" if scope_filter == "group_shared" else "个人" if scope_filter == "group_private" else "所有"
+            yield event.plain_result(f"已删除当前群聊的 {count} 条{scope_desc}记忆")
+        else:
+            yield event.plain_result("未找到记忆或删除失败")
+    
+    @filter.command("memory_delete_all")
+    async def delete_all_memories(self, event: AstrMessageEvent):
+        """删除所有记忆指令（仅超级管理员）
+
+        用法：/memory_delete_all confirm
+        功能：删除数据库中的所有记忆（危险操作）
+        注意：必须添加 'confirm' 参数确认操作
+        """
+        user_id = event.get_sender_id()
+        
+        # 检查管理员权限
+        if not self._is_admin(event):
+            yield event.plain_result("权限不足，仅管理员可以执行此操作")
+            return
+        
+        # 检查确认参数
+        message_parts = event.message_str.split()
+        if len(message_parts) < 2 or message_parts[1].lower() != "confirm":
+            yield event.plain_result("警告：此操作将删除所有记忆！\n请使用 '/memory_delete_all confirm' 确认操作")
+            return
+        
+        # 删除所有记忆
+        success, count = await self.chroma_manager.delete_all_memories()
+        
+        # 重置会话管理器（清除所有缓存）
+        self.session_manager = SessionManager(
+            max_working_memory=self.cfg.max_working_memory,
+            max_sessions=DEFAULTS.session.max_sessions,
+            ttl=self.cfg.session_timeout
+        )
+        
+        if success:
+            yield event.plain_result(f"已删除所有 {count} 条记忆！")
+        else:
+            yield event.plain_result("删除失败或数据库为空")
+    
     @filter.command("memory_stats")
     async def memory_stats(self, event: AstrMessageEvent):
         """记忆统计指令
-        
+
         用法：/memory_stats
         """
         user_id = event.get_sender_id()
-        group_id = event.get_sender_group_id()
-        
+        group_id = get_group_id(event)
+
         # 统计各层记忆数量
-        # 同时从SessionManager和WorkingMemoryCache获取
         working_count = len(self.session_manager.get_working_memory(user_id, group_id))
-        if self.working_memory_cache:
-            memories = await self.working_memory_cache.get_recent_memories(
-                user_id, group_id, limit=1000
-            )
-            working_count = max(working_count, len(memories))
         
         episodic_count = await self.chroma_manager.count_memories(
             user_id=user_id,
@@ -438,15 +724,13 @@ class IrisMemoryPlugin(Star):
     @filter.on_llm_request()
     async def on_llm_request(self, event: AstrMessageEvent, req):
         """在LLM请求前注入记忆上下文"""
-        enable_inject = self._get_config("llm_integration.enable_inject", True)
-        
-        if not enable_inject:
+        if not self.cfg.enable_inject:
             return
-        
+
         user_id = event.get_sender_id()
-        group_id = event.get_sender_group_id()
+        group_id = get_group_id(event)
         query = event.message_str
-        
+
         # 激活会话（更新生命周期）
         if self.lifecycle_manager:
             await self.lifecycle_manager.activate_session(user_id, group_id)
@@ -465,12 +749,11 @@ class IrisMemoryPlugin(Star):
         )
         
         # 检索相关记忆
-        max_context_memories = self._get_config("llm_integration.max_context_memories", 3)
         memories = await self.retrieval_engine.retrieve(
             query=query,
             user_id=user_id,
             group_id=group_id,
-            top_k=max_context_memories,
+            top_k=self.cfg.max_context_memories,
             emotional_state=emotional_state
         )
         
@@ -478,20 +761,18 @@ class IrisMemoryPlugin(Star):
         if memories:
             memory_context = self.retrieval_engine.format_memories_for_llm(memories)
             req.system_prompt += f"\n\n{memory_context}\n"
-            logger.debug(f"Injected {len(memories)} memories into LLM context")
+            self.logger.debug(f"Injected {len(memories)} memories into LLM context")
     
     @filter.on_llm_response()
     async def on_llm_response(self, event: AstrMessageEvent, resp):
         """在LLM响应后自动捕获新记忆"""
-        auto_capture = self._get_config("memory_config.auto_capture", True)
-        
-        if not auto_capture:
+        if not self.cfg.enable_memory:
             return
-        
+
         user_id = event.get_sender_id()
-        group_id = event.get_sender_group_id()
+        group_id = get_group_id(event)
         message = event.message_str
-        
+
         # 更新会话活动（保持会话活跃）
         self.session_manager.update_session_activity(user_id, group_id)
         
@@ -503,22 +784,142 @@ class IrisMemoryPlugin(Star):
         )
         
         if memory:
-            # 存储到Chroma
-            await self.chroma_manager.add_memory(memory)
-            
-            # 如果是工作记忆，添加到缓存（同时添加到SessionManager和WorkingMemoryCache）
+            # 分层存储逻辑：
+            # - WORKING 记忆只存内存缓存，不存Chroma
+            # - EPISODIC/SEMANTIC 记忆存入Chroma
             if memory.storage_layer.value == "working":
+                # 工作记忆仅存入SessionManager
                 self.session_manager.add_working_memory(memory)
-                if self.working_memory_cache:
-                    await self.working_memory_cache.add_memory(
-                        user_id, group_id, memory.id, memory
-                    )
+            else:
+                # 情景/语义记忆存入Chroma
+                await self.chroma_manager.add_memory(memory)
             
-            logger.debug(f"Auto-captured memory: {memory.id}")
+            self.logger.debug(f"Auto-captured memory: {memory.id}")
+    
+    # ========== 新增：普通消息分层处理器 ==========
+    
+    @filter.event_message_type(filter.EventMessageType.ALL)
+    async def on_all_messages(self, event: AstrMessageEvent):
+        """统一处理所有普通消息 - 分层处理策略
+        
+        三种处理层级：
+        1. immediate - 立即捕获高价值消息
+        2. batch - 累积批量处理普通消息
+        3. discard - 丢弃无价值消息
+        """
+        # 如果批量处理器未初始化，跳过
+        if not self.batch_processor:
+            return
+        
+        user_id = event.get_sender_id()
+        group_id = get_group_id(event)
+        message = event.message_str
+        
+        # 过滤掉指令消息（以/开头或已知指令）
+        if message.strip().startswith('/'):
+            return
+        
+        # 过滤掉其他指令
+        known_commands = ['memory_save', 'memory_search', 'memory_clear', 'memory_stats',
+                         'memory_delete_private', 'memory_delete_group', 'memory_delete_all']
+        for cmd in known_commands:
+            if message.strip().startswith(cmd):
+                return
+        
+        # 更新会话活动
+        self.session_manager.update_session_activity(user_id, group_id)
+        
+        # 构建消息上下文
+        context = await self._build_message_context(user_id, group_id)
+        
+        # 分类消息
+        classification = await self.message_classifier.classify(message, context)
+        
+        self.logger.debug(f"Message classified: {classification.layer.value} "
+                         f"(confidence: {classification.confidence:.2f}, "
+                         f"source: {classification.source})")
+        
+        # 根据层级处理
+        if classification.layer == ProcessingLayer.DISCARD:
+            # 丢弃层：直接返回
+            return
+        
+        elif classification.layer == ProcessingLayer.IMMEDIATE:
+            # 立即处理层：直接捕获
+            await self._capture_immediate_memory(
+                message, user_id, group_id, classification
+            )
+        
+        else:  # BATCH
+            # 批量处理层：加入队列
+            await self.batch_processor.add_message(
+                content=message,
+                user_id=user_id,
+                group_id=group_id,
+                context=context
+            )
+    
+    async def _build_message_context(
+        self,
+        user_id: str,
+        group_id: Optional[str]
+    ) -> Dict[str, Any]:
+        """构建消息上下文"""
+        session_key = self.session_manager.get_session_key(user_id, group_id)
+        session = self.session_manager.get_session(session_key)
+        
+        # 获取或创建情感状态
+        emotional_state = self._get_or_create_emotional_state(user_id)
+        
+        return {
+            "session_key": session_key,
+            "session_message_count": session.get("message_count", 0) if session else 0,
+            "user_persona": self.user_personas.get(user_id, {}),
+            "emotional_state": emotional_state
+        }
+    
+    async def _capture_immediate_memory(
+        self,
+        message: str,
+        user_id: str,
+        group_id: Optional[str],
+        classification
+    ):
+        """捕获立即处理的消息"""
+        memory = await self.capture_engine.capture_memory(
+            message=message,
+            user_id=user_id,
+            group_id=group_id,
+            context={
+                "classification": classification.metadata,
+                "source": classification.source
+            }
+        )
+        
+        if memory:
+            # 分层存储逻辑：
+            # - WORKING 记忆只存内存缓存，不存Chroma
+            # - EPISODIC/SEMANTIC 记忆存入Chroma
+            if memory.storage_layer.value == "working":
+                # 工作记忆仅存入SessionManager
+                self.session_manager.add_working_memory(memory)
+            else:
+                # 情景/语义记忆存入Chroma
+                await self.chroma_manager.add_memory(memory)
+            
+            self.logger.debug(f"Immediate memory captured: {memory.id}")
     
     async def terminate(self):
         """插件销毁"""
         try:
+            # 停止批量处理器
+            if self.batch_processor:
+                await self.batch_processor.stop()
+            
+            # 停止主动回复管理器
+            if self.proactive_manager:
+                await self.proactive_manager.stop()
+            
             # 停止生命周期管理器
             if self.lifecycle_manager:
                 await self.lifecycle_manager.stop()
@@ -530,7 +931,30 @@ class IrisMemoryPlugin(Star):
             if self.chroma_manager:
                 await self.chroma_manager.close()
             
-            logger.info("IrisMemory plugin terminated")
+            # 输出统计信息
+            self._log_final_stats()
+            
+            self.logger.info("IrisMemory plugin terminated")
             
         except Exception as e:
-            logger.error(f"IrisMemory plugin termination error: {e}")
+            self.logger.error(f"IrisMemory plugin termination error: {e}", exc_info=True)
+    
+    def _log_final_stats(self):
+        """输出最终统计信息"""
+        self.logger.info("=== Final Statistics ===")
+        
+        if self.message_classifier:
+            stats = self.message_classifier.get_stats()
+            self.logger.info(f"Message Classifier: {stats}")
+        
+        if self.batch_processor:
+            stats = self.batch_processor.get_stats()
+            self.logger.info(f"Batch Processor: {stats}")
+        
+        if self.llm_processor:
+            stats = self.llm_processor.get_stats()
+            self.logger.info(f"LLM Processor: {stats}")
+        
+        if self.proactive_manager:
+            stats = self.proactive_manager.get_stats()
+            self.logger.info(f"Proactive Manager: {stats}")

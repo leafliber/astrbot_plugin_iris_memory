@@ -6,6 +6,11 @@ Token管理器
 from typing import List, Tuple, Optional
 from enum import Enum
 
+from iris_memory.utils.logger import get_logger
+
+# 模块logger
+logger = get_logger("token_manager")
+
 
 class TokenType(str, Enum):
     """Token类型"""
@@ -321,22 +326,11 @@ class DynamicMemorySelector:
         context = "\n".join(lines)
 
         # 记录统计信息
-        try:
-            from astrbot.api import logger
-            logger.debug(
-                f"Memory context generated: {stats['selected_count']}/{stats['total_candidates']} memories, "
-                f"{stats['used_tokens']} tokens, "
-                f"{stats['skipped_count']} skipped, "
-                f"{stats['summary_used']} summaries used"
-            )
-        except ImportError:
-            # 如果在测试环境中，使用标准logging
-            import logging
-            logging.debug(
-                f"Memory context generated: {stats['selected_count']}/{stats['total_candidates']} memories, "
-                f"{stats['used_tokens']} tokens, "
-                f"{stats['skipped_count']} skipped, "
-                f"{stats['summary_used']} summaries used"
-            )
+        logger.debug(
+            f"Memory context generated: {stats['selected_count']}/{stats['total_candidates']} memories, "
+            f"{stats['used_tokens']} tokens, "
+            f"{stats['skipped_count']} skipped, "
+            f"{stats['summary_used']} summaries used"
+        )
 
         return context

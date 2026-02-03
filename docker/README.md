@@ -773,7 +773,7 @@ environment:
   - TZ=Asia/Shanghai
   - PYTHONUNBUFFERED=1
   - CHROMA_PERSIST_DIRECTORY=/app/astrbot/data/plugin_data/chroma
-  - EMBEDDING_MODEL=BAAI/bge-m3
+  - EMBEDDING_MODEL=BAAI/bge-small-zh-v1.5
   - RIF_THRESHOLD=0.4
 ```
 

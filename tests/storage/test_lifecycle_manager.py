@@ -271,17 +271,32 @@ class TestLifecycleManagerArchiveSession:
         """测试成功归档会话"""
         # Mock工作记忆
         from iris_memory.core.types import StorageLayer
-        from unittest.mock import Mock, MagicMock
+        from unittest.mock import Mock, MagicMock, AsyncMock
         
         memory1 = Mock()
         memory1.should_upgrade_to_episodic = Mock(return_value=True)
         memory1.storage_layer = StorageLayer.WORKING
         memory1.id = "mem_1"
+        memory1.rif_score = 0.8  # 添加rif_score以避免比较错误
+        memory1.access_count = 3
+        memory1.importance = 0.7
         
         memory2 = Mock()
         memory2.should_upgrade_to_episodic = Mock(return_value=False)
+        memory2.id = "mem_2"
+        memory2.rif_score = 0.3
+        memory2.access_count = 1
+        memory2.importance = 0.3
         
         lifecycle_manager.session_manager.get_working_memory = Mock(return_value=[memory1, memory2])
+        
+        # Mock升级评估器返回结果
+        lifecycle_manager.upgrade_evaluator.evaluate_working_to_episodic = AsyncMock(
+            return_value={
+                "mem_1": (True, 0.85, "high importance"),
+                "mem_2": (False, 0.3, "low importance")
+            }
+        )
         
         session_key = "user_123:group_456"
         result = await lifecycle_manager._archive_session(session_key)
@@ -289,16 +304,21 @@ class TestLifecycleManagerArchiveSession:
         assert result is True
         # 验证memory1的storage_layer被修改为EPISODIC
         assert memory1.storage_layer == StorageLayer.EPISODIC
-        # 验证memory2的storage_layer未被修改
-        assert memory2.should_upgrade_to_episodic.called
     
     @pytest.mark.asyncio
     async def test_archive_session_no_upgrades(self, lifecycle_manager):
         """测试没有记忆升级的归档"""
+        from unittest.mock import AsyncMock
+        
         memory = Mock()
         memory.should_upgrade_to_episodic = Mock(return_value=False)
+        memory.id = "mem_1"
+        memory.rif_score = 0.3
         
         lifecycle_manager.session_manager.get_working_memory = Mock(return_value=[memory])
+        lifecycle_manager.upgrade_evaluator.evaluate_working_to_episodic = AsyncMock(
+            return_value={"mem_1": (False, 0.3, "low importance")}
+        )
         
         session_key = "user_123:group_456"
         result = await lifecycle_manager._archive_session(session_key)
@@ -316,10 +336,19 @@ class TestLifecycleManagerArchiveSession:
     @pytest.mark.asyncio
     async def test_archive_session_private_chat(self, lifecycle_manager):
         """测试私聊会话归档"""
+        from iris_memory.core.types import StorageLayer
+        from unittest.mock import AsyncMock
+        
         memory = Mock()
         memory.should_upgrade_to_episodic = Mock(return_value=True)
+        memory.id = "mem_1"
+        memory.rif_score = 0.8
+        memory.storage_layer = StorageLayer.WORKING
         
         lifecycle_manager.session_manager.get_working_memory = Mock(return_value=[memory])
+        lifecycle_manager.upgrade_evaluator.evaluate_working_to_episodic = AsyncMock(
+            return_value={"mem_1": (True, 0.85, "high importance")}
+        )
         
         session_key = "user_123:private"
         result = await lifecycle_manager._archive_session(session_key)

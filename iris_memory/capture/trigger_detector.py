@@ -61,13 +61,33 @@ class TriggerDetector:
         }
         
         # 负样本模式（不应捕获的闲聊）
+        # 注意：这些模式用于过滤无信息价值的消息，但不应过滤用户查询自己信息的请求
+        # 查询类消息（如"我是谁"）应该触发记忆检索，而非记忆捕获
         self.negative_patterns = [
             r"^天气.*[？?]?$",  # 关于天气的简单问句
             r"^在吗",  # "在吗"问候
-            r"^你好",  # 问候语
+            r"^你好$",  # 纯问候语（但"你好，我是XXX"应该捕获）
             r"^[嗯哦好]$|^好的?$|^嗯$",  # 简单确认
-            r"^(哈哈|呵呵|嘻嘻)$",  # 笑声
-            r"^(谢谢|感谢)$",  # 感谢
+            r"^(哈哈|呵呵|嘻嘻)+$",  # 笑声
+            r"^(谢谢|感谢|thanks|thank you)$",  # 感谢
+            r"^/.*",  # 指令消息（以/开头）
+            # 简短确认语
+            r"^(嗯嗯|好的好的|行|可以|没问题|OK|ok)$",
+            # 指令残留
+            r"^memories_save.*",  # 指令残留
+            r"^memory_save.*",  # 指令残留
+        ]
+        
+        # 查询模式（这些是查询，不应作为新记忆捕获，但应触发检索）
+        # 这些模式会被标记为"查询"而非"负样本"
+        self.query_patterns = [
+            r"^我是谁[？?]?$",  # 自我查询
+            r"^我叫什么[名字]*[？?]?$",  # 姓名查询
+            r"^我喜欢什么[？?]?$",  # 偏好查询
+            r"^你知道.*[吗?？]$",  # "你知道...吗"问句
+            r"^还记得.*[吗?？]$",  # 记忆查询
+            r"^你记得.*[吗?？]$",  # 记忆查询
+            r"^你了解.*[吗?？]$",  # 了解查询
         ]
     
     def detect_triggers(self, text: str) -> List[Dict[str, Any]]:
@@ -198,3 +218,22 @@ class TriggerDetector:
         triggers.sort(key=lambda x: x["confidence"], reverse=True)
         
         return triggers[0]
+    
+    def is_query(self, text: str) -> bool:
+        """判断文本是否是查询类消息
+        
+        查询类消息不应该被捕获为新记忆，但应该触发记忆检索。
+        
+        Args:
+            text: 输入文本
+            
+        Returns:
+            bool: 是否为查询类消息
+        """
+        text = text.strip()
+        
+        for pattern in self.query_patterns:
+            if re.match(pattern, text, re.IGNORECASE):
+                return True
+        
+        return False

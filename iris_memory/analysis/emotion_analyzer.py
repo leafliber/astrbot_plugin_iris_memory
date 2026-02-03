@@ -6,16 +6,14 @@
 import re
 from typing import List, Dict, Any, Optional
 from datetime import datetime
-import logging
 
-# 尝试导入astrbot的logger，如果失败则使用标准logging
-try:
-    from astrbot.api import logger
-except ImportError:
-    logger = logging.getLogger(__name__)
+from iris_memory.utils.logger import get_logger
 
 from iris_memory.core.types import EmotionType
 from iris_memory.models.emotion_state import EmotionalState
+
+# 模块logger
+logger = get_logger("emotion_analyzer")
 
 
 class EmotionAnalyzer:
@@ -36,10 +34,14 @@ class EmotionAnalyzer:
         """初始化情感分析器
         
         Args:
-            config: 插件配置对象
+            config: 插件配置对象（保留用于接口兼容性）
         """
         self.config = config
-        self.enable_emotion = self._get_config("emotion_config.enable_emotion", True)
+        
+        # 使用配置管理器获取情感配置
+        from iris_memory.core.config_manager import get_config_manager
+        cfg = get_config_manager()
+        self.enable_emotion = cfg.enable_emotion
         
         # 初始化情感词典
         self._init_emotion_dict()
@@ -48,15 +50,9 @@ class EmotionAnalyzer:
         self._init_rules()
     
     def _get_config(self, key: str, default: Any = None) -> Any:
-        """获取配置值"""
-        try:
-            keys = key.split('.')
-            value = self.config
-            for k in keys:
-                value = getattr(value, k, value.get(k) if isinstance(value, dict) else default)
-            return value if value is not None else default
-        except (AttributeError, KeyError):
-            return default
+        """获取配置值（兼容旧代码）"""
+        from iris_memory.core.config_manager import get_config_manager
+        return get_config_manager().get(key, default)
     
     def _init_emotion_dict(self):
         """初始化情感词典"""
@@ -93,10 +89,15 @@ class EmotionAnalyzer:
             ]
         }
         
-        # 否定词列表
+        # 否定词列表 - 使用更精确的否定词匹配
         self.negation_words = [
-            "不", "没", "无", "非", "别", "莫", "勿", "不是",
+            "不", "没", "无", "别", "莫", "勿", "不是", "没有",
             "not", "no", "never", "don't", "doesn't", "won't"
+        ]
+        
+        # 程度副词（不应被当作否定词）
+        self.degree_words = [
+            "非常", "很", "十分", "极其", "特别", "相当"
         ]
     
     def _init_rules(self):
@@ -149,7 +150,9 @@ class EmotionAnalyzer:
                 "contextual_correction": bool
             }
         """
-        if not self.enable_emotion or not text:
+        # 处理 None 或空文本
+        if text is None:
+            logger.debug("None text, returning neutral")
             return {
                 "primary": EmotionType.NEUTRAL,
                 "secondary": [],
@@ -158,14 +161,34 @@ class EmotionAnalyzer:
                 "contextual_correction": False
             }
         
+        text_preview = text[:40] + "..." if len(text) > 40 else text
+        logger.debug(f"Analyzing emotion for text: '{text_preview}'")
+        
+        if not self.enable_emotion:
+            logger.debug("Emotion analysis disabled, returning neutral")
+            return {
+                "primary": EmotionType.NEUTRAL,
+                "secondary": [],
+                "intensity": 0.5,
+                "confidence": 0.5,
+                "contextual_correction": False
+            }
+        
+        
         # 1. 情感词典分析（30%权重）
+        logger.debug("Step 1: Dictionary-based analysis...")
         dict_result = self._analyze_by_dict(text)
+        logger.debug(f"Dictionary result: primary={dict_result['primary'].value}, intensity={dict_result['intensity']:.2f}")
         
         # 2. 规则系统分析（30%权重）
+        logger.debug("Step 2: Rule-based analysis...")
         rule_result = self._analyze_by_rules(text)
+        logger.debug(f"Rule result: primary={rule_result['primary'].value}, intensity={rule_result['intensity']:.2f}")
         
         # 3. 上下文修正（可选）
+        logger.debug("Step 3: Contextual correction...")
         contextual_correction = self._detect_contextual_correction(text, context)
+        logger.debug(f"Contextual correction: {contextual_correction}")
         
         # 综合分析结果
         primary, secondary, intensity, confidence = self._combine_results(
@@ -174,20 +197,31 @@ class EmotionAnalyzer:
             contextual_correction
         )
         
-        return {
+        result = {
             "primary": primary,
             "secondary": secondary,
             "intensity": intensity,
             "confidence": confidence,
             "contextual_correction": contextual_correction
         }
+        
+        logger.debug(f"Emotion analysis complete: primary={primary.value}, intensity={intensity:.2f}, confidence={confidence:.2f}")
+        return result
     
     def _analyze_by_dict(self, text: str) -> Dict[str, Any]:
         """使用情感词典分析（30%权重）"""
         emotion_scores = {emotion: 0 for emotion in EmotionType}
         
-        # 检测否定词
-        has_negation = any(neg in text for neg in self.negation_words)
+        # 检测否定词（排除程度副词）
+        has_negation = False
+        for neg in self.negation_words:
+            # 检查是否是真正的否定词（不是程度副词的一部分）
+            if neg in text:
+                # 检查是否在程度副词中
+                is_part_of_degree = any(degree_word in text and neg in degree_word for degree_word in self.degree_words)
+                if not is_part_of_degree:
+                    has_negation = True
+                    break
         
         # 统计情感词出现次数
         for emotion, keywords in self.emotion_dict.items():
@@ -200,13 +234,21 @@ class EmotionAnalyzer:
             
             emotion_scores[emotion] = count
         
-        # 如果有否定词，反转部分情感
+        # 如果有否定词，反转部分情感（更智能的处理）
         if has_negation:
-            # 简单处理：将正面情感转为负面，负面转为正面
+            # 只反转明确的正负情感对
             joy_score = emotion_scores[EmotionType.JOY]
             sadness_score = emotion_scores[EmotionType.SADNESS]
-            emotion_scores[EmotionType.JOY] = sadness_score * 0.5
-            emotion_scores[EmotionType.SADNESS] = joy_score * 0.5
+            excitement_score = emotion_scores[EmotionType.EXCITEMENT]
+            
+            # 否定正面情感 -> 变为中性或负面
+            if joy_score > 0:
+                emotion_scores[EmotionType.JOY] = 0
+                emotion_scores[EmotionType.NEUTRAL] = emotion_scores.get(EmotionType.NEUTRAL, 0) + joy_score * 0.5
+            
+            if excitement_score > 0:
+                emotion_scores[EmotionType.EXCITEMENT] = 0
+                emotion_scores[EmotionType.CALM] = emotion_scores.get(EmotionType.CALM, 0) + excitement_score * 0.5
         
         # 计算强度和置信度
         total_score = sum(emotion_scores.values())

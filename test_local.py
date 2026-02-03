@@ -24,8 +24,8 @@ from iris_memory.storage.cache import CacheManager
 class TestConfig:
     """简单的测试配置类"""
     def __init__(self):
-        self.embedding_model = "BAAI/bge-m3"
-        self.embedding_dimension = 1024
+        self.embedding_model = "BAAI/bge-small-zh-v1.5"
+        self.embedding_dimension = 512
     
     def get(self, key, default=None):
         return getattr(self, key, default)

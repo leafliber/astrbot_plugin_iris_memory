@@ -6,10 +6,14 @@
 import asyncio
 from datetime import datetime, timedelta
 from enum import Enum
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 
-from iris_memory.utils.logger import logger
+from iris_memory.utils.logger import get_logger
 from iris_memory.core.types import StorageLayer
+from iris_memory.processing.upgrade_evaluator import UpgradeEvaluator, UpgradeMode
+
+# 模块logger
+logger = get_logger("lifecycle_manager")
 
 
 class SessionState(str, Enum):
@@ -37,29 +41,68 @@ class SessionLifecycleManager:
     def __init__(
         self,
         session_manager,
+        chroma_manager=None,  # 新增：Chroma管理器用于持久化升级
         cleanup_interval: int = 3600,  # 清理间隔（秒），默认1小时
         session_timeout: int = 86400,  # 会话超时（秒），默认24小时
-        inactive_timeout: int = 1800  # 非活跃超时（秒），默认30分钟
+        inactive_timeout: int = 1800,  # 非活跃超时（秒），默认30分钟
+        promotion_interval: int = 3600,  # 记忆升级检查间隔（秒），默认1小时
+        upgrade_mode: str = "rule",  # 升级判断模式: rule, llm, hybrid
+        llm_upgrade_batch_size: int = 5,
+        llm_upgrade_threshold: float = 0.7
     ):
         """初始化生命周期管理器
         
         Args:
             session_manager: 会话管理器实例
+            chroma_manager: Chroma管理器实例（用于持久化记忆升级）
             cleanup_interval: 定时清理间隔
             session_timeout: 会话超时时间
             inactive_timeout: 非活跃超时时间
+            promotion_interval: 记忆升级检查间隔
+            upgrade_mode: 升级判断模式 (rule/llm/hybrid)
+            llm_upgrade_batch_size: LLM批量评估大小
+            llm_upgrade_threshold: LLM升级置信度阈值
         """
         self.session_manager = session_manager
+        self.chroma_manager = chroma_manager  # 新增
         self.cleanup_interval = cleanup_interval
         self.session_timeout = session_timeout
         self.inactive_timeout = inactive_timeout
+        self.promotion_interval = promotion_interval  # 新增
         
         # 会话状态缓存：{session_key: {"state": SessionState, "last_active": datetime}}
         self.session_states: Dict[str, Dict[str, Any]] = {}
         
         # 定时任务
         self.cleanup_task = None
+        
+        # 升级评估器
+        self.upgrade_mode = UpgradeMode(upgrade_mode) if isinstance(upgrade_mode, str) else upgrade_mode
+        self.upgrade_evaluator = UpgradeEvaluator(
+            mode=self.upgrade_mode,
+            batch_size=llm_upgrade_batch_size,
+            confidence_threshold=llm_upgrade_threshold
+        )
+        self.promotion_task = None  # 新增：记忆升级任务
         self.is_running = False
+    
+    def set_chroma_manager(self, chroma_manager):
+        """设置Chroma管理器（用于延迟注入）
+        
+        Args:
+            chroma_manager: Chroma管理器实例
+        """
+        self.chroma_manager = chroma_manager
+        logger.debug("ChromaManager injected into SessionLifecycleManager")
+    
+    def set_llm_provider(self, llm_provider):
+        """设置LLM提供者（用于LLM升级判断）
+        
+        Args:
+            llm_provider: LLM提供者实例
+        """
+        self.upgrade_evaluator.set_llm_provider(llm_provider)
+        logger.debug(f"LLM provider set for upgrade evaluation (mode={self.upgrade_mode.value})")
     
     async def start(self):
         """启动生命周期管理器"""
@@ -69,6 +112,12 @@ class SessionLifecycleManager:
         
         self.is_running = True
         self.cleanup_task = asyncio.create_task(self._cleanup_loop())
+        
+        # 新增：启动记忆升级定时任务
+        if self.chroma_manager:
+            self.promotion_task = asyncio.create_task(self._promotion_loop())
+            logger.info("Memory promotion task started")
+        
         logger.info("SessionLifecycleManager started")
     
     async def stop(self):
@@ -79,6 +128,14 @@ class SessionLifecycleManager:
             self.cleanup_task.cancel()
             try:
                 await self.cleanup_task
+            except asyncio.CancelledError:
+                pass
+        
+        # 新增：停止记忆升级任务
+        if self.promotion_task:
+            self.promotion_task.cancel()
+            try:
+                await self.promotion_task
             except asyncio.CancelledError:
                 pass
         
@@ -94,6 +151,71 @@ class SessionLifecycleManager:
                 break
             except Exception as e:
                 logger.error(f"Cleanup loop error: {e}")
+    
+    async def _promotion_loop(self):
+        """记忆升级循环 - 定期检查并执行 EPISODIC → SEMANTIC 升级"""
+        while self.is_running:
+            try:
+                await asyncio.sleep(self.promotion_interval)
+                await self._promote_memories()
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"Promotion loop error: {e}")
+    
+    async def _promote_memories(self):
+        """定期执行记忆升级检查
+        
+        检查并执行 EPISODIC → SEMANTIC 升级
+        使用升级评估器（支持规则/LLM/混合模式）
+        """
+        if not self.chroma_manager:
+            return
+        
+        try:
+            # 获取所有情景记忆
+            episodic_memories = await self.chroma_manager.get_memories_by_storage_layer(
+                StorageLayer.EPISODIC
+            )
+            
+            if not episodic_memories:
+                return
+            
+            # 使用升级评估器进行判断
+            evaluation_results = await self.upgrade_evaluator.evaluate_episodic_to_semantic(
+                episodic_memories
+            )
+            
+            promoted_count = 0
+            for memory in episodic_memories:
+                result = evaluation_results.get(memory.id)
+                if result and result[0]:  # should_upgrade = True
+                    should_upgrade, confidence, reason = result
+                    
+                    # 更改存储层为语义记忆
+                    memory.storage_layer = StorageLayer.SEMANTIC
+                    
+                    # 持久化到Chroma
+                    success = await self.chroma_manager.update_memory(memory)
+                    if success:
+                        promoted_count += 1
+                        logger.debug(
+                            f"Memory {memory.id} promoted EPISODIC→SEMANTIC "
+                            f"(confidence={confidence:.2f}, reason={reason})"
+                        )
+                    else:
+                        logger.warning(
+                            f"Failed to promote memory {memory.id} to SEMANTIC"
+                        )
+            
+            if promoted_count > 0:
+                logger.info(
+                    f"Memory promotion completed: {promoted_count} memories "
+                    f"promoted from EPISODIC to SEMANTIC (mode={self.upgrade_mode.value})"
+                )
+                
+        except Exception as e:
+            logger.error(f"Failed to promote memories: {e}")
     
     async def _cleanup_expired_sessions(self):
         """清理过期会话"""
@@ -178,7 +300,8 @@ class SessionLifecycleManager:
     async def _archive_session(self, session_key: str) -> bool:
         """归档会话
         
-        将工作记忆提升到情景记忆或删除
+        将工作记忆提升到情景记忆并持久化到Chroma，或清除不重要的工作记忆
+        使用升级评估器（支持规则/LLM/混合模式）
         
         Args:
             session_key: 会话标识符
@@ -201,20 +324,56 @@ class SessionLifecycleManager:
                 user_id, group_id
             )
             
-            # 尝试将重要记忆提升到情景记忆
-            upgraded_count = 0
+            if not working_memories:
+                return False
+            
+            # 使用升级评估器进行判断
+            evaluation_results = await self.upgrade_evaluator.evaluate_working_to_episodic(
+                working_memories
+            )
+            
+            # 收集需要升级的记忆
+            upgraded_memories = []
+            discarded_memories = []
+            
             for memory in working_memories:
-                if memory.should_upgrade_to_episodic():
+                result = evaluation_results.get(memory.id)
+                if result and result[0]:  # should_upgrade = True
+                    should_upgrade, confidence, reason = result
                     # 更改存储层
                     memory.storage_layer = StorageLayer.EPISODIC
-                    upgraded_count += 1
+                    upgraded_memories.append(memory)
                     logger.debug(
-                        f"Memory {memory.id} upgraded from WORKING to EPISODIC"
+                        f"Memory {memory.id} marked for upgrade WORKING→EPISODIC "
+                        f"(confidence={confidence:.2f}, reason={reason})"
                     )
+                else:
+                    # 不满足升级条件的工作记忆将被清除
+                    discarded_memories.append(memory)
             
-            if upgraded_count > 0:
+            # 持久化升级后的记忆到Chroma
+            # 注意：工作记忆从未存入Chroma，所以需要使用add_memory而非update_memory
+            if upgraded_memories and self.chroma_manager:
+                for memory in upgraded_memories:
+                    try:
+                        # 添加到Chroma（工作记忆首次进入持久化存储）
+                        await self.chroma_manager.add_memory(memory)
+                        logger.debug(
+                            f"Memory {memory.id} added to Chroma as EPISODIC"
+                        )
+                    except Exception as e:
+                        logger.error(
+                            f"Error persisting memory {memory.id}: {e}"
+                        )
+            
+            # 清除工作记忆缓存
+            self.session_manager.clear_working_memory(user_id, group_id)
+            
+            if upgraded_memories:
                 logger.info(
-                    f"Archived session {session_key}: {upgraded_count} memories upgraded"
+                    f"Archived session {session_key}: "
+                    f"{len(upgraded_memories)} memories upgraded to EPISODIC, "
+                    f"{len(discarded_memories)} memories discarded"
                 )
                 return True
             

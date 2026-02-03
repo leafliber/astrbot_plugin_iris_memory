@@ -107,7 +107,7 @@ class EmbeddingProvider(ABC):
         }
 
     def _get_config(self, key: str, default: Any = None) -> Any:
-        """获取配置值
+        """获取配置值（使用配置管理器）
         
         Args:
             key: 配置键（支持点分隔）
@@ -116,14 +116,8 @@ class EmbeddingProvider(ABC):
         Returns:
             配置值或默认值
         """
-        try:
-            keys = key.split('.')
-            value = self.config
-            for k in keys:
-                value = getattr(value, k, value.get(k) if isinstance(value, dict) else default)
-            return value if value is not None else default
-        except (AttributeError, KeyError):
-            return default
+        from iris_memory.core.config_manager import get_config_manager
+        return get_config_manager().get(key, default)
 
     async def ensure_dimension(self, target_dimension: int) -> bool:
         """确保嵌入维度匹配目标维度

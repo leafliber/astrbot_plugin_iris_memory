@@ -74,8 +74,8 @@ pip install -r requirements.txt
 - `rif_threshold`: RIF评分删除阈值（默认：0.4）
 
 **Chroma配置**
-- `embedding_model`: 嵌入模型名称（默认：BAAI/bge-m3）
-- `embedding_dimension`: 嵌入向量维度（默认：1024）
+- `embedding_model`: 嵌入模型名称（默认：BAAI/bge-small-zh-v1.5）
+- `embedding_dimension`: 嵌入向量维度（默认：512）
 
 **LLM集成**
 - `enable_inject`: 是否在LLM请求中注入记忆（默认：true）

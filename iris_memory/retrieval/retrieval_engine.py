@@ -7,7 +7,7 @@ import asyncio
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 
-from iris_memory.utils.logger import logger
+from iris_memory.utils.logger import get_logger
 
 from iris_memory.models.memory import Memory
 from iris_memory.core.types import StorageLayer, RetrievalStrategy, EmotionType, MemoryType
@@ -19,24 +19,57 @@ from iris_memory.utils.persona_coordinator import PersonaCoordinator, Coordinati
 from iris_memory.retrieval.reranker import Reranker
 from iris_memory.retrieval.retrieval_router import RetrievalRouter
 
+# 模块logger
+logger = get_logger("retrieval_engine")
+
 
 class MemoryRetrievalEngine:
-    """记忆检索引擎
+    """记忆检索引擎 - 实现 companion-memory framework 第13节
 
-    实现混合检索：
-    - 简单查询：纯向量检索
-    - 多跳推理：图遍历检索（暂未实现）
-    - 时间感知：时间向量编码检索
-    - 情感感知：情感过滤检索
-    - 复杂查询：混合检索
+    提供多种检索策略，根据查询复杂度自动选择最优方案：
 
-    结果重排序（使用统一的Reranker模块）：
-    - 质量等级：0.25 (CONFIRMED > HIGH_CONFIDENCE > MODERATE)
-    - RIF评分：0.25 (基于时近性、相关性、频率的科学评分)
-    - 时间衰减：0.20 (新记忆优先)
-    - 向量相似度：0.15 (Chroma检索结果的补充)
-    - 访问频率：0.10 (高频访问的记忆优先)
-    - 情感一致性：0.05 (与当前情感一致的记忆优先)
+    检索策略体系：
+    ─────────────────────────────────────────
+    1. VECTOR_ONLY (纯向量检索)
+       适用：简单关键词查询、短文本查询
+       优势：速度快，适合直接语义匹配
+       示例："我喜欢的颜色"、"工作地点"
+
+    2. TIME_AWARE (时间感知检索)
+       适用：包含时间线索的查询
+       算法：时间衰减函数加权 + 向量相似度
+       公式：score = 0.7*semantic + 0.3*time_decay
+       示例："上周说的"、"最近有什么安排"
+
+    3. EMOTION_AWARE (情感感知检索)
+       适用：用户情感状态需要考虑的查询
+       机制：负面情感时过滤高强度正面记忆
+       示例：用户难过时避免检索"最快乐的时刻"
+
+    4. GRAPH_ONLY (图遍历检索) [规划中]
+       适用：多跳关系推理查询
+       示例："小王的上司是谁"
+       状态：暂未完整实现，fallback到HYBRID
+
+    5. HYBRID (混合检索) [默认]
+       适用：复杂多维度查询
+       流程：向量检索 → 情感过滤 → Reranker重排序
+       综合权重见下
+
+    结果重排序权重（Reranker）：
+    ─────────────────────────────────────────
+    - 质量等级：    0.25  (CONFIRMED > HIGH_CONFIDENCE > ...)
+    - RIF评分：     0.25  (时近性40% + 相关性30% + 频率30%)
+    - 时间衰减：    0.20  (新记忆优先)
+    - 向量相似度：  0.15  (语义匹配度)
+    - 访问频率：    0.10  (热度加权)
+    - 情感一致性：  0.05  (情绪匹配)
+
+    Token预算管理：
+    ─────────────────────────────────────────
+    - 总预算可配置（默认512 tokens）
+    - 动态记忆选择器优化上下文使用
+    - 记忆压缩减少token消耗
     """
 
     def __init__(
@@ -44,7 +77,8 @@ class MemoryRetrievalEngine:
         chroma_manager,
         rif_scorer: Optional[RIFScorer] = None,
         emotion_analyzer: Optional[EmotionAnalyzer] = None,
-        reranker: Optional[Reranker] = None
+        reranker: Optional[Reranker] = None,
+        session_manager=None
     ):
         """初始化记忆检索引擎
 
@@ -53,10 +87,12 @@ class MemoryRetrievalEngine:
             rif_scorer: RIF评分器（可选）
             emotion_analyzer: 情感分析器（可选）
             reranker: 重排序器（可选，默认创建新实例）
+            session_manager: 会话管理器（可选，用于合并工作记忆）
         """
         self.chroma_manager = chroma_manager
         self.rif_scorer = rif_scorer or RIFScorer()
         self.emotion_analyzer = emotion_analyzer or EmotionAnalyzer()
+        self.session_manager = session_manager
 
         # 配置
         self.max_context_memories = 3
@@ -64,6 +100,7 @@ class MemoryRetrievalEngine:
         self.enable_emotion_aware = True
         self.enable_token_budget = True  # 启用token预算管理
         self.enable_routing = True  # 启用检索路由
+        self.enable_working_memory_merge = True  # 启用工作记忆合并
 
         # Token管理器
         self.token_budget = TokenBudget(total_budget=512)
@@ -107,20 +144,32 @@ class MemoryRetrievalEngine:
             List[Memory]: 相关记忆列表（已排序）
         """
         try:
+            query_preview = query[:50] + "..." if len(query) > 50 else query
+            logger.debug(f"Starting memory retrieval: user={user_id}, group={group_id}, top_k={top_k}")
+            logger.debug(f"Query: '{query_preview}'")
+            
+            if emotional_state:
+                logger.debug(f"Emotional state: primary={emotional_state.current.primary.value}, intensity={emotional_state.current.intensity:.2f}")
+            
             # 使用检索路由器选择策略
             strategy = RetrievalStrategy.HYBRID
             if self.enable_routing:
                 context = {'emotional_state': emotional_state}
                 strategy = self.router.route(query, context)
                 logger.debug(f"Retrieval router selected strategy: {strategy}")
+            else:
+                logger.debug("Routing disabled, using HYBRID strategy")
             
             # 使用选定策略检索
-            return await self.retrieve_with_strategy(
+            result = await self.retrieve_with_strategy(
                 query, user_id, group_id, strategy, top_k, emotional_state, storage_layer
             )
             
+            logger.info(f"Retrieved {len(result)} memories for user={user_id}, strategy={strategy}")
+            return result
+            
         except Exception as e:
-            logger.error(f"Failed to retrieve memories: {e}")
+            logger.error(f"Failed to retrieve memories: user={user_id}, error={e}", exc_info=True)
             return []
     
     def _apply_emotion_filter(
@@ -187,7 +236,7 @@ class MemoryRetrievalEngine:
         storage_layer: Optional[StorageLayer] = None
     ) -> List[Memory]:
         """使用指定策略检索记忆
-        
+
         Args:
             query: 查询文本
             user_id: 用户ID
@@ -196,7 +245,7 @@ class MemoryRetrievalEngine:
             top_k: 返回的最大数量
             emotional_state: 情感状态（可选）
             storage_layer: 存储层过滤（可选）
-            
+
         Returns:
             List[Memory]: 相关记忆列表
         """
@@ -211,6 +260,15 @@ class MemoryRetrievalEngine:
             )
         elif strategy == RetrievalStrategy.EMOTION_AWARE:
             return await self._emotion_aware_retrieval(
+                query, user_id, group_id, top_k, emotional_state, storage_layer
+            )
+        elif strategy == RetrievalStrategy.GRAPH_ONLY:
+            # 图检索暂未完整实现，降级到混合检索并记录警告
+            logger.warning(
+                f"GRAPH_ONLY strategy requested but not fully implemented. "
+                f"Falling back to HYBRID retrieval. Query: '{query[:50]}...'"
+            )
+            return await self._hybrid_retrieval(
                 query, user_id, group_id, top_k, emotional_state, storage_layer
             )
         else:  # HYBRID
@@ -240,7 +298,7 @@ class MemoryRetrievalEngine:
         Returns:
             List[Memory]: 相关记忆列表（已排序）
         """
-        # 1. 从Chroma检索候选记忆
+        # 1. 从Chroma检索候选记忆（EPISODIC/SEMANTIC）
         candidate_memories = await self.chroma_manager.query_memories(
             query_text=query,
             user_id=user_id,
@@ -248,6 +306,17 @@ class MemoryRetrievalEngine:
             top_k=top_k * 2,  # 获取更多候选
             storage_layer=storage_layer
         )
+        
+        # 2. 合并工作记忆（如果启用且有session_manager）
+        if self.enable_working_memory_merge and self.session_manager:
+            working_memories = self._get_relevant_working_memories(
+                query, user_id, group_id, storage_layer
+            )
+            if working_memories:
+                logger.debug(f"Merging {len(working_memories)} working memories")
+                candidate_memories = self._merge_memories(
+                    candidate_memories, working_memories
+                )
         
         if not candidate_memories:
             logger.debug(f"No memories found for query: {query[:50]}...")
@@ -384,6 +453,103 @@ class MemoryRetrievalEngine:
         
         return memories[:top_k]
     
+    def _get_relevant_working_memories(
+        self,
+        query: str,
+        user_id: str,
+        group_id: Optional[str],
+        storage_layer: Optional[StorageLayer] = None
+    ) -> List[Memory]:
+        """获取相关的工作记忆
+        
+        Args:
+            query: 查询文本
+            user_id: 用户ID
+            group_id: 群组ID（可选）
+            storage_layer: 存储层过滤（可选）
+            
+        Returns:
+            List[Memory]: 工作记忆列表
+        """
+        if not self.session_manager:
+            return []
+        
+        # 如果指定了非WORKING的存储层，不返回工作记忆
+        if storage_layer and storage_layer != StorageLayer.WORKING:
+            return []
+        
+        try:
+            working_memories = self.session_manager.get_working_memory(user_id, group_id)
+            
+            if not working_memories:
+                return []
+            
+            # 简单的关键词匹配过滤（工作记忆通常数量较少，不需要向量检索）
+            query_lower = query.lower()
+            query_keywords = set(query_lower.split())
+            
+            relevant = []
+            for memory in working_memories:
+                content_lower = memory.content.lower()
+                # 检查是否有关键词匹配
+                content_words = set(content_lower.split())
+                overlap = query_keywords & content_words
+                
+                # 如果有关键词重叠或者查询在内容中，认为相关
+                if overlap or query_lower in content_lower or content_lower in query_lower:
+                    relevant.append(memory)
+                # 对于短查询，包含所有工作记忆以保持上下文
+                elif len(query) < 20:
+                    relevant.append(memory)
+            
+            logger.debug(f"Found {len(relevant)} relevant working memories out of {len(working_memories)}")
+            return relevant
+            
+        except Exception as e:
+            logger.warning(f"Failed to get working memories: {e}")
+            return []
+    
+    def _merge_memories(
+        self,
+        persistent_memories: List[Memory],
+        working_memories: List[Memory]
+    ) -> List[Memory]:
+        """合并持久记忆和工作记忆
+        
+        Args:
+            persistent_memories: 来自Chroma的持久记忆
+            working_memories: 来自SessionManager的工作记忆
+            
+        Returns:
+            List[Memory]: 合并后的记忆列表（去重）
+        """
+        # 使用ID去重
+        seen_ids = set()
+        merged = []
+        
+        # 工作记忆优先（更新鲜的上下文）
+        for memory in working_memories:
+            if memory.id not in seen_ids:
+                seen_ids.add(memory.id)
+                merged.append(memory)
+        
+        # 添加持久记忆
+        for memory in persistent_memories:
+            if memory.id not in seen_ids:
+                seen_ids.add(memory.id)
+                merged.append(memory)
+        
+        return merged
+    
+    def set_session_manager(self, session_manager):
+        """设置会话管理器（用于延迟注入）
+        
+        Args:
+            session_manager: 会话管理器实例
+        """
+        self.session_manager = session_manager
+        logger.debug("SessionManager injected into MemoryRetrievalEngine")
+    
     def format_memories_for_llm(
         self,
         memories: List[Memory],
@@ -452,6 +618,7 @@ class MemoryRetrievalEngine:
         self.enable_emotion_aware = config.get("enable_emotion_aware", True)
         self.enable_token_budget = config.get("enable_token_budget", True)
         self.enable_routing = config.get("enable_routing", True)
+        self.enable_working_memory_merge = config.get("enable_working_memory_merge", True)
         
         # 更新token预算
         token_budget = config.get("token_budget", 512)

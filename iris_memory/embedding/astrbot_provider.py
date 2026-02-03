@@ -7,6 +7,10 @@ from typing import List, Dict, Any, Optional
 import numpy as np
 
 from .base import EmbeddingProvider, EmbeddingRequest, EmbeddingResponse
+from iris_memory.utils.logger import get_logger
+
+# 模块logger
+logger = get_logger("astrbot_provider")
 
 
 class AstrBotProvider(EmbeddingProvider):
@@ -28,25 +32,31 @@ class AstrBotProvider(EmbeddingProvider):
 
     async def initialize(self) -> bool:
         """初始化 AstrBot 提供者
-        
+
         Returns:
             bool: 是否初始化成功
         """
         try:
+            # 检查 AstrBotApi 是否可用
+            try:
+                from astrbot.api import AstrBotApi
+            except ImportError:
+                logger.debug("AstrBotApi not available in astrbot.api module")
+                return False
+
             # 尝试获取 AstrBot 上下文
             # 从插件初始化时传入的 context 中获取 LLM API
-            from astrbot.api import AstrBotApi
-            
             # 延迟注入：在 ChromaManager 中会设置 context
             if hasattr(self.config, '_plugin_context'):
                 self.astrbot_context = self.config._plugin_context
             else:
                 # 尝试从配置中获取
                 self.astrbot_context = self._get_config('_plugin_context', None)
-            
+
             if not self.astrbot_context:
+                logger.debug("AstrBot context not available")
                 return False
-            
+
             # 获取 LLM API
             self.llm_api = AstrBotApi(self.astrbot_context)
             
@@ -71,42 +81,41 @@ class AstrBotProvider(EmbeddingProvider):
             )
             
             return True
-            
+
         except Exception as e:
-            from iris_memory.utils.logger import logger
             logger.warning(f"Failed to initialize AstrBot provider: {e}")
             return False
 
     async def embed(self, request: EmbeddingRequest) -> EmbeddingResponse:
         """生成嵌入向量
-        
+
         Args:
             request: 嵌入请求对象
-            
+
         Returns:
             EmbeddingResponse: 嵌入响应对象
         """
         if not self.llm_api:
             raise RuntimeError("AstrBot provider not initialized. Call initialize() first.")
-        
+
         try:
+            # 检查是否有 get_embedding 方法
+            if not hasattr(self.llm_api, 'get_embedding'):
+                raise AttributeError("AstrBotApi does not have get_embedding method")
+
             # 调用 AstrBot LLM API 生成嵌入
-            # 注意：需要根据实际 AstrBot API 调整
-            # 这里假设有一个 get_embedding 方法
-            
-            # 尝试通过 LLM API 调用嵌入服务
             result = await self.llm_api.get_embedding(
                 text=request.text,
                 model=request.model or self._model
             )
-            
+
             embedding = np.array(result["embedding"], dtype=np.float32)
-            
+
             # 维度适配（如果需要）
             if request.dimension and len(embedding) != request.dimension:
                 embedding = await self.adapt_dimension(embedding, request.dimension)
                 self._dimension = request.dimension
-            
+
             return EmbeddingResponse(
                 embedding=embedding,
                 model=self._model,
@@ -114,9 +123,8 @@ class AstrBotProvider(EmbeddingProvider):
                 token_count=result.get("token_count"),
                 metadata=request.metadata
             )
-            
+
         except Exception as e:
-            from iris_memory.utils.logger import logger
             logger.error(f"Failed to generate embedding with AstrBot: {e}")
             raise
 

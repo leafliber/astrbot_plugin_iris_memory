@@ -1,36 +1,70 @@
 """
 会话管理器
 管理私聊和群聊的会话隔离，支持KV存储持久化
+整合工作记忆缓存功能，提供统一的工作记忆管理
 """
 
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from datetime import datetime
+import asyncio
 
-from iris_memory.utils.logger import logger
+from iris_memory.utils.logger import get_logger
 
 from iris_memory.models.memory import Memory
 from iris_memory.core.types import StorageLayer
 
+# 模块logger
+logger = get_logger("session_manager")
+
 
 class SessionManager:
-    """会话管理器
+    """会话管理器（统一版）
     
-    管理私聊和群聊的会话隔离：
+    整合原 SessionManager 和 WorkingMemoryCache 的功能：
     - 基于user_id和group_id的双重隔离机制
-    - 支持工作记忆缓存
+    - 支持工作记忆缓存（带TTL）
     - 使用KV存储持久化会话状态
+    - 提供缓存统计信息
     """
     
-    def __init__(self):
-        """初始化会话管理器"""
+    def __init__(
+        self,
+        max_working_memory: int = 10,
+        max_sessions: int = 100,
+        ttl: int = 86400
+    ):
+        """初始化会话管理器
+        
+        Args:
+            max_working_memory: 每个会话最大工作记忆数量
+            max_sessions: 最大会话数量
+            ttl: 工作记忆生存时间（秒），默认24小时
+        """
         # 工作记忆缓存：{session_key: [Memory]}
-        self.working_memory_cache: Dict[str, list[Memory]] = {}
+        self.working_memory_cache: Dict[str, List[Memory]] = {}
         
         # 会话元数据：{session_key: metadata}
         self.session_metadata: Dict[str, Dict[str, Any]] = {}
         
-        # 最大工作记忆数量（可配置）
-        self.max_working_memory = 10
+        # 配置
+        self.max_working_memory = max_working_memory
+        self.max_sessions = max_sessions
+        self.ttl = ttl
+        
+        # 会话访问顺序（用于LRU淘汰）
+        self._session_order: List[str] = []
+        
+        # 统计信息
+        self._stats = {
+            "hits": 0,
+            "misses": 0,
+            "evictions": 0,
+            "memories_added": 0,
+            "memories_removed": 0
+        }
+        
+        # 异步锁（用于并发安全）
+        self._lock = asyncio.Lock()
     
     def get_session_key(self, user_id: str, group_id: Optional[str] = None) -> str:
         """生成会话标识符
@@ -261,6 +295,120 @@ class SessionManager:
                 removed = len(memories) - len(valid_memories)
                 self.working_memory_cache[session_key] = valid_memories
                 cleaned_count += removed
+                self._stats["memories_removed"] += removed
 
         if cleaned_count > 0:
             logger.info(f"Cleaned {cleaned_count} expired working memories")
+    
+    # ========== 异步方法（兼容 WorkingMemoryCache 接口）==========
+    
+    async def add_memory_async(
+        self,
+        user_id: str,
+        group_id: Optional[str],
+        memory: Memory
+    ) -> bool:
+        """异步添加记忆到工作记忆缓存
+        
+        Args:
+            user_id: 用户ID
+            group_id: 群组ID
+            memory: 记忆对象
+            
+        Returns:
+            bool: 是否添加成功
+        """
+        async with self._lock:
+            self.add_working_memory(memory)
+            self._stats["memories_added"] += 1
+            return True
+    
+    async def get_recent_memories(
+        self,
+        user_id: str,
+        group_id: Optional[str],
+        limit: int = 10
+    ) -> List[Memory]:
+        """获取最近的工作记忆
+        
+        Args:
+            user_id: 用户ID
+            group_id: 群组ID
+            limit: 最大返回数量
+            
+        Returns:
+            List[Memory]: 记忆列表（按时间倒序）
+        """
+        session_key = self.get_session_key(user_id, group_id)
+        memories = self.working_memory_cache.get(session_key, [])
+        
+        # 按创建时间倒序排序
+        sorted_memories = sorted(
+            memories,
+            key=lambda m: m.created_time,
+            reverse=True
+        )
+        
+        if sorted_memories:
+            self._stats["hits"] += 1
+        else:
+            self._stats["misses"] += 1
+        
+        return sorted_memories[:limit]
+    
+    async def clear_session_async(
+        self,
+        user_id: str,
+        group_id: Optional[str]
+    ) -> bool:
+        """异步清除会话的工作记忆
+        
+        Args:
+            user_id: 用户ID
+            group_id: 群组ID
+            
+        Returns:
+            bool: 是否成功
+        """
+        async with self._lock:
+            self.clear_working_memory(user_id, group_id)
+            return True
+    
+    def get_stats(self) -> Dict[str, Any]:
+        """获取缓存统计信息
+        
+        Returns:
+            Dict[str, Any]: 统计信息
+        """
+        total_memories = sum(
+            len(memories) for memories in self.working_memory_cache.values()
+        )
+        
+        return {
+            **self._stats,
+            "total_sessions": len(self.session_metadata),
+            "total_working_memories": total_memories,
+            "max_sessions": self.max_sessions,
+            "max_working_memory": self.max_working_memory,
+            "ttl": self.ttl
+        }
+    
+    def _update_session_order(self, session_key: str):
+        """更新会话访问顺序（LRU）
+        
+        Args:
+            session_key: 会话键
+        """
+        if session_key in self._session_order:
+            self._session_order.remove(session_key)
+        self._session_order.append(session_key)
+        
+        # 如果超过最大会话数，淘汰最旧的
+        while len(self._session_order) > self.max_sessions:
+            oldest_key = self._session_order.pop(0)
+            if oldest_key in self.working_memory_cache:
+                del self.working_memory_cache[oldest_key]
+            if oldest_key in self.session_metadata:
+                del self.session_metadata[oldest_key]
+            self._stats["evictions"] += 1
+            logger.debug(f"Evicted oldest session: {oldest_key}")

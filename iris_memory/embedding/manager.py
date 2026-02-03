@@ -10,7 +10,10 @@ from .base import EmbeddingProvider, EmbeddingRequest, EmbeddingResponse
 from .astrbot_provider import AstrBotProvider
 from .local_provider import LocalProvider
 from .fallback_provider import FallbackProvider
-from iris_memory.utils.logger import logger
+from iris_memory.utils.logger import get_logger
+
+# 模块logger
+logger = get_logger("embedding_manager")
 
 
 class EmbeddingStrategy(str, Enum):
@@ -88,11 +91,10 @@ class EmbeddingManager:
         """
         logger.info("Initializing embedding manager...")
         
-        # 获取用户配置的策略
-        strategy_str = self._get_config(
-            "chroma_config.embedding_strategy",
-            "auto"
-        ).lower()
+        # 使用配置管理器获取策略
+        from iris_memory.core.config_manager import get_config_manager
+        cfg = get_config_manager()
+        strategy_str = cfg.embedding_strategy.lower()
         
         try:
             self.current_strategy = EmbeddingStrategy(strategy_str)
@@ -105,54 +107,69 @@ class EmbeddingManager:
         # 根据策略初始化提供者
         if self.current_strategy == EmbeddingStrategy.AUTO:
             # 自动模式：按优先级初始化所有提供者
+            logger.debug("AUTO mode: initializing providers by priority...")
             for priority in self.priorities:
+                provider_name = priority.provider_class.__name__
+                logger.debug(f"Trying to initialize {provider_name} (priority={priority.priority})...")
                 provider = priority.provider_class(self.config)
                 success = await provider.initialize()
                 if success:
-                    provider_name = provider.__class__.__name__.replace("Provider", "").lower()
-                    self.providers[provider_name] = provider
-                    self.stats["provider_usage"][provider_name] = 0
-                    logger.info(f"Initialized embedding provider: {provider_name}")
+                    short_name = provider_name.replace("Provider", "").lower()
+                    self.providers[short_name] = provider
+                    self.stats["provider_usage"][short_name] = 0
+                    logger.info(f"Initialized embedding provider: {short_name}")
                 else:
-                    logger.debug(f"Failed to initialize {priority.provider_class.__name__}")
+                    logger.debug(f"Failed to initialize {provider_name}")
             
             # 选择当前提供者（最高优先级）
             if self.providers:
-                self.current_provider = self.providers[self._get_best_provider()]
-                logger.info(f"Selected embedding provider: {self.current_provider.__class__.__name__}")
+                best_provider_name = self._get_best_provider()
+                self.current_provider = self.providers[best_provider_name]
+                logger.info(f"Selected embedding provider: {best_provider_name} (dimension={self.get_dimension()})")
+                logger.debug(f"Available providers: {list(self.providers.keys())}")
                 return True
             
         elif self.current_strategy == EmbeddingStrategy.ASTRBOT:
+            logger.debug("ASTRBOT mode: initializing AstrBot provider...")
             provider = AstrBotProvider(self.config)
             if await provider.initialize():
                 self.providers["astrbot"] = provider
                 self.current_provider = provider
                 self.stats["provider_usage"]["astrbot"] = 0
+                logger.info(f"Initialized AstrBot provider (dimension={self.get_dimension()})")
                 return True
+            logger.warning("Failed to initialize AstrBot provider")
         
         elif self.current_strategy == EmbeddingStrategy.LOCAL:
+            logger.debug("LOCAL mode: initializing Local provider...")
             provider = LocalProvider(self.config)
             if await provider.initialize():
                 self.providers["local"] = provider
                 self.current_provider = provider
                 self.stats["provider_usage"]["local"] = 0
+                logger.info(f"Initialized Local provider (dimension={self.get_dimension()})")
                 return True
+            logger.warning("Failed to initialize Local provider")
         
         elif self.current_strategy == EmbeddingStrategy.FALLBACK:
+            logger.debug("FALLBACK mode: initializing Fallback provider...")
             provider = FallbackProvider(self.config)
             if await provider.initialize():
                 self.providers["fallback"] = provider
                 self.current_provider = provider
                 self.stats["provider_usage"]["fallback"] = 0
+                logger.info(f"Initialized Fallback provider (dimension={self.get_dimension()})")
                 return True
+            logger.warning("Failed to initialize Fallback provider")
         
         # 如果没有提供者可用，至少初始化降级提供者
-        logger.warning("No embedding provider available, initializing fallback")
+        logger.warning("No embedding provider available, initializing fallback as last resort")
         provider = FallbackProvider(self.config)
         if await provider.initialize():
             self.providers["fallback"] = provider
             self.current_provider = provider
             self.stats["provider_usage"]["fallback"] = 0
+            logger.info(f"Initialized Fallback provider as fallback (dimension={self.get_dimension()})")
             return True
         
         logger.error("Failed to initialize any embedding provider")
@@ -183,9 +200,13 @@ class EmbeddingManager:
             List[float]: 嵌入向量
         """
         self.stats["total_requests"] += 1
+        text_preview = text[:30] + "..." if len(text) > 30 else text
+        logger.debug(f"Generating embedding: text='{text_preview}', dimension={dimension}")
         
         # 如果有当前提供者，尝试使用
         if self.current_provider:
+            provider_name = self.current_provider.__class__.__name__.replace("Provider", "").lower()
+            logger.debug(f"Using current provider: {provider_name}")
             try:
                 request = EmbeddingRequest(
                     text=text,
@@ -195,16 +216,17 @@ class EmbeddingManager:
                 
                 # 更新统计
                 self.stats["successful_requests"] += 1
-                provider_name = self.current_provider.__class__.__name__.replace("Provider", "").lower()
                 self.stats["provider_usage"][provider_name] = self.stats["provider_usage"].get(provider_name, 0) + 1
                 
+                logger.debug(f"Embedding generated successfully: provider={provider_name}, dimension={len(response.to_list())}")
                 return response.to_list()
                 
             except Exception as e:
-                logger.warning(f"Current provider failed: {e}, trying fallback")
+                logger.warning(f"Current provider {provider_name} failed: {e}, trying fallback")
                 self.stats["failed_requests"] += 1
         
         # 如果当前提供者失败，尝试降级
+        logger.debug("Current provider failed, attempting fallback...")
         return await self._embed_with_fallback(text, dimension)
 
     async def _embed_with_fallback(self, text: str, dimension: Optional[int] = None) -> List[float]:
@@ -273,6 +295,8 @@ class EmbeddingManager:
         Returns:
             List[List[float]]: 嵌入向量列表
         """
+        if not self.current_provider:
+            raise RuntimeError("No embedding provider available")
         requests = [EmbeddingRequest(text=text, dimension=dimension) for text in texts]
         responses = await self.current_provider.embed_batch(requests)
         return [response.to_list() for response in responses]
@@ -285,7 +309,7 @@ class EmbeddingManager:
         """
         if self.current_provider:
             return self.current_provider.dimension
-        return self._get_config("chroma_config.embedding_dimension", 1024)
+        return self._get_config("chroma_config.embedding_dimension", 512)
 
     def get_model(self) -> str:
         """获取当前提供者的模型名称
@@ -343,7 +367,7 @@ class EmbeddingManager:
             return None
 
     def _get_config(self, key: str, default: Any = None) -> Any:
-        """获取配置值
+        """获取配置值（兼容旧代码，使用配置管理器）
         
         Args:
             key: 配置键（支持点分隔）
@@ -352,14 +376,8 @@ class EmbeddingManager:
         Returns:
             配置值或默认值
         """
-        try:
-            keys = key.split('.')
-            value = self.config
-            for k in keys:
-                value = getattr(value, k, value.get(k) if isinstance(value, dict) else default)
-            return value if value is not None else default
-        except (AttributeError, KeyError):
-            return default
+        from iris_memory.core.config_manager import get_config_manager
+        return get_config_manager().get(key, default)
 
     async def switch_strategy(self, strategy: EmbeddingStrategy) -> bool:
         """切换嵌入策略

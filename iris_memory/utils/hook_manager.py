@@ -6,7 +6,10 @@ Hook管理器
 from enum import Enum
 from typing import List, Dict, Any, Optional
 
-from iris_memory.utils.logger import logger
+from iris_memory.utils.logger import get_logger
+
+# 模块logger
+logger = get_logger("hook_manager")
 
 
 class InjectionMode(str, Enum):

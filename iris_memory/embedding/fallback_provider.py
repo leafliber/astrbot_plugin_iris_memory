@@ -8,6 +8,10 @@ import numpy as np
 import hashlib
 
 from .base import EmbeddingProvider, EmbeddingRequest, EmbeddingResponse
+from iris_memory.utils.logger import get_logger
+
+# 模块logger
+logger = get_logger("fallback_provider")
 
 
 class FallbackProvider(EmbeddingProvider):
@@ -28,18 +32,16 @@ class FallbackProvider(EmbeddingProvider):
 
     async def initialize(self) -> bool:
         """初始化降级提供者
-        
+
         Returns:
             bool: 是否初始化成功
         """
         try:
             # 获取配置的维度
-            self._dimension = self._get_config("chroma_config.embedding_dimension", 1024)
-            from iris_memory.utils.logger import logger
-            logger.warning("Using fallback embedding provider (pseudo-random vectors). This is not recommended for production.")
+            self._dimension = self._get_config("chroma_config.embedding_dimension", 512)
+            logger.info("Initialized fallback embedding provider (backup only). Use pseudo-random vectors as a last resort.")
             return True
         except Exception as e:
-            from iris_memory.utils.logger import logger
             logger.warning(f"Failed to initialize fallback provider: {e}")
             return False
 
@@ -80,7 +82,7 @@ class FallbackProvider(EmbeddingProvider):
             model=self._model,
             dimension=dimension,
             metadata={
-                "warning": "Using fallback pseudo-random vectors",
+                "warning": "Using fallback provider (backup only). This should not be the primary embedding source.",
                 "request_metadata": request.metadata
             }
         )
@@ -102,7 +104,7 @@ class FallbackProvider(EmbeddingProvider):
 
     async def health_check(self) -> Dict[str, Any]:
         """健康检查
-        
+
         Returns:
             Dict[str, Any]: 健康状态信息
         """
@@ -112,5 +114,5 @@ class FallbackProvider(EmbeddingProvider):
             "model": self._model,
             "dimension": self._dimension,
             "available": True,
-            "warning": "This is a fallback provider. Consider using a real embedding model."
+            "warning": "This is a fallback provider (backup only). All primary embedding providers are unavailable."
         }
