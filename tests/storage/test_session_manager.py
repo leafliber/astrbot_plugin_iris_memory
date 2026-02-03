@@ -375,7 +375,7 @@ class TestGetAllSessions:
         """测试获取所有空会话"""
         sessions = session_manager.get_all_sessions()
 
-        assert sessions == []
+        assert sessions == {}
 
     def test_get_all_multiple(self, session_manager):
         """测试获取多个会话"""
@@ -386,7 +386,11 @@ class TestGetAllSessions:
         sessions = session_manager.get_all_sessions()
 
         assert len(sessions) == 3
-        assert all(isinstance(s, dict) for s in sessions)
+        assert all(isinstance(v, dict) for v in sessions.values())
+        # 验证返回结构包含 metadata 和 working_memories
+        for session_key, session_data in sessions.items():
+            assert "metadata" in session_data
+            assert "working_memories" in session_data
 
 
 class TestGetSessionCount:

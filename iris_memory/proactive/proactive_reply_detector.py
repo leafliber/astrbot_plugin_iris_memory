@@ -49,29 +49,38 @@ class ProactiveReplyDetector:
         self.question_threshold = self.config.get("question_threshold", 0.8)
         self.mention_threshold = self.config.get("mention_threshold", 0.9)
         
-        # 需要回复的关键词
+        # 需要回复的关键词（适配群聊场景）
         self.reply_triggers = {
             "question": [
-                r"[吗嘛呢？?]$",
-                r"^(什么|怎么|为什么|如何|哪里|谁|多少)",
+                r"[吗嘛呢吧？?]$",
+                r"^(什么|怎么|为什么|如何|哪里|谁|多少|啥)",
                 r"^(能|可以|会).*吗[?？]?$",
+                r"^(是不是|对不对|行不行)",
+                r".*?(呢|吧|啊)[?？]$",
             ],
             "emotional_support": [
-                r"(难过|伤心|痛苦|哭|难受|烦|郁闷|孤独)",
-                r"(开心|高兴|兴奋|惊喜|喜欢|感谢)",
-                r"(压力|累|疲惫|焦虑|担心|害怕)",
+                r"(难过|伤心|痛苦|哭|难受|烦|郁闷|孤独|emo|破防)",
+                r"(开心|高兴|兴奋|惊喜|喜欢|感谢|爽|牛|棒)",
+                r"(压力|累|疲惫|焦虑|担心|害怕|慌|怂)",
+                r"(笑死|哈哈哈|呜呜呜|啊这)",
             ],
             "seeking_attention": [
-                r"(在吗|有人吗|喂|哈喽|hello)",
-                r"^(.*)((在不在)|(在么))",
+                r"(在吗|有人吗|喂|哈喽|hello|在么|在不在)",
+                r"(出来|冒泡|潜水|水群)",
             ],
             "mention_bot": [
                 r"(你说|你觉得|你怎么看|你的意见|你的想法)",
-                r"(@bot|机器人|AI|助手)",
+                r"(@bot|机器人|AI|助手|千酱)",
             ],
             "expect_response": [
                 r"(等你|期待|希望|想听|想问问)",
-                r"(对吧|是吧|好吗|行吗|可以吗)",
+                r"(对吧|是吧|好吗|行吗|可以吗|对吧)",
+                r"(求|有没有|谁知道)",
+            ],
+            "chat_topics": [
+                r"(今天|昨天|最近|刚才).*?(怎么样|如何|发生了)",
+                r"(大家觉得|你们认为|有没有人不)",
+                r"(分享|推荐|安利|避雷)",
             ]
         }
         
@@ -210,29 +219,44 @@ class ProactiveReplyDetector:
             reply_score += 0.35 * signals["expect_response"]
             reasons.append(f"expect({signals['expect_response']:.2f})")
         
+        if signals.get("chat_topics", 0) > 0.3:
+            reply_score += 0.25 * signals["chat_topics"]
+            reasons.append(f"topic({signals['chat_topics']:.2f})")
+        
         emotion_intensity = emotion.get("intensity", 0)
+        emotion_type = emotion.get("primary", "neutral")
+        
+        # 降低情感阈值，让更多情感能被触发
         if emotion_intensity > self.high_emotion_threshold:
             reply_score += 0.2
             reasons.append(f"high_emotion({emotion_intensity:.2f})")
+        elif emotion_intensity > 0.4 and emotion_type != "neutral":
+            # 非中性情感且有一定强度
+            reply_score += 0.1
+            reasons.append(f"emotion({emotion_type},{emotion_intensity:.2f})")
+        elif emotion_type in ["joy", "excitement"] and emotion_intensity > 0.3:
+            # 积极情感降低阈值（适合群聊氛围）
+            reply_score += 0.15
+            reasons.append(f"positive({emotion_intensity:.2f})")
         
         # 用户个性化
         user_preference = user_persona.get("proactive_reply_preference", 0.5)
         reply_score *= (0.8 + 0.4 * user_preference)
         
-        # 根据分数决定
-        if reply_score >= 0.8:
+        # 根据分数决定（群聊场景优化，降低阈值）
+        if reply_score >= 0.7:
             urgency = ReplyUrgency.CRITICAL
             should_reply = True
             delay = 0
-        elif reply_score >= 0.6:
+        elif reply_score >= 0.5:
             urgency = ReplyUrgency.HIGH
             should_reply = True
             delay = 5
-        elif reply_score >= 0.4:
+        elif reply_score >= 0.3:
             urgency = ReplyUrgency.MEDIUM
             should_reply = True
             delay = 30
-        elif reply_score >= 0.2:
+        elif reply_score >= 0.15:
             urgency = ReplyUrgency.LOW
             should_reply = False
             delay = 120

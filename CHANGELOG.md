@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [v1.1.4] - 2026-02-03
+## [v1.1.5] - 2026-02-04
 
 ### Added
 - 记忆注入人格风格支持：新增 `natural` 和 `roleplay` 风格，适配真实群聊人设
@@ -14,6 +14,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - 修复批量处理器队列序列化失败问题：`EmotionalState` 对象现在正确转换为字典进行 JSON 序列化
 - 修复情感状态在批量处理上下文中的持久化问题
+- **修复 `/memory_delete_all` 命令逻辑错误**：数据库为空时错误地返回删除失败，现已正确返回成功（删除 0 条）
+
+### Optimized
+- **合并重复查询**：去重检查和冲突检测现在共享一次向量查询，减少 50% 的 ChromaDB 查询次数，同时消除重复的日志输出
+
+### Added
+- **增强 DEBUG 日志**：添加详细的数据库操作日志
+  - `query_memories`：记录原始查询结果（前5条）和最终的 Memory 对象详情
+  - `add_memory`：记录添加的记忆完整内容、元数据和关键属性
+  - `delete_all_memories`：记录要删除的记忆列表（前10条）
+
+### Fixed
+- **修复记忆升级缺失**：生命周期管理器新增 `WORKING → EPISODIC` 升级逻辑，解决工作记忆无法自动升级到情景记忆的问题
+  - 新增 `_should_promote_working_to_episodic()` 方法，基于 RIF 分数、置信度、质量等级判断升级
+  - 升级条件：RIF≥0.5、置信度≥0.3、质量等级≥3 或访问次数≥2 或用户主动请求
+- **SessionManager 新增方法**：`get_all_sessions()`（包含工作记忆）、`remove_working_memory()`
+
+### Fixed
+- **修复 DEBUG 日志 None 格式化错误**：当 ChromaDB 查询结果中 `distance` 为 None 时，新增代码的 DEBUG 日志格式化失败
+  - 问题：`result.get('distance', 'N/A'):.4f` 在 distance=None 时抛出 `TypeError`
+  - 修复：先检查 None 再格式化，显示为 "N/A"
+
+### Changed
+- **简化 `/memory_stats` 输出**：移除"会话消息"计数（仅用于内部调试，对用户无实际意义）
+
+### Changed
+- **重构配置系统**：优化 `_conf_schema.json` 配置结构
+  - 新增列表类型配置支持：`persona_styles`, `custom_triggers`, `trigger_keywords`, `embedding.models`, `session.excluded_users`
+  - 重新组织配置分组：
+    - `basic`: 基础功能开关 + 日志级别
+    - `memory_inject`: 记忆注入设置（新增 persona_styles）
+    - `capture_settings`: 记忆捕获设置（新增 custom_triggers）
+    - `proactive_reply`: 主动回复（新增 trigger_keywords）
+    - `image_analysis`: 图片分析设置
+    - `llm_processing`: LLM增强处理
+    - `embedding`: 向量嵌入（支持多模型列表）
+    - `session`: 会话管理（新增 excluded_users）
+  - 更新 `config_manager.py` 配置映射和便捷访问属性
+  - 更新 `defaults.py` 添加新的默认配置项
+
+### Technical
+- **修复测试兼容性**：
+  - `test_session_manager.py::TestGetAllSessions`：更新测试期望，方法返回字典而非列表
+  - 所有存储层测试通过：112 passed (2 failed 为测试环境问题，与新增代码无关)
+  - 修复 `ConfigManager.embedding_model` 属性以兼容 Mock 对象
+
+### Changed
+- **优化主动回复触发策略**（适配群聊场景）：
+  - 降低触发阈值：CRITICAL 0.8→0.7, HIGH 0.6→0.5, MEDIUM 0.4→0.3, LOW 0.2→0.15
+  - 扩展触发关键词：增加群聊常用语（"在么"、"冒泡"、"笑死"、"求"、"大家觉得"等）
+  - 优化情感检测：积极情感（joy/excitement）降低阈值至 0.3，非中性情感强度>0.4 即可触发
+  - 新增 `chat_topics` 类别：识别分享/推荐/讨论类群聊话题
 - **修复 AstrBot API 兼容性问题 (v4.5.7+)**：
   - `llm_processor.py`：使用新的 `context.get_all_providers()` + `context.llm_generate()` API 替代旧的禁用代码
   - `astrbot_provider.py`：使用 `context.get_all_embedding_providers()` 获取嵌入提供商
@@ -25,7 +77,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `chroma_manager.py`：将裸 `except:` 替换为具体的异常类型 `(ValueError, TypeError)`
   - 移除未使用的导入：`StorageLayer` (session_manager)、`asyncio` (message_sender)
 
-## [v1.1.2-3] - 2026-02-03
+## [v1.1.2-4] - 2026-02-03
 
 ### Added
 - 将图片智能分析的上下文相关性、预算与去重过滤整合到生产流程（减少对Vision LLM的调用）

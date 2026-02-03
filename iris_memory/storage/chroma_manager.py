@@ -283,6 +283,15 @@ class ChromaManager:
             
             logger.debug(f"Memory metadata: {metadata}")
             
+            # 详细记录要添加的记忆内容
+            if logger.isEnabledFor(10):  # DEBUG level
+                logger.debug(f"Adding memory details:")
+                logger.debug(f"  ID: {memory.id}")
+                logger.debug(f"  Content: '{memory.content[:100]}...'" if len(memory.content) > 100 else f"  Content: '{memory.content}'")
+                logger.debug(f"  User: {memory.user_id}, Group: {memory.group_id}")
+                logger.debug(f"  Type: {memory.type.value}, Scope: {memory.scope.value}, Layer: {memory.storage_layer.value}")
+                logger.debug(f"  RIF: {memory.rif_score:.3f}, Quality: {memory.quality_level.value}")
+            
             # 添加到Chroma
             self.collection.add(
                 ids=[memory.id],
@@ -466,6 +475,18 @@ class ChromaManager:
                     unique_results.append(result)
             
             logger.debug(f"Total results: {len(all_results)}, Unique results: {len(unique_results)}")
+            
+            # 详细记录原始查询结果
+            if logger.isEnabledFor(10):  # DEBUG level is 10
+                for i, result in enumerate(all_results[:5], 1):  # 只记录前5条避免日志过长
+                    distance = result.get('distance')
+                    distance_str = f"{distance:.4f}" if distance is not None else "N/A"
+                    content = result.get('content', '')
+                    if len(content) > 50:
+                        content_str = f"content='{content[:50]}...'"
+                    else:
+                        content_str = f"content='{content}'"
+                    logger.debug(f"  Raw result {i}: id={result['id'][:8]}..., distance={distance_str}, {content_str}")
 
             # 按 distance 排序并取 top_k
             if unique_results:
@@ -480,6 +501,14 @@ class ChromaManager:
                 memory_data_without_distance = {k: v for k, v in memory_data.items() if k != 'distance'}
                 memory = self._result_to_memory(memory_data_without_distance)
                 memories.append(memory)
+            
+            # 详细记录最终的Memory对象
+            if logger.isEnabledFor(10) and memories:  # DEBUG level is 10
+                logger.debug(f"Final query results ({len(memories)} memories):")
+                for i, memory in enumerate(memories, 1):
+                    logger.debug(f"  [{i}] ID={memory.id[:8]}..., Type={memory.type.value}, "
+                               f"Scope={memory.scope.value}, Layer={memory.storage_layer.value}, "
+                               f"RIF={memory.rif_score:.3f}, Content='{memory.content[:40]}...'")
 
             logger.info(f"Queried {len(memories)} memories for user={user_id}, group={group_id}, query='{query_text[:30]}...'")
             return memories
@@ -763,16 +792,36 @@ class ChromaManager:
             # 获取所有记忆ID
             results = self.collection.get()
             
-            if results['ids']:
-                count = len(results['ids'])
+            # 检查是否有记忆
+            if not results or not results.get('ids'):
+                # 数据库为空，视为成功（无需删除）
+                logger.info("Database is empty, nothing to delete")
+                return True, 0
+            
+            count = len(results['ids'])
+            
+            # 详细记录要删除的记忆
+            if logger.isEnabledFor(10) and count > 0:  # DEBUG level
+                logger.debug(f"Preparing to delete {count} memories:")
+                for i, (mid, content, metadata) in enumerate(zip(
+                    results['ids'][:10],  # 只显示前10条
+                    results.get('documents', [])[:10],
+                    results.get('metadatas', [])[:10]
+                ), 1):
+                    content_preview = content[:40] + "..." if content and len(content) > 40 else content
+                    user_id = metadata.get('user_id', 'N/A') if metadata else 'N/A'
+                    logger.debug(f"  [{i}] ID={mid[:8]}..., User={user_id}, Content='{content_preview}'")
+                if count > 10:
+                    logger.debug(f"  ... and {count - 10} more")
+            
+            if count > 0:
                 self.collection.delete(ids=results['ids'])
                 logger.warning(f"Deleted ALL {count} memories from database!")
-                return True, count
             
-            return False, 0
+            return True, count
             
         except Exception as e:
-            logger.error(f"Failed to delete all memories: {e}")
+            logger.error(f"Failed to delete all memories: {e}", exc_info=True)
             return False, 0
     
     async def get_all_memories(
