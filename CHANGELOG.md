@@ -15,6 +15,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 修复批量处理器队列序列化失败问题：`EmotionalState` 对象现在正确转换为字典进行 JSON 序列化
 - 修复情感状态在批量处理上下文中的持久化问题
 
+## [v1.1.2] - 2026-02-03
+
+### Added
+- 将图片智能分析的上下文相关性、预算与去重过滤整合到生产流程（减少对Vision LLM的调用）
+
+### Fixed
+- 修复主动回复初始化失败：改为通过 `astrbot_context.get_using_provider(umo)` 获取 LLM 提供器，避免直接依赖已移除的 `AstrBotApi` 导入
+- 修复主动回复任务链中 `umo` 未传递的问题，确保批量处理器 -> 管理器 -> 生成器正确传递 `umo`
+
 ## [v1.1.1] - 2025-02-03
 
 ### Added
