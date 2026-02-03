@@ -552,8 +552,8 @@ class MessageBatchProcessor:
                 context = msg.context.copy() if msg.context else {}
                 serializable_context = self._make_json_serializable(context)
                 
-                # 确保移除任何类引用
-                keys_to_remove = [k for k in serializable_context.keys() if k.startswith('_') or k == 'EmotionalState']
+                # 确保移除任何类引用（保留具体的键名如emotional_state）
+                keys_to_remove = [k for k in serializable_context.keys() if k.startswith('_')]
                 for key in keys_to_remove:
                     del serializable_context[key]
                     

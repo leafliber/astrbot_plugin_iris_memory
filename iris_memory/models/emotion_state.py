@@ -228,6 +228,7 @@ class EmotionalState:
     
     def to_dict(self) -> Dict[str, Any]:
         """转换为字典格式（用于序列化）"""
+        from collections import deque
         data = {}
         
         for key, value in self.__dict__.items():
@@ -260,6 +261,19 @@ class EmotionalState:
                     "window_size": value.window_size,
                     "min_confidence": value.min_confidence
                 }
+            elif isinstance(value, deque):
+                # 特殊处理 deque，转换为 list 并序列化每个 CurrentEmotionState
+                data[key] = [
+                    {
+                        "primary": e.primary.value,
+                        "secondary": [s.value for s in e.secondary],
+                        "intensity": e.intensity,
+                        "confidence": e.confidence,
+                        "detected_at": e.detected_at.isoformat(),
+                        "contextual_correction": e.contextual_correction
+                    }
+                    for e in value
+                ]
             elif isinstance(value, list) and value and isinstance(value[0], CurrentEmotionState):
                 data[key] = [
                     {

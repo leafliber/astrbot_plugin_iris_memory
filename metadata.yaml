@@ -1,6 +1,6 @@
 name: astrbot_plugin_iris_memory # 插件唯一识别名，以 astrbot_plugin_ 前缀开头
 display_name: Iris Memory # 用于展示的名字，可以是方便人类阅读的名字
 desc: 基于companion-memory框架的三层记忆插件，提供智能记忆管理能力
-version: v1.1.2 # 插件版本号。格式：v1.1.1 或者 v1.1
+version: v1.1.3 # 插件版本号。格式：v1.1.1 或者 v1.1
 author: Leafiber # 作者
 repo: https://github.com/leafliber/astrbot_plugin_iris_memory # 插件的仓库地址
