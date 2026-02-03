@@ -984,7 +984,8 @@ class IrisMemoryPlugin(Star):
                 content=full_message,
                 user_id=user_id,
                 group_id=group_id,
-                context=context
+                context=context,
+                umo=event.unified_msg_origin
             )
     
     async def _build_message_context(
