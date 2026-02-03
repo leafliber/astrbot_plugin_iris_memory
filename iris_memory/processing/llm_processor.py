@@ -70,6 +70,7 @@ class LLMMessageProcessor:
         )
         self.max_tokens = max_tokens
         self.llm_api = None
+        self.default_provider_id = None  # 默认提供商ID，用于新API调用
         
         # 统计信息
         self.stats = {
@@ -80,16 +81,29 @@ class LLMMessageProcessor:
         }
     
     async def initialize(self) -> bool:
-        """初始化LLM API"""
+        """初始化LLM API
+        
+        使用 AstrBot v4.5.7+ 新API:
+        - self.context.get_all_providers() 获取所有LLM提供商
+        - self.context.llm_generate() 调用LLM
+        """
         if not self.astrbot_context:
             logger.warning("AstrBot context not available")
             return False
         
         try:
-            from astrbot.api import AstrBotApi
-            self.llm_api = AstrBotApi(self.astrbot_context)
-            logger.info("LLM processor initialized")
-            return True
+            # 使用新的 AstrBot API (v4.5.7+)
+            # 获取所有可用的 LLM 提供商
+            providers = self.astrbot_context.get_all_providers()
+            if providers:
+                # 使用第一个可用的提供商
+                self.llm_api = providers[0]
+                self.default_provider_id = getattr(self.llm_api, 'id', None) or getattr(self.llm_api, 'provider_id', None)
+                logger.info(f"LLM processor initialized with provider: {self.default_provider_id}")
+                return True
+            else:
+                logger.warning("No LLM providers available")
+                return False
         except Exception as e:
             logger.warning(f"Failed to initialize LLM API: {e}")
             return False
@@ -268,6 +282,10 @@ class LLMMessageProcessor:
     ) -> Optional[str]:
         """单次调用LLM API（不带重试）
         
+        使用 AstrBot v4.5.7+ 新API:
+        - self.context.llm_generate() 直接调用
+        - Provider.text_chat() 旧方式作为回退
+        
         Args:
             prompt: 提示词
             max_tokens: 最大返回token数
@@ -279,22 +297,39 @@ class LLMMessageProcessor:
         Raises:
             Exception: API调用异常
         """
-        if hasattr(self.llm_api, 'text_chat'):
+        # 方式1: 使用新的 AstrBot API (v4.5.7+) - llm_generate
+        if self.astrbot_context and hasattr(self.astrbot_context, 'llm_generate') and self.default_provider_id:
+            try:
+                llm_resp = await self.astrbot_context.llm_generate(
+                    chat_provider_id=self.default_provider_id,
+                    prompt=prompt
+                )
+                if llm_resp and hasattr(llm_resp, 'completion_text'):
+                    text = llm_resp.completion_text or ""
+                    self.stats["total_tokens_used"] += len(prompt) // 4 + len(text) // 4
+                    return text.strip()
+            except Exception as e:
+                logger.debug(f"llm_generate failed, trying fallback: {e}")
+        
+        # 方式2: 使用 Provider.text_chat() 作为回退
+        if self.llm_api and hasattr(self.llm_api, 'text_chat'):
             response = await self.llm_api.text_chat(
                 prompt=prompt,
-                max_tokens=max_tokens,
-                temperature=temperature
+                context=[]
             )
             
-            if isinstance(response, dict):
+            if hasattr(response, 'completion_text'):
+                text = response.completion_text or ""
+            elif isinstance(response, dict):
                 text = response.get("text", "") or response.get("content", "")
             else:
-                text = str(response)
+                text = str(response) if response else ""
             
             self.stats["total_tokens_used"] += len(prompt) // 4 + len(text) // 4
             return text.strip()
         
-        elif hasattr(self.llm_api, 'chat_completion'):
+        # 方式3: chat_completion 作为最后回退
+        if self.llm_api and hasattr(self.llm_api, 'chat_completion'):
             response = await self.llm_api.chat_completion(
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=max_tokens,
@@ -308,14 +343,13 @@ class LLMMessageProcessor:
                 else:
                     text = ""
             else:
-                text = str(response)
+                text = str(response) if response else ""
             
             self.stats["total_tokens_used"] += len(prompt) // 4 + len(text) // 4
             return text.strip()
         
-        else:
-            logger.warning("No suitable LLM method found")
-            return None
+        logger.warning("No suitable LLM method found")
+        return None
     
     def _parse_json_response(self, response: str) -> Optional[Dict]:
         """解析JSON响应"""

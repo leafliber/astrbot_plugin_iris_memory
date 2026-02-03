@@ -11,7 +11,6 @@ import asyncio
 from iris_memory.utils.logger import get_logger
 
 from iris_memory.models.memory import Memory
-from iris_memory.core.types import StorageLayer
 from iris_memory.core.defaults import DEFAULTS
 
 # 模块logger
@@ -51,8 +50,6 @@ class SessionManager:
         self.max_working_memory = max_working_memory or DEFAULTS.memory.max_working_memory
         self.max_sessions = max_sessions or DEFAULTS.session.max_sessions
         self.ttl = ttl or DEFAULTS.cache.working_cache_ttl
-        self.max_sessions = max_sessions
-        self.ttl = ttl
         
         # 会话访问顺序（用于LRU淘汰）
         self._session_order: List[str] = []
@@ -325,7 +322,7 @@ class SessionManager:
             bool: 是否添加成功
         """
         async with self._lock:
-            self.add_working_memory(memory)
+            await self.add_working_memory(memory)
             self._stats["memories_added"] += 1
             return True
     

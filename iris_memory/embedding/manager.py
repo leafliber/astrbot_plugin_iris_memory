@@ -111,7 +111,13 @@ class EmbeddingManager:
             for priority in self.priorities:
                 provider_name = priority.provider_class.__name__
                 logger.debug(f"Trying to initialize {provider_name} (priority={priority.priority})...")
-                provider = priority.provider_class(self.config)
+                
+                # 特殊处理 AstrBotProvider，需要传入 context
+                if priority.provider_class == AstrBotProvider:
+                    provider = AstrBotProvider(self.config, self.plugin_context)
+                else:
+                    provider = priority.provider_class(self.config)
+                    
                 success = await provider.initialize()
                 if success:
                     short_name = provider_name.replace("Provider", "").lower()
@@ -131,7 +137,7 @@ class EmbeddingManager:
             
         elif self.current_strategy == EmbeddingStrategy.ASTRBOT:
             logger.debug("ASTRBOT mode: initializing AstrBot provider...")
-            provider = AstrBotProvider(self.config)
+            provider = AstrBotProvider(self.config, self.plugin_context)
             if await provider.initialize():
                 self.providers["astrbot"] = provider
                 self.current_provider = provider

@@ -543,14 +543,14 @@ class ChromaManager:
             from datetime import datetime
             try:
                 memory.created_time = datetime.fromisoformat(metadata['created_time'])
-            except:
+            except (ValueError, TypeError):
                 pass
         
         if 'last_access_time' in metadata:
             from datetime import datetime
             try:
                 memory.last_access_time = datetime.fromisoformat(metadata['last_access_time'])
-            except:
+            except (ValueError, TypeError):
                 pass
         
         # 移除系统元数据，保留自定义元数据

@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [v1.1.4] - 2026-02-03
 
 ### Added
 - 记忆注入人格风格支持：新增 `natural` 和 `roleplay` 风格，适配真实群聊人设
@@ -14,6 +14,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - 修复批量处理器队列序列化失败问题：`EmotionalState` 对象现在正确转换为字典进行 JSON 序列化
 - 修复情感状态在批量处理上下文中的持久化问题
+- **修复 AstrBot API 兼容性问题 (v4.5.7+)**：
+  - `llm_processor.py`：使用新的 `context.get_all_providers()` + `context.llm_generate()` API 替代旧的禁用代码
+  - `astrbot_provider.py`：使用 `context.get_all_embedding_providers()` 获取嵌入提供商
+  - `reply_generator.py`：修复 LLM 响应处理，正确使用 `LLMResponse.completion_text`
+  - `manager.py`：修复 AstrBotProvider 初始化，正确传递 astrbot_context
+- **代码审查修复**：
+  - `session_manager.py`：修复 `add_memory_async` 方法缺少 `await` 导致协程未执行的严重问题
+  - `session_manager.py`：修复变量重复赋值覆盖默认值的问题
+  - `chroma_manager.py`：将裸 `except:` 替换为具体的异常类型 `(ValueError, TypeError)`
+  - 移除未使用的导入：`StorageLayer` (session_manager)、`asyncio` (message_sender)
 
 ## [v1.1.2-3] - 2026-02-03
 

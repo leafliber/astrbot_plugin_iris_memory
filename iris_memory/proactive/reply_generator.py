@@ -202,19 +202,25 @@ class ProactiveReplyGenerator:
         return prompt
     
     async def _call_llm(self, provider, prompt: str) -> Optional[str]:
-        """调用LLM"""
+        """调用LLM
+        
+        使用 AstrBot Provider.text_chat() 方法调用 LLM。
+        响应类型为 LLMResponse，使用 completion_text 获取文本。
+        """
         if not provider:
             return None
         
         try:
-            # 使用text_chat方法，类似image_analyzer的做法
+            # 使用text_chat方法
             response = await provider.text_chat(
                 prompt=prompt,
-                max_tokens=self.max_tokens,
-                temperature=self.temperature
+                context=[]
             )
             
-            if isinstance(response, dict):
+            # 处理 LLMResponse 对象
+            if hasattr(response, 'completion_text'):
+                return response.completion_text or ""
+            elif isinstance(response, dict):
                 return response.get("text", "") or response.get("content", "")
             return str(response) if response else ""
             

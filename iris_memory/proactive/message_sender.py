@@ -2,7 +2,6 @@
 消息发送器
 通过AstrBot主动发送消息到会话
 """
-import asyncio
 from typing import Dict, Any, Optional
 from dataclasses import dataclass
 
