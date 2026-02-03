@@ -554,7 +554,8 @@ class MemoryRetrievalEngine:
         self,
         memories: List[Memory],
         use_token_budget: bool = True,
-        user_persona: Optional[Dict[str, Any]] = None
+        user_persona: Optional[Dict[str, Any]] = None,
+        persona_style: str = "default"
     ) -> str:
         """格式化记忆用于注入到LLM上下文
         
@@ -562,6 +563,7 @@ class MemoryRetrievalEngine:
             memories: 记忆列表
             use_token_budget: 是否使用token预算管理（默认True）
             user_persona: 用户画像（可选，用于人格协调）
+            persona_style: 人格风格 (default/natural/roleplay)
             
         Returns:
             str: 格式化的记忆文本
@@ -573,29 +575,42 @@ class MemoryRetrievalEngine:
         if self.enable_token_budget and use_token_budget:
             return self.memory_selector.get_memory_context(
                 memories,
-                target_count=self.max_context_memories
+                target_count=self.max_context_memories,
+                persona_style=persona_style
             )
         
-        # 否则使用传统的格式化方法
-        formatted = "【相关记忆】\n"
-        for i, memory in enumerate(memories, 1):
-            time_str = memory.created_time.strftime("%Y-%m-%d %H:%M")
-            # 处理type可能是枚举或字符串的情况
-            if hasattr(memory.type, 'value'):
-                type_label = memory.type.value.upper()
-            else:
-                type_label = str(memory.type).upper()
+        # 根据人格风格选择格式化方式
+        if persona_style == "natural":
+            formatted = "【你记得的事情】\n"
+            formatted += "以下是你和群友之间的往事，请用自己的话自然提及，不要暴露'记录'、'数据'等概念：\n"
+            for memory in memories:
+                formatted += f"- {memory.content}\n"
+        elif persona_style == "roleplay":
+            formatted = "【你的记忆】\n"
+            formatted += "这些都是你亲身经历的事情，回复时可以自然地说'我记得...'、'你之前说过...'：\n"
+            for memory in memories:
+                formatted += f"· {memory.content}\n"
+        else:
+            # 默认格式
+            formatted = "【相关记忆】\n"
+            for i, memory in enumerate(memories, 1):
+                time_str = memory.created_time.strftime("%Y-%m-%d %H:%M")
+                # 处理type可能是枚举或字符串的情况
+                if hasattr(memory.type, 'value'):
+                    type_label = memory.type.value.upper()
+                else:
+                    type_label = str(memory.type).upper()
 
-            formatted += f"{i}. [{type_label}] {time_str}\n"
-            formatted += f"   内容: {memory.content}\n"
+                formatted += f"{i}. [{type_label}] {time_str}\n"
+                formatted += f"   内容: {memory.content}\n"
 
-            if memory.summary:
-                formatted += f"   摘要: {memory.summary}\n"
+                if memory.summary:
+                    formatted += f"   摘要: {memory.summary}\n"
 
-            if memory.emotional_weight > 0.5:
-                formatted += f"   情感强度: {memory.emotional_weight:.2f}\n"
+                if memory.emotional_weight > 0.5:
+                    formatted += f"   情感强度: {memory.emotional_weight:.2f}\n"
 
-            formatted += "\n"
+                formatted += "\n"
         
         # 如果有用户画像，应用人格协调
         if user_persona:

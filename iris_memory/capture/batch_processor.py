@@ -490,6 +490,8 @@ class MessageBatchProcessor:
         Returns:
             Dict[str, Any]: 序列化的队列数据
         """
+        from iris_memory.models.emotion_state import EmotionalState
+        
         serialized = {
             "queues": {},
             "last_process_time": self.last_process_time.copy(),
@@ -497,16 +499,22 @@ class MessageBatchProcessor:
         }
         
         for session_key, messages in self.message_queues.items():
-            serialized["queues"][session_key] = [
-                {
+            serialized["queues"][session_key] = []
+            for msg in messages:
+                # 处理 context 中的 EmotionalState 对象
+                context = msg.context.copy() if msg.context else {}
+                if "emotional_state" in context and isinstance(context["emotional_state"], EmotionalState):
+                    context["emotional_state"] = context["emotional_state"].to_dict()
+                if "EmotionalState" in context:
+                    del context["EmotionalState"]  # 删除无法序列化的类引用
+                    
+                serialized["queues"][session_key].append({
                     "content": msg.content,
                     "user_id": msg.user_id,
                     "group_id": msg.group_id,
                     "timestamp": msg.timestamp,
-                    "context": msg.context
-                }
-                for msg in messages
-            ]
+                    "context": context
+                })
         
         return serialized
     
@@ -516,22 +524,35 @@ class MessageBatchProcessor:
         Args:
             data: 序列化的队列数据
         """
+        from iris_memory.models.emotion_state import EmotionalState
+        
         if not data:
             return
         
         # 恢复队列
         queues_data = data.get("queues", {})
         for session_key, messages_data in queues_data.items():
-            self.message_queues[session_key] = [
-                QueuedMessage(
-                    content=msg["content"],
-                    user_id=msg["user_id"],
-                    group_id=msg["group_id"],
-                    timestamp=msg.get("timestamp", time.time()),
-                    context=msg.get("context", {})
+            restored_messages = []
+            for msg in messages_data:
+                context = msg.get("context", {})
+                # 将字典转换回 EmotionalState 对象
+                if "emotional_state" in context and isinstance(context["emotional_state"], dict):
+                    try:
+                        context["emotional_state"] = EmotionalState.from_dict(context["emotional_state"])
+                    except Exception as e:
+                        logger.warning(f"Failed to restore EmotionalState: {e}")
+                        context["emotional_state"] = None
+                
+                restored_messages.append(
+                    QueuedMessage(
+                        content=msg["content"],
+                        user_id=msg["user_id"],
+                        group_id=msg["group_id"],
+                        timestamp=msg.get("timestamp", time.time()),
+                        context=context
+                    )
                 )
-                for msg in messages_data
-            ]
+            self.message_queues[session_key] = restored_messages
         
         # 恢复处理时间
         self.last_process_time = data.get("last_process_time", {})

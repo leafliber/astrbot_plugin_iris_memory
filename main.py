@@ -847,7 +847,11 @@ class IrisMemoryPlugin(Star):
         
         # 将记忆注入到system_prompt
         if memories:
-            memory_context = self.retrieval_engine.format_memories_for_llm(memories)
+            # 使用 natural 风格适合群聊真实人设：淡化AI痕迹，强调自然回忆
+            memory_context = self.retrieval_engine.format_memories_for_llm(
+                memories,
+                persona_style="natural"
+            )
             req.system_prompt += f"\n\n{memory_context}\n"
             self.logger.debug(f"Injected {len(memories)} memories into LLM context")
         

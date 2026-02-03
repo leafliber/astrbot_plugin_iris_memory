@@ -290,13 +290,15 @@ class DynamicMemorySelector:
     def get_memory_context(
         self,
         memories: List,
-        target_count: int = 3
+        target_count: int = 3,
+        persona_style: str = "default"
     ) -> str:
         """生成记忆上下文文本
         
         Args:
             memories: 记忆列表
             target_count: 目标数量
+            persona_style: 人格风格 (default/natural/roleplay)
             
         Returns:
             str: 格式化的记忆上下文
@@ -306,22 +308,45 @@ class DynamicMemorySelector:
         if not selected:
             return ""
         
-        # 生成上下文文本
-        lines = ["【相关记忆】"]
-        for i, memory in enumerate(selected, 1):
-            compressed, _ = self.compressor.compress_memory(
-                memory.content,
-                memory.summary
-            )
-            
-            time_str = memory.created_time.strftime("%m-%d %H:%M")
-            # 处理type可能是枚举或字符串的情况
-            if hasattr(memory.type, 'value'):
-                type_label = memory.type.value.upper()
-            else:
-                type_label = str(memory.type).upper()
-            lines.append(f"{i}. [{type_label}] {time_str}")
-            lines.append(f"   {compressed}")
+        # 根据人格风格选择格式化方式
+        if persona_style == "natural":
+            # 自然群友风格：淡化AI痕迹，强调自然回忆
+            lines = ["【你记得的事情】"]
+            lines.append("以下是你和群友之间的往事，请用自己的话自然提及，不要暴露'记录'、'数据'等概念：")
+            for i, memory in enumerate(selected, 1):
+                compressed, _ = self.compressor.compress_memory(
+                    memory.content,
+                    memory.summary
+                )
+                # 简化格式，去掉时间戳和类型标签
+                lines.append(f"- {compressed}")
+        elif persona_style == "roleplay":
+            # 角色扮演风格：强调第一人称回忆
+            lines = ["【你的记忆】"]
+            lines.append("这些都是你亲身经历的事情，回复时可以自然地说'我记得...'、'你之前说过...'：")
+            for memory in selected:
+                compressed, _ = self.compressor.compress_memory(
+                    memory.content,
+                    memory.summary
+                )
+                lines.append(f"· {compressed}")
+        else:
+            # 默认格式
+            lines = ["【相关记忆】"]
+            for i, memory in enumerate(selected, 1):
+                compressed, _ = self.compressor.compress_memory(
+                    memory.content,
+                    memory.summary
+                )
+                
+                time_str = memory.created_time.strftime("%m-%d %H:%M")
+                # 处理type可能是枚举或字符串的情况
+                if hasattr(memory.type, 'value'):
+                    type_label = memory.type.value.upper()
+                else:
+                    type_label = str(memory.type).upper()
+                lines.append(f"{i}. [{type_label}] {time_str}")
+                lines.append(f"   {compressed}")
         
         context = "\n".join(lines)
 
