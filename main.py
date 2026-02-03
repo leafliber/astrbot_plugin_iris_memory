@@ -299,9 +299,9 @@ class IrisMemoryPlugin(Star):
         max_images = self.cfg.get("image_analysis.max_images", DEFAULTS.image_analysis.max_images_per_message)
         
         # 新增：预算和过滤配置
-        daily_budget = self.cfg.get("image_analysis.daily_budget", DEFAULTS.image_analysis.daily_analysis_budget)
-        session_budget = self.cfg.get("image_analysis.session_budget", DEFAULTS.image_analysis.session_analysis_budget)
-        require_context = self.cfg.get("image_analysis.require_context", DEFAULTS.image_analysis.require_context_relevance)
+        daily_budget = self.cfg.image_analysis_daily_budget
+        session_budget = self.cfg.image_analysis_session_budget
+        require_context = self.cfg.image_analysis_require_context
         
         if not enable_analysis:
             self.logger.info("Image analysis is disabled")
@@ -766,11 +766,6 @@ class IrisMemoryPlugin(Star):
             group_id=group_id
         )
         
-        # 获取会话信息
-        session_key = self.session_manager.get_session_key(user_id, group_id)
-        session = self.session_manager.get_session(session_key)
-        message_count = session["message_count"] if session else 0
-        
         # 图片分析统计
         image_stats = ""
         if self.image_analyzer:
@@ -781,8 +776,7 @@ class IrisMemoryPlugin(Star):
         
         result = f"""记忆统计：
 - 工作记忆：{working_count} 条
-- 情景记忆：{episodic_count} 条
-- 会话消息：{message_count} 条{image_stats}"""
+- 情景记忆：{episodic_count} 条{image_stats}"""
         
         yield event.plain_result(result)
     

@@ -166,56 +166,123 @@ class SessionLifecycleManager:
     async def _promote_memories(self):
         """定期执行记忆升级检查
         
-        检查并执行 EPISODIC → SEMANTIC 升级
+        检查并执行升级：
+        1. WORKING → EPISODIC（从工作记忆升级到情景记忆）
+        2. EPISODIC → SEMANTIC（从情景记忆升级到语义记忆）
         使用升级评估器（支持规则/LLM/混合模式）
         """
         if not self.chroma_manager:
             return
         
         try:
-            # 获取所有情景记忆
+            # ========== 阶段 1: WORKING → EPISODIC ==========
+            working_promoted = 0
+            
+            # 从所有会话中获取工作记忆
+            all_sessions = self.session_manager.get_all_sessions()
+            for session_key, session_data in all_sessions.items():
+                working_memories = session_data.get("working_memories", [])
+                if not working_memories:
+                    continue
+                
+                for memory in working_memories:
+                    # 检查是否符合升级条件
+                    if self._should_promote_working_to_episodic(memory):
+                        # 升级到 EPISODIC 并保存到 Chroma
+                        memory.storage_layer = StorageLayer.EPISODIC
+                        success = await self.chroma_manager.add_memory(memory)
+                        if success:
+                            working_promoted += 1
+                            # 从工作记忆中移除
+                            await self.session_manager.remove_working_memory(
+                                session_key.split(":")[0],  # user_id
+                                session_key.split(":")[1] if ":" in session_key else None,  # group_id
+                                memory.id
+                            )
+                            logger.debug(
+                                f"Memory {memory.id} promoted WORKING→EPISODIC "
+                                f"(RIF={memory.rif_score:.3f}, confidence={memory.confidence:.2f})"
+                            )
+            
+            if working_promoted > 0:
+                logger.info(f"Working memory promotion: {working_promoted} memories promoted to EPISODIC")
+            
+            # ========== 阶段 2: EPISODIC → SEMANTIC ==========
             episodic_memories = await self.chroma_manager.get_memories_by_storage_layer(
                 StorageLayer.EPISODIC
             )
             
-            if not episodic_memories:
-                return
+            semantic_promoted = 0
+            if episodic_memories:
+                # 使用升级评估器进行判断
+                evaluation_results = await self.upgrade_evaluator.evaluate_episodic_to_semantic(
+                    episodic_memories
+                )
+                
+                for memory in episodic_memories:
+                    result = evaluation_results.get(memory.id)
+                    if result and result[0]:  # should_upgrade = True
+                        should_upgrade, confidence, reason = result
+                        
+                        # 更改存储层为语义记忆
+                        memory.storage_layer = StorageLayer.SEMANTIC
+                        
+                        # 持久化到Chroma
+                        success = await self.chroma_manager.update_memory(memory)
+                        if success:
+                            semantic_promoted += 1
+                            logger.debug(
+                                f"Memory {memory.id} promoted EPISODIC→SEMANTIC "
+                                f"(confidence={confidence:.2f}, reason={reason})"
+                            )
+                        else:
+                            logger.warning(
+                                f"Failed to promote memory {memory.id} to SEMANTIC"
+                            )
             
-            # 使用升级评估器进行判断
-            evaluation_results = await self.upgrade_evaluator.evaluate_episodic_to_semantic(
-                episodic_memories
-            )
-            
-            promoted_count = 0
-            for memory in episodic_memories:
-                result = evaluation_results.get(memory.id)
-                if result and result[0]:  # should_upgrade = True
-                    should_upgrade, confidence, reason = result
-                    
-                    # 更改存储层为语义记忆
-                    memory.storage_layer = StorageLayer.SEMANTIC
-                    
-                    # 持久化到Chroma
-                    success = await self.chroma_manager.update_memory(memory)
-                    if success:
-                        promoted_count += 1
-                        logger.debug(
-                            f"Memory {memory.id} promoted EPISODIC→SEMANTIC "
-                            f"(confidence={confidence:.2f}, reason={reason})"
-                        )
-                    else:
-                        logger.warning(
-                            f"Failed to promote memory {memory.id} to SEMANTIC"
-                        )
-            
-            if promoted_count > 0:
+            if semantic_promoted > 0:
                 logger.info(
-                    f"Memory promotion completed: {promoted_count} memories "
+                    f"Memory promotion completed: {semantic_promoted} memories "
                     f"promoted from EPISODIC to SEMANTIC (mode={self.upgrade_mode.value})"
                 )
                 
         except Exception as e:
             logger.error(f"Failed to promote memories: {e}")
+    
+    def _should_promote_working_to_episodic(self, memory) -> bool:
+        """判断工作记忆是否应该升级到情景记忆
+        
+        升级条件：
+        1. RIF 分数达到一定阈值（说明记忆有价值）
+        2. 置信度足够高
+        3. 访问次数或质量等级达标
+        
+        Args:
+            memory: 记忆对象
+            
+        Returns:
+            bool: 是否应该升级
+        """
+        # 基本条件检查
+        if memory.rif_score < 0.5:
+            return False
+        
+        if memory.confidence < 0.3:
+            return False
+        
+        # 质量等级检查
+        if memory.quality_level.value >= 3:  # HIGH_CONFIDENCE 或更高
+            return True
+        
+        # 访问频率检查（热门记忆）
+        if memory.access_count >= 2:
+            return True
+        
+        # 用户主动请求的记忆优先升级
+        if memory.is_user_requested:
+            return True
+        
+        return False
     
     async def _cleanup_expired_sessions(self):
         """清理过期会话"""

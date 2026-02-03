@@ -20,29 +20,61 @@
         "type": "bool",
         "default": true,
         "hint": "分析对话情感，提升记忆相关性"
+      },
+      "log_level": {
+        "description": "日志级别",
+        "type": "string",
+        "default": "INFO",
+        "options": ["DEBUG", "INFO", "WARNING", "ERROR"],
+        "hint": "DEBUG显示最详细信息，推荐使用INFO"
       }
     }
   },
-  "llm_processing": {
-    "description": "LLM处理配置",
+  "memory_inject": {
+    "description": "记忆注入设置",
     "type": "object",
     "items": {
-      "use_llm": {
-        "description": "使用LLM增强处理",
-        "type": "bool",
-        "default": false,
-        "hint": "开启后使用LLM进行消息摘要和记忆升级判断，质量更高但消耗token"
-      },
       "max_context_memories": {
         "description": "注入记忆数量",
         "type": "int",
         "default": 3,
         "hint": "每次对话注入的相关记忆数量（1-10）"
+      },
+      "token_budget": {
+        "description": "记忆token预算",
+        "type": "int",
+        "default": 512,
+        "hint": "注入记忆占用的token数量上限"
+      }
+    }
+  },
+  "capture_settings": {
+    "description": "记忆捕获设置",
+    "type": "object",
+    "items": {
+      "max_working_memory": {
+        "description": "工作记忆数量上限",
+        "type": "int",
+        "default": 10,
+        "hint": "会话内临时记忆数量上限，超过会触发升级"
+      },
+      "rif_threshold": {
+        "description": "记忆保留阈值",
+        "type": "float",
+        "default": 0.4,
+        "hint": "RIF评分低于此值的记忆会被淘汰（0.1-0.9）"
+      },
+      "upgrade_mode": {
+        "description": "记忆升级模式",
+        "type": "string",
+        "default": "rule",
+        "options": ["rule", "llm", "hybrid"],
+        "hint": "rule-规则判断，llm-LLM判断，hybrid-混合"
       }
     }
   },
   "proactive_reply": {
-    "description": "主动回复",
+    "description": "主动回复设置",
     "type": "object",
     "items": {
       "enable": {
@@ -55,44 +87,12 @@
         "description": "每日最大主动回复数",
         "type": "int",
         "default": 20,
-        "hint": "防止打扰用户"
+        "hint": "防止打扰用户（触发规则在代码中预设）"
       }
     }
-  },
-  "embedding": {
-    "description": "向量嵌入配置",
-    "type": "object",
-    "items": {
-      "strategy": {
-        "description": "嵌入策略",
-        "type": "string",
-        "default": "auto",
-        "enum": ["auto", "astrbot", "local"],
-        "hint": "auto-自动选择，astrbot-使用AstrBot API，local-本地模型"
-      },
-      "model": {
-        "description": "嵌入模型",
-        "type": "string",
-        "default": "BAAI/bge-small-zh-v1.5",
-        "hint": "本地模型或API模型名称"
-      },
-      "dimension": {
-        "description": "向量维度",
-        "type": "int",
-        "default": 512,
-        "hint": "bge-small-zh为512，ada-002为1536，bge-m3为1024"
-      }
-    }
-  },
-  "log_level": {
-    "description": "日志级别",
-    "type": "string",
-    "default": "INFO",
-    "enum": ["DEBUG", "INFO", "WARNING", "ERROR"],
-    "hint": "DEBUG显示最详细信息，推荐使用INFO"
   },
   "image_analysis": {
-    "description": "图片分析",
+    "description": "图片分析设置",
     "type": "object",
     "items": {
       "enable": {
@@ -134,40 +134,52 @@
       }
     }
   },
-  "advanced": {
-    "description": "高级设置",
+  "llm_processing": {
+    "description": "LLM增强处理",
     "type": "object",
     "items": {
-      "max_working_memory": {
-        "description": "工作记忆数量",
-        "type": "int",
-        "default": 10,
-        "hint": "会话内临时记忆数量上限"
+      "use_llm": {
+        "description": "使用LLM增强处理",
+        "type": "bool",
+        "default": false,
+        "hint": "开启后使用LLM进行消息摘要和记忆升级判断，质量更高但消耗token"
+      }
+    }
+  },
+  "embedding": {
+    "description": "向量嵌入设置",
+    "type": "object",
+    "items": {
+      "strategy": {
+        "description": "嵌入策略",
+        "type": "string",
+        "default": "auto",
+        "options": ["auto", "astrbot", "local"],
+        "hint": "auto-自动选择，astrbot-使用AstrBot API，local-本地模型"
       },
-      "rif_threshold": {
-        "description": "记忆淘汰阈值",
-        "type": "float",
-        "default": 0.4,
-        "hint": "RIF评分低于此值的记忆会被淘汰（0.1-0.9）"
+      "models": {
+        "description": "嵌入模型列表",
+        "type": "list",
+        "default": ["BAAI/bge-small-zh-v1.5"],
+        "hint": "本地模型或API模型名称，支持多模型备选"
       },
-      "token_budget": {
-        "description": "记忆token预算",
+      "dimension": {
+        "description": "向量维度",
         "type": "int",
         "default": 512,
-        "hint": "注入记忆占用的token数量上限"
-      },
-      "session_timeout_hours": {
+        "hint": "bge-small-zh为512，ada-002为1536，bge-m3为1024"
+      }
+    }
+  },
+  "session": {
+    "description": "会话管理设置",
+    "type": "object",
+    "items": {
+      "timeout_hours": {
         "description": "会话超时时间（小时）",
         "type": "int",
         "default": 24,
         "hint": "会话多久未活动后关闭"
-      },
-      "upgrade_mode": {
-        "description": "记忆升级模式",
-        "type": "string",
-        "default": "rule",
-        "enum": ["rule", "llm", "hybrid"],
-        "hint": "rule-规则判断，llm-LLM判断，hybrid-混合"
       }
     }
   }

@@ -19,73 +19,108 @@ CONFIG_KEY_MAPPING = {
     "basic.enable_memory": ("memory", "auto_capture", True),
     "basic.enable_inject": ("llm_integration", "enable_inject", True),
     "basic.enable_emotion": ("emotion", "enable_emotion", True),
+    "basic.log_level": ("log", "level", "INFO"),
     
-    # LLM处理
-    "llm_processing.use_llm": ("message_processing", "use_llm_for_processing", False),
-    "llm_processing.max_context_memories": ("llm_integration", "max_context_memories", 3),
+    # 记忆注入设置
+    "memory_inject.max_context_memories": ("llm_integration", "max_context_memories", 3),
+    "memory_inject.token_budget": ("llm_integration", "token_budget", 512),
+    
+    # 记忆捕获设置
+    "capture_settings.max_working_memory": ("memory", "max_working_memory", 10),
+    "capture_settings.rif_threshold": ("memory", "rif_threshold", 0.4),
+    "capture_settings.upgrade_mode": ("memory", "upgrade_mode", "rule"),
     
     # 主动回复
     "proactive_reply.enable": ("proactive_reply", "enable", False),
     "proactive_reply.max_daily": ("proactive_reply", "max_daily_replies", 20),
     
+    # 图片分析
+    "image_analysis.enable": ("image_analysis", "enable", True),
+    "image_analysis.mode": ("image_analysis", "mode", "auto"),
+    "image_analysis.max_images": ("image_analysis", "max_images", 2),
+    "image_analysis.daily_budget": ("image_analysis", "daily_budget", 100),
+    "image_analysis.session_budget": ("image_analysis", "session_budget", 20),
+    "image_analysis.require_context": ("image_analysis", "require_context", True),
+    
+    # LLM增强处理
+    "llm_processing.use_llm": ("message_processing", "use_llm_for_processing", False),
+    
     # 嵌入配置
     "embedding.strategy": ("embedding", "embedding_strategy", "auto"),
-    "embedding.model": ("embedding", "embedding_model", "BAAI/bge-small-zh-v1.5"),
+    "embedding.models": ("embedding", "embedding_models", ["BAAI/bge-small-zh-v1.5"]),
     "embedding.dimension": ("embedding", "embedding_dimension", 512),
     
-    # 日志
-    "log_level": ("log", "level", "INFO"),
+    # 会话管理
+    "session.timeout_hours": ("session", "session_timeout", 24),
     
-    # 高级设置
+    # 向后兼容的旧配置键
+    "log_level": ("log", "level", "INFO"),
     "advanced.max_working_memory": ("memory", "max_working_memory", 10),
     "advanced.rif_threshold": ("memory", "rif_threshold", 0.4),
     "advanced.token_budget": ("llm_integration", "token_budget", 512),
     "advanced.session_timeout_hours": ("session", "session_timeout", 24),
     "advanced.upgrade_mode": ("memory", "upgrade_mode", "rule"),
+    "embedding.model": ("embedding", "embedding_model", "BAAI/bge-small-zh-v1.5"),
 }
 
 # 旧配置键到新配置键的映射（向后兼容）
 LEGACY_KEY_MAPPING = {
+    # 基础功能
     "memory_config.auto_capture": "basic.enable_memory",
-    "memory_config.max_working_memory": "advanced.max_working_memory",
-    "memory_config.rif_threshold": "advanced.rif_threshold",
-    "memory_config.upgrade_mode": "advanced.upgrade_mode",
-    "memory_config.session_timeout": "advanced.session_timeout_hours",
-    "memory_config.session_cleanup_interval": None,  # 已移除，使用默认值
+    "memory_config.max_working_memory": "capture_settings.max_working_memory",
+    "memory_config.rif_threshold": "capture_settings.rif_threshold",
+    "memory_config.upgrade_mode": "capture_settings.upgrade_mode",
+    "memory_config.session_timeout": "session.timeout_hours",
+    "memory_config.session_cleanup_interval": None,
     "memory_config.session_inactive_timeout": None,
     "memory_config.llm_upgrade_batch_size": None,
     "memory_config.llm_upgrade_threshold": None,
     
+    # 高级设置（旧）
+    "advanced.max_working_memory": "capture_settings.max_working_memory",
+    "advanced.rif_threshold": "capture_settings.rif_threshold",
+    "advanced.token_budget": "memory_inject.token_budget",
+    "advanced.session_timeout_hours": "session.timeout_hours",
+    "advanced.upgrade_mode": "capture_settings.upgrade_mode",
+    
+    # 缓存配置
     "cache_config.embedding_cache_size": None,
     "cache_config.embedding_cache_strategy": None,
     "cache_config.max_sessions": None,
     "cache_config.working_cache_ttl": None,
     "cache_config.compression_max_length": None,
     
+    # 嵌入/Chroma配置
     "chroma_config.embedding_strategy": "embedding.strategy",
-    "chroma_config.embedding_model": "embedding.model",
+    "chroma_config.embedding_model": "embedding.models",
     "chroma_config.embedding_dimension": "embedding.dimension",
     "chroma_config.collection_name": None,
     "chroma_config.auto_detect_dimension": None,
+    "embedding.model": "embedding.models",
     
+    # 情感配置
     "emotion_config.enable_emotion": "basic.enable_emotion",
     "emotion_config.emotion_model": None,
     
+    # LLM集成
     "llm_integration.enable_inject": "basic.enable_inject",
-    "llm_integration.max_context_memories": "llm_processing.max_context_memories",
-    "llm_integration.token_budget": "advanced.token_budget",
+    "llm_integration.max_context_memories": "memory_inject.max_context_memories",
+    "llm_integration.token_budget": "memory_inject.token_budget",
     "llm_integration.enable_token_budget": None,
     "llm_integration.injection_mode": None,
     "llm_integration.coordination_strategy": None,
     "llm_integration.enable_time_aware": None,
     "llm_integration.enable_emotion_aware": None,
     
-    "log_config.level": "log_level",
+    # 日志配置
+    "log_config.level": "basic.log_level",
+    "log_level": "basic.log_level",
     "log_config.console_output": None,
     "log_config.file_output": None,
     "log_config.max_file_size": None,
     "log_config.backup_count": None,
     
+    # 消息处理
     "message_processing.enable_batch_processing": None,
     "message_processing.use_llm_for_processing": "llm_processing.use_llm",
     "message_processing.llm_processing_mode": None,
@@ -95,9 +130,8 @@ LEGACY_KEY_MAPPING = {
     "message_processing.immediate_trigger_confidence": None,
     "message_processing.immediate_emotion_intensity": None,
     
-    "proactive_reply.enable": "proactive_reply.enable",
+    # 主动回复
     "proactive_reply.cooldown_seconds": None,
-    "proactive_reply.max_daily_replies": "proactive_reply.max_daily",
     "proactive_reply.max_reply_tokens": None,
     "proactive_reply.reply_temperature": None,
 }
@@ -242,7 +276,7 @@ class ConfigManager:
         }
         return legacy_defaults.get(legacy_key, default)
     
-    # 便捷访问方法
+    # 便捷访问方法 - 基础功能
     @property
     def enable_memory(self) -> bool:
         return self.get("basic.enable_memory", True)
@@ -256,50 +290,99 @@ class ConfigManager:
         return self.get("basic.enable_emotion", True)
     
     @property
-    def use_llm(self) -> bool:
-        return self.get("llm_processing.use_llm", False)
+    def log_level(self) -> str:
+        return self.get("basic.log_level", "INFO")
     
+    # 记忆注入设置
     @property
     def max_context_memories(self) -> int:
-        return self.get("llm_processing.max_context_memories", 3)
+        return self.get("memory_inject.max_context_memories", 3)
     
+    @property
+    def token_budget(self) -> int:
+        return self.get("memory_inject.token_budget", 512)
+    
+    # 记忆捕获设置
+    @property
+    def max_working_memory(self) -> int:
+        return self.get("capture_settings.max_working_memory", 10)
+    
+    @property
+    def rif_threshold(self) -> float:
+        return self.get("capture_settings.rif_threshold", 0.4)
+    
+    @property
+    def upgrade_mode(self) -> str:
+        return self.get("capture_settings.upgrade_mode", "rule")
+    
+    # 主动回复
     @property
     def proactive_reply_enabled(self) -> bool:
         return self.get("proactive_reply.enable", False)
     
     @property
-    def log_level(self) -> str:
-        return self.get("log_level", "INFO")
+    def proactive_reply_max_daily(self) -> int:
+        return self.get("proactive_reply.max_daily", 20)
+    
+    # 图片分析
+    @property
+    def image_analysis_enabled(self) -> bool:
+        return self.get("image_analysis.enable", True)
     
     @property
-    def max_working_memory(self) -> int:
-        return self.get("advanced.max_working_memory", 10)
+    def image_analysis_mode(self) -> str:
+        return self.get("image_analysis.mode", "auto")
     
     @property
-    def rif_threshold(self) -> float:
-        return self.get("advanced.rif_threshold", 0.4)
+    def image_analysis_max_images(self) -> int:
+        return self.get("image_analysis.max_images", 2)
     
     @property
-    def token_budget(self) -> int:
-        return self.get("advanced.token_budget", 512)
+    def image_analysis_daily_budget(self) -> int:
+        return self.get("image_analysis.daily_budget", 100)
     
+    @property
+    def image_analysis_session_budget(self) -> int:
+        return self.get("image_analysis.session_budget", 20)
+    
+    @property
+    def image_analysis_require_context(self) -> bool:
+        return self.get("image_analysis.require_context", True)
+    
+    # LLM增强处理
+    @property
+    def use_llm(self) -> bool:
+        return self.get("llm_processing.use_llm", False)
+    
+    # 会话管理
     @property
     def session_timeout(self) -> int:
         """会话超时（秒）"""
-        hours = self.get("advanced.session_timeout_hours", 24)
+        hours = self.get("session.timeout_hours", 24)
         return hours * 3600
     
-    @property
-    def upgrade_mode(self) -> str:
-        return self.get("advanced.upgrade_mode", "rule")
-    
+    # 嵌入配置
     @property
     def embedding_strategy(self) -> str:
         return self.get("embedding.strategy", "auto")
     
     @property
     def embedding_model(self) -> str:
-        return self.get("embedding.model", "BAAI/bge-small-zh-v1.5")
+        """获取主嵌入模型（列表的第一个）"""
+        try:
+            models = self.get("embedding.models", ["BAAI/bge-small-zh-v1.5"])
+            if isinstance(models, list) and len(models) > 0:
+                return models[0]
+            elif isinstance(models, str):
+                return models
+            return "BAAI/bge-small-zh-v1.5"
+        except (TypeError, IndexError):
+            return "BAAI/bge-small-zh-v1.5"
+    
+    @property
+    def embedding_models(self) -> list:
+        """获取所有嵌入模型列表"""
+        return self.get("embedding.models", ["BAAI/bge-small-zh-v1.5"])
     
     @property
     def embedding_dimension(self) -> int:

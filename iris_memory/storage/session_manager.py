@@ -216,13 +216,49 @@ class SessionManager:
         logger.info(f"Session deleted: {session_key}")
         return True
     
-    def get_all_sessions(self) -> List[Dict[str, Any]]:
-        """获取所有会话信息
+    def get_all_sessions(self) -> Dict[str, Dict[str, Any]]:
+        """获取所有会话信息（包含工作记忆）
         
         Returns:
-            List[Dict[str, Any]]: 所有会话的元数据列表
+            Dict[str, Dict[str, Any]]: 所有会话的完整数据，包含 working_memories
         """
-        return list(self.session_metadata.values())
+        result = {}
+        for session_key in self.session_metadata:
+            result[session_key] = {
+                "metadata": self.session_metadata.get(session_key, {}),
+                "working_memories": list(self.working_memory_cache.get(session_key, []))
+            }
+        return result
+    
+    async def remove_working_memory(self, user_id: str, group_id: Optional[str], memory_id: str) -> bool:
+        """从工作记忆中移除指定记忆（线程安全）
+        
+        Args:
+            user_id: 用户ID
+            group_id: 群组ID（可选）
+            memory_id: 记忆ID
+            
+        Returns:
+            bool: 是否成功移除
+        """
+        async with self._lock:
+            session_key = self.get_session_key(user_id, group_id)
+            if session_key not in self.working_memory_cache:
+                return False
+            
+            memories = self.working_memory_cache[session_key]
+            original_count = len(memories)
+            
+            # 过滤掉指定ID的记忆
+            self.working_memory_cache[session_key] = [
+                m for m in memories if m.id != memory_id
+            ]
+            
+            removed = len(memories) > len(self.working_memory_cache[session_key])
+            if removed:
+                logger.debug(f"Removed working memory {memory_id} from session {session_key}")
+            
+            return removed
     
     def get_session_count(self) -> int:
         """获取会话数量

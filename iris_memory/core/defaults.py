@@ -108,6 +108,7 @@ class EmbeddingDefaults:
     """嵌入向量默认配置"""
     embedding_strategy: str = "auto"
     embedding_model: str = "BAAI/bge-small-zh-v1.5"
+    embedding_models: list = field(default_factory=lambda: ["BAAI/bge-small-zh-v1.5"])
     embedding_dimension: int = 512
     collection_name: str = "iris_memory"
     auto_detect_dimension: bool = True
@@ -149,7 +150,10 @@ class MessageProcessingDefaults:
 
 @dataclass
 class ProactiveReplyDefaults:
-    """主动回复默认配置"""
+    """主动回复默认配置
+    
+    注意：触发关键词和检测规则直接在 ProactiveReplyDetector 中定义
+    """
     cooldown_seconds: int = 60
     max_daily_replies: int = 20
     max_reply_tokens: int = 150

@@ -253,26 +253,35 @@ class MemoryCaptureEngine:
             self._determine_storage_layer(memory, is_user_requested)
             logger.debug(f"Storage layer: {memory.storage_layer.value if hasattr(memory.storage_layer, 'value') else memory.storage_layer}")
             
-            # 13. 去重检查（使用向量相似度优化）
-            if self.enable_duplicate_check and self.chroma_manager:
-                logger.debug("Step 13: Checking for duplicates (vector-based)...")
-                duplicate = await self._check_duplicate_by_vector(memory, user_id, group_id)
-                if duplicate:
-                    logger.info(f"Duplicate memory detected, skipping: {memory.id}")
-                    return None
-                logger.debug("No duplicate found")
-            
-            # 14. 冲突检测（使用向量相似度优化）
-            if self.enable_conflict_check and self.chroma_manager:
-                logger.debug("Step 14: Checking for conflicts (vector-based)...")
-                conflicts = await self._check_conflicts_by_vector(memory, user_id, group_id)
-                if conflicts:
-                    # 尝试解决冲突
-                    resolved = await self._resolve_conflicts(memory, conflicts)
-                    if not resolved:
-                        logger.info(f"Memory conflicts detected but not resolved: {memory.id}")
-                else:
-                    logger.debug("No conflicts found")
+            # 13 & 14. 合并去重检查和冲突检测（共享一次向量查询）
+            if self.chroma_manager and (self.enable_duplicate_check or self.enable_conflict_check):
+                logger.debug("Step 13-14: Checking for duplicates and conflicts (shared query)...")
+                
+                # 只查询一次，获取 top 10 条相似记忆
+                similar_memories = await self.chroma_manager.query_memories(
+                    query_text=memory.content,
+                    user_id=user_id,
+                    group_id=group_id,
+                    top_k=10
+                )
+                
+                # 去重检查
+                if self.enable_duplicate_check and similar_memories:
+                    duplicate = self._find_duplicate_from_results(memory, similar_memories)
+                    if duplicate:
+                        logger.info(f"Duplicate memory detected, skipping: {memory.id}")
+                        return None
+                    logger.debug("No duplicate found")
+                
+                # 冲突检测
+                if self.enable_conflict_check and similar_memories:
+                    conflicts = self._find_conflicts_from_results(memory, similar_memories)
+                    if conflicts:
+                        resolved = await self._resolve_conflicts(memory, conflicts)
+                        if not resolved:
+                            logger.info(f"Memory conflicts detected but not resolved: {memory.id}")
+                    else:
+                        logger.debug("No conflicts found")
             
             logger.info(f"Memory captured successfully: id={memory.id}, type={memory_type.value}, confidence={memory.confidence:.2f}, rif={memory.rif_score:.3f}")
             
@@ -530,6 +539,84 @@ class MemoryCaptureEngine:
         except Exception as e:
             logger.warning(f"Vector-based conflict check failed: {e}")
             return conflicts
+    
+    def _find_duplicate_from_results(
+        self,
+        memory: Memory,
+        similar_memories: List[Memory],
+        similarity_threshold: float = 0.95
+    ) -> Optional[Memory]:
+        """从查询结果中查找重复记忆
+        
+        用于共享查询结果的优化版本，避免重复查询。
+        
+        Args:
+            memory: 新记忆
+            similar_memories: 相似记忆列表（来自 query_memories 结果）
+            similarity_threshold: 文本相似度阈值
+            
+        Returns:
+            Optional[Memory]: 如果找到重复记忆则返回，否则返回None
+        """
+        if not similar_memories:
+            return None
+        
+        # 只检查前5条（与原始逻辑一致）
+        for existing in similar_memories[:5]:
+            # 跳过自己
+            if existing.id == memory.id:
+                continue
+            
+            # 使用文本相似度进行精确验证
+            text_sim = self._calculate_similarity(memory.content, existing.content)
+            if text_sim >= similarity_threshold:
+                logger.debug(f"Found duplicate via vector search: {existing.id} (text_sim={text_sim:.3f})")
+                return existing
+        
+        return None
+    
+    def _find_conflicts_from_results(
+        self,
+        memory: Memory,
+        similar_memories: List[Memory]
+    ) -> List[Memory]:
+        """从查询结果中查找冲突记忆
+        
+        用于共享查询结果的优化版本，避免重复查询。
+        
+        Args:
+            memory: 新记忆
+            similar_memories: 相似记忆列表（来自 query_memories 结果）
+            
+        Returns:
+            List[Memory]: 冲突的记忆列表
+        """
+        conflicts = []
+        
+        if not similar_memories:
+            return conflicts
+        
+        # 检查语义冲突
+        for existing in similar_memories:
+            if existing.id == memory.id:
+                continue
+            
+            # 只检查相同类型的记忆
+            if existing.type != memory.type:
+                continue
+            
+            # 检查内容相似度
+            content_sim = self._calculate_content_similarity(memory.content, existing.content)
+            if content_sim < 0.3:
+                continue
+            
+            # 检查是否为相反内容
+            if self._is_opposite(memory.content, existing.content):
+                conflicts.append(existing)
+                memory.add_conflict(existing.id)
+                logger.debug(f"Conflict detected via vector search: {memory.id} vs {existing.id}")
+        
+        return conflicts
     
     async def _resolve_conflicts(
         self,
