@@ -108,6 +108,9 @@ class LLMMessageProcessor:
     async def _try_init_provider(self) -> bool:
         """尝试初始化 provider（按需调用）
         
+        使用 get_using_provider() 获取默认聊天模型，而不是 get_all_providers()[0]
+        确保使用用户配置的默认模型，而非配置列表中的第一个
+        
         Returns:
             bool: 是否成功获取 provider
         """
@@ -122,23 +125,38 @@ class LLMMessageProcessor:
         self._init_retry_count += 1
         
         try:
+            # 优先使用 get_using_provider() 获取默认模型
+            # 这是用户配置的默认聊天模型
+            provider = self.astrbot_context.get_using_provider()
+            if provider:
+                self.llm_api = provider
+                self.default_provider_id = getattr(
+                    self.llm_api, 'id', None
+                ) or getattr(self.llm_api, 'provider_id', None)
+                logger.info(
+                    f"LLM provider loaded on demand (default): {self.default_provider_id} "
+                    f"(attempt {self._init_retry_count})"
+                )
+                return True
+            
+            # 回退：使用 get_all_providers() 的第一个（兼容旧版本）
             providers = self.astrbot_context.get_all_providers()
             if providers:
                 self.llm_api = providers[0]
                 self.default_provider_id = getattr(
                     self.llm_api, 'id', None
                 ) or getattr(self.llm_api, 'provider_id', None)
-                logger.info(
-                    f"LLM provider loaded on demand: {self.default_provider_id} "
+                logger.warning(
+                    f"LLM provider loaded on demand (fallback to first): {self.default_provider_id} "
                     f"(attempt {self._init_retry_count})"
                 )
                 return True
-            else:
-                logger.debug(
-                    f"No LLM providers available yet "
-                    f"(attempt {self._init_retry_count}/{self._max_init_retries})"
-                )
-                return False
+            
+            logger.debug(
+                f"No LLM providers available yet "
+                f"(attempt {self._init_retry_count}/{self._max_init_retries})"
+            )
+            return False
         except Exception as e:
             logger.debug(
                 f"Failed to load LLM provider "
