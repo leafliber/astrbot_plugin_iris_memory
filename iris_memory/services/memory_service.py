@@ -158,8 +158,13 @@ class MemoryService:
         # 情感分析器
         self._emotion_analyzer = EmotionAnalyzer(self.config)
         
-        # RIF评分器
-        self._rif_scorer = RIFScorer()
+        # RIF评分器（支持多维度评分）
+        self._rif_scorer = RIFScorer(
+            use_multidimensional=self.cfg.enable_multidimensional_scoring,
+            enable_advanced_features=self.cfg.multidimensional_advanced_features,
+            enable_context_adaptation=self.cfg.multidimensional_context_adaptation,
+            fallback_to_rif=self.cfg.multidimensional_fallback_to_rif
+        )
         
         # Chroma管理器
         self._chroma_manager = ChromaManager(
