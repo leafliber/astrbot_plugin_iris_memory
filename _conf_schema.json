@@ -46,6 +46,30 @@
         "default": "rule",
         "options": ["rule", "llm", "hybrid"],
         "hint": "rule-仅规则（省token），llm-LLM判断（需启用use_llm），hybrid-混合（推荐）"
+      },
+      "enable_multidimensional_scoring": {
+        "description": "启用多维度评分系统",
+        "type": "bool",
+        "default": false,
+        "hint": "使用更先进的五维度评分系统替代传统RIF评分（提升记忆质量但增加计算开销）"
+      },
+      "multidimensional_advanced_features": {
+        "description": "多维度评分高级功能",
+        "type": "bool",
+        "default": true,
+        "hint": "启用多维度评分的高级功能，如场景适应和动态权重调整（需要启用多维度评分）"
+      },
+      "multidimensional_context_adaptation": {
+        "description": "多维度评分上下文适应",
+        "type": "bool",
+        "default": true,
+        "hint": "根据当前对话上下文动态调整多维度评分策略（需要启用多维度评分）"
+      },
+      "multidimensional_fallback_to_rif": {
+        "description": "多维度评分回退到RIF",
+        "type": "bool",
+        "default": true,
+        "hint": "多维度评分失败时自动回退到传统RIF评分（推荐保持开启）"
       }
     }
   },
