@@ -3,6 +3,45 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.1.7-1] - 2026-02-04
+
+### Fixed
+- **修复LLM处理器初始化时机问题** (`llm_processor.py`, `main.py`)
+  - 问题：AstrBot在插件加载后才初始化provider，导致插件启动时显示"No LLM providers available"
+  - 解决方案：采用延迟初始化策略，`initialize()`不立即检查provider，而是在实际使用时按需获取
+  - 新增`_try_init_provider()`方法，最多重试3次获取provider
+  - 优化启动日志，避免显示误导性的警告信息
+- **修复存储层判断逻辑** (`capture_engine.py`): 解决记忆无法持久化问题
+  - 原逻辑过于保守，99%记忆只存WORKING层
+  - 修复后：用户请求直接→EPISODIC；CONFIRMED→SEMANTIC；高置信度/情感强度→EPISODIC
+- **修复主动回复发送器** (`message_sender.py`): 支持AstrBot标准API
+  - 新增`provider_send`检测优先级
+  - 新增`_send_via_provider`方法使用`astrbot.api.message_components.Plain`构建消息链
+- **修复会话状态同步** (`lifecycle_manager.py`): 解决SessionManager和LifecycleManager状态不一致
+  - `activate_session`自动创建缺失会话
+  - `get_session_statistics`同步双管理器状态
+
+### Changed
+- **完善RIF评分算法** (`rif_scorer.py`): 全面提升三个维度计算质量
+  - 时近性(Recency): 添加情感权重、用户请求加成、24h新记忆保护期(+0.5)
+  - 相关性(Relevance): 记忆类型权重、非线性访问频率、置信度/情感加成
+  - 频率性(Frequency): 近期访问权重、高质量加成、时间衰减因子
+  - 新增细粒度时间权重函数：1小时-365天+的分级权重
+
+### Added
+- **添加定时任务升级工作记忆** (`lifecycle_manager.py`): 修复工作记忆无法自动升级
+  - 改进`_promote_memories`: 正确处理session_key解析和WORKING→EPISODIC升级
+  - 添加错误处理和升级统计
+- **添加内存监控和自动清理** (`session_manager.py`):
+  - `get_memory_usage_stats()`: 返回内存使用、缓存命中率等统计
+  - `perform_maintenance()`: 清理24h过期记忆、30天过期会话、LRU淘汰
+- **优化Embedding缓存策略** (`embedding/manager.py`):
+  - 添加LRU缓存（最大1000条），使用MD5哈希作为缓存键
+  - 缓存统计：hits/misses/hit_rate
+- **优化日志级别** (`utils/logger.py`, `capture_engine.py`):
+  - 默认级别DEBUG→INFO
+  - 精简capture_engine的逐步骤DEBUG日志为关键信息INFO日志
+
 ## [v1.1.7] - 2026-02-04
 
 ### Added

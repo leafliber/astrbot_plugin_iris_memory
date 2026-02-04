@@ -27,26 +27,55 @@ class MessageSender:
         self._detect_send_method()
     
     def _detect_send_method(self):
-        """检测可用的发送方法"""
+        """检测可用的发送方法
+        
+        优先检测顺序（基于 AstrBot 实际 API）：
+        1. provider 对象（AstrBot 标准接口）
+        2. platform 对象（向下兼容）
+        3. message_service
+        4. 其他备用方案
+        """
         if not self.astrbot_context:
+            logger.warning("No AstrBot context provided")
             return
         
-        # 方法1: 通过 platform 对象（推荐，更可靠）
-        if hasattr(self.astrbot_context, 'platform'):
-            platform = self.astrbot_context.platform
+        ctx = self.astrbot_context
+        
+        # 方法1: 通过 provider 对象（AstrBot 标准接口）
+        if hasattr(ctx, 'provider'):
+            provider = ctx.provider
+            if hasattr(provider, 'send_private_msg') or hasattr(provider, 'send_group_msg'):
+                self.send_method = "provider_send"
+                logger.info(f"Message sender method: provider_send (AstrBot standard)")
+                return
+        
+        # 方法2: 通过 platform 对象（向下兼容）
+        if hasattr(ctx, 'platform'):
+            platform = ctx.platform
             if hasattr(platform, 'send_private_msg') or hasattr(platform, 'send_group_msg'):
                 self.send_method = "platform_send"
-        # 方法2: 通过 message_service
-        elif hasattr(self.astrbot_context, 'message_service'):
-            self.send_method = "service_send"
-        # 方法3: 通过 context 的 send_message（可能有限制）
-        elif hasattr(self.astrbot_context, 'send_message'):
-            self.send_method = "context_send"
-        # 方法4: 通过 event 对象
-        elif hasattr(self.astrbot_context, '_event'):
-            self.send_method = "event_send"
+                logger.info(f"Message sender method: platform_send")
+                return
         
-        logger.info(f"Message sender method: {self.send_method}")
+        # 方法3: 通过 message_service
+        if hasattr(ctx, 'message_service'):
+            self.send_method = "service_send"
+            logger.info(f"Message sender method: service_send")
+            return
+        
+        # 方法4: 通过 send_message 方法
+        if hasattr(ctx, 'send_message') and callable(getattr(ctx, 'send_message')):
+            self.send_method = "context_send"
+            logger.info(f"Message sender method: context_send")
+            return
+        
+        # 方法5: 通过 event 对象（备用）
+        if hasattr(ctx, '_event'):
+            self.send_method = "event_send"
+            logger.info(f"Message sender method: event_send")
+            return
+        
+        logger.warning("No valid send method detected. Proactive reply will be disabled.")
     
     async def send(
         self,
@@ -64,12 +93,14 @@ class MessageSender:
             )
         
         try:
-            if self.send_method == "context_send":
-                return await self._send_via_context(content, user_id, group_id)
+            if self.send_method == "provider_send":
+                return await self._send_via_provider(content, user_id, group_id)
             elif self.send_method == "platform_send":
                 return await self._send_via_platform(content, user_id, group_id)
             elif self.send_method == "service_send":
                 return await self._send_via_service(content, user_id, group_id)
+            elif self.send_method == "context_send":
+                return await self._send_via_context(content, user_id, group_id)
             elif self.send_method == "event_send":
                 return await self._send_via_event(content, user_id, group_id)
             else:
@@ -87,13 +118,56 @@ class MessageSender:
                 error=str(e)
             )
     
+    async def _send_via_provider(
+        self,
+        content: str,
+        user_id: str,
+        group_id: Optional[str]
+    ) -> SendResult:
+        """通过 AstrBot provider 对象发送（标准接口）"""
+        try:
+            provider = self.astrbot_context.provider
+            
+            # 构建标准消息格式
+            from astrbot.api.message_components import Plain
+            message_chain = [Plain(content)]
+            
+            if group_id:
+                # 群聊消息
+                result = await provider.send_group_msg(
+                    group_id=group_id,
+                    message=message_chain
+                )
+            else:
+                # 私聊消息
+                result = await provider.send_private_msg(
+                    user_id=user_id,
+                    message=message_chain
+                )
+            
+            logger.debug(f"Message sent via provider to {'group' if group_id else 'user'} {group_id or user_id}")
+            
+            return SendResult(
+                success=True,
+                message_id=str(result) if result else None,
+                error=None
+            )
+            
+        except Exception as e:
+            logger.error(f"Provider send failed: {e}")
+            return SendResult(
+                success=False,
+                message_id=None,
+                error=str(e)
+            )
+    
     async def _send_via_context(
         self,
         content: str,
         user_id: str,
         group_id: Optional[str]
     ) -> SendResult:
-        """通过 context 发送"""
+        """通过 context 发送（备用方案）"""
         try:
             # AstrBot 的 send_message 通常使用 message 参数
             # 尝试多种可能的 API 签名

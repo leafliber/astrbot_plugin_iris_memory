@@ -39,7 +39,11 @@ class LLMSummaryResult:
 
 
 class LLMMessageProcessor:
-    """LLM消息处理器"""
+    """LLM消息处理器
+    
+    注意：AstrBot的provider在插件加载后才初始化，因此采用延迟初始化策略。
+    initialize()方法不立即检查provider可用性，而是在实际使用时按需获取。
+    """
     
     def __init__(
         self,
@@ -72,6 +76,11 @@ class LLMMessageProcessor:
         self.llm_api = None
         self.default_provider_id = None  # 默认提供商ID，用于新API调用
         
+        # 延迟初始化相关
+        self._init_attempted = False  # 是否已尝试初始化
+        self._init_retry_count = 0
+        self._max_init_retries = 3
+        
         # 统计信息
         self.stats = {
             "classification_calls": 0,
@@ -81,31 +90,60 @@ class LLMMessageProcessor:
         }
     
     async def initialize(self) -> bool:
-        """初始化LLM API
+        """初始化LLM API（延迟初始化策略）
         
-        使用 AstrBot v4.5.7+ 新API:
-        - self.context.get_all_providers() 获取所有LLM提供商
-        - self.context.llm_generate() 调用LLM
+        由于 AstrBot 的 provider 在插件加载后才初始化，
+        此方法仅标记处理器已准备好，实际 provider 获取延迟到第一次使用时。
+        
+        Returns:
+            bool: 始终返回 True（处理器已准备好，provider 将在使用时按需获取）
         """
         if not self.astrbot_context:
-            logger.warning("AstrBot context not available")
+            logger.warning("AstrBot context not available, LLM features disabled")
             return False
         
+        logger.info("LLM processor initialized (provider will be loaded on first use)")
+        return True
+    
+    async def _try_init_provider(self) -> bool:
+        """尝试初始化 provider（按需调用）
+        
+        Returns:
+            bool: 是否成功获取 provider
+        """
+        # 如果已经初始化成功，直接返回
+        if self.llm_api is not None:
+            return True
+        
+        # 如果已尝试太多次，不再重试
+        if self._init_retry_count >= self._max_init_retries:
+            return False
+        
+        self._init_retry_count += 1
+        
         try:
-            # 使用新的 AstrBot API (v4.5.7+)
-            # 获取所有可用的 LLM 提供商
             providers = self.astrbot_context.get_all_providers()
             if providers:
-                # 使用第一个可用的提供商
                 self.llm_api = providers[0]
-                self.default_provider_id = getattr(self.llm_api, 'id', None) or getattr(self.llm_api, 'provider_id', None)
-                logger.info(f"LLM processor initialized with provider: {self.default_provider_id}")
+                self.default_provider_id = getattr(
+                    self.llm_api, 'id', None
+                ) or getattr(self.llm_api, 'provider_id', None)
+                logger.info(
+                    f"LLM provider loaded on demand: {self.default_provider_id} "
+                    f"(attempt {self._init_retry_count})"
+                )
                 return True
             else:
-                logger.warning("No LLM providers available")
+                logger.debug(
+                    f"No LLM providers available yet "
+                    f"(attempt {self._init_retry_count}/{self._max_init_retries})"
+                )
                 return False
         except Exception as e:
-            logger.warning(f"Failed to initialize LLM API: {e}")
+            logger.debug(
+                f"Failed to load LLM provider "
+                f"(attempt {self._init_retry_count}/{self._max_init_retries}): {e}"
+            )
             return False
     
     async def classify_message(
@@ -114,7 +152,8 @@ class LLMMessageProcessor:
         context: Optional[Dict] = None
     ) -> Optional[LLMClassificationResult]:
         """使用LLM分类消息"""
-        if not self.llm_api:
+        # 尝试按需初始化 provider
+        if not await self._try_init_provider():
             return None
         
         try:
@@ -155,7 +194,11 @@ class LLMMessageProcessor:
         context: Optional[Dict] = None
     ) -> Optional[LLMSummaryResult]:
         """使用LLM生成批量消息摘要"""
-        if not self.llm_api or not messages:
+        # 尝试按需初始化 provider
+        if not await self._try_init_provider():
+            return None
+        
+        if not messages:
             return None
         
         try:
@@ -239,16 +282,17 @@ class LLMMessageProcessor:
         temperature: float = 0.3
     ) -> Optional[str]:
         """调用LLM API（带指数退避重试机制）
-        
+
         Args:
             prompt: 提示词
             max_tokens: 最大返回token数
             temperature: 温度参数
-            
+
         Returns:
             Optional[str]: LLM响应文本，失败则返回None
         """
-        if not self.llm_api:
+        # 尝试按需初始化 provider
+        if not await self._try_init_provider():
             return None
         
         backoff = INITIAL_BACKOFF

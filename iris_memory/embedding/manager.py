@@ -5,6 +5,8 @@
 from enum import Enum
 from typing import List, Dict, Any, Optional, Type
 from dataclasses import dataclass
+from functools import lru_cache
+import hashlib
 
 from .base import EmbeddingProvider, EmbeddingRequest, EmbeddingResponse
 from .astrbot_provider import AstrBotProvider
@@ -37,6 +39,8 @@ class EmbeddingManager:
     
     管理多种嵌入提供者，实现策略模式和自动降级。
     优先级：AstrBot → Local → Fallback
+    
+    新增：Embedding 缓存机制，减少重复计算
     """
 
     def __init__(self, config: Any, data_path: Optional[Any] = None):
@@ -66,11 +70,87 @@ class EmbeddingManager:
             "total_requests": 0,
             "successful_requests": 0,
             "failed_requests": 0,
+            "cache_hits": 0,
+            "cache_misses": 0,
             "provider_usage": {}
         }
         
+        # Embedding 缓存（文本哈希 -> 向量）
+        self._embedding_cache: Dict[str, List[float]] = {}
+        self._cache_max_size = 1000  # 最大缓存条目数
+        self._cache_enabled = True   # 是否启用缓存
+        
         # 插件上下文（用于 AstrBot API）
         self.plugin_context = None
+    
+    def _get_cache_key(self, text: str, dimension: Optional[int] = None) -> str:
+        """生成缓存键
+        
+        Args:
+            text: 文本内容
+            dimension: 目标维度
+            
+        Returns:
+            str: 缓存键（MD5哈希）
+        """
+        key_str = f"{text}:{dimension or self.get_dimension()}"
+        return hashlib.md5(key_str.encode('utf-8')).hexdigest()
+    
+    def _get_from_cache(self, cache_key: str) -> Optional[List[float]]:
+        """从缓存获取 embedding
+        
+        Args:
+            cache_key: 缓存键
+            
+        Returns:
+            Optional[List[float]]: 缓存的向量或 None
+        """
+        if not self._cache_enabled:
+            return None
+        return self._embedding_cache.get(cache_key)
+    
+    def _add_to_cache(self, cache_key: str, embedding: List[float]):
+        """添加 embedding 到缓存
+        
+        Args:
+            cache_key: 缓存键
+            embedding: 嵌入向量
+        """
+        if not self._cache_enabled:
+            return
+        
+        # LRU 淘汰策略：如果缓存已满，清除最旧的条目（简化实现）
+        if len(self._embedding_cache) >= self._cache_max_size:
+            # 清除 20% 的缓存
+            keys_to_remove = list(self._embedding_cache.keys())[:int(self._cache_max_size * 0.2)]
+            for key in keys_to_remove:
+                del self._embedding_cache[key]
+            logger.debug(f"Cache cleanup: removed {len(keys_to_remove)} entries")
+        
+        self._embedding_cache[cache_key] = embedding
+    
+    def clear_cache(self):
+        """清空缓存"""
+        self._embedding_cache.clear()
+        logger.info("Embedding cache cleared")
+    
+    def get_cache_stats(self) -> Dict[str, Any]:
+        """获取缓存统计
+        
+        Returns:
+            Dict[str, Any]: 缓存统计信息
+        """
+        return {
+            "cache_enabled": self._cache_enabled,
+            "cache_size": len(self._embedding_cache),
+            "cache_max_size": self._cache_max_size,
+            "cache_hits": self.stats["cache_hits"],
+            "cache_misses": self.stats["cache_misses"],
+            "cache_hit_rate": (
+                self.stats["cache_hits"] / (self.stats["cache_hits"] + self.stats["cache_misses"])
+                if (self.stats["cache_hits"] + self.stats["cache_misses"]) > 0 else 0
+            )
+        }
 
     def set_plugin_context(self, context: Any):
         """设置插件上下文
@@ -196,7 +276,7 @@ class EmbeddingManager:
         return "fallback"
 
     async def embed(self, text: str, dimension: Optional[int] = None) -> List[float]:
-        """生成嵌入向量（自动降级）
+        """生成嵌入向量（自动降级 + 缓存）
         
         Args:
             text: 文本内容
@@ -206,10 +286,21 @@ class EmbeddingManager:
             List[float]: 嵌入向量
         """
         self.stats["total_requests"] += 1
+        
+        # 1. 检查缓存
+        cache_key = self._get_cache_key(text, dimension)
+        cached_embedding = self._get_from_cache(cache_key)
+        if cached_embedding is not None:
+            self.stats["cache_hits"] += 1
+            return cached_embedding
+        
+        self.stats["cache_misses"] += 1
+        
         text_preview = text[:30] + "..." if len(text) > 30 else text
         logger.debug(f"Generating embedding: text='{text_preview}', dimension={dimension}")
         
-        # 如果有当前提供者，尝试使用
+        # 2. 如果有当前提供者，尝试使用
+        embedding_result = None
         if self.current_provider:
             provider_name = self.current_provider.__class__.__name__.replace("Provider", "").lower()
             logger.debug(f"Using current provider: {provider_name}")
@@ -219,21 +310,27 @@ class EmbeddingManager:
                     dimension=dimension
                 )
                 response = await self.current_provider.embed(request)
+                embedding_result = response.to_list()
                 
                 # 更新统计
                 self.stats["successful_requests"] += 1
                 self.stats["provider_usage"][provider_name] = self.stats["provider_usage"].get(provider_name, 0) + 1
                 
-                logger.debug(f"Embedding generated successfully: provider={provider_name}, dimension={len(response.to_list())}")
-                return response.to_list()
+                logger.debug(f"Embedding generated successfully: provider={provider_name}, dimension={len(embedding_result)}")
                 
             except Exception as e:
                 logger.warning(f"Current provider {provider_name} failed: {e}, trying fallback")
                 self.stats["failed_requests"] += 1
         
-        # 如果当前提供者失败，尝试降级
-        logger.debug("Current provider failed, attempting fallback...")
-        return await self._embed_with_fallback(text, dimension)
+        # 3. 如果当前提供者失败，尝试降级
+        if embedding_result is None:
+            logger.debug("Current provider failed, attempting fallback...")
+            embedding_result = await self._embed_with_fallback(text, dimension)
+        
+        # 4. 添加到缓存
+        self._add_to_cache(cache_key, embedding_result)
+        
+        return embedding_result
 
     async def _embed_with_fallback(self, text: str, dimension: Optional[int] = None) -> List[float]:
         """使用降级策略生成嵌入

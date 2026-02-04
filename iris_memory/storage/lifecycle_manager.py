@@ -172,48 +172,79 @@ class SessionLifecycleManager:
         使用升级评估器（支持规则/LLM/混合模式）
         """
         if not self.chroma_manager:
+            logger.warning("Cannot promote memories: chroma_manager not available")
             return
         
         try:
             # ========== 阶段 1: WORKING → EPISODIC ==========
             working_promoted = 0
+            failed_promotions = 0
             
             # 从所有会话中获取工作记忆
             all_sessions = self.session_manager.get_all_sessions()
+            logger.debug(f"Checking {len(all_sessions)} sessions for memory promotion")
+            
             for session_key, session_data in all_sessions.items():
                 working_memories = session_data.get("working_memories", [])
                 if not working_memories:
+                    continue
+                
+                # 解析 session_key
+                parts = session_key.split(":")
+                user_id = parts[0] if parts else None
+                group_id = parts[1] if len(parts) > 1 and parts[1] != "private" else None
+                
+                if not user_id:
                     continue
                 
                 for memory in working_memories:
                     # 检查是否符合升级条件
                     if self._should_promote_working_to_episodic(memory):
                         # 升级到 EPISODIC 并保存到 Chroma
+                        original_layer = memory.storage_layer
                         memory.storage_layer = StorageLayer.EPISODIC
-                        success = await self.chroma_manager.add_memory(memory)
-                        if success:
-                            working_promoted += 1
-                            # 从工作记忆中移除
-                            await self.session_manager.remove_working_memory(
-                                session_key.split(":")[0],  # user_id
-                                session_key.split(":")[1] if ":" in session_key else None,  # group_id
-                                memory.id
-                            )
-                            logger.debug(
-                                f"Memory {memory.id} promoted WORKING→EPISODIC "
-                                f"(RIF={memory.rif_score:.3f}, confidence={memory.confidence:.2f})"
-                            )
+                        
+                        try:
+                            success = await self.chroma_manager.add_memory(memory)
+                            if success:
+                                working_promoted += 1
+                                # 从工作记忆中移除
+                                await self.session_manager.remove_working_memory(
+                                    user_id, group_id, memory.id
+                                )
+                                logger.debug(
+                                    f"Memory {memory.id} promoted WORKING→EPISODIC "
+                                    f"(RIF={memory.rif_score:.3f}, confidence={memory.confidence:.2f})"
+                                )
+                            else:
+                                failed_promotions += 1
+                                # 恢复原存储层
+                                memory.storage_layer = original_layer
+                                logger.warning(f"Failed to add memory {memory.id} to Chroma")
+                        except Exception as e:
+                            failed_promotions += 1
+                            memory.storage_layer = original_layer
+                            logger.error(f"Error promoting memory {memory.id}: {e}")
             
-            if working_promoted > 0:
-                logger.info(f"Working memory promotion: {working_promoted} memories promoted to EPISODIC")
+            if working_promoted > 0 or failed_promotions > 0:
+                logger.info(
+                    f"Working memory promotion: {working_promoted} promoted, "
+                    f"{failed_promotions} failed"
+                )
             
             # ========== 阶段 2: EPISODIC → SEMANTIC ==========
-            episodic_memories = await self.chroma_manager.get_memories_by_storage_layer(
-                StorageLayer.EPISODIC
-            )
+            try:
+                episodic_memories = await self.chroma_manager.get_memories_by_storage_layer(
+                    StorageLayer.EPISODIC
+                )
+            except Exception as e:
+                logger.warning(f"Failed to get episodic memories: {e}")
+                episodic_memories = []
             
             semantic_promoted = 0
             if episodic_memories:
+                logger.debug(f"Evaluating {len(episodic_memories)} episodic memories for SEMANTIC upgrade")
+                
                 # 使用升级评估器进行判断
                 evaluation_results = await self.upgrade_evaluator.evaluate_episodic_to_semantic(
                     episodic_memories
@@ -228,17 +259,20 @@ class SessionLifecycleManager:
                         memory.storage_layer = StorageLayer.SEMANTIC
                         
                         # 持久化到Chroma
-                        success = await self.chroma_manager.update_memory(memory)
-                        if success:
-                            semantic_promoted += 1
-                            logger.debug(
-                                f"Memory {memory.id} promoted EPISODIC→SEMANTIC "
-                                f"(confidence={confidence:.2f}, reason={reason})"
-                            )
-                        else:
-                            logger.warning(
-                                f"Failed to promote memory {memory.id} to SEMANTIC"
-                            )
+                        try:
+                            success = await self.chroma_manager.update_memory(memory)
+                            if success:
+                                semantic_promoted += 1
+                                logger.debug(
+                                    f"Memory {memory.id} promoted EPISODIC→SEMANTIC "
+                                    f"(confidence={confidence:.2f}, reason={reason})"
+                                )
+                            else:
+                                logger.warning(
+                                    f"Failed to promote memory {memory.id} to SEMANTIC"
+                                )
+                        except Exception as e:
+                            logger.error(f"Error updating memory {memory.id}: {e}")
             
             if semantic_promoted > 0:
                 logger.info(
@@ -247,7 +281,7 @@ class SessionLifecycleManager:
                 )
                 
         except Exception as e:
-            logger.error(f"Failed to promote memories: {e}")
+            logger.error(f"Failed to promote memories: {e}", exc_info=True)
     
     def _should_promote_working_to_episodic(self, memory) -> bool:
         """判断工作记忆是否应该升级到情景记忆
@@ -500,6 +534,12 @@ class SessionLifecycleManager:
         """
         session_key = self.session_manager.get_session_key(user_id, group_id)
         
+        # 确保会话在 SessionManager 中存在
+        session = self.session_manager.get_session(session_key)
+        if session is None:
+            # 如果会话不存在，创建新会话
+            self.session_manager.create_session(user_id, group_id)
+        
         # 更新活动时间
         self.session_manager.update_session_activity(user_id, group_id)
         
@@ -572,15 +612,41 @@ class SessionLifecycleManager:
     def get_session_statistics(self) -> Dict[str, Any]:
         """获取会话统计信息
         
+        修复：同步 SessionManager 的会话状态，确保统计准确
+        
         Returns:
             Dict[str, Any]: 统计信息
         """
+        # 同步 SessionManager 中的会话状态
+        all_sm_sessions = self.session_manager.get_all_sessions()
+        
+        # 确保所有 SessionManager 中的会话都有对应的生命周期状态
+        for session_key in all_sm_sessions.keys():
+            if session_key not in self.session_states:
+                # 从 SessionManager 获取会话信息
+                session = self.session_manager.get_session(session_key)
+                if session:
+                    last_active_str = session.get("last_active")
+                    try:
+                        from datetime import datetime
+                        last_active = datetime.fromisoformat(last_active_str) if last_active_str else datetime.now()
+                    except:
+                        last_active = datetime.now()
+                    
+                    self.session_states[session_key] = {
+                        "state": SessionState.INACTIVE,  # 默认非活跃
+                        "last_active": last_active,
+                        "last_updated": datetime.now()
+                    }
+        
+        # 统计状态
         stats = {
             "total_sessions": len(self.session_states),
             "active_sessions": 0,
             "inactive_sessions": 0,
             "closed_sessions": 0,
-            "archived_sessions": 0
+            "archived_sessions": 0,
+            "session_manager_sessions": len(all_sm_sessions)  # 新增：SM 中的会话数
         }
         
         for state_info in self.session_states.values():

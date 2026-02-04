@@ -216,15 +216,17 @@ class IrisMemoryPlugin(Star):
                 astrbot_context=self.context,
                 max_tokens=DEFAULTS.message_processing.llm_max_tokens_for_summary
             )
-            llm_initialized = await self.llm_processor.initialize()
-            if not llm_initialized:
-                self.logger.warning("LLM processor failed to initialize, using local mode")
-                self.llm_processor = None
-            else:
-                # 如果LLM初始化成功，设置给生命周期管理器用于升级判断
+            # 延迟初始化：initialize() 不立即检查 provider，而是在实际使用时按需获取
+            # 因为 AstrBot 的 provider 在插件加载后才初始化
+            llm_ready = await self.llm_processor.initialize()
+            if llm_ready:
+                # 即使返回 True，provider 也可能尚未就绪，会在使用时自动获取
                 if self.lifecycle_manager:
                     self.lifecycle_manager.set_llm_provider(self.llm_processor)
-                    self.logger.info("LLM provider set for memory upgrade evaluation")
+                    self.logger.info("LLM processor ready (provider will be loaded on first use)")
+            else:
+                self.logger.warning("LLM context not available, LLM features disabled")
+                self.llm_processor = None
         
         # 初始化消息分类器
         self.message_classifier = MessageClassifier(

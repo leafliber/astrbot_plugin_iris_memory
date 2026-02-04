@@ -331,7 +331,7 @@ class SessionManager:
         cutoff_time = now - timedelta(hours=hours)
 
         cleaned_count = 0
-        for session_key, memories in self.working_memory_cache.items():
+        for session_key, memories in list(self.working_memory_cache.items()):
             # 过滤掉过期的记忆
             if hours == 0:
                 # hours=0表示不清理任何记忆
@@ -348,6 +348,94 @@ class SessionManager:
 
         if cleaned_count > 0:
             logger.info(f"Cleaned {cleaned_count} expired working memories")
+    
+    def get_memory_usage_stats(self) -> Dict[str, Any]:
+        """获取内存使用统计
+        
+        Returns:
+            Dict[str, Any]: 内存使用统计信息
+        """
+        import sys
+        
+        total_memories = sum(len(mems) for mems in self.working_memory_cache.values())
+        total_sessions = len(self.session_metadata)
+        
+        # 估算内存使用（粗略估计）
+        try:
+            # 获取工作记忆缓存的内存占用
+            wm_size = sys.getsizeof(self.working_memory_cache)
+            for session_key, memories in self.working_memory_cache.items():
+                wm_size += sys.getsizeof(session_key)
+                for mem in memories:
+                    wm_size += sys.getsizeof(mem)
+            
+            # 获取元数据的内存占用
+            meta_size = sys.getsizeof(self.session_metadata)
+            for key, val in self.session_metadata.items():
+                meta_size += sys.getsizeof(key) + sys.getsizeof(val)
+            
+            estimated_memory_mb = (wm_size + meta_size) / (1024 * 1024)
+        except:
+            estimated_memory_mb = 0
+        
+        return {
+            "total_working_memories": total_memories,
+            "total_sessions": total_sessions,
+            "estimated_memory_mb": round(estimated_memory_mb, 2),
+            "max_working_memory": self.max_working_memory,
+            "max_sessions": self.max_sessions,
+            "cache_hits": self._stats["hits"],
+            "cache_misses": self._stats["misses"],
+            "evictions": self._stats["evictions"]
+        }
+    
+    async def perform_maintenance(self):
+        """执行维护任务
+        
+        - 清理过期工作记忆
+        - 清理过期会话
+        - 强制LRU淘汰（如果超过限制）
+        """
+        logger.info("Starting session manager maintenance...")
+        
+        # 1. 清理过期工作记忆
+        self.clean_expired_working_memory(hours=24)
+        
+        # 2. 清理过期会话（30天未活动）
+        from datetime import datetime, timedelta
+        now = datetime.now()
+        cutoff = now - timedelta(days=30)
+        
+        expired_sessions = []
+        for session_key, metadata in self.session_metadata.items():
+            last_active_str = metadata.get("last_active")
+            try:
+                last_active = datetime.fromisoformat(last_active_str) if last_active_str else now
+                if last_active < cutoff:
+                    expired_sessions.append(session_key)
+            except:
+                pass
+        
+        for session_key in expired_sessions:
+            self.delete_session(session_key)
+        
+        if expired_sessions:
+            logger.info(f"Removed {len(expired_sessions)} expired sessions")
+        
+        # 3. 强制LRU淘汰（如果超过限制）
+        while len(self._session_order) > self.max_sessions:
+            oldest_key = self._session_order.pop(0)
+            if oldest_key in self.working_memory_cache:
+                del self.working_memory_cache[oldest_key]
+            if oldest_key in self.session_metadata:
+                del self.session_metadata[oldest_key]
+            self._stats["evictions"] += 1
+            logger.debug(f"LRU evicted session: {oldest_key}")
+        
+        stats = self.get_memory_usage_stats()
+        logger.info(f"Maintenance complete: {stats['total_sessions']} sessions, "
+                   f"{stats['total_working_memories']} memories, "
+                   f"~{stats['estimated_memory_mb']}MB estimated")
     
     # ========== 异步方法（兼容 WorkingMemoryCache 接口）==========
     

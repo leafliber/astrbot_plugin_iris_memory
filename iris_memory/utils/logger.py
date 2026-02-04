@@ -25,7 +25,7 @@ except ImportError:
 
 # 全局配置
 _LOG_CONFIG = {
-    "level": "DEBUG",
+    "level": "INFO",  # 默认改为 INFO，减少 DEBUG 输出
     "log_dir": None,
     "max_bytes": 10 * 1024 * 1024,  # 10MB
     "backup_count": 5,

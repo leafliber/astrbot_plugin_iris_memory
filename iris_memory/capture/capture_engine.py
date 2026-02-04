@@ -146,66 +146,47 @@ class MemoryCaptureEngine:
         """
         try:
             msg_preview = sanitize_for_log(message, 50)
-            logger.debug(f"Starting memory capture: user={user_id}, group={group_id}, is_user_requested={is_user_requested}")
-            logger.debug(f"Message content (sanitized): '{msg_preview}'")
+            # 只在用户请求或重要情况下记录详细信息
+            if is_user_requested:
+                logger.info(f"Memory capture started (user requested): user={user_id}, msg='{msg_preview}'")
+            else:
+                logger.debug(f"Memory capture: user={user_id}, msg='{msg_preview}'")
             
             # 1. 检查负样本
-            logger.debug("Step 1: Checking for negative samples...")
             if self.trigger_detector._is_negative_sample(message):
-                logger.debug("Message identified as negative sample, skipping capture")
+                logger.debug("Negative sample, skipping")
                 return None
-            logger.debug("Negative sample check passed")
             
             # 2. 检测触发器
-            logger.debug("Step 2: Detecting triggers...")
             triggers = self.trigger_detector.detect_triggers(message)
-            trigger_types = [t["type"].value if hasattr(t["type"], "value") else str(t["type"]) for t in triggers]
-            logger.debug(f"Detected {len(triggers)} triggers: {trigger_types}")
-            
             if not triggers and not is_user_requested and not self.auto_capture:
-                logger.debug("No trigger detected and auto_capture is False, skipping")
+                logger.debug("No trigger and auto_capture disabled, skipping")
                 return None
             
             # 3. 敏感度检测
-            logger.debug("Step 3: Detecting sensitivity...")
             sensitivity_level, detected_entities = \
                 self.sensitivity_detector.detect_sensitivity(message, context)
-            logger.debug(f"Sensitivity level: {sensitivity_level.value if hasattr(sensitivity_level, 'value') else sensitivity_level}, entities: {detected_entities}")
             
             # 3.5 实体提取（如果启用）
             if self.enable_entity_extraction:
-                logger.debug("Step 3.5: Extracting entities...")
                 extracted_entities = self.entity_extractor.extract_entities(message)
                 entity_texts = [e.text for e in extracted_entities]
                 detected_entities = list(set(detected_entities + entity_texts))
-                logger.debug(f"Extracted entities: {[e.text for e in extracted_entities]}")
             
             # 4. 判断是否应该过滤
-            logger.debug("Step 4: Checking if should filter...")
             if self.sensitivity_detector.should_filter(sensitivity_level):
                 logger.warning(f"Memory filtered due to high sensitivity: {sensitivity_level}")
                 return None
-            logger.debug("Filter check passed")
             
             # 5. 情感分析
-            logger.debug("Step 5: Analyzing emotion...")
-            emotion_result = await self.emotion_analyzer.analyze_emotion(
-                message, context
-            )
-            logger.debug(f"Emotion result: primary={emotion_result.get('primary')}, intensity={emotion_result.get('intensity'):.2f}, confidence={emotion_result.get('confidence'):.2f}")
+            emotion_result = await self.emotion_analyzer.analyze_emotion(message, context)
             
             # 6. 确定记忆类型
-            logger.debug("Step 6: Determining memory type...")
             memory_type = self._determine_memory_type(triggers, emotion_result)
-            logger.debug(f"Determined memory type: {memory_type.value}")
             
             # 7. 创建记忆对象
-            logger.debug("Step 7: Creating memory object...")
-            # 根据场景确定 scope：私聊用 USER_PRIVATE，群聊用 GROUP_PRIVATE
             from iris_memory.core.memory_scope import MemoryScope
             memory_scope = MemoryScope.GROUP_PRIVATE if group_id else MemoryScope.USER_PRIVATE
-            
-            # 检查是否需要加密（PRIVATE 及以上级别）
             requires_encryption = self.sensitivity_detector.get_encryption_required(sensitivity_level)
             
             memory = Memory(
@@ -220,44 +201,28 @@ class MemoryCaptureEngine:
                 is_user_requested=is_user_requested
             )
             
-            # 在元数据中标记是否需要加密
             if requires_encryption:
                 memory.metadata["requires_encryption"] = True
-                logger.debug(f"Memory marked as requiring encryption due to sensitivity level: {sensitivity_level.value}")
-            
-            logger.debug(f"Memory object created: id={memory.id}, scope={memory_scope.value}")
             
             # 8. 设置情感信息
             if memory_type == MemoryType.EMOTION:
                 memory.subtype = emotion_result["primary"].value if hasattr(emotion_result["primary"], "value") else str(emotion_result["primary"])
                 memory.emotional_weight = emotion_result["intensity"]
-                logger.debug(f"Set emotional info: subtype={memory.subtype}, weight={memory.emotional_weight:.2f}")
             
             # 9. 设置摘要
             memory.summary = self._generate_summary(message, triggers)
-            if memory.summary:
-                logger.debug(f"Generated summary: {memory.summary}")
             
             # 10. 质量评估
-            logger.debug("Step 10: Assessing quality...")
             self._assess_quality(memory, triggers, emotion_result)
-            logger.debug(f"Quality assessment: confidence={memory.confidence:.2f}, level={memory.quality_level.value if hasattr(memory.quality_level, 'value') else memory.quality_level}")
             
             # 11. 计算RIF评分
-            logger.debug("Step 11: Calculating RIF score...")
             self.rif_scorer.calculate_rif(memory)
-            logger.debug(f"RIF score: {memory.rif_score:.3f}")
             
             # 12. 确定初始存储层
-            logger.debug("Step 12: Determining storage layer...")
             self._determine_storage_layer(memory, is_user_requested)
-            logger.debug(f"Storage layer: {memory.storage_layer.value if hasattr(memory.storage_layer, 'value') else memory.storage_layer}")
             
             # 13 & 14. 合并去重检查和冲突检测（共享一次向量查询）
             if self.chroma_manager and (self.enable_duplicate_check or self.enable_conflict_check):
-                logger.debug("Step 13-14: Checking for duplicates and conflicts (shared query)...")
-                
-                # 只查询一次，获取 top 10 条相似记忆
                 similar_memories = await self.chroma_manager.query_memories(
                     query_text=memory.content,
                     user_id=user_id,
@@ -271,7 +236,6 @@ class MemoryCaptureEngine:
                     if duplicate:
                         logger.info(f"Duplicate memory detected, skipping: {memory.id}")
                         return None
-                    logger.debug("No duplicate found")
                 
                 # 冲突检测
                 if self.enable_conflict_check and similar_memories:
@@ -280,15 +244,16 @@ class MemoryCaptureEngine:
                         resolved = await self._resolve_conflicts(memory, conflicts)
                         if not resolved:
                             logger.info(f"Memory conflicts detected but not resolved: {memory.id}")
-                    else:
-                        logger.debug("No conflicts found")
             
-            logger.info(f"Memory captured successfully: id={memory.id}, type={memory_type.value}, confidence={memory.confidence:.2f}, rif={memory.rif_score:.3f}")
+            # 只记录成功的关键信息
+            logger.info(f"Memory captured: id={memory.id[:8]}..., type={memory_type.value}, "
+                       f"conf={memory.confidence:.2f}, rif={memory.rif_score:.3f}, "
+                       f"layer={memory.storage_layer.value}")
             
             return memory
             
         except Exception as e:
-            logger.error(f"Failed to capture memory: user={user_id}, error={e}", exc_info=True)
+            logger.error(f"Failed to capture memory: user={user_id}, error={e}")
             return None
     
     def _determine_memory_type(
@@ -407,22 +372,56 @@ class MemoryCaptureEngine:
     def _determine_storage_layer(self, memory: Memory, is_user_requested: bool):
         """确定初始存储层
         
+        优化后的存储层判断逻辑，降低 EPISODIC 存储门槛：
+        - 用户请求 -> 直接 EPISODIC
+        - 高质量 (HIGH_CONFIDENCE/CONFIRMED) -> EPISODIC 或 SEMANTIC
+        - 中高置信度 (>=0.5) -> EPISODIC
+        - 普通置信度 -> WORKING
+        
         Args:
             memory: 记忆对象
             is_user_requested: 是否用户显式请求
         """
-        if is_user_requested and memory.importance_score > 0.7:
-            # 用户请求且重要性高，直接存到情景记忆
+        # 1. 用户显式请求的记忆直接存 EPISODIC（重要）
+        if is_user_requested:
             memory.storage_layer = StorageLayer.EPISODIC
-        elif memory.quality_level == QualityLevel.CONFIRMED:
-            # 已确认的记忆，存到语义记忆
+            memory.importance_score = max(memory.importance_score, 0.8)
+            logger.debug(f"Storage layer set to EPISODIC (user requested)")
+            return
+        
+        # 2. CONFIRMED 级别的记忆直接存 SEMANTIC（长期保存）
+        if memory.quality_level == QualityLevel.CONFIRMED:
             memory.storage_layer = StorageLayer.SEMANTIC
-        elif memory.confidence >= self.min_confidence:
-            # 满足最小置信度，存到工作记忆
+            logger.debug(f"Storage layer set to SEMANTIC (confirmed quality)")
+            return
+        
+        # 3. HIGH_CONFIDENCE 或 EPISODIC 触发器的记忆存 EPISODIC
+        if memory.quality_level == QualityLevel.HIGH_CONFIDENCE:
+            memory.storage_layer = StorageLayer.EPISODIC
+            logger.debug(f"Storage layer set to EPISODIC (high confidence)")
+            return
+        
+        # 4. 情感强度高的记忆存 EPISODIC
+        if memory.emotional_weight > 0.6:
+            memory.storage_layer = StorageLayer.EPISODIC
+            logger.debug(f"Storage layer set to EPISODIC (high emotion)")
+            return
+        
+        # 5. 中高置信度 (>=0.5) 存 EPISODIC
+        if memory.confidence >= 0.5:
+            memory.storage_layer = StorageLayer.EPISODIC
+            logger.debug(f"Storage layer set to EPISODIC (confidence >= 0.5)")
+            return
+        
+        # 6. 满足最小置信度的存 WORKING
+        if memory.confidence >= self.min_confidence:
             memory.storage_layer = StorageLayer.WORKING
-        else:
-            # 不满足条件，不存储
-            memory.storage_layer = StorageLayer.WORKING
+            logger.debug(f"Storage layer set to WORKING (confidence >= {self.min_confidence})")
+            return
+        
+        # 7. 不满足条件的仍然存 WORKING（不丢弃，给用户后悔的机会）
+        memory.storage_layer = StorageLayer.WORKING
+        logger.debug(f"Storage layer set to WORKING (low confidence)")
     
     async def _check_duplicate_by_vector(
         self,
