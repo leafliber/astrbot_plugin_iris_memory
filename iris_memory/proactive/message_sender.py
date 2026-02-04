@@ -31,17 +31,17 @@ class MessageSender:
         if not self.astrbot_context:
             return
         
-        # 方法1: 通过 context 的 send_message
-        if hasattr(self.astrbot_context, 'send_message'):
-            self.send_method = "context_send"
-        # 方法2: 通过 platform 对象
-        elif hasattr(self.astrbot_context, 'platform'):
+        # 方法1: 通过 platform 对象（推荐，更可靠）
+        if hasattr(self.astrbot_context, 'platform'):
             platform = self.astrbot_context.platform
             if hasattr(platform, 'send_private_msg') or hasattr(platform, 'send_group_msg'):
                 self.send_method = "platform_send"
-        # 方法3: 通过 message_service
+        # 方法2: 通过 message_service
         elif hasattr(self.astrbot_context, 'message_service'):
             self.send_method = "service_send"
+        # 方法3: 通过 context 的 send_message（可能有限制）
+        elif hasattr(self.astrbot_context, 'send_message'):
+            self.send_method = "context_send"
         # 方法4: 通过 event 对象
         elif hasattr(self.astrbot_context, '_event'):
             self.send_method = "event_send"
@@ -95,15 +95,19 @@ class MessageSender:
     ) -> SendResult:
         """通过 context 发送"""
         try:
-            target = {
-                "user_id": user_id,
-                "group_id": group_id
-            }
-            
-            result = await self.astrbot_context.send_message(
-                target=target,
-                message=content
-            )
+            # AstrBot 的 send_message 通常使用 message 参数
+            # 尝试多种可能的 API 签名
+            try:
+                # 方式1: 直接传递 message 参数
+                result = await self.astrbot_context.send_message(
+                    message=content
+                )
+            except TypeError as te:
+                if "message" in str(te):
+                    # 方式2: 直接传递 content
+                    result = await self.astrbot_context.send_message(content)
+                else:
+                    raise
             
             return SendResult(
                 success=True,

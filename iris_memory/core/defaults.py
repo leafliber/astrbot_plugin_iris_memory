@@ -159,6 +159,9 @@ class ProactiveReplyDefaults:
     max_reply_tokens: int = 150
     reply_temperature: float = 0.7
     
+    # 群聊白名单（空列表表示允许所有群聊）
+    group_whitelist: list = field(default_factory=list)
+    
     # 检测阈值（高级）
     high_emotion_threshold: float = 0.7
     question_threshold: float = 0.8

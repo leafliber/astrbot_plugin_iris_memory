@@ -49,6 +49,11 @@ class ProactiveReplyManager:
         self.cooldown_seconds = self.config.get("reply_cooldown", 60)
         self.max_daily_replies = self.config.get("max_daily_replies", 20)
         
+        # 群聊白名单（空列表表示允许所有群聊）
+        self.group_whitelist = self.config.get("group_whitelist", [])
+        if isinstance(self.group_whitelist, str):
+            self.group_whitelist = [self.group_whitelist] if self.group_whitelist else []
+        
         # 状态跟踪
         self.last_reply_time: Dict[str, float] = {}
         self.daily_reply_count: Dict[str, int] = {}
@@ -132,6 +137,12 @@ class ProactiveReplyManager:
         if self._is_daily_limit_reached(user_id):
             logger.debug(f"Daily proactive reply limit reached for {user_id}")
             return
+        
+        # 检查群聊白名单
+        if group_id and self.group_whitelist:
+            if str(group_id) not in self.group_whitelist:
+                logger.debug(f"Group {group_id} not in proactive reply whitelist, skipping")
+                return
         
         # 使用检测器分析
         if not self.reply_detector:
