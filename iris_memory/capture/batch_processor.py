@@ -386,51 +386,60 @@ class MessageBatchProcessor:
                 )
     
     async def _process_hybrid_mode(self, session_key: str, queue: List[QueuedMessage]):
-        """混合模式 - 高价值单独处理，普通消息摘要"""
+        """混合模式 - 逐条捕获所有消息，高价值消息额外生成摘要"""
         high_value = []
         normal = []
-        
+
+        # 第一步：分类消息
         for msg in queue:
             is_high = await self._is_high_value_async(msg)
             if is_high:
                 high_value.append(msg)
             else:
                 normal.append(msg)
-        
-        # 处理高价值消息
-        for msg in high_value:
-            await self.capture_engine.capture_memory(
-                message=msg.content,
-                user_id=msg.user_id,
-                group_id=msg.group_id,
-                context={**msg.context, "high_value": True}
-            )
-        
-        # 处理普通消息（摘要）
-        if len(normal) >= 2:
+
+        # 第二步：逐条捕获所有消息（关键修复：确保每条消息都被捕获）
+        captured_count = 0
+        for msg in queue:
+            try:
+                memory = await self.capture_engine.capture_memory(
+                    message=msg.content,
+                    user_id=msg.user_id,
+                    group_id=msg.group_id,
+                    context={**msg.context, "batch_processed": True, "high_value": msg in high_value}
+                )
+                if memory:
+                    captured_count += 1
+                    logger.debug(f"Captured memory from batch: {memory.id} (type={memory.type.value})")
+            except Exception as e:
+                logger.warning(f"Failed to capture memory for message: {e}")
+
+        if captured_count > 0:
+            logger.info(f"Batch capture completed: {captured_count}/{len(queue)} messages captured")
+
+        # 第三步：对高价值消息和普通消息分别生成摘要（额外增强）
+        all_messages = high_value + normal
+        if len(all_messages) >= 2:
+            # 尝试生成LLM摘要
             if self.use_llm_summary and self.llm_processor:
-                summary_result = await self._generate_llm_summary(normal)
+                summary_result = await self._generate_llm_summary(all_messages)
                 if summary_result:
                     await self._capture_summary_memory(
-                        session_key, normal, summary_result.summary,
+                        session_key, all_messages, summary_result.summary,
                         "llm", {
                             "key_points": summary_result.key_points,
-                            "preferences": summary_result.user_preferences
+                            "preferences": summary_result.user_preferences,
+                            "message_count": len(all_messages),
+                            "high_value_count": len(high_value)
                         }
                     )
                     return
-            
-            # 本地摘要
-            summary = self._generate_local_summary([m.content for m in normal])
-            await self._capture_summary_memory(session_key, normal, summary, "local", {})
-        
-        elif normal:
-            msg = normal[0]
-            await self.capture_engine.capture_memory(
-                message=msg.content,
-                user_id=msg.user_id,
-                group_id=msg.group_id,
-                context=msg.context
+
+            # 使用本地摘要作为后备
+            summary = self._generate_local_summary([m.content for m in all_messages])
+            await self._capture_summary_memory(
+                session_key, all_messages, summary, "local",
+                {"message_count": len(all_messages), "high_value_count": len(high_value)}
             )
     
     async def _is_high_value_async(self, msg: QueuedMessage) -> bool:

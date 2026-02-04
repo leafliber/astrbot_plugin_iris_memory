@@ -164,20 +164,30 @@ class SessionManager:
     async def get_working_memory(
         self,
         user_id: str,
-        group_id: Optional[str] = None
+        group_id: Optional[str] = None,
+        update_access: bool = True
     ) -> List[Memory]:
         """获取工作记忆（线程安全）
-        
+
         Args:
             user_id: 用户ID
             group_id: 群组ID（可选）
-            
+            update_access: 是否更新访问计数（默认True）
+
         Returns:
             List[Memory]: 工作记忆列表
         """
         async with self._lock:
             session_key = self.get_session_key(user_id, group_id)
-            return list(self.working_memory_cache.get(session_key, []))
+            memories = list(self.working_memory_cache.get(session_key, []))
+
+            # 更新每条工作记忆的访问计数
+            if update_access and memories:
+                for memory in memories:
+                    memory.update_access()
+                    logger.debug(f"Updated access count for memory {memory.id}: {memory.access_count}")
+
+            return memories
     
     async def clear_working_memory(self, user_id: str, group_id: Optional[str] = None):
         """清除工作记忆（线程安全）

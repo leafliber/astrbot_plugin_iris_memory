@@ -3,6 +3,20 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.1.6] - 2026-02-04
+
+### Fixed
+- **修复群聊 group_id 获取问题**：`get_group_id()` 函数现在正确从 `event.group_id` 获取群组ID
+  - 问题：之前使用 `get_sender_group_id()` 方法在群聊场景中返回 None
+  - 修复：根据 AstrBot 官方文档，直接使用 `event.group_id` 属性
+
+### Changed
+- **重构日志系统**：接入 AstrBot 日志输出
+  - 新增 `AstrBotLogHandler` 类，将插件日志转发到 AstrBot 控制台
+  - 简化控制台输出格式，避免与 AstrBot 日志格式重复
+  - 保留文件日志输出（`logs/iris_memory.log`）用于问题排查
+  - 移除 `DebugLogger`、`log_method_call` 等调试装饰器
+
 ## [v1.1.5] - 2026-02-04
 
 ### Added

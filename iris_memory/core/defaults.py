@@ -135,15 +135,15 @@ class LLMIntegrationDefaults:
 class MessageProcessingDefaults:
     """消息处理默认配置"""
     # 批量处理
-    batch_threshold_count: int = 50
-    batch_threshold_interval: int = 300  # 5分钟
+    batch_threshold_count: int = 10  # 降低阈值，5条消息就触发处理
+    batch_threshold_interval: int = 300  # 降低间隔，2分钟无新消息就处理
     batch_processing_mode: str = "hybrid"
     llm_max_tokens_for_summary: int = 200
-    
+
     # 触发阈值（高级）
-    immediate_trigger_confidence: float = 0.8
-    immediate_emotion_intensity: float = 0.7
-    
+    immediate_trigger_confidence: float = 0.7  # 降低立即处理阈值
+    immediate_emotion_intensity: float = 0.6  # 降低情感强度阈值
+
     # 处理模式
     llm_processing_mode: str = "hybrid"
 
