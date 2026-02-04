@@ -3,9 +3,14 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [v1.1.7-1] - 2026-02-04
+## [v1.1.8] - 2026-02-04
 
 ### Fixed
+- **修复 OpenAI API 400 BadRequestError** (`main.py`)
+  - 问题：AstrBot 4.14+ 中 `on_llm_request` 的 `req` 对象结构变化，直接修改 `system_prompt` 可能导致请求格式错误
+  - 解决方案：优先通过 `req.messages` 列表注入上下文，支持追加到现有 system 消息或在开头添加新消息
+  - 添加 `_sanitize_for_llm()` 方法清理特殊字符，防止破坏 JSON 请求格式
+  - 保留 `system_prompt` 修改作为旧版兼容回退
 - **修复LLM处理器初始化时机问题** (`llm_processor.py`, `main.py`)
   - 问题：AstrBot在插件加载后才初始化provider，导致插件启动时显示"No LLM providers available"
   - 解决方案：采用延迟初始化策略，`initialize()`不立即检查provider，而是在实际使用时按需获取
