@@ -794,12 +794,23 @@ class MessageBatchProcessor:
         for session_key, messages in self.message_queues.items():
             serialized["queues"][session_key] = []
             for msg in messages:
+                # 序列化 context，处理 UserPersona 和 EmotionalState 对象
+                serialized_context = {}
+                if msg.context:
+                    for key, value in msg.context.items():
+                        if hasattr(value, 'to_dict'):
+                            # 如果对象有 to_dict 方法（如 UserPersona, EmotionalState），使用它
+                            serialized_context[key] = value.to_dict()
+                        else:
+                            # 否则直接使用原值
+                            serialized_context[key] = value
+                
                 serialized["queues"][session_key].append({
                     "content": msg.content,
                     "user_id": msg.user_id,
                     "group_id": msg.group_id,
                     "timestamp": msg.timestamp,
-                    "context": msg.context,
+                    "context": serialized_context,
                     "umo": msg.umo,
                     "is_merged": msg.is_merged,
                     "original_messages": msg.original_messages
@@ -808,7 +819,11 @@ class MessageBatchProcessor:
         return serialized
     
     async def deserialize_queues(self, data: Dict[str, Any]):
-        """从持久化数据恢复队列"""
+        """从持久化数据恢复队列
+        
+        注意：context 中的 UserPersona 和 EmotionalState 会被反序列化为字典。
+        当消息被处理时，会从 memory_service 重新获取最新的对象实例。
+        """
         if not data:
             return
         
@@ -822,7 +837,7 @@ class MessageBatchProcessor:
                         user_id=msg["user_id"],
                         group_id=msg["group_id"],
                         timestamp=msg.get("timestamp", time.time()),
-                        context=msg.get("context", {}),
+                        context=msg.get("context", {}),  # 作为字典恢复，处理时会重新获取对象
                         umo=msg.get("umo", ""),
                         is_merged=msg.get("is_merged", False),
                         original_messages=msg.get("original_messages", [])
