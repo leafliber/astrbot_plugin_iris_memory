@@ -18,72 +18,124 @@ CONFIG_KEY_MAPPING = {
     # 基础功能
     "basic.enable_memory": ("memory", "auto_capture", True),
     "basic.enable_inject": ("llm_integration", "enable_inject", True),
-    "basic.enable_emotion": ("emotion", "enable_emotion", True),
     "basic.log_level": ("log", "level", "INFO"),
     
-    # 记忆注入设置
+    # 记忆设置（新统一区块）
+    "memory.max_context_memories": ("llm_integration", "max_context_memories", 3),
+    "memory.max_working_memory": ("memory", "max_working_memory", 10),
+    "memory.upgrade_mode": ("memory", "upgrade_mode", "rule"),
+    
+    # LLM设置（新统一区块）
+    "llm.use_llm": ("message_processing", "use_llm_for_processing", False),
+    
+    # 主动回复
+    "proactive_reply.enable": ("proactive_reply", "enable", False),
+    
+    # 图片分析
+    "image_analysis.enable": ("image_analysis", "enable_image_analysis", True),
+    "image_analysis.mode": ("image_analysis", "analysis_mode", "auto"),
+    "image_analysis.daily_budget": ("image_analysis", "daily_analysis_budget", 100),
+    
+    # === 向后兼容旧配置键 ===
+    # 旧的 basic 区块
+    "basic.enable_emotion": ("log", "level", True),  # 已移除，映射到无害配置
+    
+    # 旧的 memory_inject 区块
     "memory_inject.max_context_memories": ("llm_integration", "max_context_memories", 3),
     "memory_inject.token_budget": ("llm_integration", "token_budget", 512),
     
-    # 记忆捕获设置
+    # 旧的 capture_settings 区块
     "capture_settings.max_working_memory": ("memory", "max_working_memory", 10),
     "capture_settings.rif_threshold": ("memory", "rif_threshold", 0.4),
     "capture_settings.upgrade_mode": ("memory", "upgrade_mode", "rule"),
     
-    # 主动回复
-    "proactive_reply.enable": ("proactive_reply", "enable", False),
-    "proactive_reply.max_daily": ("proactive_reply", "max_daily_replies", 20),
-    
-    # 图片分析
-    "image_analysis.enable": ("image_analysis", "enable", True),
-    "image_analysis.mode": ("image_analysis", "mode", "auto"),
-    "image_analysis.max_images": ("image_analysis", "max_images", 2),
-    "image_analysis.daily_budget": ("image_analysis", "daily_budget", 100),
-    "image_analysis.session_budget": ("image_analysis", "session_budget", 20),
-    "image_analysis.require_context": ("image_analysis", "require_context", True),
-    
-    # LLM增强处理
+    # 旧的 llm_processing 区块
     "llm_processing.use_llm": ("message_processing", "use_llm_for_processing", False),
     
-    # 嵌入配置
+    # 旧的 proactive_reply 细项
+    "proactive_reply.max_daily": ("proactive_reply", "max_daily_replies", 20),
+    "proactive_reply.group_whitelist": ("proactive_reply", "group_whitelist", []),
+    
+    # 旧的 image_analysis 细项
+    "image_analysis.max_images": ("image_analysis", "max_images_per_message", 2),
+    "image_analysis.session_budget": ("image_analysis", "session_analysis_budget", 20),
+    "image_analysis.require_context": ("image_analysis", "require_context_relevance", True),
+    
+    # 旧的 batch_processing 区块（已移到 defaults）
+    "batch_processing.batch_threshold_count": ("message_processing", "batch_threshold_count", 20),
+    "batch_processing.short_message_threshold": ("message_processing", "short_message_threshold", 15),
+    "batch_processing.merge_time_window": ("message_processing", "merge_time_window", 60),
+    "batch_processing.max_merge_count": ("message_processing", "max_merge_count", 5),
+    
+    # 旧的 embedding 和 session 区块
     "embedding.strategy": ("embedding", "embedding_strategy", "auto"),
     "embedding.models": ("embedding", "embedding_models", ["BAAI/bge-small-zh-v1.5"]),
+    "embedding.model": ("embedding", "embedding_model", "BAAI/bge-small-zh-v1.5"),
     "embedding.dimension": ("embedding", "embedding_dimension", 512),
-    
-    # 会话管理
     "session.timeout_hours": ("session", "session_timeout", 24),
     
-    # 向后兼容的旧配置键
+    # 旧的 advanced 区块
     "log_level": ("log", "level", "INFO"),
     "advanced.max_working_memory": ("memory", "max_working_memory", 10),
     "advanced.rif_threshold": ("memory", "rif_threshold", 0.4),
     "advanced.token_budget": ("llm_integration", "token_budget", 512),
     "advanced.session_timeout_hours": ("session", "session_timeout", 24),
     "advanced.upgrade_mode": ("memory", "upgrade_mode", "rule"),
-    "embedding.model": ("embedding", "embedding_model", "BAAI/bge-small-zh-v1.5"),
 }
 
 # 旧配置键到新配置键的映射（向后兼容）
 LEGACY_KEY_MAPPING = {
+    # === 新旧配置区块映射 ===
+    # memory_inject -> memory
+    "memory_inject.max_context_memories": "memory.max_context_memories",
+    "memory_inject.token_budget": None,  # 已移到 defaults
+    
+    # capture_settings -> memory
+    "capture_settings.max_working_memory": "memory.max_working_memory",
+    "capture_settings.rif_threshold": None,  # 已移到 defaults
+    "capture_settings.upgrade_mode": "memory.upgrade_mode",
+    
+    # llm_processing -> llm
+    "llm_processing.use_llm": "llm.use_llm",
+    "llm_processing.llm_processing_mode": None,  # 已移到 defaults
+    "llm_processing.hybrid_upper_threshold": None,  # 已移到 defaults
+    "llm_processing.hybrid_lower_threshold": None,  # 已移到 defaults
+    "llm_processing.llm_cooldown_seconds": None,  # 已移到 defaults
+    "llm_processing.summary_interval_seconds": None,  # 已移到 defaults
+    
+    # batch_processing -> defaults only
+    "batch_processing.batch_threshold_count": None,
+    "batch_processing.short_message_threshold": None,
+    "batch_processing.merge_time_window": None,
+    "batch_processing.max_merge_count": None,
+    
+    # embedding/session（保持不变，但移到 defaults）
+    "embedding.strategy": None,
+    "embedding.models": None,
+    "embedding.model": None,
+    "embedding.dimension": None,
+    "session.timeout_hours": None,
+    
+    # === 历史旧配置映射 ===
     # 基础功能
     "memory_config.auto_capture": "basic.enable_memory",
-    "memory_config.max_working_memory": "capture_settings.max_working_memory",
-    "memory_config.rif_threshold": "capture_settings.rif_threshold",
-    "memory_config.upgrade_mode": "capture_settings.upgrade_mode",
-    "memory_config.session_timeout": "session.timeout_hours",
+    "memory_config.max_working_memory": "memory.max_working_memory",
+    "memory_config.rif_threshold": None,
+    "memory_config.upgrade_mode": "memory.upgrade_mode",
+    "memory_config.session_timeout": None,
     "memory_config.session_cleanup_interval": None,
     "memory_config.session_inactive_timeout": None,
     "memory_config.llm_upgrade_batch_size": None,
     "memory_config.llm_upgrade_threshold": None,
     
     # 高级设置（旧）
-    "advanced.max_working_memory": "capture_settings.max_working_memory",
-    "advanced.rif_threshold": "capture_settings.rif_threshold",
-    "advanced.token_budget": "memory_inject.token_budget",
-    "advanced.session_timeout_hours": "session.timeout_hours",
-    "advanced.upgrade_mode": "capture_settings.upgrade_mode",
+    "advanced.max_working_memory": "memory.max_working_memory",
+    "advanced.rif_threshold": None,
+    "advanced.token_budget": None,
+    "advanced.session_timeout_hours": None,
+    "advanced.upgrade_mode": "memory.upgrade_mode",
     
-    # 缓存配置
+    # 缓存配置（已移除）
     "cache_config.embedding_cache_size": None,
     "cache_config.embedding_cache_strategy": None,
     "cache_config.max_sessions": None,
@@ -91,21 +143,21 @@ LEGACY_KEY_MAPPING = {
     "cache_config.compression_max_length": None,
     
     # 嵌入/Chroma配置
-    "chroma_config.embedding_strategy": "embedding.strategy",
-    "chroma_config.embedding_model": "embedding.models",
-    "chroma_config.embedding_dimension": "embedding.dimension",
+    "chroma_config.embedding_strategy": None,
+    "chroma_config.embedding_model": None,
+    "chroma_config.embedding_dimension": None,
     "chroma_config.collection_name": None,
     "chroma_config.auto_detect_dimension": None,
-    "embedding.model": "embedding.models",
     
-    # 情感配置
-    "emotion_config.enable_emotion": "basic.enable_emotion",
+    # 情感配置（已移除）
+    "emotion_config.enable_emotion": None,
+    "basic.enable_emotion": None,
     "emotion_config.emotion_model": None,
     
     # LLM集成
     "llm_integration.enable_inject": "basic.enable_inject",
-    "llm_integration.max_context_memories": "memory_inject.max_context_memories",
-    "llm_integration.token_budget": "memory_inject.token_budget",
+    "llm_integration.max_context_memories": "memory.max_context_memories",
+    "llm_integration.token_budget": None,
     "llm_integration.enable_token_budget": None,
     "llm_integration.injection_mode": None,
     "llm_integration.coordination_strategy": None,
@@ -353,6 +405,27 @@ class ConfigManager:
     @property
     def use_llm(self) -> bool:
         return self.get("llm_processing.use_llm", False)
+    
+    # 批量处理配置
+    @property
+    def batch_threshold_count(self) -> int:
+        """批量处理消息数量阈值"""
+        return self.get("batch_processing.batch_threshold_count", 20)
+    
+    @property
+    def short_message_threshold(self) -> int:
+        """短消息长度阈值"""
+        return self.get("batch_processing.short_message_threshold", 15)
+    
+    @property
+    def merge_time_window(self) -> int:
+        """消息合并时间窗口（秒）"""
+        return self.get("batch_processing.merge_time_window", 60)
+    
+    @property
+    def max_merge_count(self) -> int:
+        """最大合并消息数"""
+        return self.get("batch_processing.max_merge_count", 5)
     
     # 会话管理
     @property

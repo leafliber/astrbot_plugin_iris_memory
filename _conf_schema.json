@@ -15,12 +15,6 @@
         "default": true,
         "hint": "对话时自动带入相关的历史记忆"
       },
-      "enable_emotion": {
-        "description": "启用情感分析",
-        "type": "bool",
-        "default": true,
-        "hint": "分析对话情感，提升记忆相关性"
-      },
       "log_level": {
         "description": "日志级别",
         "type": "string",
@@ -30,8 +24,8 @@
       }
     }
   },
-  "memory_inject": {
-    "description": "记忆注入设置",
+  "memory": {
+    "description": "记忆设置",
     "type": "object",
     "items": {
       "max_context_memories": {
@@ -40,36 +34,60 @@
         "default": 3,
         "hint": "每次对话注入的相关记忆数量（1-10）"
       },
-      "token_budget": {
-        "description": "记忆token预算",
-        "type": "int",
-        "default": 512,
-        "hint": "注入记忆占用的token数量上限"
-      }
-    }
-  },
-  "capture_settings": {
-    "description": "记忆捕获设置",
-    "type": "object",
-    "items": {
       "max_working_memory": {
         "description": "工作记忆数量上限",
         "type": "int",
         "default": 10,
         "hint": "会话内临时记忆数量上限，超过会触发升级"
       },
-      "rif_threshold": {
-        "description": "记忆保留阈值",
-        "type": "float",
-        "default": 0.4,
-        "hint": "RIF评分低于此值的记忆会被淘汰（0.1-0.9）"
-      },
       "upgrade_mode": {
         "description": "记忆升级模式",
         "type": "string",
         "default": "rule",
         "options": ["rule", "llm", "hybrid"],
-        "hint": "rule-仅规则判断（不消耗token），llm-LLM判断（需启用llm_processing.use_llm），hybrid-混合（规则优先，必要时调用LLM）"
+        "hint": "rule-仅规则（省token），llm-LLM判断（需启用use_llm），hybrid-混合（推荐）"
+      }
+    }
+  },
+  "llm": {
+    "description": "LLM设置",
+    "type": "object",
+    "items": {
+      "use_llm": {
+        "description": "使用LLM增强处理",
+        "type": "bool",
+        "default": false,
+        "hint": "开启后使用LLM进行消息摘要、记忆升级等（质量更高但消耗token）"
+      }
+    }
+  },
+  "batch_processing": {
+    "description": "批量处理设置",
+    "type": "object",
+    "items": {
+      "batch_threshold_count": {
+        "description": "批量处理消息数量阈值",
+        "type": "int",
+        "default": 20,
+        "hint": "累积多少条消息后触发批量处理（默认20条）"
+      },
+      "short_message_threshold": {
+        "description": "短消息长度阈值",
+        "type": "int",
+        "default": 15,
+        "hint": "少于多少字符的消息会被合并（默认15字符）"
+      },
+      "merge_time_window": {
+        "description": "消息合并时间窗口",
+        "type": "int",
+        "default": 60,
+        "hint": "多少秒内的短消息会被合并（默认60秒）"
+      },
+      "max_merge_count": {
+        "description": "最大合并消息数",
+        "type": "int",
+        "default": 5,
+        "hint": "最多合并多少条短消息（默认5条）"
       }
     }
   },
@@ -81,19 +99,7 @@
         "description": "启用主动回复",
         "type": "bool",
         "default": false,
-        "hint": "检测到用户需要回应时主动发送消息"
-      },
-      "max_daily": {
-        "description": "每日最大主动回复数",
-        "type": "int",
-        "default": 20,
-        "hint": "防止打扰用户（触发规则在代码中预设）"
-      },
-      "group_whitelist": {
-        "description": "群聊白名单",
-        "type": "list",
-        "default": [],
-        "hint": "只允许在这些群聊中触发主动回复，为空表示允许所有群聊。填写群号，如：['123456789', '987654321']"
+        "hint": "检测到用户需要回应时主动发送消息（实验性功能）"
       }
     }
   },
@@ -112,80 +118,13 @@
         "type": "string",
         "default": "auto",
         "options": ["auto", "brief", "detailed", "skip"],
-        "hint": "auto-智能判断, brief-简要描述, detailed-详细分析, skip-跳过"
-      },
-      "max_images": {
-        "description": "每条消息最多分析图片数",
-        "type": "int",
-        "default": 2,
-        "hint": "超过此数量的图片将被跳过以节省Token"
+        "hint": "auto-智能判断（推荐）, brief-简要, detailed-详细, skip-跳过"
       },
       "daily_budget": {
         "description": "每日分析次数上限",
         "type": "int",
         "default": 100,
         "hint": "每天最多分析的图片数量，0表示无限制"
-      },
-      "session_budget": {
-        "description": "每会话分析次数上限",
-        "type": "int",
-        "default": 20,
-        "hint": "每个会话最多分析的图片数量，0表示无限制"
-      },
-      "require_context": {
-        "description": "需要上下文相关性",
-        "type": "bool",
-        "default": true,
-        "hint": "仅当图片与对话相关时才分析，可减少无意义分析"
-      }
-    }
-  },
-  "llm_processing": {
-    "description": "LLM增强处理",
-    "type": "object",
-    "items": {
-      "use_llm": {
-        "description": "使用LLM增强处理",
-        "type": "bool",
-        "default": false,
-        "hint": "全局LLM能力开关。开启后允许消息摘要、记忆升级判断等使用LLM（质量更高但消耗token）。若capture_settings.upgrade_mode='llm'或'hybrid'，必须启用此项才能生效"
-      }
-    }
-  },
-  "embedding": {
-    "description": "向量嵌入设置",
-    "type": "object",
-    "items": {
-      "strategy": {
-        "description": "嵌入策略",
-        "type": "string",
-        "default": "auto",
-        "options": ["auto", "astrbot", "local"],
-        "hint": "auto-自动选择，astrbot-使用AstrBot API，local-本地模型"
-      },
-      "models": {
-        "description": "嵌入模型列表",
-        "type": "list",
-        "default": ["BAAI/bge-small-zh-v1.5"],
-        "hint": "本地模型或API模型名称，支持多模型备选"
-      },
-      "dimension": {
-        "description": "向量维度",
-        "type": "int",
-        "default": 512,
-        "hint": "bge-small-zh为512，ada-002为1536，bge-m3为1024"
-      }
-    }
-  },
-  "session": {
-    "description": "会话管理设置",
-    "type": "object",
-    "items": {
-      "timeout_hours": {
-        "description": "会话超时时间（小时）",
-        "type": "int",
-        "default": 24,
-        "hint": "会话多久未活动后关闭"
       }
     }
   }

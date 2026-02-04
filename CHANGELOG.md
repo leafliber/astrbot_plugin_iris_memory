@@ -3,6 +3,11 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.2.0] - 2026-02-04
+
+- 新增主动回复群聊白名单配置：`proactive_reply.group_whitelist`
+- 重构部分代码
+
 ## [v1.1.8] - 2026-02-04
 
 ### Fixed
