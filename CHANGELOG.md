@@ -3,6 +3,23 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.1.7] - 2026-02-04
+
+### Added
+- **新增主动回复群聊白名单配置**：`proactive_reply.group_whitelist`
+  - 支持配置允许触发主动回复的群聊列表
+  - 空列表表示允许所有群聊（默认行为）
+  - 配置示例：`["123456789", "987654321"]`
+  - 私聊不受白名单限制
+
+### Fixed
+- **修复主动回复发送失败**：`MessageSender._send_via_context()` 移除了不支持的 `target` 参数
+  - 问题：`Context.send_message()` 不接受 `target` 参数，导致主动回复发送失败
+  - 修复：改为只传递 `message` 参数，并将 `platform_send` 方法优先级提升
+- **抑制模型加载进度条输出**：sentence-transformers 加载模型时的进度条不再显示在终端
+  - 设置环境变量 `TRANSFORMERS_VERBOSITY=error` 和 `HF_HUB_DISABLE_PROGRESS_BARS=1`
+  - 调用 `transformers_logging.disable_progress_bar()` 禁用进度条
+
 ## [v1.1.6] - 2026-02-04
 
 ### Fixed
