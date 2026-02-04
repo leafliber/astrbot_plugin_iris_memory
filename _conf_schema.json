@@ -69,7 +69,7 @@
         "type": "string",
         "default": "rule",
         "options": ["rule", "llm", "hybrid"],
-        "hint": "rule-规则判断，llm-LLM判断，hybrid-混合"
+        "hint": "rule-仅规则判断（不消耗token），llm-LLM判断（需启用llm_processing.use_llm），hybrid-混合（规则优先，必要时调用LLM）"
       }
     }
   },
@@ -142,7 +142,7 @@
         "description": "使用LLM增强处理",
         "type": "bool",
         "default": false,
-        "hint": "开启后使用LLM进行消息摘要和记忆升级判断，质量更高但消耗token"
+        "hint": "全局LLM能力开关。开启后允许消息摘要、记忆升级判断等使用LLM（质量更高但消耗token）。若capture_settings.upgrade_mode='llm'或'hybrid'，必须启用此项才能生效"
       }
     }
   },

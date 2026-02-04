@@ -3,6 +3,11 @@
 作为降级选项（优先级第二）
 """
 
+import os
+# 在导入 transformers 之前设置环境变量以抑制输出
+os.environ["TRANSFORMERS_VERBOSITY"] = "error"
+os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"
+
 from typing import List, Dict, Any, Optional
 import numpy as np
 
@@ -41,6 +46,9 @@ class LocalProvider(EmbeddingProvider):
         try:
             # 检查依赖
             try:
+                # 禁用 transformers 进度条
+                from transformers.utils import logging as transformers_logging
+                transformers_logging.disable_progress_bar()
                 from sentence_transformers import SentenceTransformer
             except ImportError:
                 logger.warning("sentence-transformers not installed. Run: pip install sentence-transformers")
@@ -54,11 +62,14 @@ class LocalProvider(EmbeddingProvider):
                 logger.warning("torch not installed. Run: pip install torch")
                 return False
             
-            # 获取配置
+            # 获取配置（修复：处理可能返回列表的情况）
             model_name = self._get_config(
                 "chroma_config.embedding_model",
                 "BAAI/bge-small-zh-v1.5"
             )
+            # 如果是列表，取第一个元素
+            if isinstance(model_name, list):
+                model_name = model_name[0] if model_name else "BAAI/bge-small-zh-v1.5"
 
             # 加载模型
             logger.info(f"Loading local embedding model: {model_name} on {self.device}")

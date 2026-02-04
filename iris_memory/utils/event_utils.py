@@ -8,14 +8,14 @@ from typing import Optional
 def get_group_id(event) -> Optional[str]:
     """安全地获取群组ID
 
-    支持不同类型的事件，包括 WebChatMessageEvent 和 AstrMessageEvent。
-    用于处理各种消息事件场景，避免 AttributeError。
+    根据 AstrBot 官方文档，从 AstrMessageEvent 中获取群组ID。
+    在群聊场景中，event.group_id 会返回群组ID；私聊场景返回 None。
 
     Args:
-        event: 消息事件对象（支持多种类型）
+        event: 消息事件对象（AstrMessageEvent）
 
     Returns:
-        Optional[str]: 群组ID，如果不存在或事件不支持则返回 None
+        Optional[str]: 群组ID，如果不存在（私聊场景）则返回 None
 
     Examples:
         >>> # 在私聊场景中
@@ -27,13 +27,11 @@ def get_group_id(event) -> Optional[str]:
         >>> print(group_id)  # "123456789"
     """
     try:
-        # 检查事件是否支持 get_sender_group_id 方法
-        if hasattr(event, 'get_sender_group_id'):
-            return event.get_sender_group_id()
-        # 事件不支持群组ID（如 WebChat 或私聊）
+        # 根据官方文档，直接使用 event.group_id 获取群组ID
+        if hasattr(event, 'group_id'):
+            return event.group_id
         return None
-    except (AttributeError, Exception):
-        # 发生任何异常，返回 None（表示私聊或未知类型）
+    except Exception:
         return None
 
 

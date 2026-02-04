@@ -251,37 +251,32 @@ class SessionLifecycleManager:
     
     def _should_promote_working_to_episodic(self, memory) -> bool:
         """判断工作记忆是否应该升级到情景记忆
-        
-        升级条件：
-        1. RIF 分数达到一定阈值（说明记忆有价值）
-        2. 置信度足够高
-        3. 访问次数或质量等级达标
-        
+
+        升级条件（与Memory.should_upgrade_to_episodic保持一致）：
+        - 访问>=1次 且 重要性>0.5
+        - 或 情感强度>0.6
+        - 或 置信度>=0.7
+        - 或 用户主动请求的记忆
+        - 或 RIF评分较高(>=0.5)且有访问
+
         Args:
             memory: 记忆对象
-            
+
         Returns:
             bool: 是否应该升级
         """
-        # 基本条件检查
-        if memory.rif_score < 0.5:
-            return False
-        
-        if memory.confidence < 0.3:
-            return False
-        
-        # 质量等级检查
-        if memory.quality_level.value >= 3:  # HIGH_CONFIDENCE 或更高
+        # 首先使用Memory模型的标准判断
+        if memory.should_upgrade_to_episodic():
             return True
-        
-        # 访问频率检查（热门记忆）
-        if memory.access_count >= 2:
+
+        # 额外条件：RIF评分较高且有访问
+        if memory.rif_score >= 0.5 and memory.access_count >= 1:
             return True
-        
-        # 用户主动请求的记忆优先升级
-        if memory.is_user_requested:
+
+        # 质量等级检查（HIGH_CONFIDENCE或更高）
+        if memory.quality_level.value >= 3:
             return True
-        
+
         return False
     
     async def _cleanup_expired_sessions(self):
