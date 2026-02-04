@@ -9,7 +9,7 @@ def get_group_id(event) -> Optional[str]:
     """安全地获取群组ID
 
     根据 AstrBot 官方文档，从 AstrMessageEvent 中获取群组ID。
-    在群聊场景中，event.group_id 会返回群组ID；私聊场景返回 None。
+    在群聊场景中，event.group_id 会返回群组ID；私聊场景返回 None 或空字符串。
 
     Args:
         event: 消息事件对象（AstrMessageEvent）
@@ -27,9 +27,22 @@ def get_group_id(event) -> Optional[str]:
         >>> print(group_id)  # "123456789"
     """
     try:
-        # 根据官方文档，直接使用 event.group_id 获取群组ID
+        # 首先尝试从 event.group_id 获取
         if hasattr(event, 'group_id'):
-            return event.group_id
+            group_id = event.group_id
+            # 如果是有效的群组ID（非空、非None），直接返回
+            if group_id:
+                return str(group_id) if group_id else None
+        
+        # 如果 event.group_id 无效，尝试从 unified_msg_origin 解析
+        # unified_msg_origin 格式: platform:chat_type:chat_id (如 qq:group:123456 或 qq:private:123456)
+        if hasattr(event, 'unified_msg_origin'):
+            umo = event.unified_msg_origin
+            if umo and isinstance(umo, str):
+                parts = umo.split(':')
+                if len(parts) >= 3 and parts[1] == 'group':
+                    return parts[2]
+        
         return None
     except Exception:
         return None
