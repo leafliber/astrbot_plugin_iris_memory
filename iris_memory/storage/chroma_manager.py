@@ -64,66 +64,17 @@ class ChromaManager:
         
         cfg = get_config_manager()
         
-        # 从配置获取Chroma参数（优先使用传入的配置对象）
-        self.embedding_model_name = self._get_config_from_object(
-            config, 'chroma_config.embedding_model', cfg.embedding_model
-        )
-        self.embedding_dimension = self._get_config_from_object(
-            config, 'chroma_config.embedding_dimension', cfg.embedding_dimension
-        )
-        self.collection_name = self._get_config_from_object(
-            config, 'chroma_config.collection_name', DEFAULTS.embedding.collection_name
-        )
-        self.auto_detect_dimension = self._get_config_from_object(
-            config, 'chroma_config.auto_detect_dimension', DEFAULTS.embedding.auto_detect_dimension
-        )
+        # 从配置管理器获取Chroma参数
+        self.embedding_model_name = cfg.embedding_model
+        self.embedding_dimension = cfg.embedding_dimension
+        self.collection_name = DEFAULTS.embedding.collection_name
+        self.auto_detect_dimension = DEFAULTS.embedding.auto_detect_dimension
         
         # 嵌入管理器（策略模式）
         from iris_memory.embedding.manager import EmbeddingManager
         self.embedding_manager = EmbeddingManager(config, data_path)
         if plugin_context:
             self.embedding_manager.set_plugin_context(plugin_context)
-    
-    def _get_config(self, key: str, default: Any = None) -> Any:
-        """获取配置值（兼容旧代码）
-        
-        Args:
-            key: 配置键（支持点分隔的嵌套键）
-            default: 默认值
-            
-        Returns:
-            配置值或默认值
-        """
-        from iris_memory.core.config_manager import get_config_manager
-        return get_config_manager().get(key, default)
-    
-    def _get_config_from_object(self, config: Any, key: str, default: Any = None) -> Any:
-        """从配置对象获取值（支持嵌套键）
-        
-        Args:
-            config: 配置对象（可能为None）
-            key: 配置键（支持点分隔的嵌套键，如 'chroma_config.embedding_dimension'）
-            default: 默认值
-            
-        Returns:
-            配置值或默认值
-        """
-        if config is None:
-            return default
-        
-        try:
-            keys = key.split('.')
-            value = config
-            for k in keys:
-                if isinstance(value, dict):
-                    value = value.get(k)
-                else:
-                    value = getattr(value, k, None)
-                if value is None:
-                    return default
-            return value if value is not None else default
-        except Exception:
-            return default
     
     async def initialize(self):
         """异步初始化Chroma客户端和集合"""
@@ -263,6 +214,7 @@ class ChromaManager:
             # 构建元数据
             metadata = {
                 "user_id": memory.user_id,
+                "sender_name": memory.sender_name if memory.sender_name else "",  # 发送者显示名称
                 "group_id": memory.group_id if memory.group_id else "",  # 私聊场景用空字符串
                 "scope": memory.scope.value,
                 "type": memory.type.value,
@@ -550,6 +502,7 @@ class ChromaManager:
             id=memory_data['id'],
             content=memory_data['content'],
             user_id=metadata.get('user_id', ''),
+            sender_name=metadata.get('sender_name') if metadata.get('sender_name') else None,
             group_id=metadata.get('group_id') if metadata.get('group_id') else None,
             scope=MemoryScope(metadata.get('scope', MemoryScope.GROUP_PRIVATE.value)),
             type=MemoryType(metadata.get('type', 'fact')),
@@ -584,7 +537,7 @@ class ChromaManager:
         
         # 移除系统元数据，保留自定义元数据
         system_keys = {
-            'user_id', 'group_id', 'scope', 'type', 'modality', 'quality_level',
+            'user_id', 'sender_name', 'group_id', 'scope', 'type', 'modality', 'quality_level',
             'sensitivity_level', 'storage_layer', 'created_time', 'last_access_time',
             'access_count', 'rif_score', 'importance_score', 'is_user_requested'
         }

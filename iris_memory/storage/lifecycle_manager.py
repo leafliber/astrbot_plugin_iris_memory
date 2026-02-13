@@ -718,7 +718,3 @@ class SessionLifecycleManager:
             }
 
         logger.info(f"Loaded {len(self.session_states)} session states")
-
-
-# 别名，保持向后兼容性
-LifecycleManager = SessionLifecycleManager

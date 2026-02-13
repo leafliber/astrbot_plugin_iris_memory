@@ -25,9 +25,21 @@ from iris_memory.models.emotion_state import EmotionalState
 # =============================================================================
 
 @pytest.fixture
-def mock_astrbot_context():
-    """模拟AstrBot上下文"""
-    return Mock()
+def mock_llm_provider():
+    """模拟LLM provider"""
+    provider = Mock()
+    provider.text_chat = AsyncMock(return_value={
+        "text": "我理解你的感受，有什么我可以帮你的吗？"
+    })
+    return provider
+
+
+@pytest.fixture
+def mock_astrbot_context(mock_llm_provider):
+    """模拟AstrBot上下文（带LLM provider）"""
+    context = Mock()
+    context.get_using_provider = Mock(return_value=mock_llm_provider)
+    return context
 
 
 @pytest.fixture
@@ -42,23 +54,12 @@ def mock_retrieval_engine():
 
 
 @pytest.fixture
-def mock_llm_api():
-    """模拟LLM API"""
-    api = Mock()
-    api.text_chat = AsyncMock(return_value={
-        "text": "我理解你的感受，有什么我可以帮你的吗？"
-    })
-    api.chat_completion = AsyncMock(return_value={
-        "choices": [{"message": {"content": "我理解你的感受"}}]
-    })
-    return api
-
-
-@pytest.fixture
-def generator(mock_astrbot_context, mock_retrieval_engine):
-    """基础生成器"""
+def generator(mock_retrieval_engine):
+    """基础生成器（无LLM provider，get_using_provider返回None）"""
+    ctx = Mock()
+    ctx.get_using_provider = Mock(return_value=None)
     return ProactiveReplyGenerator(
-        astrbot_context=mock_astrbot_context,
+        astrbot_context=ctx,
         retrieval_engine=mock_retrieval_engine,
         config={
             "max_reply_tokens": 150,
@@ -68,14 +69,12 @@ def generator(mock_astrbot_context, mock_retrieval_engine):
 
 
 @pytest.fixture
-def initialized_generator(mock_astrbot_context, mock_retrieval_engine, mock_llm_api):
-    """已初始化的生成器"""
-    generator = ProactiveReplyGenerator(
+def initialized_generator(mock_astrbot_context, mock_retrieval_engine):
+    """已初始化的生成器（有LLM provider）"""
+    return ProactiveReplyGenerator(
         astrbot_context=mock_astrbot_context,
         retrieval_engine=mock_retrieval_engine
     )
-    generator.llm_api = mock_llm_api
-    return generator
 
 
 # =============================================================================
@@ -325,37 +324,35 @@ class TestLLMCalling:
     """LLM调用测试"""
     
     @pytest.mark.asyncio
-    async def test_text_chat_method(self, initialized_generator):
+    async def test_text_chat_method(self, initialized_generator, mock_llm_provider):
         """测试text_chat方法"""
-        response = await initialized_generator._call_llm("测试提示词")
+        response = await initialized_generator._call_llm(mock_llm_provider, "测试提示词")
         
         assert response is not None
-        initialized_generator.llm_api.text_chat.assert_called_once()
+        mock_llm_provider.text_chat.assert_called_once()
     
     @pytest.mark.asyncio
-    async def test_chat_completion_method(self, initialized_generator):
-        """测试chat_completion方法"""
-        # 移除text_chat，强制使用chat_completion
-        del initialized_generator.llm_api.text_chat
+    async def test_text_chat_dict_response(self, initialized_generator, mock_llm_provider):
+        """测试text_chat返回dict响应"""
+        mock_llm_provider.text_chat.return_value = {"text": "回复内容"}
         
-        response = await initialized_generator._call_llm("测试提示词")
+        response = await initialized_generator._call_llm(mock_llm_provider, "测试提示词")
         
-        assert response is not None
-        initialized_generator.llm_api.chat_completion.assert_called_once()
+        assert response == "回复内容"
     
     @pytest.mark.asyncio
-    async def test_api_error_handling(self, initialized_generator):
+    async def test_api_error_handling(self, initialized_generator, mock_llm_provider):
         """测试API错误处理"""
-        initialized_generator.llm_api.text_chat.side_effect = Exception("API Error")
+        mock_llm_provider.text_chat.side_effect = Exception("API Error")
         
-        response = await initialized_generator._call_llm("测试")
+        response = await initialized_generator._call_llm(mock_llm_provider, "测试")
         
         assert response is None
     
     @pytest.mark.asyncio
-    async def test_no_llm_api(self, generator):
-        """测试无LLM API"""
-        response = await generator._call_llm("测试")
+    async def test_no_provider(self, generator):
+        """测试无provider"""
+        response = await generator._call_llm(None, "测试")
         
         assert response is None
 
@@ -552,13 +549,14 @@ class TestEdgeCases:
 class TestAvailability:
     """可用性测试"""
     
-    def test_available_with_api(self, initialized_generator):
-        """测试有API时可用"""
+    def test_available_with_context(self, initialized_generator):
+        """测试有上下文时可用"""
         assert initialized_generator.is_available() is True
     
-    def test_not_available_without_api(self, generator):
-        """测试无API时不可用"""
-        assert generator.is_available() is False
+    def test_not_available_without_context(self):
+        """测试无上下文时不可用"""
+        gen = ProactiveReplyGenerator(astrbot_context=None)
+        assert gen.is_available() is False
 
 
 # =============================================================================

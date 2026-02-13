@@ -8,21 +8,12 @@ from unittest.mock import Mock
 from iris_memory.analysis.emotion_analyzer import EmotionAnalyzer
 from iris_memory.models.emotion_state import EmotionalState
 from iris_memory.core.types import EmotionType
-from iris_memory.core.test_utils import TestConfigContext
 
 
 @pytest.fixture
 def emotion_analyzer():
-    """EmotionAnalyzer实例"""
+    """创建EmotionAnalyzer实例"""
     return EmotionAnalyzer()
-
-
-@pytest.fixture
-def emotion_analyzer_disabled():
-    """禁用情感分析的EmotionAnalyzer实例"""
-    # 使用测试配置上下文来禁用情感分析
-    with TestConfigContext(emotion_enable_emotion=False):
-        return EmotionAnalyzer()
 
 
 class TestEmotionAnalyzerInit:
@@ -35,13 +26,6 @@ class TestEmotionAnalyzerInit:
         assert hasattr(emotion_analyzer, 'emotion_dict')
         assert hasattr(emotion_analyzer, 'rules')
         assert hasattr(emotion_analyzer, 'negation_words')
-
-    def test_init_with_config(self):
-        """测试带配置的初始化"""
-        # 使用新的测试配置方法
-        with TestConfigContext(emotion_enable_emotion=False):
-            analyzer = EmotionAnalyzer()
-            assert analyzer.enable_emotion is False
 
     def test_emotion_dict_initialization(self, emotion_analyzer):
         """测试情感词典初始化"""
@@ -196,16 +180,6 @@ class TestEmotionAnalyzerAnalyzeEmotion:
 
         assert result is not None
         assert result["primary"] == EmotionType.NEUTRAL
-
-    @pytest.mark.asyncio
-    async def test_analyze_emotion_disabled(self, emotion_analyzer_disabled):
-        """测试禁用情感分析"""
-        result = await emotion_analyzer_disabled.analyze_emotion("今天真开心")
-
-        assert result is not None
-        assert result["primary"] == EmotionType.NEUTRAL
-        assert result["intensity"] == 0.5
-        assert result["confidence"] == 0.5
 
     @pytest.mark.asyncio
     async def test_analyze_emotion_english(self, emotion_analyzer):

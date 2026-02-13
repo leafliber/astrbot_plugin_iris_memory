@@ -23,7 +23,8 @@ from iris_memory.proactive.message_sender import MessageSender, SendResult
 @pytest.fixture
 def mock_context_send():
     """模拟上下文发送方法"""
-    context = Mock()
+    # 使用spec限制属性，避免自动创建provider/platform等属性导致检测到provider_send
+    context = Mock(spec=['send_message'])
     context.send_message = AsyncMock(return_value="msg_id_123")
     return context
 
@@ -52,7 +53,7 @@ def mock_service_send():
 @pytest.fixture
 def mock_event_send():
     """模拟事件发送方法"""
-    context = Mock()
+    context = Mock(spec=['_event', '_send_callback'])
     context._event = Mock()
     context._send_callback = AsyncMock(return_value=True)
     return context

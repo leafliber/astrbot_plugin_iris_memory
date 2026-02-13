@@ -10,7 +10,6 @@ from datetime import datetime, timedelta
 from iris_memory.storage.lifecycle_manager import (
     SessionLifecycleManager,
     SessionState,
-    LifecycleManager
 )
 from iris_memory.models.memory import Memory
 from iris_memory.core.types import StorageLayer
@@ -25,6 +24,7 @@ def mock_session_manager():
     manager.get_working_memory = AsyncMock(return_value=[])
     manager.clear_working_memory = AsyncMock()
     manager.delete_session = Mock()
+    manager.get_all_sessions = Mock(return_value={})
     return manager
 
 
@@ -576,25 +576,6 @@ class TestLifecycleManagerDeserializeState:
         await lifecycle_manager.deserialize_state(data)
         
         assert "user_123:group_456" in lifecycle_manager.session_states
-
-
-class TestLifecycleManagerBackwardCompatibility:
-    """测试向后兼容性"""
-    
-    def test_lifecycle_manager_alias(self):
-        """测试LifecycleManager别名"""
-        assert LifecycleManager == SessionLifecycleManager
-    
-    @pytest.mark.asyncio
-    async def test_create_with_alias(self, mock_session_manager):
-        """测试使用别名创建"""
-        manager = LifecycleManager(
-            session_manager=mock_session_manager,
-            cleanup_interval=10
-        )
-        
-        assert isinstance(manager, SessionLifecycleManager)
-        assert manager.cleanup_interval == 10
 
 
 class TestLifecycleManagerIntegration:

@@ -14,7 +14,7 @@ class MockConfig:
     """模拟配置对象"""
     def __init__(self):
         self._data = {
-            "chroma_config": {
+            "embedding": {
                 "embedding_strategy": "auto",
                 "embedding_model": "BAAI/bge-m3",
                 "embedding_dimension": 1024,

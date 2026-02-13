@@ -291,7 +291,9 @@ class DynamicMemorySelector:
         self,
         memories: List,
         target_count: int = 3,
-        persona_style: str = "default"
+        persona_style: str = "default",
+        group_id: Optional[str] = None,
+        current_sender_name: Optional[str] = None
     ) -> str:
         """生成记忆上下文文本
         
@@ -299,6 +301,8 @@ class DynamicMemorySelector:
             memories: 记忆列表
             target_count: 目标数量
             persona_style: 人格风格 (default/natural/roleplay)
+            group_id: 群组ID（用于区分群聊/个人知识）
+            current_sender_name: 当前发言者名称
             
         Returns:
             str: 格式化的记忆上下文
@@ -310,43 +314,11 @@ class DynamicMemorySelector:
         
         # 根据人格风格选择格式化方式
         if persona_style == "natural":
-            # 自然群友风格：淡化AI痕迹，强调自然回忆
-            lines = ["【你记得的事情】"]
-            lines.append("以下是你和群友之间的往事，请用自己的话自然提及，不要暴露'记录'、'数据'等概念：")
-            for i, memory in enumerate(selected, 1):
-                compressed, _ = self.compressor.compress_memory(
-                    memory.content,
-                    memory.summary
-                )
-                # 简化格式，去掉时间戳和类型标签
-                lines.append(f"- {compressed}")
+            lines = self._format_natural(selected, group_id, current_sender_name)
         elif persona_style == "roleplay":
-            # 角色扮演风格：强调第一人称回忆
-            lines = ["【你的记忆】"]
-            lines.append("这些都是你亲身经历的事情，回复时可以自然地说'我记得...'、'你之前说过...'：")
-            for memory in selected:
-                compressed, _ = self.compressor.compress_memory(
-                    memory.content,
-                    memory.summary
-                )
-                lines.append(f"· {compressed}")
+            lines = self._format_roleplay(selected, group_id, current_sender_name)
         else:
-            # 默认格式
-            lines = ["【相关记忆】"]
-            for i, memory in enumerate(selected, 1):
-                compressed, _ = self.compressor.compress_memory(
-                    memory.content,
-                    memory.summary
-                )
-                
-                time_str = memory.created_time.strftime("%m-%d %H:%M")
-                # 处理type可能是枚举或字符串的情况
-                if hasattr(memory.type, 'value'):
-                    type_label = memory.type.value.upper()
-                else:
-                    type_label = str(memory.type).upper()
-                lines.append(f"{i}. [{type_label}] {time_str}")
-                lines.append(f"   {compressed}")
+            lines = self._format_default(selected, group_id, current_sender_name)
         
         context = "\n".join(lines)
 
@@ -359,3 +331,102 @@ class DynamicMemorySelector:
         )
 
         return context
+
+    def _get_scope_label(self, memory) -> str:
+        """获取记忆的来源范围标签
+        
+        Args:
+            memory: 记忆对象
+            
+        Returns:
+            str: 来源标签
+        """
+        try:
+            from iris_memory.core.memory_scope import MemoryScope
+            if memory.scope == MemoryScope.GROUP_SHARED:
+                return "群聊共识"
+            elif memory.scope == MemoryScope.GROUP_PRIVATE:
+                return "个人信息"
+            elif memory.scope == MemoryScope.USER_PRIVATE:
+                return "私聊"
+            return ""
+        except Exception:
+            return ""
+    
+    def _format_natural(
+        self,
+        selected: List,
+        group_id: Optional[str] = None,
+        current_sender_name: Optional[str] = None
+    ) -> List[str]:
+        """自然群友风格格式化"""
+        lines = ["【你记得的事情】"]
+        lines.append("以下是你和群友之间的往事，请用自己的话自然提及，不要暴露'记录'、'数据'等概念：")
+        
+        if group_id:
+            lines.append("（注意：区分群共识和个人信息，不要把A的事情说成B的）")
+        
+        for i, memory in enumerate(selected, 1):
+            compressed, _ = self.compressor.compress_memory(
+                memory.content, memory.summary
+            )
+            
+            # 构建标签
+            parts = []
+            scope_label = self._get_scope_label(memory)
+            if scope_label:
+                parts.append(scope_label)
+            
+            sender = ""
+            if getattr(memory, 'sender_name', None):
+                sender = f"（{memory.sender_name}说的）"
+            
+            label = f"[{'｜'.join(parts)}]" if parts else ""
+            lines.append(f"- {label}{sender}{compressed}")
+        
+        return lines
+    
+    def _format_roleplay(
+        self,
+        selected: List,
+        group_id: Optional[str] = None,
+        current_sender_name: Optional[str] = None
+    ) -> List[str]:
+        """角色扮演风格格式化"""
+        lines = ["【你的记忆】"]
+        lines.append("这些都是你亲身经历的事情，回复时可以自然地说'我记得...'、'你之前说过...'：")
+        for memory in selected:
+            compressed, _ = self.compressor.compress_memory(
+                memory.content, memory.summary
+            )
+            sender = f"（{memory.sender_name}）" if getattr(memory, 'sender_name', None) else ""
+            lines.append(f"· {sender}{compressed}")
+        return lines
+    
+    def _format_default(
+        self,
+        selected: List,
+        group_id: Optional[str] = None,
+        current_sender_name: Optional[str] = None
+    ) -> List[str]:
+        """默认格式化"""
+        lines = ["【相关记忆】"]
+        for i, memory in enumerate(selected, 1):
+            compressed, _ = self.compressor.compress_memory(
+                memory.content, memory.summary
+            )
+            
+            time_str = memory.created_time.strftime("%m-%d %H:%M")
+            if hasattr(memory.type, 'value'):
+                type_label = memory.type.value.upper()
+            else:
+                type_label = str(memory.type).upper()
+            
+            scope_label = self._get_scope_label(memory)
+            sender = f" @{memory.sender_name}" if getattr(memory, 'sender_name', None) else ""
+            scope_tag = f" ({scope_label})" if scope_label else ""
+            
+            lines.append(f"{i}. [{type_label}]{sender} {time_str}{scope_tag}")
+            lines.append(f"   {compressed}")
+        
+        return lines

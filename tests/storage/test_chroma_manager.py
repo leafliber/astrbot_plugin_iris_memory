@@ -23,7 +23,7 @@ from iris_memory.core.test_utils import setup_test_config, reset_config_manager
 def setup_config():
     """设置测试配置（自动应用于所有测试）"""
     setup_test_config({
-        'chroma_config': {
+        'embedding': {
             'embedding_model': 'BAAI/bge-m3',
             'embedding_dimension': 1024,
             'collection_name': 'test_collection',
@@ -39,7 +39,7 @@ def mock_config():
     """模拟配置对象"""
     class MockConfig:
         def __init__(self):
-            self.chroma_config = {
+            self.embedding = {
                 'embedding_model': 'BAAI/bge-m3',
                 'embedding_dimension': 1024,
                 'collection_name': 'test_collection',
@@ -88,31 +88,12 @@ class TestChromaManagerInit:
         assert chroma_manager.client is None
     
     @pytest.mark.asyncio
-    async def test_get_config_nested_key(self, chroma_manager):
-        """测试嵌套配置读取（从全局配置管理器）"""
-        model = chroma_manager._get_config("chroma_config.embedding_model", "default")
-        assert model == "BAAI/bge-m3"  # 从全局测试配置获取的值
-        
-        dim = chroma_manager._get_config("chroma_config.embedding_dimension", 512)
-        assert dim == 1024  # 从全局测试配置获取的值
-    
-    @pytest.mark.asyncio
-    async def test_get_config_missing_key(self, chroma_manager):
-        """测试缺失配置键"""
-        value = chroma_manager._get_config("missing.key", "default_value")
-        assert value == "default_value"
-
-    @pytest.mark.asyncio
-    async def test_get_config_with_dict(self, chroma_manager):
-        """测试字典配置读取（从全局配置管理器）"""
-        # 修改全局配置
+    async def test_config_values_from_manager(self, chroma_manager):
+        """测试配置值来自配置管理器"""
         from iris_memory.core.config_manager import get_config_manager
         cfg = get_config_manager()
-        cfg._user_config = cfg._user_config or {}
-        cfg._user_config['test_dict'] = {"key1": "value1", "key2": "value2"}
-        
-        value = chroma_manager._get_config("test_dict.key1", "default")
-        assert value == "value1"
+        assert chroma_manager.embedding_model_name == cfg.embedding_model
+        assert chroma_manager.embedding_dimension == cfg.embedding_dimension
 
 
 class TestChromaManagerInitialization:
@@ -765,13 +746,14 @@ class TestChromaManagerEmbeddingGeneration:
     ):
         """测试成功生成嵌入"""
         chroma_manager.embedding_manager = AsyncMock()
-        expected_embedding = np.random.rand(1024).tolist()
+        dim = chroma_manager.embedding_dimension
+        expected_embedding = np.random.rand(dim).tolist()
         chroma_manager.embedding_manager.embed = AsyncMock(return_value=expected_embedding)
         
         embedding = await chroma_manager._generate_embedding("Test text")
         
         assert embedding == expected_embedding
-        chroma_manager.embedding_manager.embed.assert_called_once_with("Test text", 1024)
+        chroma_manager.embedding_manager.embed.assert_called_once_with("Test text", dim)
     
     @pytest.mark.asyncio
     async def test_generate_embedding_failure_returns_none(

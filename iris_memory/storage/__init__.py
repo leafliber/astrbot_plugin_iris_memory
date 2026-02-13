@@ -13,7 +13,7 @@ from .cache import (
     MemoryCompressor
 )
 from .chroma_manager import ChromaManager
-from .lifecycle_manager import LifecycleManager
+from .lifecycle_manager import SessionLifecycleManager
 from .session_manager import SessionManager
 
 __all__ = [
@@ -28,6 +28,6 @@ __all__ = [
     'WorkingMemoryCache',
     'MemoryCompressor',
     'ChromaManager',
-    'LifecycleManager',
+    'SessionLifecycleManager',
     'SessionManager',
 ]

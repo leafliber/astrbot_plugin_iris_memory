@@ -323,13 +323,22 @@ class TestMemoryCaptureEngine:
     @pytest.mark.asyncio
     async def test_storage_layer_working(self, engine):
         """测试WORKING存储层"""
-        message = "我今天心情不错"
+        message = "我听说了一些事情"
         user_id = "user123"
+
+        # 使用低情感强度和低置信度，确保存入WORKING层
+        engine.emotion_analyzer.analyze_emotion.return_value = {
+            "primary": EmotionType.NEUTRAL,
+            "secondary": [],
+            "intensity": 0.3,
+            "confidence": 0.3,
+            "contextual_correction": False
+        }
 
         memory = await engine.capture_memory(message, user_id)
 
         assert memory is not None
-        # 新记忆默认存到工作记忆
+        # 低置信度(<0.5)的记忆存到工作记忆
         assert memory.storage_layer == StorageLayer.WORKING
 
     @pytest.mark.asyncio

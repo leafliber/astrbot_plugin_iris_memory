@@ -306,26 +306,16 @@ class UpgradeEvaluator:
         if not self.llm_provider:
             raise ValueError("No LLM provider available")
         
-        # 兼容LLMMessageProcessor的接口
-        if hasattr(self.llm_provider, 'llm_api') and self.llm_provider.llm_api:
-            # 使用内部的_call_llm方法
-            if hasattr(self.llm_provider, '_call_llm'):
-                response = await self.llm_provider._call_llm(prompt, max_tokens=500)
-                return response or ""
+        # 使用LLMMessageProcessor的_call_llm方法
+        if hasattr(self.llm_provider, '_call_llm'):
+            response = await self.llm_provider._call_llm(prompt, max_tokens=500)
+            return response or ""
         
-        # 直接调用text_chat（如果provider有这个方法）
+        # 直接调用text_chat
         if hasattr(self.llm_provider, 'text_chat'):
             response = await self.llm_provider.text_chat(prompt)
             if isinstance(response, dict):
                 return response.get("text", "") or response.get("content", "")
-            return str(response) if response else ""
-        
-        # 尝试llm_request方法
-        if hasattr(self.llm_provider, 'llm_request'):
-            response = await self.llm_provider.llm_request(
-                prompt=prompt,
-                session_id="iris_memory_upgrade"
-            )
             return str(response) if response else ""
         
         raise ValueError("LLM provider does not support any known LLM method")

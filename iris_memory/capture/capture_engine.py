@@ -107,7 +107,8 @@ class MemoryCaptureEngine:
         user_id: str,
         group_id: Optional[str] = None,
         context: Optional[Dict[str, Any]] = None,
-        is_user_requested: bool = False
+        is_user_requested: bool = False,
+        sender_name: Optional[str] = None
     ) -> Optional[Memory]:
         """捕获记忆 - 核心记忆捕获流程
 
@@ -186,11 +187,12 @@ class MemoryCaptureEngine:
             
             # 7. 创建记忆对象
             from iris_memory.core.memory_scope import MemoryScope
-            memory_scope = MemoryScope.GROUP_PRIVATE if group_id else MemoryScope.USER_PRIVATE
+            memory_scope = self._determine_memory_scope(message, group_id, triggers)
             requires_encryption = self.sensitivity_detector.get_encryption_required(sensitivity_level)
             
             memory = Memory(
                 user_id=user_id,
+                sender_name=sender_name,
                 group_id=group_id,
                 scope=memory_scope,
                 type=memory_type,
@@ -256,6 +258,74 @@ class MemoryCaptureEngine:
             logger.error(f"Failed to capture memory: user={user_id}, error={e}")
             return None
     
+    def _determine_memory_scope(
+        self,
+        message: str,
+        group_id: Optional[str],
+        triggers: List[Dict[str, Any]]
+    ) -> 'MemoryScope':
+        """确定记忆的可见性范围
+        
+        在群聊场景中区分群组共享知识和个人知识：
+        - 群组共享：涉及群活动、群规则、群通知、大家共同参与的话题
+        - 个人知识：涉及个人偏好、个人经历、自我描述
+        
+        Args:
+            message: 消息内容
+            group_id: 群组ID（私聊为None）
+            triggers: 触发器列表
+            
+        Returns:
+            MemoryScope: 记忆可见性范围
+        """
+        from iris_memory.core.memory_scope import MemoryScope
+        
+        if not group_id:
+            return MemoryScope.USER_PRIVATE
+        
+        # 群组共享知识的关键词模式
+        group_shared_patterns = [
+            # 群活动和通知
+            r'大家|各位|群里|群内|群友|所有人|通知|公告',
+            r'我们(一起|都|聊|约|组织|参加|去)',
+            r'群规|群主|管理员',
+            # 共同话题 / 事件
+            r'(咱们?|我们)(群|这边|这里)',
+            r'群名|群头像|群文件',
+            # 集体活动
+            r'(一起|约|集合|组队)(玩|吃|去|做|打|聊)',
+        ]
+        
+        # 个人知识的关键词模式
+        personal_patterns = [
+            r'^我(是|在|有|喜欢|讨厌|觉得|认为|想|要|不)',
+            r'我(自己|个人|一个人)',
+            r'我的(名字|工作|家|手机|电脑|生日|爱好|习惯)',
+        ]
+        
+        import re
+        msg_lower = message.lower()
+        
+        # 检查是否匹配群共享模式
+        is_group_shared = any(
+            re.search(pattern, msg_lower) for pattern in group_shared_patterns
+        )
+        
+        # 检查是否匹配个人模式
+        is_personal = any(
+            re.search(pattern, msg_lower) for pattern in personal_patterns
+        )
+        
+        # 如果同时匹配，个人模式优先（更保守的隐私策略）
+        if is_personal:
+            return MemoryScope.GROUP_PRIVATE
+        
+        if is_group_shared:
+            return MemoryScope.GROUP_SHARED
+        
+        # 默认：群内个人知识（保护隐私）
+        return MemoryScope.GROUP_PRIVATE
+
     def _determine_memory_type(
         self,
         triggers: List[Dict[str, Any]],
