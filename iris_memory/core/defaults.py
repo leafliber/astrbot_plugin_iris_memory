@@ -7,52 +7,6 @@
 
 from dataclasses import dataclass, field
 from typing import Dict, Any, Optional
-from enum import Enum
-
-
-class EmbeddingStrategy(str, Enum):
-    """嵌入策略"""
-    AUTO = "auto"
-    ASTRBOT = "astrbot"
-    LOCAL = "local"
-    FALLBACK = "fallback"
-
-
-class InjectionMode(str, Enum):
-    """注入模式"""
-    PREFIX = "prefix"
-    SUFFIX = "suffix"
-    EMBEDDED = "embedded"
-    HYBRID = "hybrid"
-
-
-class CacheStrategy(str, Enum):
-    """缓存策略"""
-    LRU = "lru"
-    LFU = "lfu"
-    FIFO = "fifo"
-
-
-class UpgradeMode(str, Enum):
-    """记忆升级模式"""
-    RULE = "rule"
-    LLM = "llm"
-    HYBRID = "hybrid"
-
-
-class ProcessingMode(str, Enum):
-    """消息处理模式"""
-    LOCAL = "local"
-    LLM = "llm"
-    HYBRID = "hybrid"
-
-
-class CoordinationStrategy(str, Enum):
-    """人格协调策略"""
-    BOT_PRIORITY = "bot_priority"
-    USER_PRIORITY = "user_priority"
-    HYBRID = "hybrid"
-    DYNAMIC = "dynamic"
 
 
 @dataclass

@@ -94,8 +94,9 @@ class TestInitialization:
             result = await processor.initialize()
             
             assert result is True
-            assert processor.llm_api is not None
-            assert processor.is_available() is True
+            # llm_api is now lazy-loaded on first use, not during initialize()
+            # is_available() checks llm_api which is not set until first use
+            assert processor.astrbot_context is not None
         finally:
             # Clean up
             sys.modules.pop('astrbot', None)
@@ -114,11 +115,12 @@ class TestInitialization:
     @pytest.mark.asyncio
     async def test_initialize_import_error(self, mock_astrbot_context):
         """测试导入错误处理"""
-        with patch('builtins.__import__', side_effect=ImportError("No module named 'astrbot'")):
-            processor = LLMMessageProcessor(mock_astrbot_context)
-            result = await processor.initialize()
-            
-            assert result is False
+        # initialize() 现在使用延迟加载策略，不再在初始化时导入
+        # 只要有context就会initialize成功
+        processor = LLMMessageProcessor(mock_astrbot_context)
+        result = await processor.initialize()
+        
+        assert result is True
 
 
 # =============================================================================

@@ -63,10 +63,8 @@ class LocalProvider(EmbeddingProvider):
                 return False
             
             # 获取配置（修复：处理可能返回列表的情况）
-            model_name = self._get_config(
-                "chroma_config.embedding_model",
-                "BAAI/bge-small-zh-v1.5"
-            )
+            from iris_memory.core.config_manager import get_config_manager
+            model_name = get_config_manager().embedding_model
             # 如果是列表，取第一个元素
             if isinstance(model_name, list):
                 model_name = model_name[0] if model_name else "BAAI/bge-small-zh-v1.5"

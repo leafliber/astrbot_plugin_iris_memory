@@ -89,7 +89,8 @@ def hybrid_classifier(trigger_detector, emotion_analyzer, mock_llm_processor):
         config={
             "llm_processing_mode": "hybrid",
             "immediate_trigger_confidence": 0.8,
-            "immediate_emotion_intensity": 0.7
+            "immediate_emotion_intensity": 0.7,
+            "hybrid_lower_threshold": 0.4
         }
     )
 

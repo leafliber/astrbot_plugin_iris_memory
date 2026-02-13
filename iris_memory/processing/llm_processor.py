@@ -134,20 +134,7 @@ class LLMMessageProcessor:
                     self.llm_api, 'id', None
                 ) or getattr(self.llm_api, 'provider_id', None)
                 logger.info(
-                    f"LLM provider loaded on demand (default): {self.default_provider_id} "
-                    f"(attempt {self._init_retry_count})"
-                )
-                return True
-            
-            # 回退：使用 get_all_providers() 的第一个（兼容旧版本）
-            providers = self.astrbot_context.get_all_providers()
-            if providers:
-                self.llm_api = providers[0]
-                self.default_provider_id = getattr(
-                    self.llm_api, 'id', None
-                ) or getattr(self.llm_api, 'provider_id', None)
-                logger.warning(
-                    f"LLM provider loaded on demand (fallback to first): {self.default_provider_id} "
+                    f"LLM provider loaded on demand: {self.default_provider_id} "
                     f"(attempt {self._init_retry_count})"
                 )
                 return True
@@ -359,21 +346,18 @@ class LLMMessageProcessor:
         Raises:
             Exception: API调用异常
         """
-        # 方式1: 使用新的 AstrBot API (v4.5.7+) - llm_generate
+        # 使用 AstrBot API - llm_generate
         if self.astrbot_context and hasattr(self.astrbot_context, 'llm_generate') and self.default_provider_id:
-            try:
-                llm_resp = await self.astrbot_context.llm_generate(
-                    chat_provider_id=self.default_provider_id,
-                    prompt=prompt
-                )
-                if llm_resp and hasattr(llm_resp, 'completion_text'):
-                    text = llm_resp.completion_text or ""
-                    self.stats["total_tokens_used"] += len(prompt) // 4 + len(text) // 4
-                    return text.strip()
-            except Exception as e:
-                logger.debug(f"llm_generate failed, trying fallback: {e}")
+            llm_resp = await self.astrbot_context.llm_generate(
+                chat_provider_id=self.default_provider_id,
+                prompt=prompt
+            )
+            if llm_resp and hasattr(llm_resp, 'completion_text'):
+                text = llm_resp.completion_text or ""
+                self.stats["total_tokens_used"] += len(prompt) // 4 + len(text) // 4
+                return text.strip()
         
-        # 方式2: 使用 Provider.text_chat() 作为回退
+        # 回退: 使用 Provider.text_chat()
         if self.llm_api and hasattr(self.llm_api, 'text_chat'):
             response = await self.llm_api.text_chat(
                 prompt=prompt,
@@ -384,26 +368,6 @@ class LLMMessageProcessor:
                 text = response.completion_text or ""
             elif isinstance(response, dict):
                 text = response.get("text", "") or response.get("content", "")
-            else:
-                text = str(response) if response else ""
-            
-            self.stats["total_tokens_used"] += len(prompt) // 4 + len(text) // 4
-            return text.strip()
-        
-        # 方式3: chat_completion 作为最后回退
-        if self.llm_api and hasattr(self.llm_api, 'chat_completion'):
-            response = await self.llm_api.chat_completion(
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=max_tokens,
-                temperature=temperature
-            )
-            
-            if isinstance(response, dict):
-                choices = response.get("choices", [])
-                if choices:
-                    text = choices[0].get("message", {}).get("content", "")
-                else:
-                    text = ""
             else:
                 text = str(response) if response else ""
             

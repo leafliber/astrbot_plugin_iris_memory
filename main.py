@@ -26,7 +26,7 @@ from astrbot.api import AstrBotConfig
 from astrbot.core.utils.astrbot_path import get_astrbot_data_path
 
 from iris_memory.services.memory_service import MemoryService
-from iris_memory.utils.event_utils import get_group_id
+from iris_memory.utils.event_utils import get_group_id, get_sender_name
 from iris_memory.utils.logger import init_logging_from_config
 from iris_memory.utils.command_utils import (
     CommandParser, DeleteScopeParser, StatsFormatter,
@@ -129,13 +129,15 @@ class IrisMemoryPlugin(Star):
         # 获取上下文信息
         user_id = event.get_sender_id()
         group_id = get_group_id(event)
+        sender_name = get_sender_name(event)
         
         # 执行业务逻辑
         memory = await self._service.capture_and_store_memory(
             message=parsed.content,
             user_id=user_id,
             group_id=group_id,
-            is_user_requested=True
+            is_user_requested=True,
+            sender_name=sender_name
         )
         
         # 响应结果
@@ -362,6 +364,7 @@ class IrisMemoryPlugin(Star):
         user_id = event.get_sender_id()
         group_id = get_group_id(event)
         query = event.message_str
+        sender_name = get_sender_name(event)
         
         # 激活会话
         await self._service.activate_session(user_id, group_id)
@@ -386,7 +389,8 @@ class IrisMemoryPlugin(Star):
             query=query,
             user_id=user_id,
             group_id=group_id,
-            image_context=image_context
+            image_context=image_context,
+            sender_name=sender_name
         )
         
         # 注入上下文
@@ -409,6 +413,7 @@ class IrisMemoryPlugin(Star):
         user_id = event.get_sender_id()
         group_id = get_group_id(event)
         message = event.message_str
+        sender_name = get_sender_name(event)
         
         # 更新会话活动
         self._service.update_session_activity(user_id, group_id)
@@ -417,7 +422,8 @@ class IrisMemoryPlugin(Star):
         memory = await self._service.capture_and_store_memory(
             message=message,
             user_id=user_id,
-            group_id=group_id
+            group_id=group_id,
+            sender_name=sender_name
         )
         
         if memory:
@@ -442,6 +448,7 @@ class IrisMemoryPlugin(Star):
         user_id = event.get_sender_id()
         group_id = get_group_id(event)
         message = event.message_str
+        sender_name = get_sender_name(event)
         
         # 过滤指令消息
         if MessageFilter.is_command(message):
@@ -467,6 +474,7 @@ class IrisMemoryPlugin(Star):
         
         # 构建上下文
         context = await self._build_message_context(user_id, group_id)
+        context["sender_name"] = sender_name  # 传递发送者名称
         
         # 处理消息批次
         await self._service.process_message_batch(

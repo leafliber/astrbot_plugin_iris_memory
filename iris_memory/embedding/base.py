@@ -106,19 +106,6 @@ class EmbeddingProvider(ABC):
             "dimension": self._dimension
         }
 
-    def _get_config(self, key: str, default: Any = None) -> Any:
-        """获取配置值（使用配置管理器）
-        
-        Args:
-            key: 配置键（支持点分隔）
-            default: 默认值
-            
-        Returns:
-            配置值或默认值
-        """
-        from iris_memory.core.config_manager import get_config_manager
-        return get_config_manager().get(key, default)
-
     async def ensure_dimension(self, target_dimension: int) -> bool:
         """确保嵌入维度匹配目标维度
         

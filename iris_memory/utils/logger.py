@@ -145,14 +145,7 @@ def init_logging_from_config(config: Any, plugin_data_path: Path) -> None:
     from iris_memory.core.config_manager import get_config_manager
     
     cfg = get_config_manager()
-    if cfg._user_config is not None:
-        level = cfg.log_level
-    else:
-        if hasattr(config, 'get'):
-            log_config = config.get("log_config", {}) or {}
-        else:
-            log_config = getattr(config, 'log_config', {}) or {}
-        level = log_config.get("level", DEFAULTS.log.level)
+    level = cfg.log_level
     
     log_dir = plugin_data_path / "logs"
     max_bytes = DEFAULTS.log.max_file_size * 1024 * 1024

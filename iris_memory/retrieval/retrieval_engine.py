@@ -555,7 +555,9 @@ class MemoryRetrievalEngine:
         memories: List[Memory],
         use_token_budget: bool = True,
         user_persona: Optional[Dict[str, Any]] = None,
-        persona_style: str = "default"
+        persona_style: str = "default",
+        group_id: Optional[str] = None,
+        current_sender_name: Optional[str] = None
     ) -> str:
         """格式化记忆用于注入到LLM上下文
         
@@ -564,6 +566,8 @@ class MemoryRetrievalEngine:
             use_token_budget: 是否使用token预算管理（默认True）
             user_persona: 用户画像（可选，用于人格协调）
             persona_style: 人格风格 (default/natural/roleplay)
+            group_id: 群组ID（用于区分群聊/个人知识）
+            current_sender_name: 当前发言者名称（用于群成员识别）
             
         Returns:
             str: 格式化的记忆文本
@@ -576,41 +580,18 @@ class MemoryRetrievalEngine:
             return self.memory_selector.get_memory_context(
                 memories,
                 target_count=self.max_context_memories,
-                persona_style=persona_style
+                persona_style=persona_style,
+                group_id=group_id,
+                current_sender_name=current_sender_name
             )
         
         # 根据人格风格选择格式化方式
         if persona_style == "natural":
-            formatted = "【你记得的事情】\n"
-            formatted += "以下是你和群友之间的往事，请用自己的话自然提及，不要暴露'记录'、'数据'等概念：\n"
-            for memory in memories:
-                formatted += f"- {memory.content}\n"
+            formatted = self._format_natural_style(memories, group_id, current_sender_name)
         elif persona_style == "roleplay":
-            formatted = "【你的记忆】\n"
-            formatted += "这些都是你亲身经历的事情，回复时可以自然地说'我记得...'、'你之前说过...'：\n"
-            for memory in memories:
-                formatted += f"· {memory.content}\n"
+            formatted = self._format_roleplay_style(memories, group_id, current_sender_name)
         else:
-            # 默认格式
-            formatted = "【相关记忆】\n"
-            for i, memory in enumerate(memories, 1):
-                time_str = memory.created_time.strftime("%Y-%m-%d %H:%M")
-                # 处理type可能是枚举或字符串的情况
-                if hasattr(memory.type, 'value'):
-                    type_label = memory.type.value.upper()
-                else:
-                    type_label = str(memory.type).upper()
-
-                formatted += f"{i}. [{type_label}] {time_str}\n"
-                formatted += f"   内容: {memory.content}\n"
-
-                if memory.summary:
-                    formatted += f"   摘要: {memory.summary}\n"
-
-                if memory.emotional_weight > 0.5:
-                    formatted += f"   情感强度: {memory.emotional_weight:.2f}\n"
-
-                formatted += "\n"
+            formatted = self._format_default_style(memories, group_id, current_sender_name)
         
         # 如果有用户画像，应用人格协调
         if user_persona:
@@ -619,6 +600,100 @@ class MemoryRetrievalEngine:
                 user_persona,
                 bot_persona="friendly"  # 默认Bot人格
             )
+        
+        return formatted
+    
+    def _format_memory_label(self, memory: Memory, group_id: Optional[str] = None) -> str:
+        """为记忆生成来源标签，明确区分群聊知识和个人知识
+        
+        Args:
+            memory: 记忆对象
+            group_id: 当前群组ID
+            
+        Returns:
+            str: 来源标签字符串
+        """
+        parts = []
+        
+        # 来源标注
+        from iris_memory.core.memory_scope import MemoryScope
+        if memory.scope == MemoryScope.GROUP_SHARED:
+            parts.append("群聊共识")
+        elif memory.scope == MemoryScope.GROUP_PRIVATE:
+            if memory.sender_name:
+                parts.append(f"{memory.sender_name}的个人信息")
+            else:
+                parts.append("个人信息")
+        elif memory.scope == MemoryScope.USER_PRIVATE:
+            parts.append("私聊记忆")
+        
+        return "｜".join(parts) if parts else ""
+    
+    def _format_natural_style(
+        self,
+        memories: List[Memory],
+        group_id: Optional[str] = None,
+        current_sender_name: Optional[str] = None
+    ) -> str:
+        """自然群友风格格式化"""
+        formatted = "【你记得的事情】\n"
+        formatted += "以下是你和群友之间的往事，请用自己的话自然提及，不要暴露'记录'、'数据'等概念：\n"
+        
+        if group_id:
+            formatted += "（注意区分群共识和个人信息，不要把A的事情说成B的）\n"
+        
+        for memory in memories:
+            label = self._format_memory_label(memory, group_id)
+            sender = f"（{memory.sender_name}说的）" if memory.sender_name else ""
+            prefix = f"[{label}]" if label else ""
+            formatted += f"- {prefix}{sender}{memory.content}\n"
+        
+        return formatted
+    
+    def _format_roleplay_style(
+        self,
+        memories: List[Memory],
+        group_id: Optional[str] = None,
+        current_sender_name: Optional[str] = None
+    ) -> str:
+        """角色扮演风格格式化"""
+        formatted = "【你的记忆】\n"
+        formatted += "这些都是你亲身经历的事情，回复时可以自然地说'我记得...'、'你之前说过...'：\n"
+        for memory in memories:
+            sender = f"（{memory.sender_name}）" if memory.sender_name else ""
+            formatted += f"· {sender}{memory.content}\n"
+        return formatted
+    
+    def _format_default_style(
+        self,
+        memories: List[Memory],
+        group_id: Optional[str] = None,
+        current_sender_name: Optional[str] = None
+    ) -> str:
+        """默认格式化"""
+        formatted = "【相关记忆】\n"
+        for i, memory in enumerate(memories, 1):
+            time_str = memory.created_time.strftime("%Y-%m-%d %H:%M")
+            if hasattr(memory.type, 'value'):
+                type_label = memory.type.value.upper()
+            else:
+                type_label = str(memory.type).upper()
+            
+            label = self._format_memory_label(memory, group_id)
+            sender = f" @{memory.sender_name}" if memory.sender_name else ""
+            
+            formatted += f"{i}. [{type_label}]{sender} {time_str}"
+            if label:
+                formatted += f" ({label})"
+            formatted += f"\n   内容: {memory.content}\n"
+            
+            if memory.summary:
+                formatted += f"   摘要: {memory.summary}\n"
+            
+            if memory.emotional_weight > 0.5:
+                formatted += f"   情感强度: {memory.emotional_weight:.2f}\n"
+            
+            formatted += "\n"
         
         return formatted
     

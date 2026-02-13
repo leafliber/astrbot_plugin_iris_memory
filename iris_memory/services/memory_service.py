@@ -29,9 +29,10 @@ from iris_memory.utils.logger import get_logger
 from iris_memory.core.config_manager import ConfigManager, init_config_manager
 from iris_memory.core.defaults import DEFAULTS
 from iris_memory.core.constants import (
-    StorageLayer, SessionScope, PersonaStyle, SourceType,
+    SessionScope, PersonaStyle, SourceType,
     LogTemplates, KVStoreKeys, NumericDefaults, Separators
 )
+from iris_memory.core.types import StorageLayer
 from iris_memory.utils.command_utils import SessionKeyBuilder
 
 # 可选组件（可能未启用）
@@ -89,6 +90,11 @@ class MemoryService:
         # 用户状态缓存
         self._user_emotional_states: Dict[str, EmotionalState] = {}
         self._user_personas: Dict[str, UserPersona] = {}
+        
+        # 最近注入记忆跟踪（用于避免重复提及）
+        # session_key -> [memory_id, ...]
+        self._recently_injected: Dict[str, List[str]] = {}
+        self._max_recent_track: int = 20  # 每个会话跟踪最近20条注入记忆
     
     # ========== 属性访问器 ==========
     
@@ -416,7 +422,8 @@ class MemoryService:
         user_id: str,
         group_id: Optional[str],
         is_user_requested: bool = False,
-        context: Optional[Dict[str, Any]] = None
+        context: Optional[Dict[str, Any]] = None,
+        sender_name: Optional[str] = None
     ) -> Optional[Memory]:
         """
         捕获并存储记忆
@@ -427,6 +434,7 @@ class MemoryService:
             group_id: 群聊ID
             is_user_requested: 是否用户主动请求
             context: 额外上下文
+            sender_name: 发送者显示名称
             
         Returns:
             Optional[Memory]: 捕获的记忆对象
@@ -440,7 +448,8 @@ class MemoryService:
                 user_id=user_id,
                 group_id=group_id,
                 is_user_requested=is_user_requested,
-                context=context
+                context=context,
+                sender_name=sender_name
             )
             
             if not memory:
@@ -457,7 +466,7 @@ class MemoryService:
     
     async def _store_memory_by_layer(self, memory: Memory) -> None:
         """根据层级存储记忆"""
-        if memory.storage_layer.value == StorageLayer.WORKING:
+        if memory.storage_layer == StorageLayer.WORKING:
             if self._session_manager:
                 await self._session_manager.add_working_memory(memory)
         else:
@@ -665,7 +674,8 @@ class MemoryService:
         query: str,
         user_id: str,
         group_id: Optional[str],
-        image_context: str = ""
+        image_context: str = "",
+        sender_name: Optional[str] = None
     ) -> str:
         """
         准备LLM上下文
@@ -675,6 +685,7 @@ class MemoryService:
             user_id: 用户ID
             group_id: 群聊ID
             image_context: 图片上下文
+            sender_name: 当前发言者名称
             
         Returns:
             str: 格式化的上下文
@@ -704,27 +715,141 @@ class MemoryService:
                 emotional_state=emotional_state
             )
             
+            # 过滤最近已注入过的记忆（避免重复提及）
+            session_key = SessionKeyBuilder.build(user_id, group_id)
+            if memories:
+                memories = self._filter_recently_injected(memories, session_key)
+            
             context_parts = []
             
-            # 添加记忆上下文
+            # 添加记忆上下文（带scope和sender标注）
             if memories:
                 memory_context = self._retrieval_engine.format_memories_for_llm(
                     memories,
-                    persona_style=PersonaStyle.NATURAL
+                    persona_style=PersonaStyle.NATURAL,
+                    group_id=group_id,
+                    current_sender_name=sender_name
                 )
                 context_parts.append(memory_context)
                 self.logger.debug(LogTemplates.MEMORY_INJECTED.format(count=len(memories)))
+                
+                # 记录本次注入的记忆ID
+                self._track_injected_memories(
+                    session_key,
+                    [m.id for m in memories]
+                )
             
             # 添加图片上下文
             if image_context:
                 context_parts.append(image_context)
                 self.logger.debug("Injected image context into LLM prompt")
             
+            # 添加行为指导（防止重复提及和过度反问）
+            behavior_directives = self._build_behavior_directives(group_id, sender_name)
+            if behavior_directives:
+                context_parts.append(behavior_directives)
+            
             return "\n\n".join(context_parts)
             
         except Exception as e:
             self.logger.warning(f"Failed to prepare LLM context: {e}")
             return ""
+    
+    def _filter_recently_injected(
+        self,
+        memories: List[Memory],
+        session_key: str
+    ) -> List[Memory]:
+        """过滤最近已注入过的记忆，避免重复提及同一件事
+        
+        保留策略：
+        - 如果过滤后没有剩余记忆，则保留原始列表（避免完全无上下文）
+        - 最近3次注入中出现过的记忆会被降权/过滤
+        
+        Args:
+            memories: 候选记忆列表
+            session_key: 会话键
+            
+        Returns:
+            List[Memory]: 过滤后的记忆列表
+        """
+        recent_ids = set(self._recently_injected.get(session_key, []))
+        if not recent_ids:
+            return memories
+        
+        filtered = [m for m in memories if m.id not in recent_ids]
+        
+        # 如果过滤后没有记忆了，返回原始列表（但最多返回一半，减少重复）
+        if not filtered:
+            return memories[:max(1, len(memories) // 2)]
+        
+        return filtered
+    
+    def _track_injected_memories(self, session_key: str, memory_ids: List[str]) -> None:
+        """记录本次注入的记忆ID
+        
+        Args:
+            session_key: 会话键
+            memory_ids: 注入的记忆ID列表
+        """
+        if session_key not in self._recently_injected:
+            self._recently_injected[session_key] = []
+        
+        self._recently_injected[session_key].extend(memory_ids)
+        
+        # 保留最近N条
+        if len(self._recently_injected[session_key]) > self._max_recent_track:
+            self._recently_injected[session_key] = \
+                self._recently_injected[session_key][-self._max_recent_track:]
+    
+    def _build_behavior_directives(
+        self,
+        group_id: Optional[str],
+        sender_name: Optional[str] = None
+    ) -> str:
+        """构建行为指导，与人格Prompt协同工作
+        
+        解决以下问题：
+        1. 群聊知识/个人知识区分不清
+        2. 群成员识别混乱
+        3. 重复提及同一件事
+        4. 反问过于频繁且重复
+        5. 与Chito人格协调
+        
+        Args:
+            group_id: 群组ID
+            sender_name: 当前发言者名称
+            
+        Returns:
+            str: 行为指导文本
+        """
+        directives = []
+        
+        directives.append("【记忆使用规则】")
+        
+        # 1. 防止重复提及
+        directives.append("◆ 禁止重复：不要反复提起同一件事或记忆。如果你刚才已经提到过某个话题，就自然地聊别的，不要翻来覆去说同一件事。")
+        
+        # 2. 防止过度反问
+        directives.append("◆ 减少反问：不要频繁反问对方，尤其不要重复问同一个问题。用陈述、共鸣、接话的方式回应，像真人朋友那样自然接话。如果想了解更多，偶尔问一下就够了。")
+        
+        # 3. 回复风格
+        directives.append("◆ 简短自然：回复尽量简短，像群里随手接话，一行结束。不要写长篇大论，不要列清单式回答日常闲聊。")
+        
+        if group_id:
+            # 4. 群聊知识区分
+            directives.append("◆ 知识区分：记忆中标注了「群聊共识」和「个人信息」。群聊共识是大家都知道的事，个人信息是某个人的私事。引用个人信息时要确认是当前对话者的，不要张冠李戴。")
+            
+            # 5. 群成员识别
+            directives.append("◆ 成员区分：记忆中标注了发言者名称。不要把A说的话当成B说的，引用记忆时要注意是谁说的。")
+            
+            if sender_name:
+                directives.append(f"◆ 当前对话者：正在和你说话的是「{sender_name}」。回复时针对这个人，不要混淆成其他群友。如果引用其他人的记忆，要明确说明。")
+        else:
+            # 私聊场景
+            directives.append("◆ 这是私聊对话，记忆都是你和对方之间的。")
+        
+        return "\n".join(directives)
     
     async def analyze_images(
         self,
@@ -815,8 +940,9 @@ class MemoryService:
                 return
             
             if classification.layer == ProcessingLayer.IMMEDIATE:
+                sender_name = context.get("sender_name")
                 await self._handle_immediate_memory(
-                    full_message, user_id, group_id, classification
+                    full_message, user_id, group_id, classification, sender_name
                 )
             else:
                 # BATCH 层
@@ -836,7 +962,8 @@ class MemoryService:
         message: str,
         user_id: str,
         group_id: Optional[str],
-        classification: Any
+        classification: Any,
+        sender_name: Optional[str] = None
     ) -> None:
         """处理立即层级的记忆"""
         memory = await self.capture_and_store_memory(
@@ -846,7 +973,8 @@ class MemoryService:
             context={
                 "classification": classification.metadata,
                 "source": classification.source
-            }
+            },
+            sender_name=sender_name
         )
         
         if memory:

@@ -38,7 +38,8 @@ class FallbackProvider(EmbeddingProvider):
         """
         try:
             # 获取配置的维度
-            self._dimension = self._get_config("chroma_config.embedding_dimension", 512)
+            from iris_memory.core.config_manager import get_config_manager
+            self._dimension = get_config_manager().embedding_dimension
             logger.info("Initialized fallback embedding provider (backup only). Use pseudo-random vectors as a last resort.")
             return True
         except Exception as e:

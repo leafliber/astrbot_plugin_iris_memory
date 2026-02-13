@@ -38,21 +38,14 @@ class EmotionAnalyzer:
         """
         self.config = config
         
-        # 使用配置管理器获取情感配置
-        from iris_memory.core.config_manager import get_config_manager
-        cfg = get_config_manager()
-        self.enable_emotion = cfg.enable_emotion
+        # 情感分析始终启用
+        self.enable_emotion = True
         
         # 初始化情感词典
         self._init_emotion_dict()
         
         # 初始化规则系统
         self._init_rules()
-    
-    def _get_config(self, key: str, default: Any = None) -> Any:
-        """获取配置值（兼容旧代码）"""
-        from iris_memory.core.config_manager import get_config_manager
-        return get_config_manager().get(key, default)
     
     def _init_emotion_dict(self):
         """初始化情感词典"""

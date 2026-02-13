@@ -60,13 +60,6 @@ class SessionScope:
     GROUP_PRIVATE: Final[str] = "group_private"
 
 
-class StorageLayer:
-    """存储层级"""
-    WORKING: Final[str] = "working"
-    EPISODIC: Final[str] = "episodic"
-    SEMANTIC: Final[str] = "semantic"
-
-
 class DeleteScope:
     """删除范围"""
     SHARED: Final[str] = "shared"
@@ -119,8 +112,8 @@ class PersonaStyle:
     NATURAL: Final[str] = "natural"
 
 
-class ProcessingMode:
-    """处理模式"""
+class BatchProcessingMode:
+    """批量处理模式"""
     SUMMARY: Final[str] = "summary"
     FILTER: Final[str] = "filter"
     HYBRID: Final[str] = "hybrid"
@@ -130,13 +123,6 @@ class SourceType:
     """来源类型"""
     LOCAL: Final[str] = "local"
     LLM: Final[str] = "llm"
-
-
-class InjectionMode:
-    """注入模式"""
-    PREFIX: Final[str] = "prefix"
-    SUFFIX: Final[str] = "suffix"
-    EMBEDDED: Final[str] = "embedded"
 
 
 class LogTemplates:

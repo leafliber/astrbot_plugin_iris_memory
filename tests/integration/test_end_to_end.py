@@ -25,20 +25,10 @@ from iris_memory.utils.token_manager import TokenBudget, MemoryCompressor, Dynam
 def mock_config():
     """模拟配置对象"""
     config = Mock()
-    config.chroma_config = {
+    config.embedding = {
         'embedding_model': 'BAAI/bge-m3',
         'embedding_dimension': 1024,
         'collection_name': 'test_collection'
-    }
-    config.emotion_config = {
-        'enable_emotion_analysis': True,
-        'confidence_threshold': 0.6
-    }
-    config.rif_config = {
-        'enable_rif_scoring': True,
-        'recency_weight': 0.4,
-        'importance_weight': 0.3,
-        'frequency_weight': 0.3
     }
     return config
 

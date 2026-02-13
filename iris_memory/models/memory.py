@@ -32,6 +32,7 @@ class Memory:
     # ========== 标识 ==========
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     user_id: str = ""
+    sender_name: Optional[str] = None  # 发送者显示名称（群聊中用于区分成员）
     group_id: Optional[str] = None  # 群聊ID，私聊为None
     scope: MemoryScope = MemoryScope.GROUP_PRIVATE  # 记忆可见性范围
     type: MemoryType = MemoryType.FACT

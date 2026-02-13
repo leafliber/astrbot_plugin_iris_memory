@@ -20,7 +20,7 @@ from iris_memory.utils.logger import get_logger
 from iris_memory.capture.capture_engine import MemoryCaptureEngine
 from iris_memory.models.memory import Memory
 from iris_memory.processing.llm_processor import LLMMessageProcessor, LLMSummaryResult
-from iris_memory.core.constants import ProcessingMode
+from iris_memory.core.constants import BatchProcessingMode
 from iris_memory.core.defaults import DEFAULTS
 
 if TYPE_CHECKING:
@@ -74,7 +74,7 @@ class MessageBatchProcessor:
         proactive_manager: Optional['ProactiveReplyManager'] = None,
         threshold_count: int = DEFAULT_THRESHOLD_COUNT,
         threshold_interval: int = 300,
-        processing_mode: str = ProcessingMode.HYBRID,
+        processing_mode: str = BatchProcessingMode.HYBRID,
         use_llm_summary: bool = False,
         summary_prompt: Optional[str] = None,
         on_save_callback: Optional[Callable[[], Any]] = None,

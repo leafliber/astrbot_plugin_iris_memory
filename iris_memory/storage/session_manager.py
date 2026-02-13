@@ -437,7 +437,7 @@ class SessionManager:
                    f"{stats['total_working_memories']} memories, "
                    f"~{stats['estimated_memory_mb']}MB estimated")
     
-    # ========== 异步方法（兼容 WorkingMemoryCache 接口）==========
+    # ========== 异步方法 ==========
     
     async def add_memory_async(
         self,

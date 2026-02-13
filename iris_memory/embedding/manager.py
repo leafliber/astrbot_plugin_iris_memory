@@ -412,7 +412,8 @@ class EmbeddingManager:
         """
         if self.current_provider:
             return self.current_provider.dimension
-        return self._get_config("chroma_config.embedding_dimension", 512)
+        from iris_memory.core.config_manager import get_config_manager
+        return get_config_manager().embedding_dimension
 
     def get_model(self) -> str:
         """获取当前提供者的模型名称
@@ -468,19 +469,6 @@ class EmbeddingManager:
         except Exception as e:
             logger.debug(f"Failed to detect existing dimension: {e}")
             return None
-
-    def _get_config(self, key: str, default: Any = None) -> Any:
-        """获取配置值（兼容旧代码，使用配置管理器）
-        
-        Args:
-            key: 配置键（支持点分隔）
-            default: 默认值
-            
-        Returns:
-            配置值或默认值
-        """
-        from iris_memory.core.config_manager import get_config_manager
-        return get_config_manager().get(key, default)
 
     async def switch_strategy(self, strategy: EmbeddingStrategy) -> bool:
         """切换嵌入策略
