@@ -7,6 +7,7 @@ from typing import List, Tuple, Optional
 from enum import Enum
 
 from iris_memory.utils.logger import get_logger
+from iris_memory.utils.member_utils import format_member_tag
 
 # 模块logger
 logger = get_logger("token_manager")
@@ -378,7 +379,13 @@ class DynamicMemorySelector:
                 parts.append(scope_label)
             
             sender = ""
-            if getattr(memory, 'sender_name', None):
+            if group_id:
+                sender_tag = format_member_tag(
+                    getattr(memory, 'sender_name', None),
+                    getattr(memory, 'user_id', None)
+                )
+                sender = f"（{sender_tag}说的）" if sender_tag else ""
+            elif getattr(memory, 'sender_name', None):
                 sender = f"（{memory.sender_name}说的）"
             
             label = f"[{'｜'.join(parts)}]" if parts else ""
@@ -399,7 +406,14 @@ class DynamicMemorySelector:
             compressed, _ = self.compressor.compress_memory(
                 memory.content, memory.summary
             )
-            sender = f"（{memory.sender_name}）" if getattr(memory, 'sender_name', None) else ""
+            if group_id:
+                sender_tag = format_member_tag(
+                    getattr(memory, 'sender_name', None),
+                    getattr(memory, 'user_id', None)
+                )
+                sender = f"（{sender_tag}）" if sender_tag else ""
+            else:
+                sender = f"（{memory.sender_name}）" if getattr(memory, 'sender_name', None) else ""
             lines.append(f"· {sender}{compressed}")
         return lines
     
@@ -423,7 +437,14 @@ class DynamicMemorySelector:
                 type_label = str(memory.type).upper()
             
             scope_label = self._get_scope_label(memory)
-            sender = f" @{memory.sender_name}" if getattr(memory, 'sender_name', None) else ""
+            if group_id:
+                sender_tag = format_member_tag(
+                    getattr(memory, 'sender_name', None),
+                    getattr(memory, 'user_id', None)
+                )
+                sender = f" @{sender_tag}" if sender_tag else ""
+            else:
+                sender = f" @{memory.sender_name}" if getattr(memory, 'sender_name', None) else ""
             scope_tag = f" ({scope_label})" if scope_label else ""
             
             lines.append(f"{i}. [{type_label}]{sender} {time_str}{scope_tag}")

@@ -40,6 +40,12 @@
         "default": 10,
         "hint": "会话内临时记忆数量上限，超过会触发升级"
       },
+      "chat_context_count": {
+        "description": "聊天记录注入数量",
+        "type": "int",
+        "default": 10,
+        "hint": "注入最近N条聊天记录到LLM上下文，让AI了解当前话题（0为禁用，建议5-20）"
+      },
       "upgrade_mode": {
         "description": "记忆升级模式",
         "type": "string",

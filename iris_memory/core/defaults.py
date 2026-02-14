@@ -80,6 +80,7 @@ class LLMIntegrationDefaults:
     # 基础配置（用户可调）
     max_context_memories: int = 3
     token_budget: int = 512
+    chat_context_count: int = 10  # 注入最近N条聊天记录到LLM上下文
     
     # 高级配置
     injection_mode: str = "suffix"

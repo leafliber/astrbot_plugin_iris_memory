@@ -36,6 +36,7 @@ class ConfigKeys:
     MAX_CONTEXT_MEMORIES: Final[str] = "memory.max_context_memories"
     MAX_WORKING_MEMORY: Final[str] = "memory.max_working_memory"
     UPGRADE_MODE: Final[str] = "memory.upgrade_mode"
+    CHAT_CONTEXT_COUNT: Final[str] = "memory.chat_context_count"
     
     # LLM设置
     USE_LLM: Final[str] = "llm.use_llm"
@@ -77,6 +78,7 @@ class KVStoreKeys:
     SESSIONS: Final[str] = "sessions"
     LIFECYCLE_STATE: Final[str] = "lifecycle_state"
     BATCH_QUEUES: Final[str] = "batch_queues"
+    CHAT_HISTORY: Final[str] = "chat_history"
     LAST_SAVE_PREFIX: Final[str] = "last_save_{user_id}_{group_id}"
 
 

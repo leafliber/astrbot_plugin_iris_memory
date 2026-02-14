@@ -22,9 +22,11 @@ from iris_memory.retrieval.retrieval_engine import MemoryRetrievalEngine
 from iris_memory.storage.session_manager import SessionManager
 from iris_memory.storage.lifecycle_manager import SessionLifecycleManager
 from iris_memory.storage.cache import CacheManager
+from iris_memory.storage.chat_history_buffer import ChatHistoryBuffer, ChatMessage
 from iris_memory.analysis.emotion_analyzer import EmotionAnalyzer
 from iris_memory.analysis.rif_scorer import RIFScorer
-from iris_memory.utils.hook_manager import MemoryInjector, InjectionMode, HookPriority
+# MemoryInjector/InjectionMode/HookPriority 保留在 hook_manager 模块中
+# 但本服务不再实例化 MemoryInjector，注入通过 req.system_prompt += 完成
 from iris_memory.utils.logger import get_logger
 from iris_memory.core.config_manager import ConfigManager, init_config_manager
 from iris_memory.core.defaults import DEFAULTS
@@ -34,6 +36,7 @@ from iris_memory.core.constants import (
 )
 from iris_memory.core.types import StorageLayer
 from iris_memory.utils.command_utils import SessionKeyBuilder
+from iris_memory.utils.member_utils import format_member_tag
 
 # 可选组件（可能未启用）
 from iris_memory.capture.message_classifier import MessageClassifier, ProcessingLayer
@@ -76,7 +79,7 @@ class MemoryService:
         self._cache_manager: Optional[CacheManager] = None
         self._emotion_analyzer: Optional[EmotionAnalyzer] = None
         self._rif_scorer: Optional[RIFScorer] = None
-        self._memory_injector: Optional[MemoryInjector] = None
+        self._chat_history_buffer: Optional[ChatHistoryBuffer] = None
         
         # 可选组件
         self._message_classifier: Optional[MessageClassifier] = None
@@ -129,6 +132,10 @@ class MemoryService:
     @property
     def image_analyzer(self) -> Optional[ImageAnalyzer]:
         return self._image_analyzer
+    
+    @property
+    def chat_history_buffer(self) -> Optional[ChatHistoryBuffer]:
+        return self._chat_history_buffer
     
     @property
     def proactive_manager(self) -> Optional[ProactiveReplyManager]:
@@ -213,11 +220,9 @@ class MemoryService:
             session_manager=self._session_manager
         )
         
-        # 记忆注入器
-        self._memory_injector = MemoryInjector(
-            injection_mode=InjectionMode.SUFFIX,
-            priority=HookPriority.NORMAL,
-            namespace="iris_memory"
+        # 聊天记录缓冲区
+        self._chat_history_buffer = ChatHistoryBuffer(
+            max_messages=self.cfg.chat_context_count
         )
     
     async def _init_message_processing(self) -> None:
@@ -410,9 +415,9 @@ class MemoryService:
                 "coordination_strategy": DEFAULTS.llm_integration.coordination_strategy
             })
         
-        # 配置记忆注入器
-        if self._memory_injector:
-            self._memory_injector.injection_mode = InjectionMode(DEFAULTS.llm_integration.injection_mode)
+        # 配置聊天记录缓冲区
+        if self._chat_history_buffer:
+            self._chat_history_buffer.set_max_messages(self.cfg.chat_context_count)
     
     # ========== 业务方法 ==========
     
@@ -678,7 +683,7 @@ class MemoryService:
         sender_name: Optional[str] = None
     ) -> str:
         """
-        准备LLM上下文
+        准备LLM上下文（包含聊天记录+记忆+图片）
         
         Args:
             query: 查询内容
@@ -722,7 +727,14 @@ class MemoryService:
             
             context_parts = []
             
-            # 添加记忆上下文（带scope和sender标注）
+            # 1. 注入近期聊天记录（最高优先级 —— 让AI了解当前话题）
+            chat_context = await self._build_chat_history_context(
+                user_id, group_id
+            )
+            if chat_context:
+                context_parts.append(chat_context)
+            
+            # 2. 添加记忆上下文（带scope和sender标注）
             if memories:
                 memory_context = self._retrieval_engine.format_memories_for_llm(
                     memories,
@@ -738,6 +750,16 @@ class MemoryService:
                     session_key,
                     [m.id for m in memories]
                 )
+
+            # 添加群成员识别提示
+            member_context = self._build_member_identity_context(
+                memories,
+                group_id,
+                user_id,
+                sender_name
+            )
+            if member_context:
+                context_parts.append(member_context)
             
             # 添加图片上下文
             if image_context:
@@ -745,7 +767,10 @@ class MemoryService:
                 self.logger.debug("Injected image context into LLM prompt")
             
             # 添加行为指导（防止重复提及和过度反问）
-            behavior_directives = self._build_behavior_directives(group_id, sender_name)
+            behavior_directives = self._build_behavior_directives(
+                group_id,
+                sender_name
+            )
             if behavior_directives:
                 context_parts.append(behavior_directives)
             
@@ -811,14 +836,15 @@ class MemoryService:
         
         解决以下问题：
         1. 群聊知识/个人知识区分不清
-        2. 群成员识别混乱
-        3. 重复提及同一件事
-        4. 反问过于频繁且重复
-        5. 与Chito人格协调
+        2. 重复提及同一件事
+        3. 反问过于频繁且重复
+        4. 与人格协调
+        
+        群成员识别细节由 _build_member_identity_context 提供。
         
         Args:
             group_id: 群组ID
-            sender_name: 当前发言者名称
+            sender_name: 当前发言者名称（保留用于未来扩展）
             
         Returns:
             str: 行为指导文本
@@ -840,16 +866,51 @@ class MemoryService:
             # 4. 群聊知识区分
             directives.append("◆ 知识区分：记忆中标注了「群聊共识」和「个人信息」。群聊共识是大家都知道的事，个人信息是某个人的私事。引用个人信息时要确认是当前对话者的，不要张冠李戴。")
             
-            # 5. 群成员识别
-            directives.append("◆ 成员区分：记忆中标注了发言者名称。不要把A说的话当成B说的，引用记忆时要注意是谁说的。")
-            
-            if sender_name:
-                directives.append(f"◆ 当前对话者：正在和你说话的是「{sender_name}」。回复时针对这个人，不要混淆成其他群友。如果引用其他人的记忆，要明确说明。")
+            # 成员识别细节由 _build_member_identity_context 提供
         else:
             # 私聊场景
             directives.append("◆ 这是私聊对话，记忆都是你和对方之间的。")
         
         return "\n".join(directives)
+
+    def _build_member_identity_context(
+        self,
+        memories: List[Memory],
+        group_id: Optional[str],
+        user_id: str,
+        sender_name: Optional[str]
+    ) -> str:
+        """Build a compact member identity hint for group chats."""
+        if not group_id:
+            return ""
+
+        current_tag = format_member_tag(sender_name, user_id)
+        other_tags = []
+        seen = set()
+
+        for memory in memories:
+            tag = format_member_tag(memory.sender_name, memory.user_id)
+            if not tag:
+                continue
+            if tag == current_tag:
+                continue
+            if tag in seen:
+                continue
+            seen.add(tag)
+            other_tags.append(tag)
+
+        lines = [
+            "【群成员识别】",
+            f"当前对话者: {current_tag}。回复时针对这个人，不要混淆成其他群友。",
+        ]
+        if other_tags:
+            lines.append("记忆中涉及成员: " + ", ".join(other_tags[:5]))
+        lines.append(
+            "同名以#后ID区分。不要把A说的话当成B说的，"
+            "引用其他人的记忆时要明确说明。"
+        )
+
+        return "\n".join(lines)
     
     async def analyze_images(
         self,
@@ -980,6 +1041,79 @@ class MemoryService:
         if memory:
             self.logger.debug(LogTemplates.IMMEDIATE_MEMORY_CAPTURED.format(memory_id=memory.id))
     
+    # ========== 聊天记录缓冲 ==========
+    
+    async def record_chat_message(
+        self,
+        sender_id: str,
+        sender_name: Optional[str],
+        content: str,
+        group_id: Optional[str] = None,
+        is_bot: bool = False,
+        session_user_id: Optional[str] = None
+    ) -> None:
+        """记录一条聊天消息到缓冲区
+        
+        在 on_all_messages 和 on_llm_response 中调用，
+        确保Bot参与和未参与的消息都被记录。
+        
+        Args:
+            sender_id: 发送者ID
+            sender_name: 发送者昵称
+            content: 消息内容
+            group_id: 群组ID
+            is_bot: 是否为Bot的消息
+            session_user_id: 用于定位缓冲区的用户ID（Bot私聊回复时需要）
+        """
+        if self._chat_history_buffer:
+            await self._chat_history_buffer.add_message(
+                sender_id=sender_id,
+                sender_name=sender_name,
+                content=content,
+                group_id=group_id,
+                is_bot=is_bot,
+                session_user_id=session_user_id
+            )
+    
+    async def _build_chat_history_context(
+        self,
+        user_id: str,
+        group_id: Optional[str]
+    ) -> str:
+        """构建聊天记录上下文
+        
+        Args:
+            user_id: 用户ID
+            group_id: 群组ID
+            
+        Returns:
+            str: 格式化的聊天记录，为空则返回空字符串
+        """
+        if not self._chat_history_buffer or self.cfg.chat_context_count <= 0:
+            return ""
+        
+        messages = await self._chat_history_buffer.get_recent_messages(
+            user_id=user_id,
+            group_id=group_id,
+            limit=self.cfg.chat_context_count
+        )
+        
+        if not messages:
+            return ""
+        
+        context = self._chat_history_buffer.format_for_llm(
+            messages,
+            group_id=group_id
+        )
+        
+        if context:
+            self.logger.debug(
+                f"Injected {len(messages)} chat messages into context "
+                f"(group={group_id is not None})"
+            )
+        
+        return context
+    
     # ========== 会话管理 ==========
     
     def _get_or_create_emotional_state(self, user_id: str) -> EmotionalState:
@@ -1032,6 +1166,13 @@ class MemoryService:
                     await self._batch_processor.deserialize_queues(batch_queues)
                     self.logger.info("Loaded batch processor queues")
             
+            # 加载聊天记录缓冲区
+            if self._chat_history_buffer:
+                chat_history = await get_kv_data(KVStoreKeys.CHAT_HISTORY, {})
+                if chat_history:
+                    await self._chat_history_buffer.deserialize(chat_history)
+                    self.logger.info("Loaded chat history buffer")
+            
         except Exception as e:
             self.logger.warning(f"Failed to load from KV: {e}")
     
@@ -1051,6 +1192,12 @@ class MemoryService:
                 batch_queues = await self._batch_processor.serialize_queues()
                 await put_kv_data(KVStoreKeys.BATCH_QUEUES, batch_queues)
                 self.logger.info("Saved batch processor queues")
+            
+            # 保存聊天记录缓冲区
+            if self._chat_history_buffer:
+                chat_history = await self._chat_history_buffer.serialize()
+                await put_kv_data(KVStoreKeys.CHAT_HISTORY, chat_history)
+                self.logger.info("Saved chat history buffer")
                 
         except Exception as e:
             self.logger.warning(f"Failed to save to KV: {e}")

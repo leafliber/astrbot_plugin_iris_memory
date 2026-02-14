@@ -16,6 +16,7 @@ from iris_memory.analysis.emotion_analyzer import EmotionAnalyzer
 from iris_memory.models.emotion_state import EmotionalState
 from iris_memory.utils.token_manager import TokenBudget, MemoryCompressor, DynamicMemorySelector
 from iris_memory.utils.persona_coordinator import PersonaCoordinator, CoordinationStrategy
+from iris_memory.utils.member_utils import format_member_tag
 from iris_memory.retrieval.reranker import Reranker
 from iris_memory.retrieval.retrieval_router import RetrievalRouter
 
@@ -620,8 +621,9 @@ class MemoryRetrievalEngine:
         if memory.scope == MemoryScope.GROUP_SHARED:
             parts.append("群聊共识")
         elif memory.scope == MemoryScope.GROUP_PRIVATE:
-            if memory.sender_name:
-                parts.append(f"{memory.sender_name}的个人信息")
+            sender_tag = self._format_sender_tag(memory, group_id)
+            if sender_tag:
+                parts.append(f"{sender_tag}的个人信息")
             else:
                 parts.append("个人信息")
         elif memory.scope == MemoryScope.USER_PRIVATE:
@@ -644,7 +646,8 @@ class MemoryRetrievalEngine:
         
         for memory in memories:
             label = self._format_memory_label(memory, group_id)
-            sender = f"（{memory.sender_name}说的）" if memory.sender_name else ""
+            sender_tag = self._format_sender_tag(memory, group_id)
+            sender = f"（{sender_tag}说的）" if sender_tag else ""
             prefix = f"[{label}]" if label else ""
             formatted += f"- {prefix}{sender}{memory.content}\n"
         
@@ -660,7 +663,8 @@ class MemoryRetrievalEngine:
         formatted = "【你的记忆】\n"
         formatted += "这些都是你亲身经历的事情，回复时可以自然地说'我记得...'、'你之前说过...'：\n"
         for memory in memories:
-            sender = f"（{memory.sender_name}）" if memory.sender_name else ""
+            sender_tag = self._format_sender_tag(memory, group_id)
+            sender = f"（{sender_tag}）" if sender_tag else ""
             formatted += f"· {sender}{memory.content}\n"
         return formatted
     
@@ -680,7 +684,8 @@ class MemoryRetrievalEngine:
                 type_label = str(memory.type).upper()
             
             label = self._format_memory_label(memory, group_id)
-            sender = f" @{memory.sender_name}" if memory.sender_name else ""
+            sender_tag = self._format_sender_tag(memory, group_id)
+            sender = f" @{sender_tag}" if sender_tag else ""
             
             formatted += f"{i}. [{type_label}]{sender} {time_str}"
             if label:
@@ -696,6 +701,12 @@ class MemoryRetrievalEngine:
             formatted += "\n"
         
         return formatted
+
+    def _format_sender_tag(self, memory: Memory, group_id: Optional[str]) -> str:
+        """Format a stable sender tag for group disambiguation."""
+        if group_id:
+            return format_member_tag(memory.sender_name, memory.user_id)
+        return (memory.sender_name or "").strip()
     
     def set_config(self, config: Dict[str, Any]):
         """设置配置

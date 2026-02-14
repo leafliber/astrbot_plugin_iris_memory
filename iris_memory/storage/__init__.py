@@ -15,6 +15,7 @@ from .cache import (
 from .chroma_manager import ChromaManager
 from .lifecycle_manager import SessionLifecycleManager
 from .session_manager import SessionManager
+from .chat_history_buffer import ChatHistoryBuffer, ChatMessage
 
 __all__ = [
     'CacheManager',
@@ -30,4 +31,6 @@ __all__ = [
     'ChromaManager',
     'SessionLifecycleManager',
     'SessionManager',
+    'ChatHistoryBuffer',
+    'ChatMessage',
 ]

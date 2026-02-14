@@ -353,9 +353,13 @@ class IrisMemoryPlugin(Star):
         req: Any
     ) -> None:
         """
-        在LLM请求前注入记忆上下文
-        
-        同时分析消息中的图片，将描述注入到上下文
+        在LLM请求前注入上下文
+
+        注入的上下文层次（按优先级排序）：
+        1. 近期聊天记录 - 让AI了解当前话题
+        2. 相关记忆 - 长期记忆检索结果
+        3. 图片分析 - 当前消息中的图片描述
+        4. 行为指导 - 防止重复/过度反问
         """
         # 功能开关检查
         if not hasattr(self._service, 'cfg') or not self._service.cfg.enable_inject:
@@ -368,6 +372,9 @@ class IrisMemoryPlugin(Star):
         
         # 激活会话
         await self._service.activate_session(user_id, group_id)
+        
+        # 注意：@Bot 的消息已在 on_all_messages（先于本 Hook 执行）中
+        # 记录到聊天缓冲区，此处不再重复记录。
         
         # 图片分析
         image_context = ""
@@ -384,7 +391,7 @@ class IrisMemoryPlugin(Star):
             except Exception as e:
                 self._service.logger.warning(f"Image analysis in LLM hook failed: {e}")
         
-        # 准备LLM上下文
+        # 准备LLM上下文（聊天记录 + 记忆 + 图片 + 行为指导）
         context = await self._service.prepare_llm_context(
             query=query,
             user_id=user_id,
@@ -404,7 +411,9 @@ class IrisMemoryPlugin(Star):
         resp: Any
     ) -> None:
         """
-        在LLM响应后自动捕获新记忆
+        在LLM响应后：
+        1. 记录Bot的回复到聊天缓冲区
+        2. 自动捕获新记忆
         """
         # 功能开关检查
         if not hasattr(self._service, 'cfg') or not self._service.cfg.enable_memory:
@@ -414,6 +423,25 @@ class IrisMemoryPlugin(Star):
         group_id = get_group_id(event)
         message = event.message_str
         sender_name = get_sender_name(event)
+        
+        # 记录Bot回复到聊天缓冲区
+        bot_reply = ""
+        if hasattr(resp, 'completion_text'):
+            bot_reply = resp.completion_text or ""
+        elif hasattr(resp, 'text'):
+            bot_reply = resp.text or ""
+        elif isinstance(resp, str):
+            bot_reply = resp
+        
+        if bot_reply:
+            await self._service.record_chat_message(
+                sender_id="bot",
+                sender_name=None,
+                content=bot_reply,
+                group_id=group_id,
+                is_bot=True,
+                session_user_id=user_id  # 归入对话用户的缓冲区
+            )
         
         # 更新会话活动
         self._service.update_session_activity(user_id, group_id)
@@ -436,15 +464,10 @@ class IrisMemoryPlugin(Star):
         """
         统一处理所有普通消息 - 分层处理策略
         
-        三种处理层级：
-        1. immediate - 立即捕获高价值消息
-        2. batch - 累积批量处理普通消息
-        3. discard - 丢弃无价值消息
+        职责：
+        1. 记录消息到聊天缓冲区（供LLM上下文注入）
+        2. 分层处理：immediate/batch/discard
         """
-        # 检查批量处理器是否就绪
-        if not self._service.batch_processor:
-            return
-        
         user_id = event.get_sender_id()
         group_id = get_group_id(event)
         message = event.message_str
@@ -452,6 +475,19 @@ class IrisMemoryPlugin(Star):
         
         # 过滤指令消息
         if MessageFilter.is_command(message):
+            return
+        
+        # 记录消息到聊天缓冲区（无论批量处理器是否就绪都记录）
+        await self._service.record_chat_message(
+            sender_id=user_id,
+            sender_name=sender_name,
+            content=message,
+            group_id=group_id,
+            is_bot=False
+        )
+        
+        # 以下为记忆捕获流程，需要批量处理器
+        if not self._service.batch_processor:
             return
         
         # 更新会话活动

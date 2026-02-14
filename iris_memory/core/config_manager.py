@@ -22,6 +22,7 @@ CONFIG_KEY_MAPPING = {
     "memory.max_context_memories": ("llm_integration", "max_context_memories", 3),
     "memory.max_working_memory": ("memory", "max_working_memory", 10),
     "memory.upgrade_mode": ("memory", "upgrade_mode", "rule"),
+    "memory.chat_context_count": ("llm_integration", "chat_context_count", 10),
     
     # 多维度评分设置
     "memory.enable_multidimensional_scoring": ("memory", "enable_multidimensional_scoring", False),
@@ -151,6 +152,10 @@ class ConfigManager:
     @property
     def max_working_memory(self) -> int:
         return self.get("memory.max_working_memory", 10)
+    
+    @property
+    def chat_context_count(self) -> int:
+        return self.get("memory.chat_context_count", 10)
     
     @property
     def rif_threshold(self) -> float:
