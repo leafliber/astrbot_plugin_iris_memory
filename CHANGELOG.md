@@ -3,6 +3,33 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.2.1] - 2026-02-15
+
+### Added
+- **新增群聊/私聊近期消息上下文注入** (`chat_history_buffer.py`, `memory_service.py`, `main.py`)
+  - 新增 `ChatHistoryBuffer` 滑动窗口缓冲区，按会话维护最近聊天记录
+  - LLM 请求时自动注入近期对话上下文（与高价值"记忆"注入互补）
+  - 新增 `chat_context_count` 配置项，控制注入消息条数（默认20条）
+  - 新增 `member_utils` 工具模块，提供稳定的成员标识格式化
+
+### Fixed
+- **修复 Embedding 维度不匹配导致查询失败** (`chroma_manager.py`)
+  - 问题：切换 Embedding 模型后已有 Collection 维度（如4096）与新模型维度（如512）冲突，导致 `Collection expecting embedding with dimension of 4096, got 512`
+  - 解决方案：初始化时检测维度冲突，自动删除旧 Collection 并重建
+- **修复主动回复发送缺少 session 参数** (`message_sender.py`, `proactive_manager.py`)
+  - 问题：`Context.send_message()` 需要 `(session, message_chain)` 两个参数，但只传了 `message_chain`
+  - 解决方案：新增 `umo`（unified_msg_origin）参数传递链路，正确调用 AstrBot API
+- **修复 MultidimensionalScorer 初始化参数冲突** (`rif_scorer.py`)
+  - 问题：`fallback_to_rif` 同时出现在显式参数和 `**kwargs` 中，导致 `got multiple values for keyword argument`
+  - 解决方案：转发 kwargs 前过滤已显式指定的参数
+- **修复 @Bot 消息重复录入聊天缓冲区** (`main.py`)
+  - 问题：@Bot 消息同时触发 `on_all_messages` 和 `on_llm_request`，导致重复记录
+  - 解决方案：仅在 `on_all_messages` 中记录，移除 `on_llm_request` 中的重复录入
+- **清理死代码和重复逻辑** (`memory_service.py`)
+  - 移除未使用的 `MemoryInjector` 实例化代码
+  - 合并重复的"成员区分"指令（原分散在 `_build_behavior_directives` 和 `_build_member_identity_context` 中）
+  - 补全 `ConfigKeys`、`storage/__init__.py`、`utils/__init__.py` 的导出缺失
+
 ## [v1.2.0] - 2026-02-04
 
 - 新增主动回复群聊白名单配置：`proactive_reply.group_whitelist`
