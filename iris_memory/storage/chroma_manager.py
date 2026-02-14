@@ -122,6 +122,7 @@ class ChromaManager:
                     raise
             
             # 自动检测现有集合的维度（如果启用）
+            detected_dimension: Optional[int] = None
             if self.auto_detect_dimension and existing_collection:
                 logger.debug("Auto-detecting embedding dimension from existing collection...")
                 detected_dimension = await self.embedding_manager.detect_existing_dimension(existing_collection)
@@ -139,6 +140,19 @@ class ChromaManager:
             if self.embedding_dimension != actual_dimension:
                 logger.warning(f"Configured dimension ({self.embedding_dimension}) differs from provider dimension ({actual_dimension}), using provider dimension")
                 self.embedding_dimension = actual_dimension
+            
+            # 维度冲突检测: 当现有集合的维度与当前嵌入提供者的维度不匹配时，
+            # 旧的向量无法与新查询向量一起使用，必须重建集合。
+            if existing_collection and detected_dimension and detected_dimension != actual_dimension:
+                old_count = existing_collection.count()
+                logger.warning(
+                    f"Embedding dimension conflict detected! "
+                    f"Collection has {detected_dimension}-dim vectors but provider outputs {actual_dimension}-dim. "
+                    f"Recreating collection (old memories count: {old_count} will be lost). "
+                    f"This usually happens when the embedding model/provider changes."
+                )
+                self.client.delete_collection(name=self.collection_name)
+                existing_collection = None
             
             # 获取或创建集合
             if existing_collection:

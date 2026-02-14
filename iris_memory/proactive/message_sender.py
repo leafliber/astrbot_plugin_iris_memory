@@ -84,7 +84,8 @@ class MessageSender:
         content: str,
         user_id: str,
         group_id: Optional[str] = None,
-        session_info: Optional[Dict] = None
+        session_info: Optional[Dict] = None,
+        umo: str = ""
     ) -> SendResult:
         """发送消息"""
         if not self.send_method:
@@ -102,7 +103,7 @@ class MessageSender:
             elif self.send_method == "service_send":
                 return await self._send_via_service(content, user_id, group_id)
             elif self.send_method == "context_send":
-                return await self._send_via_context(content, user_id, group_id)
+                return await self._send_via_context(content, user_id, group_id, umo=umo)
             elif self.send_method == "event_send":
                 return await self._send_via_event(content, user_id, group_id)
             else:
@@ -167,48 +168,35 @@ class MessageSender:
         self,
         content: str,
         user_id: str,
-        group_id: Optional[str]
+        group_id: Optional[str],
+        umo: str = ""
     ) -> SendResult:
-        """通过 context 发送（备用方案）"""
+        """通过 Context.send_message(session, message_chain) 发送
+        
+        AstrBot API 签名:
+            Context.send_message(session: str | MessageSession, message_chain: MessageChain) -> bool
+        
+        session 可以是 unified_msg_origin 字符串，格式为 "platform_id:message_type:session_id"
+        """
+        if not umo:
+            return SendResult(
+                success=False,
+                message_id=None,
+                error="Cannot send via context without unified_msg_origin (session)"
+            )
+        
         try:
-            # 构建消息链，兼容AstrBot的新API
-            try:
-                from astrbot.api.message_components import Plain
-                message_chain = [Plain(content)]
-                
-                # 方式1: 使用 message_chain 参数（新版 AstrBot）
-                result = await self.astrbot_context.send_message(
-                    message_chain=message_chain
-                )
-            except ImportError:
-                # 如果无法导入 Plain，使用字符串格式
-                try:
-                    # 方式2: 使用 message_chain 参数传递文本
-                    result = await self.astrbot_context.send_message(
-                        message_chain=[{"type": "text", "data": {"text": content}}]
-                    )
-                except TypeError:
-                    # 方式3: 使用 message_chain 参数传递简单格式
-                    result = await self.astrbot_context.send_message(
-                        message_chain=[content]
-                    )
-            except TypeError as te:
-                # 回退到旧的 API 格式
-                if "message_chain" in str(te):
-                    # 如果错误提到 message_chain，尝试其他格式
-                    try:
-                        result = await self.astrbot_context.send_message(
-                            message=content
-                        )
-                    except TypeError:
-                        # 最后尝试直接传递 content
-                        result = await self.astrbot_context.send_message(content)
-                else:
-                    raise
+            from astrbot.api.message_components import Plain
+            message_chain = [Plain(content)]
+            
+            result = await self.astrbot_context.send_message(
+                umo,           # session (unified_msg_origin)
+                message_chain  # message_chain
+            )
             
             return SendResult(
-                success=True,
-                message_id=str(result) if result else None,
+                success=bool(result),
+                message_id=None,
                 error=None
             )
             
