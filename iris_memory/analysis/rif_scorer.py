@@ -100,9 +100,12 @@ class RIFScorer:
             # 延迟导入和初始化MultidimensionalScorer
             if self._multidimensional_scorer is None:
                 from iris_memory.analysis.multidimensional_scorer import MultidimensionalScorer
+                # 从kwargs中移除fallback_to_rif，避免与下面的显式参数冲突
+                kwargs = {k: v for k, v in self._multidimensional_kwargs.items()
+                          if k != 'fallback_to_rif'}
                 self._multidimensional_scorer = MultidimensionalScorer(
                     fallback_to_rif=False,  # 避免循环回退
-                    **self._multidimensional_kwargs
+                    **kwargs
                 )
                 logger.debug("MultidimensionalScorer initialized")
             
