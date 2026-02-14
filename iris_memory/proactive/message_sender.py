@@ -186,12 +186,13 @@ class MessageSender:
             )
         
         try:
-            from astrbot.api.message_components import Plain
-            message_chain = [Plain(content)]
+            from astrbot.core.message.message_event_result import MessageChain
+            mc = MessageChain()
+            mc.message(content)
             
             result = await self.astrbot_context.send_message(
-                umo,           # session (unified_msg_origin)
-                message_chain  # message_chain
+                umo,  # session (unified_msg_origin)
+                mc    # MessageChain object
             )
             
             return SendResult(
