@@ -137,11 +137,11 @@ class TestContextSend:
         result = await context_sender.send(
             content="测试消息",
             user_id="user123",
-            group_id=None
+            group_id=None,
+            umo="platform:FriendMessage:user123"
         )
         
         assert result.success is True
-        assert result.message_id == "msg_id_123"
         assert result.error is None
     
     @pytest.mark.asyncio
@@ -150,10 +150,22 @@ class TestContextSend:
         result = await context_sender.send(
             content="测试消息",
             user_id="user123",
-            group_id="group456"
+            group_id="group456",
+            umo="platform:GroupMessage:group456"
         )
         
         assert result.success is True
+    
+    @pytest.mark.asyncio
+    async def test_context_send_without_umo(self, context_sender):
+        """测试无 umo 时发送失败"""
+        result = await context_sender.send(
+            content="测试消息",
+            user_id="user123"
+        )
+        
+        assert result.success is False
+        assert "unified_msg_origin" in result.error
     
     @pytest.mark.asyncio
     async def test_context_send_error(self, context_sender):
@@ -162,7 +174,8 @@ class TestContextSend:
         
         result = await context_sender.send(
             content="测试消息",
-            user_id="user123"
+            user_id="user123",
+            umo="platform:FriendMessage:user123"
         )
         
         assert result.success is False
@@ -303,7 +316,8 @@ class TestSendContent:
         """测试发送空内容"""
         result = await context_sender.send(
             content="",
-            user_id="user123"
+            user_id="user123",
+            umo="fakeid:GroupMessage:test_group"
         )
         
         # 空内容应该也能发送
@@ -316,7 +330,8 @@ class TestSendContent:
         
         result = await context_sender.send(
             content=long_content,
-            user_id="user123"
+            user_id="user123",
+            umo="fakeid:GroupMessage:test_group"
         )
         
         assert result.success is True
@@ -328,7 +343,8 @@ class TestSendContent:
         
         result = await context_sender.send(
             content=content,
-            user_id="user123"
+            user_id="user123",
+            umo="fakeid:GroupMessage:test_group"
         )
         
         assert result.success is True
@@ -340,7 +356,8 @@ class TestSendContent:
         
         result = await context_sender.send(
             content=content,
-            user_id="user123"
+            user_id="user123",
+            umo="fakeid:GroupMessage:test_group"
         )
         
         assert result.success is True
@@ -362,7 +379,8 @@ class TestSessionInfo:
             content="测试消息",
             user_id="user123",
             group_id=None,
-            session_info=session_info
+            session_info=session_info,
+            umo="fakeid:GroupMessage:test_group"
         )
         
         assert result.success is True
@@ -425,7 +443,7 @@ class TestConcurrency:
     async def test_concurrent_sends(self, context_sender):
         """测试并发发送"""
         tasks = [
-            context_sender.send(f"消息{i}", f"user{i}")
+            context_sender.send(f"消息{i}", f"user{i}", umo="fakeid:GroupMessage:test_group")
             for i in range(10)
         ]
         

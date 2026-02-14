@@ -232,7 +232,8 @@ class ProactiveReplyManager:
                 content=reply.content,
                 user_id=task.user_id,
                 group_id=task.group_id,
-                session_info=task.context.get("session_info")
+                session_info=task.context.get("session_info"),
+                umo=task.umo
             )
             
             if result.success:
