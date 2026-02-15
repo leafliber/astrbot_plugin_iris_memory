@@ -38,7 +38,7 @@ from iris_memory.core.constants import (
 )
 
 
-@register("iris_memory", "YourName", "基于companion-memory框架的三层记忆插件", "1.0.0")
+@register("iris_memory", "YourName", "基于companion-memory框架的三层记忆插件", "1.3.0")
 class IrisMemoryPlugin(Star):
     """
     Iris记忆插件 - Handler层
@@ -343,6 +343,87 @@ class IrisMemoryPlugin(Star):
         )
         
         yield event.plain_result(result)
+    
+    @filter.command("proactive_reply")
+    async def proactive_reply_control(self, event: AstrMessageEvent) -> AsyncGenerator[Any, None]:
+        """
+        群聊主动回复开关指令（仅管理员，仅群聊）
+        
+        用法：
+        /proactive_reply on      - 开启当前群的主动回复
+        /proactive_reply off     - 关闭当前群的主动回复
+        /proactive_reply status  - 查看当前群的主动回复状态
+        /proactive_reply list    - 查看所有已开启主动回复的群聊
+        """
+        # 权限检查：管理员
+        if not self._is_admin(event):
+            yield event.plain_result(ErrorMessages.ADMIN_REQUIRED)
+            return
+        
+        # 解析参数
+        parsed = CommandParser.parse_with_slash(event.message_str, "proactive_reply")
+        sub_cmd = parsed.first_arg.lower() if parsed.first_arg else "status"
+        
+        # 检查主动回复是否启用
+        proactive_mgr = self._service.proactive_manager
+        if not proactive_mgr:
+            yield event.plain_result("主动回复功能未启用，请先在配置中开启 proactive_reply.enable")
+            return
+        
+        # 检查白名单模式是否开启
+        if not proactive_mgr.group_whitelist_mode:
+            yield event.plain_result(
+                "群聊白名单模式未开启，请先在配置中开启 proactive_reply.group_whitelist_mode"
+            )
+            return
+        
+        # list 子命令不要求群聊场景
+        if sub_cmd == "list":
+            whitelist = proactive_mgr.get_whitelist()
+            if whitelist:
+                group_list = "\n".join(f"- {gid}" for gid in whitelist)
+                yield event.plain_result(f"已开启主动回复的群聊：\n{group_list}")
+            else:
+                yield event.plain_result("当前没有群聊开启主动回复")
+            return
+        
+        # 以下子命令需要群聊场景
+        group_id = self._check_group_only(event)
+        if not group_id:
+            yield event.plain_result(ErrorMessages.GROUP_ONLY)
+            return
+        
+        if sub_cmd == "on":
+            added = proactive_mgr.add_group_to_whitelist(group_id)
+            if added:
+                # 持久化
+                await self._service.save_to_kv(self.put_kv_data)
+                yield event.plain_result("已开启当前群聊的主动回复功能")
+            else:
+                yield event.plain_result("当前群聊已开启主动回复，无需重复操作")
+                
+        elif sub_cmd == "off":
+            removed = proactive_mgr.remove_group_from_whitelist(group_id)
+            if removed:
+                # 持久化
+                await self._service.save_to_kv(self.put_kv_data)
+                yield event.plain_result("已关闭当前群聊的主动回复功能")
+            else:
+                yield event.plain_result("当前群聊未开启主动回复，无需操作")
+                
+        elif sub_cmd == "status":
+            is_enabled = proactive_mgr.is_group_in_whitelist(group_id)
+            status_text = "已开启" if is_enabled else "未开启"
+            yield event.plain_result(f"当前群聊主动回复状态：{status_text}")
+            
+        else:
+            yield event.plain_result(
+                "用法：/proactive_reply <on|off|status|list>\n"
+                "- on: 开启当前群的主动回复\n"
+                "- off: 关闭当前群的主动回复\n"
+                "- status: 查看当前群的状态\n"
+                "- list: 查看所有已开启的群聊"
+            )
     
     # ========== LLM Hook ==========
     

@@ -15,13 +15,15 @@ class CommandPrefix:
     MEMORY_DELETE_PRIVATE: Final[Set[str]] = frozenset(["/memory_delete_private", "memory_delete_private"])
     MEMORY_DELETE_GROUP: Final[Set[str]] = frozenset(["/memory_delete_group", "memory_delete_group"])
     MEMORY_DELETE_ALL: Final[Set[str]] = frozenset(["/memory_delete_all", "memory_delete_all"])
+    PROACTIVE_REPLY: Final[Set[str]] = frozenset(["/proactive_reply", "proactive_reply"])
 
 
 class KnownCommands:
     """已知指令列表"""
     ALL_COMMANDS: Final[Set[str]] = frozenset([
         "memory_save", "memory_search", "memory_clear", "memory_stats",
-        "memory_delete_private", "memory_delete_group", "memory_delete_all"
+        "memory_delete_private", "memory_delete_group", "memory_delete_all",
+        "proactive_reply"
     ])
 
 
@@ -44,6 +46,7 @@ class ConfigKeys:
     # 主动回复
     PROACTIVE_REPLY_ENABLE: Final[str] = "proactive_reply.enable"
     PROACTIVE_REPLY_MAX_DAILY: Final[str] = "proactive_reply.max_daily"
+    PROACTIVE_REPLY_GROUP_WHITELIST_MODE: Final[str] = "proactive_reply.group_whitelist_mode"
     
     # 图片分析
     IMAGE_ANALYSIS_ENABLE: Final[str] = "image_analysis.enable"
@@ -80,6 +83,7 @@ class KVStoreKeys:
     BATCH_QUEUES: Final[str] = "batch_queues"
     CHAT_HISTORY: Final[str] = "chat_history"
     LAST_SAVE_PREFIX: Final[str] = "last_save_{user_id}_{group_id}"
+    PROACTIVE_REPLY_WHITELIST: Final[str] = "proactive_reply_whitelist"
 
 
 class ErrorMessages:

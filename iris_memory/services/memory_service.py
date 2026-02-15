@@ -297,7 +297,8 @@ class MemoryService:
             config={
                 "enable_proactive_reply": self.cfg.proactive_reply_enabled,
                 "reply_cooldown": DEFAULTS.proactive_reply.cooldown_seconds,
-                "max_daily_replies": self.cfg.proactive_reply_max_daily
+                "max_daily_replies": self.cfg.proactive_reply_max_daily,
+                "group_whitelist_mode": self.cfg.proactive_reply_group_whitelist_mode
             }
         )
         await self._proactive_manager.initialize()
@@ -1173,6 +1174,13 @@ class MemoryService:
                     await self._chat_history_buffer.deserialize(chat_history)
                     self.logger.info("Loaded chat history buffer")
             
+            # 加载主动回复白名单
+            if self._proactive_manager:
+                whitelist_data = await get_kv_data(KVStoreKeys.PROACTIVE_REPLY_WHITELIST, [])
+                if whitelist_data:
+                    self._proactive_manager.deserialize_whitelist(whitelist_data)
+                    self.logger.info("Loaded proactive reply whitelist")
+            
         except Exception as e:
             self.logger.warning(f"Failed to load from KV: {e}")
     
@@ -1198,6 +1206,12 @@ class MemoryService:
                 chat_history = await self._chat_history_buffer.serialize()
                 await put_kv_data(KVStoreKeys.CHAT_HISTORY, chat_history)
                 self.logger.info("Saved chat history buffer")
+            
+            # 保存主动回复白名单
+            if self._proactive_manager:
+                whitelist_data = self._proactive_manager.serialize_whitelist()
+                await put_kv_data(KVStoreKeys.PROACTIVE_REPLY_WHITELIST, whitelist_data)
+                self.logger.info("Saved proactive reply whitelist")
                 
         except Exception as e:
             self.logger.warning(f"Failed to save to KV: {e}")

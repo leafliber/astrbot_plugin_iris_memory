@@ -35,6 +35,7 @@ CONFIG_KEY_MAPPING = {
     
     # 主动回复
     "proactive_reply.enable": ("proactive_reply", "enable", False),
+    "proactive_reply.group_whitelist_mode": ("proactive_reply", "group_whitelist_mode", False),
     
     # 图片分析
     "image_analysis.enable": ("image_analysis", "enable_image_analysis", True),
@@ -190,6 +191,10 @@ class ConfigManager:
     @property
     def proactive_reply_max_daily(self) -> int:
         return DEFAULTS.proactive_reply.max_daily_replies
+    
+    @property
+    def proactive_reply_group_whitelist_mode(self) -> bool:
+        return self.get("proactive_reply.group_whitelist_mode", False)
     
     # 图片分析
     @property

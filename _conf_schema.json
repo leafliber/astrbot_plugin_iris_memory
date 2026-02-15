@@ -130,6 +130,12 @@
         "type": "bool",
         "default": false,
         "hint": "检测到用户需要回应时主动发送消息（实验性功能）"
+      },
+      "group_whitelist_mode": {
+        "description": "群聊白名单模式",
+        "type": "bool",
+        "default": false,
+        "hint": "开启后仅在管理员通过指令启用的群聊中触发主动回复，使用 /proactive_reply on|off 控制"
       }
     }
   },
