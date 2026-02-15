@@ -36,7 +36,8 @@ from iris_memory.core.constants import (
 )
 from iris_memory.core.types import StorageLayer
 from iris_memory.utils.command_utils import SessionKeyBuilder
-from iris_memory.utils.member_utils import format_member_tag
+from iris_memory.utils.member_utils import format_member_tag, set_identity_service
+from iris_memory.utils.member_identity_service import MemberIdentityService
 
 # 可选组件（可能未启用）
 from iris_memory.capture.message_classifier import MessageClassifier, ProcessingLayer
@@ -89,6 +90,7 @@ class MemoryService:
         self._reply_generator: Optional[ProactiveReplyGenerator] = None
         self._proactive_manager: Optional[ProactiveReplyManager] = None
         self._image_analyzer: Optional[ImageAnalyzer] = None
+        self._member_identity: Optional[MemberIdentityService] = None
         
         # 用户状态缓存
         self._user_emotional_states: Dict[str, EmotionalState] = {}
@@ -144,6 +146,10 @@ class MemoryService:
     @property
     def emotion_analyzer(self) -> Optional[EmotionAnalyzer]:
         return self._emotion_analyzer
+    
+    @property
+    def member_identity(self) -> Optional[MemberIdentityService]:
+        return self._member_identity
     
     # ========== 初始化方法 ==========
     
@@ -224,6 +230,11 @@ class MemoryService:
         self._chat_history_buffer = ChatHistoryBuffer(
             max_messages=self.cfg.chat_context_count
         )
+        
+        # 成员身份服务
+        self._member_identity = MemberIdentityService()
+        set_identity_service(self._member_identity)
+        self.logger.info("MemberIdentityService initialized")
     
     async def _init_message_processing(self) -> None:
         """初始化分层消息处理组件"""
@@ -881,16 +892,22 @@ class MemoryService:
         user_id: str,
         sender_name: Optional[str]
     ) -> str:
-        """Build a compact member identity hint for group chats."""
+        """Build a compact member identity hint for group chats.
+
+        增强功能：
+        - 使用 MemberIdentityService 获取稳定标签
+        - 注入群成员列表（最近活跃的前10位）
+        - 标注名称变更提示
+        """
         if not group_id:
             return ""
 
-        current_tag = format_member_tag(sender_name, user_id)
+        current_tag = format_member_tag(sender_name, user_id, group_id)
         other_tags = []
         seen = set()
 
         for memory in memories:
-            tag = format_member_tag(memory.sender_name, memory.user_id)
+            tag = format_member_tag(memory.sender_name, memory.user_id, group_id)
             if not tag:
                 continue
             if tag == current_tag:
@@ -904,8 +921,32 @@ class MemoryService:
             "【群成员识别】",
             f"当前对话者: {current_tag}。回复时针对这个人，不要混淆成其他群友。",
         ]
+
         if other_tags:
             lines.append("记忆中涉及成员: " + ", ".join(other_tags[:5]))
+
+        # 注入群成员列表（通过 MemberIdentityService）
+        if self._member_identity:
+            all_members = self._member_identity.get_group_members(group_id)
+            # 过滤掉当前对话者和已列出的成员
+            extra_members = [
+                m for m in all_members
+                if m != current_tag and m not in seen
+            ]
+            if extra_members:
+                lines.append(
+                    "群内其他已知成员: " + ", ".join(extra_members[:10])
+                )
+
+            # 名称变更提示
+            history = self._member_identity.get_name_history(user_id)
+            if history:
+                last_change = history[-1]
+                lines.append(
+                    f"注意: 当前对话者曾用名 \"{last_change['old_name']}\"，"
+                    f"现在叫 \"{last_change['new_name']}\"。"
+                )
+
         lines.append(
             "同名以#后ID区分。不要把A说的话当成B说的，"
             "引用其他人的记忆时要明确说明。"
@@ -1008,9 +1049,11 @@ class MemoryService:
                 )
             else:
                 # BATCH 层
+                sender_name = context.get("sender_name")
                 await self._batch_processor.add_message(
                     content=full_message,
                     user_id=user_id,
+                    sender_name=sender_name,
                     group_id=group_id,
                     context=context,
                     umo=umo
@@ -1181,6 +1224,18 @@ class MemoryService:
                     self._proactive_manager.deserialize_whitelist(whitelist_data)
                     self.logger.info("Loaded proactive reply whitelist")
             
+            # 加载成员身份数据
+            if self._member_identity:
+                identity_data = await get_kv_data(KVStoreKeys.MEMBER_IDENTITY, {})
+                if identity_data:
+                    self._member_identity.deserialize(identity_data)
+                    stats = self._member_identity.get_stats()
+                    self.logger.info(
+                        f"Loaded member identity data: "
+                        f"{stats['total_profiles']} profiles, "
+                        f"{stats['total_groups']} groups"
+                    )
+            
         except Exception as e:
             self.logger.warning(f"Failed to load from KV: {e}")
     
@@ -1212,6 +1267,12 @@ class MemoryService:
                 whitelist_data = self._proactive_manager.serialize_whitelist()
                 await put_kv_data(KVStoreKeys.PROACTIVE_REPLY_WHITELIST, whitelist_data)
                 self.logger.info("Saved proactive reply whitelist")
+            
+            # 保存成员身份数据
+            if self._member_identity:
+                identity_data = self._member_identity.serialize()
+                await put_kv_data(KVStoreKeys.MEMBER_IDENTITY, identity_data)
+                self.logger.info("Saved member identity data")
                 
         except Exception as e:
             self.logger.warning(f"Failed to save to KV: {e}")

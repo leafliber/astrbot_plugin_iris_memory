@@ -191,7 +191,7 @@ class ChatHistoryBuffer:
             if msg.is_bot:
                 sender = bot_name
             elif group_id:
-                sender = format_member_tag(msg.sender_name, msg.sender_id)
+                sender = format_member_tag(msg.sender_name, msg.sender_id, group_id)
             else:
                 sender = msg.sender_name or "对方"
 

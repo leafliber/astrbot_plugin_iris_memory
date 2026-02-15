@@ -34,6 +34,7 @@ class QueuedMessage:
     """队列中的消息"""
     content: str
     user_id: str
+    sender_name: Optional[str]
     group_id: Optional[str]
     timestamp: float = field(default_factory=time.time)
     context: Dict[str, Any] = field(default_factory=dict)
@@ -277,6 +278,7 @@ class MessageBatchProcessor:
         return QueuedMessage(
             content=combined_content,
             user_id=first.user_id,
+            sender_name=first.sender_name,
             group_id=first.group_id,
             timestamp=first.timestamp,
             context={
@@ -319,6 +321,7 @@ class MessageBatchProcessor:
         self,
         content: str,
         user_id: str,
+        sender_name: Optional[str] = None,
         group_id: Optional[str] = None,
         context: Optional[Dict[str, Any]] = None,
         umo: str = ""
@@ -329,6 +332,7 @@ class MessageBatchProcessor:
         Args:
             content: 消息内容
             user_id: 用户ID
+            sender_name: 发送者显示名称
             group_id: 群聊ID
             context: 上下文信息
             umo: 统一消息来源
@@ -347,6 +351,7 @@ class MessageBatchProcessor:
         self.message_queues[session_key].append(QueuedMessage(
             content=content,
             user_id=user_id,
+            sender_name=sender_name,
             group_id=group_id,
             context=context or {},
             umo=umo
@@ -462,7 +467,8 @@ class MessageBatchProcessor:
                     message=msg.content,
                     user_id=msg.user_id,
                     group_id=msg.group_id,
-                    context=msg.context
+                    context=msg.context,
+                    sender_name=msg.sender_name
                 )
             return
         
@@ -519,14 +525,16 @@ class MessageBatchProcessor:
                         message=msg.content,
                         user_id=msg.user_id,
                         group_id=msg.group_id,
-                        context={**msg.context, "llm_selected": True}
+                        context={**msg.context, "llm_selected": True},
+                        sender_name=msg.sender_name
                     )
                 elif self._is_high_value_message(msg):
                     await self.capture_engine.capture_memory(
                         message=msg.content,
                         user_id=msg.user_id,
                         group_id=msg.group_id,
-                        context=msg.context
+                        context=msg.context,
+                        sender_name=msg.sender_name
                     )
         else:
             # 本地规则筛选
@@ -536,7 +544,8 @@ class MessageBatchProcessor:
                         message=msg.content,
                         user_id=msg.user_id,
                         group_id=msg.group_id,
-                        context=msg.context
+                        context=msg.context,
+                        sender_name=msg.sender_name
                     )
     
     async def _process_hybrid_mode(self, session_key: str, queue: List[QueuedMessage]):
@@ -569,7 +578,8 @@ class MessageBatchProcessor:
                         "batch_processed": True, 
                         "high_value": is_high,
                         "llm_used": i in high_value_indices
-                    }
+                    },
+                    sender_name=msg.sender_name
                 )
                 if memory:
                     captured_count += 1
@@ -710,7 +720,8 @@ class MessageBatchProcessor:
                 "source_count": len(queue),
                 "summary_source": source,
                 **metadata
-            }
+            },
+            sender_name=first_msg.sender_name
         )
         
         if memory:
@@ -808,6 +819,7 @@ class MessageBatchProcessor:
                 serialized["queues"][session_key].append({
                     "content": msg.content,
                     "user_id": msg.user_id,
+                    "sender_name": msg.sender_name,
                     "group_id": msg.group_id,
                     "timestamp": msg.timestamp,
                     "context": serialized_context,
@@ -835,6 +847,7 @@ class MessageBatchProcessor:
                     QueuedMessage(
                         content=msg["content"],
                         user_id=msg["user_id"],
+                        sender_name=msg.get("sender_name"),
                         group_id=msg["group_id"],
                         timestamp=msg.get("timestamp", time.time()),
                         context=msg.get("context", {}),  # 作为字典恢复，处理时会重新获取对象

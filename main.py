@@ -451,6 +451,12 @@ class IrisMemoryPlugin(Star):
         query = event.message_str
         sender_name = get_sender_name(event)
         
+        # 确保成员身份信息最新（LLM请求时也更新一次）
+        if self._service.member_identity:
+            await self._service.member_identity.resolve_tag(
+                user_id, sender_name, group_id
+            )
+        
         # 激活会话
         await self._service.activate_session(user_id, group_id)
         
@@ -557,6 +563,12 @@ class IrisMemoryPlugin(Star):
         # 过滤指令消息
         if MessageFilter.is_command(message):
             return
+        
+        # 更新成员身份信息（名称追踪、活跃度、群归属）
+        if self._service.member_identity:
+            await self._service.member_identity.resolve_tag(
+                user_id, sender_name, group_id
+            )
         
         # 记录消息到聊天缓冲区（无论批量处理器是否就绪都记录）
         await self._service.record_chat_message(
