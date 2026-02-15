@@ -49,10 +49,15 @@ class ProactiveReplyManager:
         self.cooldown_seconds = self.config.get("reply_cooldown", 60)
         self.max_daily_replies = self.config.get("max_daily_replies", 20)
         
-        # 群聊白名单（空列表表示允许所有群聊）
+        # 群聊白名单（静态配置，空列表表示允许所有群聊）
         self.group_whitelist = self.config.get("group_whitelist", [])
         if isinstance(self.group_whitelist, str):
             self.group_whitelist = [self.group_whitelist] if self.group_whitelist else []
+        
+        # 群聊白名单模式（开启后需管理员用指令控制各群聊的主动回复开关）
+        self.group_whitelist_mode = self.config.get("group_whitelist_mode", False)
+        # 动态群聊白名单（通过指令管理，仅在 group_whitelist_mode 开启时生效）
+        self._dynamic_whitelist: set = set(self.config.get("dynamic_whitelist", []))
         
         # 状态跟踪
         self.last_reply_time: Dict[str, float] = {}
@@ -139,9 +144,9 @@ class ProactiveReplyManager:
             return
         
         # 检查群聊白名单
-        if group_id and self.group_whitelist:
-            if str(group_id) not in self.group_whitelist:
-                logger.debug(f"Group {group_id} not in proactive reply whitelist, skipping")
+        if group_id:
+            if not self._is_group_allowed(group_id):
+                logger.debug(f"Group {group_id} not allowed for proactive reply, skipping")
                 return
         
         # 使用检测器分析
@@ -279,3 +284,67 @@ class ProactiveReplyManager:
         """重置每日计数"""
         self.daily_reply_count.clear()
         logger.info("Daily proactive reply counts reset")
+    
+    # ========== 群聊白名单管理 ==========
+    
+    def _is_group_allowed(self, group_id: str) -> bool:
+        """检查群聊是否允许主动回复
+        
+        判断逻辑：
+        1. 如果开启了群聊白名单模式，只允许在动态白名单中的群聊
+        2. 如果没有开启白名单模式，检查静态白名单（空列表表示允许所有）
+        """
+        group_id_str = str(group_id)
+        
+        if self.group_whitelist_mode:
+            # 白名单模式：仅允许动态白名单中的群聊
+            return group_id_str in self._dynamic_whitelist
+        
+        # 非白名单模式：检查静态白名单（空列表表示允许所有）
+        if self.group_whitelist:
+            return group_id_str in self.group_whitelist
+        return True
+    
+    def add_group_to_whitelist(self, group_id: str) -> bool:
+        """将群聊加入动态白名单
+        
+        Returns:
+            bool: 是否成功添加（如果已存在则返回false）
+        """
+        group_id_str = str(group_id)
+        if group_id_str in self._dynamic_whitelist:
+            return False
+        self._dynamic_whitelist.add(group_id_str)
+        logger.info(f"Group {group_id} added to proactive reply whitelist")
+        return True
+    
+    def remove_group_from_whitelist(self, group_id: str) -> bool:
+        """将群聊从动态白名单移除
+        
+        Returns:
+            bool: 是否成功移除（如果不存在则返回false）
+        """
+        group_id_str = str(group_id)
+        if group_id_str not in self._dynamic_whitelist:
+            return False
+        self._dynamic_whitelist.discard(group_id_str)
+        logger.info(f"Group {group_id} removed from proactive reply whitelist")
+        return True
+    
+    def is_group_in_whitelist(self, group_id: str) -> bool:
+        """检查群聊是否在动态白名单中"""
+        return str(group_id) in self._dynamic_whitelist
+    
+    def get_whitelist(self) -> list:
+        """获取动态白名单列表"""
+        return sorted(self._dynamic_whitelist)
+    
+    def serialize_whitelist(self) -> list:
+        """序列化动态白名单（用于KV存储）"""
+        return sorted(self._dynamic_whitelist)
+    
+    def deserialize_whitelist(self, data: list) -> None:
+        """反序列化动态白名单（从 KV 存储加载）"""
+        if isinstance(data, list):
+            self._dynamic_whitelist = set(str(g) for g in data)
+            logger.info(f"Loaded {len(self._dynamic_whitelist)} groups to proactive reply whitelist")

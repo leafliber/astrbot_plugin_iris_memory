@@ -3,9 +3,13 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [v1.2.1] - 2026-02-15
+## [v1.3.0] - 2026-02-15
 
 ### Added
+- **新增主动回复群聊白名单模式与管理员指令** (`proactive_manager.py`, `main.py`)
+  - 新增 `proactive_reply.group_whitelist_mode` 配置，开启后进入白名单模式
+  - 管理员可在群聊中使用 `/proactive_reply on|off|status|list` 控制该群的主动回复开关
+  - 白名单数据持久化于 KV 存储，插件重启后恢复
 - **新增群聊/私聊近期消息上下文注入** (`chat_history_buffer.py`, `memory_service.py`, `main.py`)
   - 新增 `ChatHistoryBuffer` 滑动窗口缓冲区，按会话维护最近聊天记录
   - LLM 请求时自动注入近期对话上下文（与高价值"记忆"注入互补）

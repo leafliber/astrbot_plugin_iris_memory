@@ -228,7 +228,8 @@ class MessageFilter:
     
     KNOWN_COMMANDS: Set[str] = frozenset([
         "memory_save", "memory_search", "memory_clear", "memory_stats",
-        "memory_delete_private", "memory_delete_group", "memory_delete_all"
+        "memory_delete_private", "memory_delete_group", "memory_delete_all",
+        "proactive_reply"
     ])
     
     @classmethod
