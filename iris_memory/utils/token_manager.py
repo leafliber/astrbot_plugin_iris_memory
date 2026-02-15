@@ -382,7 +382,8 @@ class DynamicMemorySelector:
             if group_id:
                 sender_tag = format_member_tag(
                     getattr(memory, 'sender_name', None),
-                    getattr(memory, 'user_id', None)
+                    getattr(memory, 'user_id', None),
+                    group_id
                 )
                 sender = f"（{sender_tag}说的）" if sender_tag else ""
             elif getattr(memory, 'sender_name', None):
@@ -409,7 +410,8 @@ class DynamicMemorySelector:
             if group_id:
                 sender_tag = format_member_tag(
                     getattr(memory, 'sender_name', None),
-                    getattr(memory, 'user_id', None)
+                    getattr(memory, 'user_id', None),
+                    group_id
                 )
                 sender = f"（{sender_tag}）" if sender_tag else ""
             else:
@@ -440,7 +442,8 @@ class DynamicMemorySelector:
             if group_id:
                 sender_tag = format_member_tag(
                     getattr(memory, 'sender_name', None),
-                    getattr(memory, 'user_id', None)
+                    getattr(memory, 'user_id', None),
+                    group_id
                 )
                 sender = f" @{sender_tag}" if sender_tag else ""
             else:

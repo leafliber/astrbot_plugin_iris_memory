@@ -20,12 +20,16 @@ class Reranker:
     - 情感一致性：与当前情感一致的记忆优先
     - 访问频率：高频访问的记忆优先
     - 向量相似度：Chroma向量检索的补充权重
+    - 发送者匹配：与当前对话者相关的记忆加权
+    - 活跃度权重：活跃成员的记忆优先
 
     合并后的权重分配：
-    - 质量等级：0.25
-    - RIF评分：0.25
-    - 时间衰减：0.20
+    - 质量等级：0.20
+    - RIF评分：0.20
+    - 时间衰减：0.15
     - 向量相似度：0.15
+    - 发送者匹配：0.10
+    - 活跃度权重：0.05
     - 访问频率：0.10
     - 情感一致性：0.05
     """
@@ -89,17 +93,19 @@ class Reranker:
         """计算重排序得分
 
         合并后的权重分配：
-        - 质量等级：0.25
-        - RIF评分：0.25
-        - 时间衰减：0.20
+        - 质量等级：0.20
+        - RIF评分：0.20
+        - 时间衰减：0.15
         - 向量相似度：0.15
+        - 发送者匹配：0.10
+        - 活跃度权重：0.05
         - 访问频率：0.10
         - 情感一致性：0.05
 
         Args:
             memory: 记忆对象
             query: 查询文本（可选，暂未使用）
-            context: 上下文信息（可选，包含emotional_state）
+            context: 上下文信息（可选，包含emotional_state, current_user_id）
 
         Returns:
             float: 综合得分
@@ -126,11 +132,19 @@ class Reranker:
         elif self.enable_vector_score and hasattr(memory, 'similarity'):
             vector_score = memory.similarity
 
+        # 7. 发送者匹配得分
+        sender_score = self._calculate_sender_score(memory, context)
+
+        # 8. 活跃度得分
+        activity_score = self._calculate_activity_score(memory, context)
+
         # 综合得分
         comprehensive_score = (
-            0.25 * quality_score +
-            0.25 * rif_score +
-            0.20 * time_score +
+            0.20 * quality_score +
+            0.20 * rif_score +
+            0.15 * time_score +
+            0.10 * sender_score +
+            0.05 * activity_score +
             0.10 * access_score +
             0.05 * emotion_score
         )
@@ -140,6 +154,61 @@ class Reranker:
             comprehensive_score += 0.15 * vector_score
 
         return comprehensive_score
+
+    def _calculate_sender_score(
+        self,
+        memory: Memory,
+        context: Optional[dict]
+    ) -> float:
+        """计算发送者匹配得分
+
+        当记忆的 user_id 与当前对话者的 user_id 匹配时给予高分，
+        使AI更容易引用与当前对话者相关的记忆。
+
+        Args:
+            memory: 记忆对象
+            context: 上下文信息（包含 current_user_id）
+
+        Returns:
+            float: 发送者匹配得分（0-1）
+        """
+        if not context:
+            return 0.5
+
+        current_user_id = context.get('current_user_id')
+        if not current_user_id:
+            return 0.5
+
+        if memory.user_id == current_user_id:
+            return 1.0
+
+        return 0.3
+
+    def _calculate_activity_score(
+        self,
+        memory: Memory,
+        context: Optional[dict]
+    ) -> float:
+        """计算记忆来源成员的活跃度得分
+
+        活跃成员的记忆更可能被正确引用，不活跃成员的
+        记忆可能已过时。
+
+        Args:
+            memory: 记忆对象
+            context: 上下文信息（包含 member_identity_service）
+
+        Returns:
+            float: 活跃度得分（0-1）
+        """
+        if not context:
+            return 0.5
+
+        identity_service = context.get('member_identity_service')
+        if not identity_service:
+            return 0.5
+
+        return identity_service.get_activity_score(memory.user_id)
     
     def _calculate_time_score(self, memory: Memory) -> float:
         """计算时间得分

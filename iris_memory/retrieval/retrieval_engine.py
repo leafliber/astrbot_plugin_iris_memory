@@ -206,7 +206,8 @@ class MemoryRetrievalEngine:
         self,
         memories: List[Memory],
         query: str,
-        emotional_state: Optional[EmotionalState] = None
+        emotional_state: Optional[EmotionalState] = None,
+        user_id: Optional[str] = None
     ) -> List[Memory]:
         """重排序记忆（使用统一的Reranker）
 
@@ -214,6 +215,7 @@ class MemoryRetrievalEngine:
             memories: 记忆列表
             query: 查询文本
             emotional_state: 情感状态（可选）
+            user_id: 当前对话者ID（可选，用于sender匹配权重）
 
         Returns:
             List[Memory]: 排序后的记忆列表
@@ -222,6 +224,14 @@ class MemoryRetrievalEngine:
         context = {}
         if emotional_state:
             context['emotional_state'] = emotional_state
+        if user_id:
+            context['current_user_id'] = user_id
+
+        # 注入 MemberIdentityService（如果可用）
+        from iris_memory.utils.member_utils import get_identity_service
+        identity_service = get_identity_service()
+        if identity_service:
+            context['member_identity_service'] = identity_service
 
         # 使用Reranker重排序
         return self.reranker.rerank(memories, query, context)
@@ -338,7 +348,8 @@ class MemoryRetrievalEngine:
         ranked_memories = self._rerank_memories(
             candidate_memories,
             query,
-            emotional_state
+            emotional_state,
+            user_id
         )
         
         # 5. 返回Top-N结果
@@ -622,6 +633,9 @@ class MemoryRetrievalEngine:
             parts.append("群聊共识")
         elif memory.scope == MemoryScope.GROUP_PRIVATE:
             sender_tag = self._format_sender_tag(memory, group_id)
+            if not sender_tag:
+                # 强制使用 user_id 生成标识，确保记忆来源明确
+                sender_tag = format_member_tag(None, memory.user_id, group_id)
             if sender_tag:
                 parts.append(f"{sender_tag}的个人信息")
             else:
@@ -705,7 +719,7 @@ class MemoryRetrievalEngine:
     def _format_sender_tag(self, memory: Memory, group_id: Optional[str]) -> str:
         """Format a stable sender tag for group disambiguation."""
         if group_id:
-            return format_member_tag(memory.sender_name, memory.user_id)
+            return format_member_tag(memory.sender_name, memory.user_id, group_id)
         return (memory.sender_name or "").strip()
     
     def set_config(self, config: Dict[str, Any]):

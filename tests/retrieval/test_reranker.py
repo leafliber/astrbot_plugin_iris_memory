@@ -123,11 +123,19 @@ class TestReranker:
         # 计算情感得分（fact类型，默认0.5）
         emotion_score = reranker._calculate_emotion_score(memory, {})
 
-        # 计算期望的综合得分
+        # 计算发送者匹配得分（无context，默认0.5）
+        sender_score = reranker._calculate_sender_score(memory, {})
+
+        # 计算活跃度得分（无service，默认0.5）
+        activity_score = reranker._calculate_activity_score(memory, {})
+
+        # 计算期望的综合得分（新权重分配）
         expected_score = (
-            0.25 * quality_score +  # 质量等级
-            0.25 * rif_score +     # RIF评分
-            0.20 * time_score +    # 时间衰减
+            0.20 * quality_score +  # 质量等级
+            0.20 * rif_score +     # RIF评分
+            0.15 * time_score +    # 时间衰减
+            0.10 * sender_score +  # 发送者匹配
+            0.05 * activity_score + # 活跃度
             0.10 * access_score +   # 访问频率
             0.05 * emotion_score   # 情感一致性
         )

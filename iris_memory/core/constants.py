@@ -84,6 +84,7 @@ class KVStoreKeys:
     CHAT_HISTORY: Final[str] = "chat_history"
     LAST_SAVE_PREFIX: Final[str] = "last_save_{user_id}_{group_id}"
     PROACTIVE_REPLY_WHITELIST: Final[str] = "proactive_reply_whitelist"
+    MEMBER_IDENTITY: Final[str] = "member_identity"
 
 
 class ErrorMessages:
