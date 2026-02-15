@@ -28,6 +28,7 @@ from iris_memory.models.emotion_state import EmotionalState
 def mock_llm_provider():
     """模拟LLM provider"""
     provider = Mock()
+    provider.id = "test-provider-id"
     provider.text_chat = AsyncMock(return_value={
         "text": "我理解你的感受，有什么我可以帮你的吗？"
     })
@@ -39,6 +40,10 @@ def mock_astrbot_context(mock_llm_provider):
     """模拟AstrBot上下文（带LLM provider）"""
     context = Mock()
     context.get_using_provider = Mock(return_value=mock_llm_provider)
+    # 模拟 llm_generate 方法，返回带 completion_text 的响应对象
+    llm_response = Mock()
+    llm_response.completion_text = "我理解你的感受，有什么我可以帮你的吗？"
+    context.llm_generate = AsyncMock(return_value=llm_response)
     return context
 
 

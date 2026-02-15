@@ -37,6 +37,7 @@ class ProactiveReplyGenerator:
         self.config = config or {}
         
         self.llm_api = None
+        self.default_provider_id = None  # 默认提供商ID，用于 llm_generate 调用
         self.max_tokens = self.config.get("max_reply_tokens", 150)
         self.temperature = self.config.get("reply_temperature", 0.7)
         
@@ -78,6 +79,12 @@ class ProactiveReplyGenerator:
             if not provider:
                 logger.warning("No LLM provider available for reply generation")
                 return None
+            
+            # 获取 provider ID，用于 llm_generate 调用（自动注入人格提示）
+            if not self.default_provider_id:
+                self.default_provider_id = getattr(
+                    provider, 'id', None
+                ) or getattr(provider, 'provider_id', None)
             
             # 检索相关记忆
             relevant_memories = []
@@ -204,14 +211,25 @@ class ProactiveReplyGenerator:
     async def _call_llm(self, provider, prompt: str) -> Optional[str]:
         """调用LLM
         
-        使用 AstrBot Provider.text_chat() 方法调用 LLM。
-        响应类型为 LLMResponse，使用 completion_text 获取文本。
+        首选 astrbot_context.llm_generate()，会自动注入人格提示，
+        保持与正常对话流程一致的 AI 人格。
+        回退到 Provider.text_chat()（不含人格注入）。
         """
         if not provider:
             return None
         
         try:
-            # 使用text_chat方法
+            # 首选：使用 llm_generate（自动处理人格注入）
+            if self.astrbot_context and hasattr(self.astrbot_context, 'llm_generate') and self.default_provider_id:
+                llm_resp = await self.astrbot_context.llm_generate(
+                    chat_provider_id=self.default_provider_id,
+                    prompt=prompt
+                )
+                if llm_resp and hasattr(llm_resp, 'completion_text'):
+                    return (llm_resp.completion_text or "").strip()
+            
+            # 回退：使用 provider.text_chat()（不含人格注入）
+            logger.debug("Falling back to provider.text_chat() for reply generation")
             response = await provider.text_chat(
                 prompt=prompt,
                 context=[]
@@ -219,10 +237,10 @@ class ProactiveReplyGenerator:
             
             # 处理 LLMResponse 对象
             if hasattr(response, 'completion_text'):
-                return response.completion_text or ""
+                return (response.completion_text or "").strip()
             elif isinstance(response, dict):
-                return response.get("text", "") or response.get("content", "")
-            return str(response) if response else ""
+                return (response.get("text", "") or response.get("content", "")).strip()
+            return str(response).strip() if response else ""
             
         except Exception as e:
             logger.error(f"LLM call failed: {e}")
