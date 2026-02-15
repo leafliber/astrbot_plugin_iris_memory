@@ -429,38 +429,40 @@ class IrisMemoryPlugin(Star):
     # ========== 消息装饰钩子 ==========
     
     @filter.on_decorating_result()
-    async def on_decorating_result(
-        self,
-        event: AstrMessageEvent,
-        result: Any
-    ) -> Any:
+    async def on_decorating_result(self, event: AstrMessageEvent) -> None:
         """
         消息发送前拦截，替换框架错误消息为友好提示
         
+        钩子特性：
+        - 与其他插件的 on_decorating_result 钩子顺序执行
+        - 通过 event.get_result() 获取/修改消息结果
+        - 直接修改 result 对象，无需返回值
+        - 可通过 event.stop() 阻止后续钩子执行
+        
         Args:
             event: 消息事件对象
-            result: 消息结果对象 (MessageEventResult)
-            
-        Returns:
-            修改后的消息结果对象
         """
         # 功能开关检查
         if not self._is_error_friendly_enabled():
-            return result
+            return
+        
+        # 获取消息结果
+        result = event.get_result()
+        if not result:
+            return
         
         # 获取消息文本
         text = self._get_result_plain_text(result)
         if not text:
-            return result
+            return
         
         # 检测是否为框架错误消息
         if self._is_framework_error(text):
             friendly_msg = ErrorFriendlyMessages.DEFAULT_FRIENDLY_MSG
             result.chain.clear()
             result.message(friendly_msg)
-            self._service.logger.info(f"Replaced framework error message with friendly text")
-        
-        return result
+            self._service.logger.info("Replaced framework error message with friendly text")
+            # 注意：不调用 event.stop()，允许其他插件继续处理
     
     def _is_error_friendly_enabled(self) -> bool:
         """检查错误消息友好化功能是否启用"""
