@@ -163,5 +163,17 @@
         "hint": "每天最多分析的图片数量，0表示无限制"
       }
     }
+  },
+  "error_friendly": {
+    "description": "错误消息友好化",
+    "type": "object",
+    "items": {
+      "enable": {
+        "description": "启用错误消息友好化",
+        "type": "bool",
+        "default": true,
+        "hint": "将框架发送的技术性错误消息替换为友好的提示语"
+      }
+    }
   }
 }

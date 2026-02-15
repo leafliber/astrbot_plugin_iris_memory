@@ -168,3 +168,25 @@ class Separators:
     """分隔符"""
     SESSION_KEY: Final[str] = ":"
     KV_KEY: Final[str] = "_"
+
+
+class ErrorFriendlyMessages:
+    """错误消息友好化配置"""
+    # AstrBot 框架错误消息检测模式
+    ERROR_PATTERNS: Final[tuple] = (
+        "AstrBot 请求失败",
+        "错误类型:",
+        "错误信息:",
+        "请在平台日志查看",
+    )
+    
+    # 友好提示消息
+    DEFAULT_FRIENDLY_MSG: Final[str] = "呜...遇到了一点问题，请稍后再试试吧~"
+    NETWORK_ERROR_MSG: Final[str] = "网络好像不太稳定呢，稍后再试试？"
+    RATE_LIMIT_MSG: Final[str] = "我需要休息一下，请稍后再来找我~"
+    BAD_REQUEST_MSG: Final[str] = "请求出了点问题，稍后再试试吧~"
+
+
+class ConfigKeys:
+    """配置键常量 - 错误消息友好化"""
+    ERROR_FRIENDLY_ENABLE: Final[str] = "error_friendly.enable"

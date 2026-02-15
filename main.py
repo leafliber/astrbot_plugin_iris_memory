@@ -34,7 +34,8 @@ from iris_memory.utils.command_utils import (
 )
 from iris_memory.core.constants import (
     CommandPrefix, ErrorMessages, SuccessMessages,
-    DeleteScope, NumericDefaults, LogTemplates
+    DeleteScope, NumericDefaults, LogTemplates,
+    ErrorFriendlyMessages, ConfigKeys
 )
 
 
@@ -424,6 +425,82 @@ class IrisMemoryPlugin(Star):
                 "- status: 查看当前群的状态\n"
                 "- list: 查看所有已开启的群聊"
             )
+    
+    # ========== 消息装饰钩子 ==========
+    
+    @filter.on_decorating_result()
+    async def on_decorating_result(
+        self,
+        event: AstrMessageEvent,
+        result: Any
+    ) -> Any:
+        """
+        消息发送前拦截，替换框架错误消息为友好提示
+        
+        Args:
+            event: 消息事件对象
+            result: 消息结果对象 (MessageEventResult)
+            
+        Returns:
+            修改后的消息结果对象
+        """
+        # 功能开关检查
+        if not self._is_error_friendly_enabled():
+            return result
+        
+        # 获取消息文本
+        text = self._get_result_plain_text(result)
+        if not text:
+            return result
+        
+        # 检测是否为框架错误消息
+        if self._is_framework_error(text):
+            friendly_msg = ErrorFriendlyMessages.DEFAULT_FRIENDLY_MSG
+            result.chain.clear()
+            result.message(friendly_msg)
+            self._service.logger.info(f"Replaced framework error message with friendly text")
+        
+        return result
+    
+    def _is_error_friendly_enabled(self) -> bool:
+        """检查错误消息友好化功能是否启用"""
+        try:
+            return self.config.get(ConfigKeys.ERROR_FRIENDLY_ENABLE, True)
+        except Exception:
+            return True
+    
+    def _get_result_plain_text(self, result: Any) -> str:
+        """
+        获取消息结果的纯文本内容
+        
+        Args:
+            result: 消息结果对象
+            
+        Returns:
+            纯文本内容，无法获取时返回空字符串
+        """
+        if hasattr(result, 'get_plain_text'):
+            return result.get_plain_text() or ""
+        return ""
+    
+    def _is_framework_error(self, text: str) -> bool:
+        """
+        检测是否为 AstrBot 框架错误消息
+        
+        Args:
+            text: 消息文本
+            
+        Returns:
+            是否为框架错误消息
+        """
+        text_lower = text.lower()
+        # 检查是否包含多个错误特征
+        match_count = sum(
+            1 for pattern in ErrorFriendlyMessages.ERROR_PATTERNS
+            if pattern.lower() in text_lower
+        )
+        # 至少匹配2个特征才判定为框架错误消息
+        return match_count >= 2
     
     # ========== LLM Hook ==========
     
