@@ -5,9 +5,12 @@ UserPersona数据模型（v2 - 画像补完重构）
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, TYPE_CHECKING
 
 from iris_memory.core.types import DecayRate, MemoryType
+
+if TYPE_CHECKING:
+    from iris_memory.analysis.persona_extractor import ExtractionResult
 
 
 # ---------------------------------------------------------------------------
@@ -347,6 +350,168 @@ class UserPersona:
 
         return changes
 
+    # ------------------------------------------------------------------
+    # 从 ExtractionResult 更新画像（支持规则 / LLM / 混合）
+    # ------------------------------------------------------------------
+    def apply_extraction_result(
+        self,
+        result: "ExtractionResult",
+        source_memory_id: Optional[str] = None,
+        memory_type: Optional[str] = None,
+        base_confidence: float = 0.5,
+    ) -> List[PersonaChangeRecord]:
+        """将 PersonaExtractor 的提取结果应用到画像。
+
+        这是 LLM / hybrid 提取模式的主要入口，替代旧的硬编码关键词匹配。
+
+        Args:
+            result: 提取结果
+            source_memory_id: 来源记忆 ID
+            memory_type: 记忆类型
+            base_confidence: 基础置信度
+
+        Returns:
+            变更记录列表
+        """
+        changes: List[PersonaChangeRecord] = []
+        conf = base_confidence * result.confidence if result.confidence > 0 else base_confidence
+        evidence = "confirmed" if result.source == "llm" else "inferred"
+        rule_prefix = f"extraction_{result.source}"
+
+        # 兴趣
+        for interest, weight in result.interests.items():
+            old_w = self.interests.get(interest, 0.0)
+            # 规则模式：权重为增量（+0.1）；LLM 模式：权重为绝对值
+            if result.source == "rule":
+                new_w = min(1.0, old_w + weight)
+            else:
+                new_w = min(1.0, max(old_w, weight))
+            if new_w != old_w:
+                self.interests[interest] = new_w
+                changes.append(PersonaChangeRecord(
+                    timestamp=datetime.now().isoformat(),
+                    field_name=f"interests.{interest}",
+                    old_value=round(old_w, 2),
+                    new_value=round(new_w, 2),
+                    source_memory_id=source_memory_id,
+                    memory_type=memory_type,
+                    rule_id=f"{rule_prefix}_interest",
+                    confidence=conf,
+                    evidence_type=evidence,
+                ))
+
+        # 社交风格
+        if result.social_style:
+            rec = self.apply_change(
+                "social_style", result.social_style,
+                source_memory_id=source_memory_id,
+                memory_type=memory_type or "relationship",
+                rule_id=f"{rule_prefix}_social_style",
+                confidence=conf * 0.8,
+                evidence_type=evidence,
+            )
+            if rec:
+                changes.append(rec)
+
+        # 回复风格偏好
+        if result.reply_style_preference:
+            rec = self.apply_change(
+                "preferred_reply_style", result.reply_style_preference,
+                source_memory_id=source_memory_id,
+                memory_type=memory_type or "interaction",
+                rule_id=f"{rule_prefix}_reply_style",
+                confidence=conf,
+                evidence_type=evidence,
+            )
+            if rec:
+                changes.append(rec)
+
+        # 沟通正式度
+        if result.formality_adjustment != 0.0:
+            if result.source == "rule":
+                new_formality = max(0.0, min(1.0, self.communication_formality + result.formality_adjustment))
+            else:
+                # LLM 返回的是绝对变化量，按比例应用
+                new_formality = max(0.0, min(1.0, self.communication_formality + result.formality_adjustment * 0.2))
+            rec = self.apply_change(
+                "communication_formality", round(new_formality, 3),
+                source_memory_id=source_memory_id,
+                memory_type=memory_type or "interaction",
+                rule_id=f"{rule_prefix}_formality",
+                confidence=conf,
+                evidence_type=evidence,
+            )
+            if rec:
+                changes.append(rec)
+
+        # 话题黑名单
+        for topic in result.topic_blacklist:
+            if topic and topic not in self.topic_blacklist:
+                rec = self.apply_change(
+                    "topic_blacklist", topic,
+                    source_memory_id=source_memory_id,
+                    memory_type=memory_type or "interaction",
+                    rule_id=f"{rule_prefix}_topic_blacklist",
+                    confidence=conf,
+                    evidence_type=evidence,
+                )
+                if rec:
+                    changes.append(rec)
+
+        # 工作信息
+        if result.work_info:
+            rec = self.apply_change(
+                "work_goals", result.work_info,
+                source_memory_id=source_memory_id,
+                memory_type=memory_type or "fact",
+                rule_id=f"{rule_prefix}_work",
+                confidence=conf,
+                evidence_type=evidence,
+            )
+            if rec:
+                changes.append(rec)
+
+        # 生活信息
+        if result.life_info:
+            rec = self.apply_change(
+                "habits", result.life_info,
+                source_memory_id=source_memory_id,
+                memory_type=memory_type or "fact",
+                rule_id=f"{rule_prefix}_life",
+                confidence=conf,
+                evidence_type=evidence,
+            )
+            if rec:
+                changes.append(rec)
+
+        # 信任度
+        if result.trust_delta > 0:
+            rec = self.apply_change(
+                "trust_level", min(1.0, self.trust_level + result.trust_delta),
+                source_memory_id=source_memory_id,
+                memory_type=memory_type or "relationship",
+                rule_id=f"{rule_prefix}_trust",
+                confidence=conf,
+                evidence_type=evidence,
+            )
+            if rec:
+                changes.append(rec)
+
+        # 亲密度
+        if result.intimacy_delta > 0:
+            rec = self.apply_change(
+                "intimacy_level", min(1.0, self.intimacy_level + result.intimacy_delta),
+                source_memory_id=source_memory_id,
+                memory_type=memory_type or "relationship",
+                rule_id=f"{rule_prefix}_intimacy",
+                confidence=conf,
+                evidence_type=evidence,
+            )
+            if rec:
+                changes.append(rec)
+
+        return changes
+
     # --- 情感维度 ---
     def _update_emotional(self, memory, mem_id, confidence) -> List[PersonaChangeRecord]:
         changes: List[PersonaChangeRecord] = []
@@ -427,14 +592,38 @@ class UserPersona:
         return "stable"
 
     # --- 事实维度 ---
-    def _update_facts(self, memory, mem_id, confidence) -> List[PersonaChangeRecord]:
+    def _update_facts(
+        self, memory, mem_id, confidence,
+        keyword_maps=None,
+    ) -> List[PersonaChangeRecord]:
+        """基于关键词规则更新事实维度。
+
+        关键词来源优先级：
+        1. 外部传入的 ``keyword_maps``
+        2. 内置默认值（兼容旧行为）
+        """
         changes: List[PersonaChangeRecord] = []
         content = getattr(memory, "content", "") or ""
         summary = getattr(memory, "summary", None)
         content_lower = content.lower()
 
-        work_keywords = ["工作", "公司", "项目", "同事", "老板", "职业", "事业", "上班"]
-        life_keywords = ["喜欢", "爱好", "兴趣", "习惯", "运动", "娱乐", "爱吃", "讨厌"]
+        # 获取关键词配置
+        if keyword_maps is not None:
+            work_keywords = keyword_maps.work_keywords
+            life_keywords = keyword_maps.life_keywords
+            interest_map = keyword_maps.interests
+        else:
+            work_keywords = ["工作", "公司", "项目", "同事", "老板", "职业", "事业", "上班"]
+            life_keywords = ["喜欢", "爱好", "兴趣", "习惯", "运动", "娱乐", "爱吃", "讨厌"]
+            interest_map = {
+                "编程": ["编程", "代码", "开发", "程序"],
+                "阅读": ["阅读", "读书", "看书", "书"],
+                "运动": ["运动", "跑步", "健身", "锻炼"],
+                "音乐": ["音乐", "歌", "唱"],
+                "游戏": ["游戏", "打游戏", "玩游戏"],
+                "美食": ["吃", "美食", "餐厅", "做饭"],
+                "旅行": ["旅行", "旅游", "出游"],
+            }
 
         if any(kw in content_lower for kw in work_keywords) and summary:
             rec = self.apply_change(
@@ -457,15 +646,6 @@ class UserPersona:
                 changes.append(rec)
 
         # 兴趣权重更新
-        interest_map = {
-            "编程": ["编程", "代码", "开发", "程序"],
-            "阅读": ["阅读", "读书", "看书", "书"],
-            "运动": ["运动", "跑步", "健身", "锻炼"],
-            "音乐": ["音乐", "歌", "唱"],
-            "游戏": ["游戏", "打游戏", "玩游戏"],
-            "美食": ["吃", "美食", "餐厅", "做饭"],
-            "旅行": ["旅行", "旅游", "出游"],
-        }
         for interest, keywords in interest_map.items():
             if any(kw in content_lower for kw in keywords):
                 old_w = self.interests.get(interest, 0.0)
@@ -487,13 +667,30 @@ class UserPersona:
         return changes
 
     # --- 关系维度 ---
-    def _update_social(self, memory, mem_id, confidence) -> List[PersonaChangeRecord]:
+    def _update_social(
+        self, memory, mem_id, confidence,
+        keyword_maps=None,
+    ) -> List[PersonaChangeRecord]:
         changes: List[PersonaChangeRecord] = []
         content = getattr(memory, "content", "") or ""
         summary = getattr(memory, "summary", "") or ""
         text = content + summary
 
-        if "信任" in text:
+        # 关键词配置
+        if keyword_maps is not None:
+            trust_kws = keyword_maps.trust_keywords
+            intimacy_kws = keyword_maps.intimacy_keywords
+            style_map = keyword_maps.social_styles
+        else:
+            trust_kws = ["信任"]
+            intimacy_kws = ["亲密"]
+            style_map = {
+                "外向": ["外向", "活泼", "爱交际"],
+                "内向": ["内向", "安静", "独处"],
+                "温和": ["温和", "和善", "温柔"],
+            }
+
+        if any(kw in text for kw in trust_kws):
             rec = self.apply_change(
                 "trust_level", min(1.0, self.trust_level + 0.1),
                 source_memory_id=mem_id, memory_type="relationship",
@@ -503,7 +700,7 @@ class UserPersona:
             if rec:
                 changes.append(rec)
 
-        if "亲密" in text:
+        if any(kw in text for kw in intimacy_kws):
             rec = self.apply_change(
                 "intimacy_level", min(1.0, self.intimacy_level + 0.1),
                 source_memory_id=mem_id, memory_type="relationship",
@@ -514,11 +711,6 @@ class UserPersona:
                 changes.append(rec)
 
         # 社交风格推断
-        style_map = {
-            "外向": ["外向", "活泼", "爱交际"],
-            "内向": ["内向", "安静", "独处"],
-            "温和": ["温和", "和善", "温柔"],
-        }
         for style, keywords in style_map.items():
             if any(kw in text for kw in keywords):
                 rec = self.apply_change(
@@ -534,32 +726,45 @@ class UserPersona:
         return changes
 
     # --- 交互维度 ---
-    def _update_interaction(self, memory, mem_id, confidence) -> List[PersonaChangeRecord]:
+    def _update_interaction(
+        self, memory, mem_id, confidence,
+        keyword_maps=None,
+    ) -> List[PersonaChangeRecord]:
         changes: List[PersonaChangeRecord] = []
         content = (getattr(memory, "content", "") or "").lower()
 
+        # 关键词配置
+        if keyword_maps is not None:
+            reply_style = keyword_maps.reply_style
+            formality = keyword_maps.formality
+        else:
+            reply_style = {
+                "brief": ["简短", "简洁", "不要太多"],
+                "detailed": ["详细", "具体", "展开说"],
+            }
+            formality = {
+                "formal": ["正式", "礼貌", "敬语"],
+                "casual": ["随意", "口语", "不用客气"],
+            }
+
         # 回复风格偏好
-        if any(kw in content for kw in ["简短", "简洁", "不要太多"]):
-            rec = self.apply_change(
-                "preferred_reply_style", "brief",
-                source_memory_id=mem_id, memory_type="interaction",
-                rule_id="reply_style_brief", confidence=confidence,
-                evidence_type="inferred",
-            )
-            if rec:
-                changes.append(rec)
-        elif any(kw in content for kw in ["详细", "具体", "展开说"]):
-            rec = self.apply_change(
-                "preferred_reply_style", "detailed",
-                source_memory_id=mem_id, memory_type="interaction",
-                rule_id="reply_style_detailed", confidence=confidence,
-                evidence_type="inferred",
-            )
-            if rec:
-                changes.append(rec)
+        for style, keywords in reply_style.items():
+            if any(kw in content for kw in keywords):
+                rec = self.apply_change(
+                    "preferred_reply_style", style,
+                    source_memory_id=mem_id, memory_type="interaction",
+                    rule_id=f"reply_style_{style}", confidence=confidence,
+                    evidence_type="inferred",
+                )
+                if rec:
+                    changes.append(rec)
+                break
 
         # 沟通正式度
-        if any(kw in content for kw in ["正式", "礼貌", "敬语"]):
+        formal_kws = formality.get("formal", [])
+        casual_kws = formality.get("casual", [])
+
+        if any(kw in content for kw in formal_kws):
             rec = self.apply_change(
                 "communication_formality", min(1.0, self.communication_formality + 0.1),
                 source_memory_id=mem_id, memory_type="interaction",
@@ -568,7 +773,7 @@ class UserPersona:
             )
             if rec:
                 changes.append(rec)
-        elif any(kw in content for kw in ["随意", "口语", "不用客气"]):
+        elif any(kw in content for kw in casual_kws):
             rec = self.apply_change(
                 "communication_formality", max(0.0, self.communication_formality - 0.1),
                 source_memory_id=mem_id, memory_type="interaction",

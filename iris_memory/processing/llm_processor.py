@@ -404,3 +404,8 @@ class LLMMessageProcessor:
     def is_available(self) -> bool:
         """检查LLM是否可用"""
         return self.llm_api is not None
+
+    @property
+    def provider_id(self) -> Optional[str]:
+        """当前提供者 ID"""
+        return self.default_provider_id

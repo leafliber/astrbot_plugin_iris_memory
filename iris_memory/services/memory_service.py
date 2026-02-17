@@ -8,6 +8,7 @@
 """
 from typing import Optional, List, Dict, Any, Tuple
 from pathlib import Path
+from datetime import datetime
 import asyncio
 
 from astrbot.api.star import Context
@@ -47,6 +48,7 @@ from iris_memory.processing.llm_processor import LLMMessageProcessor
 from iris_memory.proactive.proactive_reply_detector import ProactiveReplyDetector
 from iris_memory.proactive.proactive_manager import ProactiveReplyManager
 from iris_memory.multimodal.image_analyzer import ImageAnalyzer
+from iris_memory.analysis.persona_extractor import PersonaExtractor, KeywordMaps
 
 
 class MemoryService:
@@ -90,6 +92,7 @@ class MemoryService:
         self._proactive_manager: Optional[ProactiveReplyManager] = None
         self._image_analyzer: Optional[ImageAnalyzer] = None
         self._member_identity: Optional[MemberIdentityService] = None
+        self._persona_extractor: Optional[PersonaExtractor] = None
         
         # 用户状态缓存
         self._user_emotional_states: Dict[str, EmotionalState] = {}
@@ -160,6 +163,7 @@ class MemoryService:
             
             await self._init_core_components()
             await self._init_message_processing()
+            await self._init_persona_extractor()
             await self._init_proactive_reply()
             await self._init_image_analyzer()
             await self._apply_config()
@@ -269,6 +273,32 @@ class MemoryService:
         
         self.logger.info("Message classifier initialized")
     
+    async def _init_persona_extractor(self) -> None:
+        """初始化画像提取器"""
+        mode = self.cfg.persona_extraction_mode
+        self.logger.info(f"Initializing persona extractor (mode={mode})")
+
+        # 加载外置关键词配置
+        keyword_yaml = self.plugin_data_path.parent / "data" / "keyword_maps.yaml"
+        if not keyword_yaml.exists():
+            # 尝试插件根目录
+            keyword_yaml = Path(__file__).resolve().parent.parent.parent / "data" / "keyword_maps.yaml"
+        kw_maps = KeywordMaps(yaml_path=keyword_yaml if keyword_yaml.exists() else None)
+
+        self._persona_extractor = PersonaExtractor(
+            extraction_mode=mode,
+            keyword_maps=kw_maps,
+            astrbot_context=self.context if mode in ("llm", "hybrid") else None,
+            llm_provider_id=self.cfg.persona_llm_provider,
+            llm_max_tokens=self.cfg.persona_llm_max_tokens,
+            llm_daily_limit=self.cfg.persona_llm_daily_limit,
+            enable_interest=self.cfg.persona_enable_interest,
+            enable_style=self.cfg.persona_enable_style,
+            enable_preference=self.cfg.persona_enable_preference,
+            fallback_to_rule=self.cfg.persona_fallback_to_rule,
+        )
+        self.logger.info(f"Persona extractor ready (mode={mode})")
+
     async def _init_proactive_reply(self) -> None:
         """初始化主动回复组件"""
         self.logger.info(LogTemplates.COMPONENT_INIT.format(component="proactive reply"))
@@ -489,13 +519,50 @@ class MemoryService:
         """画像闭环：从记忆更新用户画像并记录 DEBUG 日志
         
         在每次成功捕获记忆后调用，使画像始终与最新记忆保持同步。
+        支持三种模式：rule / llm / hybrid，由 persona.extraction_mode 配置控制。
         """
         try:
             persona = self.get_or_create_user_persona(user_id)
             mem_id = getattr(memory, "id", None)
             persona_log.update_start(user_id, mem_id)
 
-            changes = persona.update_from_memory(memory)
+            changes = []
+            content = getattr(memory, "content", "") or ""
+            summary = getattr(memory, "summary", None)
+            mem_type_raw = getattr(memory, "type", None)
+            mem_type = mem_type_raw.value if hasattr(mem_type_raw, "value") else str(mem_type_raw)
+            confidence = getattr(memory, "confidence", 0.5)
+
+            # 情感维度始终使用内置规则（与 LLM 提取无关）
+            if mem_type in ("emotion",):
+                changes.extend(persona._update_emotional(memory, mem_id, confidence))
+
+            # 事实 / 关系 / 交互维度 → 使用 PersonaExtractor
+            if self._persona_extractor and self.cfg.persona_extraction_mode != "rule":
+                # 使用提取器（llm / hybrid）
+                result = await self._persona_extractor.extract(
+                    content=content,
+                    summary=summary,
+                )
+                if result.confidence > 0 or result.interests:
+                    ext_changes = persona.apply_extraction_result(
+                        result,
+                        source_memory_id=mem_id,
+                        memory_type=mem_type,
+                        base_confidence=confidence,
+                    )
+                    changes.extend(ext_changes)
+                else:
+                    # 提取器无结果时走传统规则（纯兜底）
+                    changes.extend(persona.update_from_memory(memory))
+            else:
+                # rule 模式 → 原始行为
+                changes.extend(persona.update_from_memory(memory))
+
+            # 更新活跃时段
+            created = getattr(memory, "created_time", None)
+            if created and isinstance(created, datetime):
+                persona.hourly_distribution[created.hour] += 1.0
 
             if changes:
                 persona_log.update_applied(

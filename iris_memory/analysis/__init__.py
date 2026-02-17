@@ -3,6 +3,7 @@
 from .entity_extractor import EntityExtractor, EntityType, Entity, extract_entities, get_entity_summary
 from .emotion_analyzer import EmotionAnalyzer
 from .rif_scorer import RIFScorer
+from .persona_extractor import PersonaExtractor, ExtractionResult, KeywordMaps
 
 __all__ = [
     'EntityExtractor',
@@ -12,4 +13,7 @@ __all__ = [
     'get_entity_summary',
     'EmotionAnalyzer',
     'RIFScorer',
+    'PersonaExtractor',
+    'ExtractionResult',
+    'KeywordMaps',
 ]

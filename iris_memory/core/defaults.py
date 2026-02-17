@@ -182,6 +182,16 @@ class PersonaDefaults:
     snapshot_interval: int = 10
     # 是否启用画像注入到LLM上下文
     enable_persona_injection: bool = True
+    
+    # LLM 画像提取
+    extraction_mode: str = "rule"       # "rule" | "llm" | "hybrid"
+    llm_provider: str = "default"       # "default" 或具体 provider_id
+    enable_interest_extraction: bool = True
+    enable_style_extraction: bool = True
+    enable_preference_extraction: bool = True
+    llm_max_tokens: int = 300
+    llm_daily_limit: int = 50           # 每日 LLM 提取次数限制
+    fallback_to_rule: bool = True       # LLM 失败时回退到规则
 
 
 @dataclass  
