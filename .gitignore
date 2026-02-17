@@ -215,3 +215,7 @@ docker/.env
 docker/**/*.pyc
 docker/__pycache__/
 docker/*.sock
+
+# codebuddy
+.codebuddy/
+CODEBUDDY.md

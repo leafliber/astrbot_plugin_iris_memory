@@ -3,6 +3,15 @@
 """
 from typing import Optional, Set, List
 from dataclasses import dataclass
+from enum import Enum
+
+
+class DeleteMainScope(Enum):
+    """删除主范围"""
+    CURRENT = "current"      # 当前会话（默认）
+    PRIVATE = "private"      # 私聊记忆
+    GROUP = "group"          # 群聊记忆
+    ALL = "all"              # 所有记忆
 
 
 @dataclass(frozen=True)
@@ -84,22 +93,22 @@ class CommandParser:
 
 
 class DeleteScopeParser:
-    """删除范围解析器"""
-    
+    """删除范围解析器（群聊子范围）"""
+
     SCOPE_MAP = {
         "shared": "group_shared",
         "private": "group_private",
         "all": None,
     }
-    
+
     @classmethod
     def parse(cls, param: Optional[str]) -> tuple[Optional[str], Optional[str]]:
         """
         解析删除范围参数
-        
+
         Args:
             param: 用户输入的参数
-            
+
         Returns:
             tuple: (scope_filter, scope_desc)
                 - scope_filter: 用于数据库过滤的值
@@ -107,23 +116,148 @@ class DeleteScopeParser:
         """
         if not param:
             return None, "所有"
-        
+
         normalized = param.lower()
         scope_filter = cls.SCOPE_MAP.get(normalized)
-        
+
         scope_desc_map = {
             "shared": "共享",
             "private": "个人",
             "all": "所有",
         }
         scope_desc = scope_desc_map.get(normalized, "所有")
-        
+
         return scope_filter, scope_desc
-    
+
     @classmethod
     def is_valid(cls, param: str) -> bool:
         """检查参数是否有效"""
         return param.lower() in cls.SCOPE_MAP
+
+
+@dataclass(frozen=True)
+class UnifiedDeleteResult:
+    """统一删除指令解析结果"""
+    main_scope: DeleteMainScope        # 主范围
+    group_sub_scope: Optional[str]     # 群聊子范围 (shared/private/all)
+    scope_filter: Optional[str]        # 数据库过滤值
+    scope_desc: str                    # 中文描述
+    is_valid: bool                     # 是否有效
+    error_message: Optional[str]       # 错误消息
+
+
+class UnifiedDeleteScopeParser:
+    """统一删除范围解析器"""
+
+    MAIN_SCOPES = {"current", "private", "group", "all"}
+    GROUP_SUB_SCOPES = {"shared", "private", "all"}
+
+    @classmethod
+    def parse(
+        cls,
+        args: List[str],
+        has_confirm: bool = False
+    ) -> UnifiedDeleteResult:
+        """
+        解析统一删除指令参数
+
+        Args:
+            args: 参数列表
+            has_confirm: 是否已包含 confirm 参数
+
+        Returns:
+            UnifiedDeleteResult: 解析结果
+        """
+        if not args:
+            # 默认删除当前会话
+            return UnifiedDeleteResult(
+                main_scope=DeleteMainScope.CURRENT,
+                group_sub_scope=None,
+                scope_filter=None,
+                scope_desc="当前会话",
+                is_valid=True,
+                error_message=None
+            )
+
+        first_arg = args[0].lower()
+
+        # 检查主范围是否有效
+        if first_arg not in cls.MAIN_SCOPES:
+            return UnifiedDeleteResult(
+                main_scope=DeleteMainScope.CURRENT,
+                group_sub_scope=None,
+                scope_filter=None,
+                scope_desc="",
+                is_valid=False,
+                error_message="参数错误，可用范围: current, private, group [shared|private|all], all confirm"
+            )
+
+        # current: 当前会话
+        if first_arg == "current":
+            return UnifiedDeleteResult(
+                main_scope=DeleteMainScope.CURRENT,
+                group_sub_scope=None,
+                scope_filter=None,
+                scope_desc="当前会话",
+                is_valid=True,
+                error_message=None
+            )
+
+        # private: 私聊记忆
+        if first_arg == "private":
+            return UnifiedDeleteResult(
+                main_scope=DeleteMainScope.PRIVATE,
+                group_sub_scope=None,
+                scope_filter=None,
+                scope_desc="私聊",
+                is_valid=True,
+                error_message=None
+            )
+
+        # group: 群聊记忆
+        if first_arg == "group":
+            sub_scope = args[1].lower() if len(args) > 1 else "all"
+
+            if sub_scope not in cls.GROUP_SUB_SCOPES:
+                return UnifiedDeleteResult(
+                    main_scope=DeleteMainScope.GROUP,
+                    group_sub_scope=sub_scope,
+                    scope_filter=None,
+                    scope_desc="",
+                    is_valid=False,
+                    error_message="参数错误，请使用: shared, private 或 all"
+                )
+
+            scope_filter, scope_desc = DeleteScopeParser.parse(sub_scope)
+            return UnifiedDeleteResult(
+                main_scope=DeleteMainScope.GROUP,
+                group_sub_scope=sub_scope,
+                scope_filter=scope_filter,
+                scope_desc=scope_desc,
+                is_valid=True,
+                error_message=None
+            )
+
+        # all: 所有记忆（需要 confirm）
+        if first_arg == "all":
+            return UnifiedDeleteResult(
+                main_scope=DeleteMainScope.ALL,
+                group_sub_scope=None,
+                scope_filter=None,
+                scope_desc="所有",
+                is_valid=True,
+                error_message=None
+            )
+
+        # 不应该到达这里
+        return UnifiedDeleteResult(
+            main_scope=DeleteMainScope.CURRENT,
+            group_sub_scope=None,
+            scope_filter=None,
+            scope_desc="",
+            is_valid=False,
+            error_message="未知错误"
+        )
 
 
 class StatsFormatter:
@@ -225,11 +359,10 @@ class SessionKeyBuilder:
 
 class MessageFilter:
     """消息过滤器"""
-    
+
     KNOWN_COMMANDS: Set[str] = frozenset([
         "memory_save", "memory_search", "memory_clear", "memory_stats",
-        "memory_delete_private", "memory_delete_group", "memory_delete_all",
-        "proactive_reply"
+        "memory_delete", "proactive_reply"
     ])
     
     @classmethod

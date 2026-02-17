@@ -12,9 +12,7 @@ class CommandPrefix:
     MEMORY_SEARCH: Final[Set[str]] = frozenset(["/memory_search", "memory_search"])
     MEMORY_CLEAR: Final[Set[str]] = frozenset(["/memory_clear", "memory_clear"])
     MEMORY_STATS: Final[Set[str]] = frozenset(["/memory_stats", "memory_stats"])
-    MEMORY_DELETE_PRIVATE: Final[Set[str]] = frozenset(["/memory_delete_private", "memory_delete_private"])
-    MEMORY_DELETE_GROUP: Final[Set[str]] = frozenset(["/memory_delete_group", "memory_delete_group"])
-    MEMORY_DELETE_ALL: Final[Set[str]] = frozenset(["/memory_delete_all", "memory_delete_all"])
+    MEMORY_DELETE: Final[Set[str]] = frozenset(["/memory_delete", "memory_delete"])
     PROACTIVE_REPLY: Final[Set[str]] = frozenset(["/proactive_reply", "proactive_reply"])
 
 
@@ -22,9 +20,16 @@ class KnownCommands:
     """已知指令列表"""
     ALL_COMMANDS: Final[Set[str]] = frozenset([
         "memory_save", "memory_search", "memory_clear", "memory_stats",
-        "memory_delete_private", "memory_delete_group", "memory_delete_all",
-        "proactive_reply"
+        "memory_delete", "proactive_reply"
     ])
+
+
+class DeleteScopeParam(Enum):
+    """删除范围参数"""
+    CURRENT = "current"      # 当前会话（默认）
+    PRIVATE = "private"      # 私聊记忆
+    GROUP = "group"          # 群聊记忆
+    ALL = "all"              # 所有记忆
 
 
 class ConfigKeys:
@@ -95,8 +100,9 @@ class ErrorMessages:
     GROUP_ONLY: Final[str] = "此命令仅限群聊使用"
     ADMIN_REQUIRED: Final[str] = "权限不足，仅管理员可以执行此操作"
     GROUP_ADMIN_REQUIRED: Final[str] = "权限不足，仅管理员可以删除群聊记忆"
-    DELETE_CONFIRM_REQUIRED: Final[str] = "警告：此操作将删除所有记忆！\n请使用 '/memory_delete_all confirm' 确认操作"
+    DELETE_CONFIRM_REQUIRED: Final[str] = "警告：此操作将删除所有记忆！\n请使用 '/memory_delete all confirm' 确认操作"
     INVALID_SCOPE_PARAM: Final[str] = "参数错误，请使用: shared, private 或 all"
+    INVALID_DELETE_SCOPE: Final[str] = "参数错误，可用范围: current, private, group [shared|private|all], all confirm"
     CAPTURE_FAILED: Final[str] = "未能保存记忆，可能不满足捕获条件"
     NO_MEMORIES_FOUND: Final[str] = "未找到相关记忆"
     DELETE_FAILED: Final[str] = "未找到记忆或删除失败"
