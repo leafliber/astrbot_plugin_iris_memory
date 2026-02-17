@@ -150,7 +150,8 @@ class MessageBatchProcessor:
         )
     
     async def stop(self) -> None:
-        """停止处理器"""
+        """停止处理器（热更新友好）"""
+        logger.info("[Hot-Reload] Stopping MessageBatchProcessor...")
         self.is_running = False
         
         # 取消清理任务
@@ -172,10 +173,13 @@ class MessageBatchProcessor:
             self.auto_save_task = None
         
         # 处理剩余消息
-        await self._process_all_queues()
-        await self._trigger_save()
+        try:
+            await self._process_all_queues()
+            await self._trigger_save()
+        except Exception as e:
+            logger.warning(f"[Hot-Reload] Error processing remaining queues during stop: {e}")
         
-        logger.info("MessageBatchProcessor stopped")
+        logger.info("[Hot-Reload] MessageBatchProcessor stopped")
     
     # ========== 消息合并与去重 ==========
     

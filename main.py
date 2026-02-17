@@ -584,6 +584,11 @@ class IrisMemoryPlugin(Star):
         4. 行为指导 - 防止重复/过度反问
         5. 主动回复指令 - 仅在主动回复时附加
         """
+        # 初始化状态检查（热更新兼容）
+        if not self._service.is_initialized:
+            req.system_prompt += "\n\n[系统提示：记忆插件正在初始化，暂时无法提供服务]\n"
+            return
+        
         # 功能开关检查
         if not hasattr(self._service, 'cfg') or not self._service.cfg.enable_inject:
             return
@@ -664,6 +669,10 @@ class IrisMemoryPlugin(Star):
         1. 记录Bot的回复到聊天缓冲区
         2. 自动捕获新记忆（主动回复时跳过用户消息捕获）
         """
+        # 初始化状态检查（热更新兼容）
+        if not self._service.is_initialized:
+            return
+        
         # 功能开关检查
         if not hasattr(self._service, 'cfg') or not self._service.cfg.enable_memory:
             return
@@ -729,6 +738,10 @@ class IrisMemoryPlugin(Star):
         2. 分层处理：immediate/batch/discard
         3. 主动回复事件检测与 LLM 请求转发
         """
+        # 初始化状态检查（热更新兼容）
+        if not self._service.is_initialized:
+            return
+        
         user_id = event.get_sender_id()
         group_id = get_group_id(event)
         message = event.message_str
@@ -887,9 +900,12 @@ class IrisMemoryPlugin(Star):
     # ========== 生命周期方法 ==========
     
     async def terminate(self) -> None:
-        """插件销毁"""
+        """插件销毁（热更新友好）"""
         # 保存数据
-        await self._service.save_to_kv(self.put_kv_data)
+        try:
+            await self._service.save_to_kv(self.put_kv_data)
+        except Exception as e:
+            self._service.logger.warning(f"[Hot-Reload] Error saving KV data: {e}")
         
         # 销毁服务
         await self._service.terminate()

@@ -121,25 +121,31 @@ class SessionLifecycleManager:
         logger.info("SessionLifecycleManager started")
     
     async def stop(self):
-        """停止生命周期管理器"""
+        """停止生命周期管理器（热更新友好）"""
+        logger.info("[Hot-Reload] Stopping SessionLifecycleManager...")
         self.is_running = False
         
+        # 收集所有需要取消的任务
+        tasks_to_cancel = []
         if self.cleanup_task:
-            self.cleanup_task.cancel()
-            try:
-                await self.cleanup_task
-            except asyncio.CancelledError:
-                pass
-        
-        # 新增：停止记忆升级任务
+            tasks_to_cancel.append(("cleanup", self.cleanup_task))
         if self.promotion_task:
-            self.promotion_task.cancel()
+            tasks_to_cancel.append(("promotion", self.promotion_task))
+        
+        # 取消并等待所有任务
+        for name, task in tasks_to_cancel:
+            task.cancel()
             try:
-                await self.promotion_task
+                await task
             except asyncio.CancelledError:
                 pass
+            except Exception as e:
+                logger.warning(f"[Hot-Reload] Error cancelling {name} task: {e}")
         
-        logger.info("SessionLifecycleManager stopped")
+        self.cleanup_task = None
+        self.promotion_task = None
+        
+        logger.info("[Hot-Reload] SessionLifecycleManager stopped")
     
     async def _cleanup_loop(self):
         """清理循环"""

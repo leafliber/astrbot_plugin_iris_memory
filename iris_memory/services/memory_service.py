@@ -74,6 +74,10 @@ class MemoryService:
         self.cfg = init_config_manager(config)
         self.logger = get_logger("memory_service")
         
+        # 初始化状态跟踪（热更新兼容）
+        self._is_initialized: bool = False
+        self._init_lock: asyncio.Lock = asyncio.Lock()
+        
         # 核心组件
         self._chroma_manager: Optional[ChromaManager] = None
         self._capture_engine: Optional[MemoryCaptureEngine] = None
@@ -107,6 +111,11 @@ class MemoryService:
         self._max_recent_track: int = 20  # 每个会话跟踪最近20条注入记忆
     
     # ========== 属性访问器 ==========
+    
+    @property
+    def is_initialized(self) -> bool:
+        """检查服务是否已完成初始化（热更新兼容）"""
+        return self._is_initialized
     
     @property
     def chroma_manager(self) -> Optional[ChromaManager]:
@@ -177,25 +186,33 @@ class MemoryService:
     # ========== 初始化方法 ==========
     
     async def initialize(self) -> None:
-        """异步初始化所有组件"""
-        try:
-            self.plugin_data_path.mkdir(parents=True, exist_ok=True)
-            self.logger.info(LogTemplates.PLUGIN_INIT_START)
-            
-            await self._init_core_components()
-            await self._init_activity_adaptive()
-            await self._init_message_processing()
-            await self._init_persona_extractor()
-            await self._init_proactive_reply()
-            await self._init_image_analyzer()
-            await self._apply_config()
-            await self._init_batch_processor()
-            
-            self.logger.info(LogTemplates.PLUGIN_INIT_SUCCESS)
-            
-        except Exception as e:
-            self.logger.error(LogTemplates.PLUGIN_INIT_FAILED.format(error=e), exc_info=True)
-            raise
+        """异步初始化所有组件
+        
+        使用 asyncio.Lock 防止并发初始化（热更新场景下可能发生）。
+        初始化完成后设置 _is_initialized = True。
+        """
+        async with self._init_lock:
+            try:
+                self._is_initialized = False
+                self.plugin_data_path.mkdir(parents=True, exist_ok=True)
+                self.logger.info(LogTemplates.PLUGIN_INIT_START)
+                
+                await self._init_core_components()
+                await self._init_activity_adaptive()
+                await self._init_message_processing()
+                await self._init_persona_extractor()
+                await self._init_proactive_reply()
+                await self._init_image_analyzer()
+                await self._apply_config()
+                await self._init_batch_processor()
+                
+                self._is_initialized = True
+                self.logger.info(LogTemplates.PLUGIN_INIT_SUCCESS)
+                
+            except Exception as e:
+                self._is_initialized = False
+                self.logger.error(LogTemplates.PLUGIN_INIT_FAILED.format(error=e), exc_info=True)
+                raise
     
     async def _init_core_components(self) -> None:
         """初始化核心组件"""
@@ -1479,19 +1496,57 @@ class MemoryService:
     # ========== 销毁方法 ==========
     
     async def terminate(self) -> None:
-        """销毁服务"""
+        """销毁服务
+        
+        热更新友好：
+        1. 立即标记为未初始化，阻止新操作进入
+        2. 按依赖顺序停止后台任务（先停消费者，再停生产者）
+        3. 等待所有任务完成
+        4. 清理全局状态引用
+        5. 关闭底层存储
+        """
+        self.logger.info("[Hot-Reload] Terminating memory service...")
+        
+        # 1. 立即标记为未初始化，阻止新请求
+        self._is_initialized = False
+        
         try:
+            # 2. 停止后台任务（按依赖顺序：消费者 → 生产者）
+            # 批量处理器（消费消息队列）
             if self._batch_processor:
-                await self._batch_processor.stop()
+                try:
+                    await self._batch_processor.stop()
+                    self.logger.debug("[Hot-Reload] Batch processor stopped")
+                except Exception as e:
+                    self.logger.warning(f"[Hot-Reload] Error stopping batch processor: {e}")
             
+            # 主动回复管理器
             if self._proactive_manager:
-                await self._proactive_manager.stop()
+                try:
+                    await self._proactive_manager.stop()
+                    self.logger.debug("[Hot-Reload] Proactive manager stopped")
+                except Exception as e:
+                    self.logger.warning(f"[Hot-Reload] Error stopping proactive manager: {e}")
             
+            # 生命周期管理器（清理/升级定时任务）
             if self._lifecycle_manager:
-                await self._lifecycle_manager.stop()
+                try:
+                    await self._lifecycle_manager.stop()
+                    self.logger.debug("[Hot-Reload] Lifecycle manager stopped")
+                except Exception as e:
+                    self.logger.warning(f"[Hot-Reload] Error stopping lifecycle manager: {e}")
             
+            # 3. 清理全局状态引用
+            set_identity_service(None)
+            self.logger.debug("[Hot-Reload] Global identity service cleared")
+            
+            # 4. 关闭底层存储
             if self._chroma_manager:
-                await self._chroma_manager.close()
+                try:
+                    await self._chroma_manager.close()
+                    self.logger.debug("[Hot-Reload] Chroma manager closed")
+                except Exception as e:
+                    self.logger.warning(f"[Hot-Reload] Error closing Chroma manager: {e}")
             
             self._log_final_stats()
             
