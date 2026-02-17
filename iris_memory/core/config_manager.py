@@ -9,6 +9,9 @@
 import threading
 from typing import Any, Dict, Optional
 from iris_memory.core.defaults import DEFAULTS, get_default
+from iris_memory.core.activity_config import (
+    ActivityAwareConfigProvider, GroupActivityTracker
+)
 
 
 # 配置键映射：简化键 -> (默认配置区块, 默认配置键, 内置默认值)
@@ -22,10 +25,10 @@ CONFIG_KEY_MAPPING = {
     "memory.max_context_memories": ("llm_integration", "max_context_memories", 3),
     "memory.max_working_memory": ("memory", "max_working_memory", 10),
     "memory.upgrade_mode": ("memory", "upgrade_mode", "rule"),
-    "memory.chat_context_count": ("llm_integration", "chat_context_count", 10),
     
     # LLM设置
     "llm.use_llm": ("message_processing", "use_llm_for_processing", False),
+    "llm.provider_id": ("llm_integration", "provider_id", ""),
     
     # 主动回复
     "proactive_reply.enable": ("proactive_reply", "enable", False),
@@ -35,6 +38,10 @@ CONFIG_KEY_MAPPING = {
     "image_analysis.enable": ("image_analysis", "enable_image_analysis", True),
     "image_analysis.mode": ("image_analysis", "analysis_mode", "auto"),
     "image_analysis.daily_budget": ("image_analysis", "daily_analysis_budget", 100),
+    "image_analysis.provider_id": ("image_analysis", "provider_id", ""),
+    
+    # 场景自适应
+    "activity_adaptive.enable": ("activity_adaptive", "enable_activity_adaptive", True),
     
     # 画像提取
     "persona.extraction_mode": ("persona", "extraction_mode", "rule"),
@@ -45,6 +52,16 @@ CONFIG_KEY_MAPPING = {
     "persona.llm_max_tokens": ("persona", "llm_max_tokens", 300),
     "persona.llm_daily_limit": ("persona", "llm_daily_limit", 50),
     "persona.fallback_to_rule": ("persona", "fallback_to_rule", True),
+    
+    # 高级参数（群聊自适应覆盖）
+    # 这些配置在群聊启用自适应时会被自动覆盖
+    "advanced.chat_context_count": ("llm_integration", "chat_context_count", 10),
+    "advanced.cooldown_seconds": ("proactive_reply", "cooldown_seconds", 60),
+    "advanced.max_daily_replies": ("proactive_reply", "max_daily_replies", 20),
+    "advanced.reply_temperature": ("proactive_reply", "reply_temperature", 0.7),
+    "advanced.batch_threshold_count": ("message_processing", "batch_threshold_count", 20),
+    "advanced.batch_threshold_interval": ("message_processing", "batch_threshold_interval", 300),
+    "advanced.daily_analysis_budget": ("image_analysis", "daily_analysis_budget", 100),
 }
 
 
@@ -63,10 +80,74 @@ class ConfigManager:
         self._user_config = user_config
         self._cache: Dict[str, Any] = {}
         
+        # 场景自适应组件（延迟初始化）
+        self._activity_provider: Optional[ActivityAwareConfigProvider] = None
+        
     def set_user_config(self, config: Any):
         """设置用户配置"""
         self._user_config = config
         self._cache.clear()
+    
+    # ========== 场景自适应配置 ==========
+    
+    def init_activity_provider(
+        self,
+        tracker: GroupActivityTracker,
+        enabled: Optional[bool] = None,
+    ) -> ActivityAwareConfigProvider:
+        """初始化活跃度感知配置提供者
+        
+        Args:
+            tracker: 群活跃度追踪器实例
+            enabled: 是否启用（None 则读取配置）
+            
+        Returns:
+            ActivityAwareConfigProvider 实例
+        """
+        if enabled is None:
+            enabled = self.get("activity_adaptive.enable", True)
+        self._activity_provider = ActivityAwareConfigProvider(
+            tracker=tracker,
+            enabled=enabled,
+        )
+        return self._activity_provider
+    
+    @property
+    def activity_provider(self) -> Optional[ActivityAwareConfigProvider]:
+        """获取活跃度感知配置提供者"""
+        return self._activity_provider
+    
+    def get_group_config(self, group_id: Optional[str], key: str) -> Any:
+        """获取群级自适应配置值
+        
+        如果启用了活跃度自适应，返回根据群活跃度调整的值；
+        否则返回用户在「高级参数」中设置的值或全局默认值。
+        
+        Args:
+            group_id: 群 ID（None 则返回默认）
+            key: 配置键，如 "cooldown_seconds"
+            
+        Returns:
+            配置值
+        """
+        # 群聊 + 启用自适应 → 返回活跃度调整值
+        if self._activity_provider and self._activity_provider.enabled and group_id:
+            return self._activity_provider.get_config(group_id, key)
+        
+        # 私聊 or 禁用自适应 → 读取用户配置的 advanced.* 或默认值
+        advanced_key = f"advanced.{key}"
+        user_value = self._get_from_user_config(advanced_key)
+        if user_value is not None:
+            return user_value
+        
+        # 回退到内置默认值
+        if self._activity_provider:
+            return self._activity_provider._get_default(key)
+        return None
+    
+    @property
+    def enable_activity_adaptive(self) -> bool:
+        return self.get("activity_adaptive.enable", True)
         
     def get(self, key: str, default: Any = None) -> Any:
         """获取配置值
@@ -160,7 +241,7 @@ class ConfigManager:
     
     @property
     def chat_context_count(self) -> int:
-        return self.get("memory.chat_context_count", 10)
+        return self.get("advanced.chat_context_count", 10)
     
     @property
     def rif_threshold(self) -> float:
@@ -208,10 +289,18 @@ class ConfigManager:
     def image_analysis_require_context(self) -> bool:
         return DEFAULTS.image_analysis.require_context_relevance
     
+    @property
+    def image_analysis_provider_id(self) -> str:
+        return self.get("image_analysis.provider_id", "")
+    
     # LLM增强处理
     @property
     def use_llm(self) -> bool:
         return self.get("llm.use_llm", False)
+    
+    @property
+    def llm_provider_id(self) -> str:
+        return self.get("llm.provider_id", "")
     
     # 批量处理配置
     @property
@@ -300,6 +389,43 @@ class ConfigManager:
     @property
     def persona_fallback_to_rule(self) -> bool:
         return self.get("persona.fallback_to_rule", True)
+    
+    # ========== 批量处理动态配置 ==========
+    
+    def get_batch_threshold_count(self, group_id: Optional[str] = None) -> int:
+        """获取批量处理阈值（群级自适应）"""
+        val = self.get_group_config(group_id, "batch_threshold_count")
+        return val if val is not None else self.batch_threshold_count
+    
+    def get_batch_threshold_interval(self, group_id: Optional[str] = None) -> int:
+        """获取批量处理间隔（群级自适应）"""
+        val = self.get_group_config(group_id, "batch_threshold_interval")
+        return val if val is not None else DEFAULTS.message_processing.batch_threshold_interval
+    
+    def get_chat_context_count(self, group_id: Optional[str] = None) -> int:
+        """获取聊天上下文数量（群级自适应）"""
+        val = self.get_group_config(group_id, "chat_context_count")
+        return val if val is not None else self.chat_context_count
+    
+    def get_cooldown_seconds(self, group_id: Optional[str] = None) -> int:
+        """获取主动回复冷却时间（群级自适应）"""
+        val = self.get_group_config(group_id, "cooldown_seconds")
+        return val if val is not None else DEFAULTS.proactive_reply.cooldown_seconds
+    
+    def get_max_daily_replies(self, group_id: Optional[str] = None) -> int:
+        """获取每日最大回复次数（群级自适应）"""
+        val = self.get_group_config(group_id, "max_daily_replies")
+        return val if val is not None else DEFAULTS.proactive_reply.max_daily_replies
+    
+    def get_daily_analysis_budget(self, group_id: Optional[str] = None) -> int:
+        """获取每日分析预算（群级自适应）"""
+        val = self.get_group_config(group_id, "daily_analysis_budget")
+        return val if val is not None else DEFAULTS.image_analysis.daily_analysis_budget
+    
+    def get_reply_temperature(self, group_id: Optional[str] = None) -> float:
+        """获取回复温度（群级自适应）"""
+        val = self.get_group_config(group_id, "reply_temperature")
+        return val if val is not None else DEFAULTS.proactive_reply.reply_temperature
 
 
 # 全局配置管理器实例

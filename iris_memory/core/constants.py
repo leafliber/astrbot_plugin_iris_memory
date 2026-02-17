@@ -20,7 +20,7 @@ class KnownCommands:
     """已知指令列表"""
     ALL_COMMANDS: Final[Set[str]] = frozenset([
         "memory_save", "memory_search", "memory_clear", "memory_stats",
-        "memory_delete", "proactive_reply"
+        "memory_delete", "proactive_reply", "activity_status"
     ])
 
 
@@ -91,6 +91,7 @@ class KVStoreKeys:
     PROACTIVE_REPLY_WHITELIST: Final[str] = "proactive_reply_whitelist"
     MEMBER_IDENTITY: Final[str] = "member_identity"
     USER_PERSONAS: Final[str] = "user_personas"
+    GROUP_ACTIVITY: Final[str] = "group_activity"
 
 
 class ErrorMessages:

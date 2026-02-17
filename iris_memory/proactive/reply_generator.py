@@ -38,6 +38,7 @@ class ProactiveReplyGenerator:
         
         self.llm_api = None
         self.default_provider_id = None  # 默认提供商ID，用于 llm_generate 调用
+        self.config_manager = self.config.get("config_manager")
         self.max_tokens = self.config.get("max_reply_tokens", 150)
         self.temperature = self.config.get("reply_temperature", 0.7)
         
@@ -112,9 +113,17 @@ class ProactiveReplyGenerator:
                 tone=emotion_tone,
                 reply_context=reply_context
             )
+
+            # 获取有效温度（优先群级动态配置）
+            temperature = self.temperature
+            if self.config_manager and hasattr(self.config_manager, "get_reply_temperature"):
+                try:
+                    temperature = float(self.config_manager.get_reply_temperature(group_id))
+                except Exception:
+                    temperature = self.temperature
             
             # 调用LLM生成回复
-            response = await self._call_llm(provider, prompt)
+            response = await self._call_llm(provider, prompt, temperature=temperature)
             
             if not response:
                 return None
@@ -208,7 +217,12 @@ class ProactiveReplyGenerator:
         
         return prompt
     
-    async def _call_llm(self, provider, prompt: str) -> Optional[str]:
+    async def _call_llm(
+        self,
+        provider,
+        prompt: str,
+        temperature: Optional[float] = None,
+    ) -> Optional[str]:
         """调用LLM
         
         首选 astrbot_context.llm_generate()，会自动注入人格提示，
@@ -217,23 +231,39 @@ class ProactiveReplyGenerator:
         """
         if not provider:
             return None
+
+        effective_temperature = self.temperature if temperature is None else temperature
         
         try:
             # 首选：使用 llm_generate（自动处理人格注入）
             if self.astrbot_context and hasattr(self.astrbot_context, 'llm_generate') and self.default_provider_id:
-                llm_resp = await self.astrbot_context.llm_generate(
-                    chat_provider_id=self.default_provider_id,
-                    prompt=prompt
-                )
+                try:
+                    llm_resp = await self.astrbot_context.llm_generate(
+                        chat_provider_id=self.default_provider_id,
+                        prompt=prompt,
+                        temperature=effective_temperature,
+                    )
+                except TypeError:
+                    llm_resp = await self.astrbot_context.llm_generate(
+                        chat_provider_id=self.default_provider_id,
+                        prompt=prompt,
+                    )
                 if llm_resp and hasattr(llm_resp, 'completion_text'):
                     return (llm_resp.completion_text or "").strip()
             
             # 回退：使用 provider.text_chat()（不含人格注入）
             logger.debug("Falling back to provider.text_chat() for reply generation")
-            response = await provider.text_chat(
-                prompt=prompt,
-                context=[]
-            )
+            try:
+                response = await provider.text_chat(
+                    prompt=prompt,
+                    context=[],
+                    temperature=effective_temperature,
+                )
+            except TypeError:
+                response = await provider.text_chat(
+                    prompt=prompt,
+                    context=[]
+                )
             
             # 处理 LLMResponse 对象
             if hasattr(response, 'completion_text'):

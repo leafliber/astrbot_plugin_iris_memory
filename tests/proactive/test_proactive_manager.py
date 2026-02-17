@@ -132,7 +132,7 @@ class TestHandleBatch:
 
     @pytest.mark.asyncio
     async def test_daily_limit_enforced(self, manager):
-        manager.max_daily_replies = 1
+        manager._default_max_daily = 1
         manager.daily_reply_count["u1"] = 1
         await manager.handle_batch(messages=["为什么"], user_id="u1")
         assert manager.pending_tasks.qsize() == 0

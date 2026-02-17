@@ -6,7 +6,93 @@
 """
 
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Dict, Any, Optional
+
+
+# ========== 群活跃度枚举 ==========
+
+class GroupActivityLevel(str, Enum):
+    """群活跃度等级"""
+    QUIET = "quiet"          # < 5条/小时
+    MODERATE = "moderate"    # 5-20条/小时
+    ACTIVE = "active"        # 20-50条/小时
+    INTENSIVE = "intensive"  # > 50条/小时
+
+
+# ========== 活跃度分级配置预设 ==========
+
+@dataclass
+class ActivityBasedPresets:
+    """活跃度分级配置预设
+
+    每个字段为 {GroupActivityLevel.value: int/float} 的映射。
+    "温和型"陪伴风格：安静群更克制，活跃群更参与但不过度。
+    """
+    cooldown_seconds: Dict[str, int] = field(default_factory=lambda: {
+        "quiet": 120,
+        "moderate": 60,
+        "active": 45,
+        "intensive": 30,
+    })
+    max_daily_replies: Dict[str, int] = field(default_factory=lambda: {
+        "quiet": 8,
+        "moderate": 15,
+        "active": 22,
+        "intensive": 25,
+    })
+    batch_threshold_count: Dict[str, int] = field(default_factory=lambda: {
+        "quiet": 10,
+        "moderate": 15,
+        "active": 30,
+        "intensive": 50,
+    })
+    batch_threshold_interval: Dict[str, int] = field(default_factory=lambda: {
+        "quiet": 600,
+        "moderate": 300,
+        "active": 180,
+        "intensive": 120,
+    })
+    daily_analysis_budget: Dict[str, int] = field(default_factory=lambda: {
+        "quiet": 30,
+        "moderate": 60,
+        "active": 100,
+        "intensive": 150,
+    })
+    chat_context_count: Dict[str, int] = field(default_factory=lambda: {
+        "quiet": 10,
+        "moderate": 15,
+        "active": 20,
+        "intensive": 25,
+    })
+    reply_temperature: Dict[str, float] = field(default_factory=lambda: {
+        "quiet": 0.6,
+        "moderate": 0.7,
+        "active": 0.75,
+        "intensive": 0.8,
+    })
+
+    def get(self, key: str, level: GroupActivityLevel) -> Any:
+        """按 key 和等级获取预设值"""
+        mapping = getattr(self, key, None)
+        if mapping is None:
+            return None
+        return mapping.get(level.value)
+
+
+# 全局活跃度预设实例
+ACTIVITY_PRESETS = ActivityBasedPresets()
+
+# 活跃度阈值定义（条/小时）
+ACTIVITY_THRESHOLDS: Dict[str, int] = {
+    "quiet_upper": 5,
+    "moderate_upper": 20,
+    "active_upper": 50,
+}
+
+# 滑动窗口和防抖配置
+ACTIVITY_WINDOW_HOURS: int = 3          # 滑动窗口小时数
+ACTIVITY_HYSTERESIS_RATIO: float = 0.2  # 升降级需比阈值多/少 20%
 
 
 @dataclass
@@ -74,7 +160,8 @@ class LLMIntegrationDefaults:
     # 基础配置（用户可调）
     max_context_memories: int = 3
     token_budget: int = 512
-    chat_context_count: int = 10  # 注入最近N条聊天记录到LLM上下文
+    chat_context_count: int = 15  # 注入最近N条聊天记录到LLM上下文
+    provider_id: str = ""  # LLM 提供者 ID，空字符串表示使用默认
     
     # 高级配置
     injection_mode: str = "suffix"
@@ -132,12 +219,24 @@ class ProactiveReplyDefaults:
 
 
 @dataclass
+class ActivityAdaptiveDefaults:
+    """场景自适应配置默认值"""
+    # 是否启用活跃度自适应配置
+    enable_activity_adaptive: bool = True
+    # 活跃度计算间隔（秒），每隔该时间重新计算一次
+    activity_calc_interval: int = 3600
+    # 配置缓存 TTL（秒），减少重复计算
+    config_cache_ttl: int = 300
+
+
+@dataclass
 class ImageAnalysisDefaults:
     """图片分析默认配置"""
     # 基础配置（用户可调）
     enable_image_analysis: bool = True
     analysis_mode: str = "auto"  # auto/brief/detailed/skip
     max_images_per_message: int = 2
+    provider_id: str = ""  # 图片分析 LLM 提供者 ID，空字符串表示使用默认
     
     # 高级配置
     skip_sticker: bool = True
@@ -207,6 +306,7 @@ class AllDefaults:
     image_analysis: ImageAnalysisDefaults = field(default_factory=ImageAnalysisDefaults)
     log: LogDefaults = field(default_factory=LogDefaults)
     persona: PersonaDefaults = field(default_factory=PersonaDefaults)
+    activity_adaptive: ActivityAdaptiveDefaults = field(default_factory=ActivityAdaptiveDefaults)
 
 
 # 全局默认配置实例
@@ -241,7 +341,7 @@ def get_defaults_dict() -> Dict[str, Dict[str, Any]]:
     for section_name in ['memory', 'session', 'cache', 'embedding', 
                          'llm_integration', 'message_processing', 
                          'proactive_reply', 'image_analysis', 'log',
-                         'persona']:
+                         'persona', 'activity_adaptive']:
         section_obj = getattr(DEFAULTS, section_name, None)
         if section_obj:
             result[section_name] = asdict(section_obj)

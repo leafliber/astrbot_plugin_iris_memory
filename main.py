@@ -418,6 +418,76 @@ class IrisMemoryPlugin(Star):
                 "- list: 查看所有已开启的群聊"
             )
     
+    @filter.command("activity_status")
+    async def activity_status(self, event: AstrMessageEvent) -> AsyncGenerator[Any, None]:
+        """
+        查看群活跃度状态指令
+        
+        用法：
+        /activity_status          - 查看当前群的活跃度状态
+        /activity_status all      - 查看所有群的活跃度概览（管理员）
+        """
+        group_id = get_group_id(event)
+        parsed = CommandParser.parse_with_slash(event.message_str, "activity_status")
+        sub_cmd = parsed.first_arg.lower() if parsed.first_arg else ""
+        
+        # 检查自适应系统是否可用
+        provider = self._service.activity_provider
+        if not provider or not provider.enabled:
+            yield event.plain_result("场景自适应系统未启用")
+            return
+        
+        level_labels = {
+            "quiet": "🌙 安静",
+            "moderate": "☀️ 中等",
+            "active": "🔥 活跃",
+            "intensive": "⚡ 超活跃",
+        }
+        
+        if sub_cmd == "all":
+            # 管理员查看所有群
+            if not self._is_admin(event):
+                yield event.plain_result(ErrorMessages.ADMIN_REQUIRED)
+                return
+            
+            summaries = provider.get_all_activity_summaries()
+            if not summaries:
+                yield event.plain_result("暂无群活跃度数据")
+                return
+            
+            lines = ["📊 群活跃度概览：\n"]
+            for s in summaries:
+                label = level_labels.get(s["activity_level"], s["activity_level"])
+                lines.append(
+                    f"  群 {s['group_id']}: {label} "
+                    f"({s['messages_per_hour']:.0f} 条/时)"
+                )
+            yield event.plain_result("\n".join(lines))
+        else:
+            # 查看当前群
+            if not group_id:
+                yield event.plain_result("此指令仅限群聊使用")
+                return
+            
+            summary = provider.get_group_activity_summary(group_id)
+            level = summary["activity_level"]
+            label = level_labels.get(level, level)
+            mph = summary["messages_per_hour"]
+            cfg = summary["config"]
+            
+            result_lines = [
+                f"📊 当前群活跃度：{label}",
+                f"消息频率：约 {mph:.0f} 条/小时\n",
+                "当前自适应配置：",
+                f"  • 主动回复冷却：{cfg.get('cooldown_seconds', '?')}秒",
+                f"  • 每日回复上限：{cfg.get('max_daily_replies', '?')}次",
+                f"  • 批处理阈值：{cfg.get('batch_threshold_count', '?')}条",
+                f"  • 处理间隔：{cfg.get('batch_threshold_interval', '?')}秒",
+                f"  • 图片分析预算：{cfg.get('daily_analysis_budget', '?')}次/日",
+                f"  • 上下文条数：{cfg.get('chat_context_count', '?')}条",
+            ]
+            yield event.plain_result("\n".join(result_lines))
+    
     # ========== 消息装饰钩子 ==========
     
     @filter.on_decorating_result()
@@ -544,6 +614,7 @@ class IrisMemoryPlugin(Star):
                 llm_ctx, _ = await self._service.analyze_images(
                     message_chain=event.message_obj.message,
                     user_id=user_id,
+                    group_id=group_id,
                     context_text=query,
                     umo=event.unified_msg_origin,
                     session_id=SessionKeyBuilder.build(user_id, group_id)
@@ -704,6 +775,7 @@ class IrisMemoryPlugin(Star):
                 _, mem_format = await self._service.analyze_images(
                     message_chain=event.message_obj.message,
                     user_id=user_id,
+                    group_id=group_id,
                     context_text=message,
                     umo=event.unified_msg_origin,
                     session_id=SessionKeyBuilder.build(user_id, group_id)
