@@ -49,11 +49,10 @@ class ChromaManager:
         """初始化Chroma管理器
         
         Args:
-            config: 插件配置对象（保留用于接口兼容性）
+            config: 插件配置对象
             data_path: 插件数据目录路径
             plugin_context: AstrBot 插件上下文（用于嵌入API）
         """
-        self.config = config
         self.data_path = data_path
         self.client = None
         self.collection = None

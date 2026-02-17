@@ -123,8 +123,8 @@ class MemoryCaptureEngine:
         8. 质量评估 - 多维度置信度计算
         9. RIF评分 - 时近性、相关性、频率综合评分
         10. 存储层确定 - 工作/情景/语义记忆分层
-        11. 去重检查 - 避免重复记录（性能优化版）
-        12. 冲突检测 - 识别语义冲突（增强版）
+        11. 去重检查 - 避免重复记录
+        12. 冲突检测 - 识别语义冲突
 
         复杂度说明：
         - 时间复杂度：O(N * M)，N为候选记忆数，M为平均记忆长度
@@ -801,7 +801,7 @@ class MemoryCaptureEngine:
         existing_memories: List[Memory],
         similarity_threshold: float = 0.9
     ) -> Optional[Memory]:
-        """检查重复记忆（性能优化版）
+        """检查重复记忆
 
         使用多阶段检测策略优化性能：
         1. 快速预筛选：检查相同用户、相同类型、时间相近的记忆
@@ -1006,7 +1006,7 @@ class MemoryCaptureEngine:
         memory: Memory,
         existing_memories: List[Memory]
     ) -> List[Memory]:
-        """检查记忆冲突（性能优化版）
+        """检查记忆冲突
 
         优化策略：
         1. 快速预筛选：只检查相同类型、相同主题、时间相近的记忆
@@ -1067,7 +1067,7 @@ class MemoryCaptureEngine:
         return conflicts
     
     def _is_opposite(self, text1: str, text2: str) -> bool:
-        """判断两个文本是否相反（语义冲突检测）- 增强版
+        """判断两个文本是否相反（语义冲突检测）
 
         基于 companion-memory framework 第12节的冲突检测要求，实现多策略语义冲突检测：
 

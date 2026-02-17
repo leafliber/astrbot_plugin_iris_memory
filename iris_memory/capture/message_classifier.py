@@ -1,5 +1,5 @@
 """
-消息分类器 - 支持本地规则和LLM分类（优化版）
+消息分类器 - 支持本地规则和LLM分类
 
 优化措施：
 1. 收紧混合模式阈值（0.6-0.8），减少LLM调用频率
@@ -42,7 +42,7 @@ class ClassificationResult:
 
 
 class MessageClassifier:
-    """消息分类器 - 混合模式（性能优化版）
+    """消息分类器 - 混合模式
     
     优化策略：
     - 阈值收紧：只有置信度在0.6-0.8之间的边缘情况才调用LLM
@@ -399,7 +399,7 @@ class MessageClassifier:
         context: Dict[str, Any]
     ) -> ClassificationResult:
         """
-        混合分类策略（优化版）
+        混合分类策略
         
         优化点：
         1. 收紧阈值范围（默认0.6-0.8），减少边缘情况

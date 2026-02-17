@@ -331,10 +331,6 @@ class LLMMessageProcessor:
     ) -> Optional[str]:
         """单次调用LLM API（不带重试）
         
-        使用 AstrBot v4.5.7+ 新API:
-        - self.context.llm_generate() 直接调用
-        - Provider.text_chat() 旧方式作为回退
-        
         Args:
             prompt: 提示词
             max_tokens: 最大返回token数

@@ -30,8 +30,8 @@ class MessageSender:
         """检测可用的发送方法
         
         优先检测顺序（基于 AstrBot 实际 API）：
-        1. provider 对象（AstrBot 标准接口，v4.14.4+ 推荐）
-        2. platform 对象（向下兼容）
+        1. provider 对象（AstrBot 标准接口）
+        2. platform 对象
         3. context.send_message（备用方案）
         4. message_service（特殊情况）
         5. event 对象（最后备用）
@@ -42,20 +42,20 @@ class MessageSender:
         
         ctx = self.astrbot_context
         
-        # 方法1: 通过 provider 对象（AstrBot v4.14.4+ 标准接口）
+        # 方法1: 通过 provider 对象（AstrBot 标准接口）
         if hasattr(ctx, 'provider') and ctx.provider:
             provider = ctx.provider
             if hasattr(provider, 'send_private_msg') and hasattr(provider, 'send_group_msg'):
                 self.send_method = "provider_send"
-                logger.info(f"Message sender method: provider_send (AstrBot v4.14+ standard)")
+                logger.info(f"Message sender method: provider_send")
                 return
         
-        # 方法2: 通过 platform 对象（向下兼容）
+        # 方法2: 通过 platform 对象
         if hasattr(ctx, 'platform') and ctx.platform:
             platform = ctx.platform
             if hasattr(platform, 'send_private_msg') and hasattr(platform, 'send_group_msg'):
                 self.send_method = "platform_send"
-                logger.info(f"Message sender method: platform_send (legacy compatibility)")
+                logger.info(f"Message sender method: platform_send")
                 return
         
         # 方法3: 通过 send_message 方法（备用）
