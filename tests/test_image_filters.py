@@ -56,6 +56,16 @@ class TestBudgetCheck:
         
         assert analyzer._check_budget("user1", "new_session") is False
 
+    def test_daily_budget_override_is_used(self, analyzer):
+        """调用时传入的每日预算应覆盖默认预算"""
+        for i in range(3):
+            analyzer._increment_budget('user1', f'session{i}')
+
+        # 默认预算=5，当前用量=3，默认应可用
+        assert analyzer._check_budget("user1", "new_session") is True
+        # 覆盖预算=3，则应判定耗尽
+        assert analyzer._check_budget("user1", "new_session", daily_analysis_budget=3) is False
+
 
 class TestSimilarImageDetection:
     """测试相似图片检测功能"""

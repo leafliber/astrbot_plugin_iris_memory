@@ -103,16 +103,19 @@ class ImageAnalyzer:
     def __init__(
         self,
         astrbot_context,
-        config: Optional[Dict[str, Any]] = None
+        config: Optional[Dict[str, Any]] = None,
+        provider_id: Optional[str] = None
     ):
         """初始化图片分析器
         
         Args:
             astrbot_context: AstrBot 上下文对象
             config: 配置选项
+            provider_id: 指定的 LLM 提供者 ID（用于 Vision 模型）
         """
         self.context = astrbot_context
         self.config = config or {}
+        self._configured_provider_id = provider_id  # 配置指定的 provider_id
         
         # 配置参数
         self.enable_analysis = self.config.get("enable_image_analysis", True)
@@ -168,7 +171,8 @@ class ImageAnalyzer:
         user_id: str,
         context_text: str = "",
         umo: str = "",
-        session_id: str = ""
+        session_id: str = "",
+        daily_analysis_budget: Optional[int] = None,
     ) -> List[ImageAnalysisResult]:
         """分析消息中的所有图片
         
@@ -178,6 +182,7 @@ class ImageAnalyzer:
             context_text: 伴随的文字内容
             umo: unified_msg_origin，用于获取 LLM provider
             session_id: 会话ID，用于会话预算追踪
+            daily_analysis_budget: 本次调用的每日预算覆盖值（None时使用默认配置）
             
         Returns:
             List[ImageAnalysisResult]: 分析结果列表
@@ -222,7 +227,11 @@ class ImageAnalyzer:
                 continue
             
             # 新增：检查分析预算
-            if not self._check_budget(user_id, session_id):
+            if not self._check_budget(
+                user_id,
+                session_id,
+                daily_analysis_budget=daily_analysis_budget,
+            ):
                 logger.debug(f"Analysis budget exceeded for user {user_id}")
                 self._stats["budget_exceeded"] += 1
                 results.append(ImageAnalysisResult(
@@ -496,7 +505,12 @@ class ImageAnalyzer:
     
     # ==================== 新增：预算控制方法 ====================
     
-    def _check_budget(self, user_id: str, session_id: str = "") -> bool:
+    def _check_budget(
+        self,
+        user_id: str,
+        session_id: str = "",
+        daily_analysis_budget: Optional[int] = None,
+    ) -> bool:
         """检查是否超出分析预算
         
         同时检查每日预算和会话预算
@@ -504,6 +518,7 @@ class ImageAnalyzer:
         Args:
             user_id: 用户ID
             session_id: 会话ID
+            daily_analysis_budget: 每日预算覆盖值（None时使用默认配置）
             
         Returns:
             bool: True表示预算内可以分析，False表示预算已耗尽
@@ -511,8 +526,13 @@ class ImageAnalyzer:
         # 检查每日预算
         today = datetime.now().strftime("%Y-%m-%d")
         daily_count = self._daily_analysis_count.get(today, 0)
-        if daily_count >= self.daily_analysis_budget:
-            logger.debug(f"Daily analysis budget exhausted: {daily_count}/{self.daily_analysis_budget}")
+        budget_limit = (
+            daily_analysis_budget
+            if daily_analysis_budget is not None
+            else self.daily_analysis_budget
+        )
+        if daily_count >= budget_limit:
+            logger.debug(f"Daily analysis budget exhausted: {daily_count}/{budget_limit}")
             return False
         
         # 检查会话预算（如果提供了session_id）
@@ -686,8 +706,8 @@ class ImageAnalyzer:
                     error="No image URL"
                 )
             
-            # 获取 LLM Provider
-            provider = self.context.get_using_provider(umo=umo)
+            # 获取 LLM Provider（支持配置指定的 provider_id）
+            provider = await self._resolve_provider(umo)
             if not provider:
                 logger.warning("No LLM provider available for image analysis")
                 return ImageAnalysisResult(
@@ -751,6 +771,40 @@ class ImageAnalyzer:
                 token_cost=0,
                 error=str(e)
             )
+    
+    async def _resolve_provider(self, umo: str = ""):
+        """解析 LLM 提供者
+        
+        支持通过配置指定 provider_id，优先级：
+        1. 初始化时传入的 provider_id 参数
+        2. 未指定或为空则使用 AstrBot 默认 provider
+        
+        Args:
+            umo: unified_msg_origin（用于获取会话默认 provider）
+            
+        Returns:
+            Provider 对象或 None
+        """
+        if not self.context:
+            return None
+        
+        provider_id = self._configured_provider_id
+        
+        # 指定了具体 provider_id → 尝试匹配
+        if provider_id and provider_id not in ("", "default"):
+            try:
+                providers = self.context.get_all_providers()
+                for p in providers:
+                    p_id = getattr(p, 'id', None) or getattr(p, 'provider_id', None)
+                    if p_id == provider_id:
+                        logger.debug(f"Using configured provider for image analysis: {provider_id}")
+                        return p
+                logger.warning(f"Provider not found: {provider_id}, falling back to default")
+            except Exception as e:
+                logger.warning(f"Failed to get provider list: {e}")
+        
+        # 使用默认 provider
+        return self.context.get_using_provider(umo=umo)
     
     def _clean_description(self, description: str) -> str:
         """清理LLM返回的描述

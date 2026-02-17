@@ -50,9 +50,11 @@ class LLMMessageProcessor:
         astrbot_context=None,
         classification_prompt: Optional[str] = None,
         summary_prompt: Optional[str] = None,
-        max_tokens: int = 200
+        max_tokens: int = 200,
+        provider_id: Optional[str] = None
     ):
         self.astrbot_context = astrbot_context
+        self._configured_provider_id = provider_id  # 配置指定的 provider_id
         self.classification_prompt = classification_prompt or (
             "分析以下用户消息，判断其记忆价值。\n"
             "考虑因素：是否包含用户偏好、情感、重要事实、个人信息等。\n"
@@ -108,8 +110,9 @@ class LLMMessageProcessor:
     async def _try_init_provider(self) -> bool:
         """尝试初始化 provider（按需调用）
         
-        使用 get_using_provider() 获取默认聊天模型，而不是 get_all_providers()[0]
-        确保使用用户配置的默认模型，而非配置列表中的第一个
+        支持通过配置指定 provider_id，优先级：
+        1. 初始化时传入的 provider_id 参数
+        2. 未指定或为空则使用 AstrBot 默认 provider
         
         Returns:
             bool: 是否成功获取 provider
@@ -125,9 +128,9 @@ class LLMMessageProcessor:
         self._init_retry_count += 1
         
         try:
-            # 优先使用 get_using_provider() 获取默认模型
-            # 这是用户配置的默认聊天模型
-            provider = self.astrbot_context.get_using_provider()
+            # 解析 provider
+            provider = await self._resolve_provider()
+            
             if provider:
                 self.llm_api = provider
                 self.default_provider_id = getattr(
@@ -150,6 +153,33 @@ class LLMMessageProcessor:
                 f"(attempt {self._init_retry_count}/{self._max_init_retries}): {e}"
             )
             return False
+    
+    async def _resolve_provider(self):
+        """解析 LLM 提供者
+        
+        Returns:
+            Provider 对象或 None
+        """
+        if not self.astrbot_context:
+            return None
+        
+        provider_id = self._configured_provider_id
+        
+        # 指定了具体 provider_id → 尝试匹配
+        if provider_id and provider_id not in ("", "default"):
+            try:
+                providers = self.astrbot_context.get_all_providers()
+                for p in providers:
+                    p_id = getattr(p, 'id', None) or getattr(p, 'provider_id', None)
+                    if p_id == provider_id:
+                        logger.debug(f"Using configured provider: {provider_id}")
+                        return p
+                logger.warning(f"Provider not found: {provider_id}, falling back to default")
+            except Exception as e:
+                logger.warning(f"Failed to get provider list: {e}")
+        
+        # 使用默认 provider
+        return self.astrbot_context.get_using_provider()
     
     async def classify_message(
         self,

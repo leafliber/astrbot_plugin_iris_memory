@@ -40,6 +40,7 @@ from iris_memory.utils.command_utils import SessionKeyBuilder
 from iris_memory.utils.member_utils import format_member_tag, set_identity_service
 from iris_memory.utils.member_identity_service import MemberIdentityService
 from iris_memory.utils.persona_logger import persona_log
+from iris_memory.core.activity_config import GroupActivityTracker, ActivityAwareConfigProvider
 
 # 可选组件（可能未启用）
 from iris_memory.capture.message_classifier import MessageClassifier, ProcessingLayer
@@ -93,6 +94,8 @@ class MemoryService:
         self._image_analyzer: Optional[ImageAnalyzer] = None
         self._member_identity: Optional[MemberIdentityService] = None
         self._persona_extractor: Optional[PersonaExtractor] = None
+        self._activity_tracker: Optional[GroupActivityTracker] = None
+        self._activity_provider: Optional[ActivityAwareConfigProvider] = None
         
         # 用户状态缓存
         self._user_emotional_states: Dict[str, EmotionalState] = {}
@@ -153,6 +156,14 @@ class MemoryService:
     def member_identity(self) -> Optional[MemberIdentityService]:
         return self._member_identity
     
+    @property
+    def activity_tracker(self) -> Optional[GroupActivityTracker]:
+        return self._activity_tracker
+    
+    @property
+    def activity_provider(self) -> Optional[ActivityAwareConfigProvider]:
+        return self._activity_provider
+    
     # ========== 初始化方法 ==========
     
     async def initialize(self) -> None:
@@ -162,6 +173,7 @@ class MemoryService:
             self.logger.info(LogTemplates.PLUGIN_INIT_START)
             
             await self._init_core_components()
+            await self._init_activity_adaptive()
             await self._init_message_processing()
             await self._init_persona_extractor()
             await self._init_proactive_reply()
@@ -189,7 +201,7 @@ class MemoryService:
         )
         await self._chroma_manager.initialize()
         
-        # 会话管理器
+        # 会话管理器（activity_tracker 延迟设置，在 _init_activity_adaptive 中完成）
         self._session_manager = SessionManager(
             max_working_memory=self.cfg.max_working_memory,
             max_sessions=DEFAULTS.session.max_sessions,
@@ -234,6 +246,27 @@ class MemoryService:
         set_identity_service(self._member_identity)
         self.logger.info("MemberIdentityService initialized")
     
+    async def _init_activity_adaptive(self) -> None:
+        """初始化场景自适应组件（活跃度追踪器 + 配置提供者）"""
+        self.logger.info(LogTemplates.COMPONENT_INIT.format(component="activity adaptive"))
+        
+        # 创建活跃度追踪器
+        self._activity_tracker = GroupActivityTracker()
+        
+        # 将追踪器注入 SessionManager
+        if self._session_manager:
+            self._session_manager._activity_tracker = self._activity_tracker
+        
+        # 通过 ConfigManager 初始化配置提供者
+        enabled = self.cfg.enable_activity_adaptive
+        self._activity_provider = self.cfg.init_activity_provider(
+            tracker=self._activity_tracker,
+            enabled=enabled,
+        )
+        
+        status = "enabled" if enabled else "disabled"
+        self.logger.info(f"Activity adaptive system {status}")
+    
     async def _init_message_processing(self) -> None:
         """初始化分层消息处理组件"""
         self.logger.info(LogTemplates.COMPONENT_INIT.format(component="message processing"))
@@ -249,7 +282,8 @@ class MemoryService:
         if use_llm:
             self._llm_processor = LLMMessageProcessor(
                 astrbot_context=self.context,
-                max_tokens=DEFAULTS.message_processing.llm_max_tokens_for_summary
+                max_tokens=DEFAULTS.message_processing.llm_max_tokens_for_summary,
+                provider_id=self.cfg.llm_provider_id
             )
             llm_ready = await self._llm_processor.initialize()
             if llm_ready and self._lifecycle_manager:
@@ -332,7 +366,8 @@ class MemoryService:
                 "reply_cooldown": DEFAULTS.proactive_reply.cooldown_seconds,
                 "max_daily_replies": self.cfg.proactive_reply_max_daily,
                 "group_whitelist_mode": self.cfg.proactive_reply_group_whitelist_mode
-            }
+            },
+            config_manager=self.cfg
         )
         await self._proactive_manager.initialize()
         
@@ -364,7 +399,8 @@ class MemoryService:
                 "similar_image_window": DEFAULTS.image_analysis.similar_image_window,
                 "recent_image_limit": DEFAULTS.image_analysis.recent_image_limit,
                 "require_context_relevance": self.cfg.image_analysis_require_context
-            }
+            },
+            provider_id=self.cfg.image_analysis_provider_id
         )
         
         self.logger.info(f"Image analyzer initialized: mode={self.cfg.image_analysis_mode}")
@@ -393,7 +429,8 @@ class MemoryService:
             processing_mode=DEFAULTS.message_processing.batch_processing_mode,
             use_llm_summary=use_llm and self._llm_processor is not None,
             on_save_callback=self._save_batch_queues,
-            config=batch_config
+            config=batch_config,
+            config_manager=self.cfg
         )
         await self._batch_processor.start()
         
@@ -1054,6 +1091,7 @@ class MemoryService:
         self,
         message_chain: List[Any],
         user_id: str,
+        group_id: Optional[str],
         context_text: str,
         umo: str,
         session_id: str
@@ -1064,6 +1102,7 @@ class MemoryService:
         Args:
             message_chain: 消息链
             user_id: 用户ID
+            group_id: 群聊ID（用于动态预算）
             context_text: 上下文文本
             umo: 统一消息来源
             session_id: 会话ID
@@ -1075,12 +1114,16 @@ class MemoryService:
             return "", ""
         
         try:
+            daily_budget = self.cfg.get_daily_analysis_budget(group_id)
+            effective_daily_budget = daily_budget if daily_budget > 0 else 999999
+
             image_results = await self._image_analyzer.analyze_message_images(
                 message_chain=message_chain,
                 user_id=user_id,
                 context_text=context_text,
                 umo=umo,
-                session_id=session_id
+                session_id=session_id,
+                daily_analysis_budget=effective_daily_budget,
             )
             
             if not image_results:
@@ -1229,13 +1272,20 @@ class MemoryService:
         Returns:
             str: 格式化的聊天记录，为空则返回空字符串
         """
-        if not self._chat_history_buffer or self.cfg.chat_context_count <= 0:
+        if not self._chat_history_buffer:
             return ""
+
+        chat_context_count = self.cfg.get_chat_context_count(group_id)
+        if chat_context_count <= 0:
+            return ""
+
+        if self._chat_history_buffer.max_messages < chat_context_count:
+            self._chat_history_buffer.set_max_messages(chat_context_count)
         
         messages = await self._chat_history_buffer.get_recent_messages(
             user_id=user_id,
             group_id=group_id,
-            limit=self.cfg.chat_context_count
+            limit=chat_context_count
         )
         
         if not messages:
@@ -1332,6 +1382,13 @@ class MemoryService:
                         f"{stats['total_groups']} groups"
                     )
             
+            # 加载群活跃度数据
+            if self._activity_tracker:
+                activity_data = await get_kv_data(KVStoreKeys.GROUP_ACTIVITY, {})
+                if activity_data:
+                    self._activity_tracker.deserialize(activity_data)
+                    self.logger.info("Loaded group activity states")
+            
             # 加载用户画像
             personas_data = await get_kv_data(KVStoreKeys.USER_PERSONAS, {})
             if personas_data:
@@ -1381,6 +1438,12 @@ class MemoryService:
                 identity_data = self._member_identity.serialize()
                 await put_kv_data(KVStoreKeys.MEMBER_IDENTITY, identity_data)
                 self.logger.info("Saved member identity data")
+            
+            # 保存群活跃度数据
+            if self._activity_tracker:
+                activity_data = self._activity_tracker.serialize()
+                await put_kv_data(KVStoreKeys.GROUP_ACTIVITY, activity_data)
+                self.logger.info("Saved group activity states")
             
             # 保存用户画像
             if self._user_personas:

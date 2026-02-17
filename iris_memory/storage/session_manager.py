@@ -12,6 +12,7 @@ from iris_memory.utils.logger import get_logger
 
 from iris_memory.models.memory import Memory
 from iris_memory.core.defaults import DEFAULTS
+from iris_memory.core.activity_config import GroupActivityTracker
 
 # 模块logger
 logger = get_logger("session_manager")
@@ -31,7 +32,8 @@ class SessionManager:
         self,
         max_working_memory: int = None,
         max_sessions: int = None,
-        ttl: int = None
+        ttl: int = None,
+        activity_tracker: Optional[GroupActivityTracker] = None
     ):
         """初始化会话管理器
         
@@ -39,6 +41,7 @@ class SessionManager:
             max_working_memory: 每个会话最大工作记忆数量
             max_sessions: 最大会话数量
             ttl: 工作记忆生存时间（秒），默认24小时
+            activity_tracker: 群活跃度追踪器（可选）
         """
         # 工作记忆缓存：{session_key: [Memory]}
         self.working_memory_cache: Dict[str, List[Memory]] = {}
@@ -53,6 +56,9 @@ class SessionManager:
         
         # 会话访问顺序（用于LRU淘汰）
         self._session_order: List[str] = []
+        
+        # 群活跃度追踪器
+        self._activity_tracker = activity_tracker
         
         # 统计信息
         self._stats = {
@@ -139,6 +145,10 @@ class SessionManager:
         if session_key in self.session_metadata:
             self.session_metadata[session_key]["last_active"] = datetime.now().isoformat()
             self.session_metadata[session_key]["message_count"] += 1
+        
+        # 向活跃度追踪器记录消息（仅群聊）
+        if group_id and self._activity_tracker:
+            self._activity_tracker.record_message(group_id)
     
     async def add_working_memory(self, memory: Memory):
         """添加工作记忆（线程安全）

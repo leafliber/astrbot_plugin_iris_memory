@@ -25,6 +25,7 @@ from iris_memory.core.defaults import DEFAULTS
 
 if TYPE_CHECKING:
     from iris_memory.proactive.proactive_manager import ProactiveReplyManager
+    from iris_memory.core.config_manager import ConfigManager
 
 logger = get_logger("batch_processor")
 
@@ -79,7 +80,8 @@ class MessageBatchProcessor:
         use_llm_summary: bool = False,
         summary_prompt: Optional[str] = None,
         on_save_callback: Optional[Callable[[], Any]] = None,
-        config: Optional[Dict[str, Any]] = None
+        config: Optional[Dict[str, Any]] = None,
+        config_manager: Optional['ConfigManager'] = None
     ) -> None:
         self.capture_engine: MemoryCaptureEngine = capture_engine
         self.llm_processor: Optional[LLMMessageProcessor] = llm_processor
@@ -90,6 +92,7 @@ class MessageBatchProcessor:
         self.use_llm_summary: bool = use_llm_summary
         self.summary_prompt: Optional[str] = summary_prompt
         self.on_save_callback: Optional[Callable[[], Any]] = on_save_callback
+        self._config_manager: Optional['ConfigManager'] = config_manager
         
         # 配置合并
         cfg: Dict[str, Any] = config or {}
@@ -373,17 +376,44 @@ class MessageBatchProcessor:
         
         return False
     
+    def _extract_group_id(self, session_key: str) -> Optional[str]:
+        """从 session_key (user_id:group_id) 中提取 group_id"""
+        if ":" in session_key:
+            parts = session_key.split(":", 1)
+            gid = parts[1]
+            if gid and gid != "private":
+                return gid
+        return None
+    
+    def _get_threshold_count(self, session_key: str) -> int:
+        """获取会话的批量处理数量阈值（群级自适应）"""
+        if self._config_manager:
+            group_id = self._extract_group_id(session_key)
+            return self._config_manager.get_batch_threshold_count(group_id)
+        return self.threshold_count
+    
+    def _get_threshold_interval(self, session_key: str) -> int:
+        """获取会话的批量处理时间间隔（群级自适应）"""
+        if self._config_manager:
+            group_id = self._extract_group_id(session_key)
+            return self._config_manager.get_batch_threshold_interval(group_id)
+        return self.threshold_interval
+    
     async def _check_threshold(self, session_key: str) -> bool:
         """检查是否达到处理阈值"""
         queue = self.message_queues.get(session_key, [])
         last_time = self.last_process_time.get(session_key, 0)
         
+        # 动态获取阈值
+        count_threshold = self._get_threshold_count(session_key)
+        interval_threshold = self._get_threshold_interval(session_key)
+        
         # 数量阈值检查
-        if len(queue) >= self.threshold_count:
+        if len(queue) >= count_threshold:
             return True
         
         # 时间阈值
-        if time.time() - last_time >= self.threshold_interval:
+        if time.time() - last_time >= interval_threshold:
             return True
         
         return False
@@ -398,8 +428,9 @@ class MessageBatchProcessor:
                 
                 current_time = time.time()
                 for session_key in list(self.message_queues.keys()):
+                    interval = self._get_threshold_interval(session_key)
                     last_time = self.last_process_time.get(session_key, 0)
-                    if current_time - last_time >= self.threshold_interval:
+                    if current_time - last_time >= interval:
                         if self.message_queues[session_key]:
                             await self._process_queue(session_key)
                             

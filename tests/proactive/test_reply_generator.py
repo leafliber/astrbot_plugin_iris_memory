@@ -362,6 +362,100 @@ class TestLLMCalling:
         assert response is None
 
 
+class TestDynamicReplyTemperature:
+    """群聊自适应温度动态行为测试"""
+
+    @pytest.mark.asyncio
+    async def test_generate_reply_uses_config_manager_temperature(self, mock_retrieval_engine):
+        """generate_reply 应优先使用 config_manager 的群级温度"""
+        provider = Mock()
+        provider.id = "provider-id"
+
+        ctx = Mock()
+        ctx.get_using_provider = Mock(return_value=provider)
+
+        cfg_manager = Mock()
+        cfg_manager.get_reply_temperature = Mock(return_value=0.88)
+
+        gen = ProactiveReplyGenerator(
+            astrbot_context=ctx,
+            retrieval_engine=mock_retrieval_engine,
+            config={
+                "reply_temperature": 0.6,
+                "config_manager": cfg_manager,
+            },
+        )
+        gen._call_llm = AsyncMock(return_value="动态温度回复")
+
+        result = await gen.generate_reply(
+            messages=["你好"],
+            user_id="u1",
+            group_id="g1",
+        )
+
+        assert result is not None
+        cfg_manager.get_reply_temperature.assert_called_once_with("g1")
+        assert gen._call_llm.await_count == 1
+        assert gen._call_llm.await_args.kwargs.get("temperature") == 0.88
+
+    @pytest.mark.asyncio
+    async def test_call_llm_passes_temperature_to_text_chat(self, generator):
+        """_call_llm 回退到 text_chat 时应透传 temperature"""
+        provider = Mock()
+        provider.text_chat = AsyncMock(return_value={"text": "ok"})
+
+        response = await generator._call_llm(provider, "提示词", temperature=0.66)
+
+        assert response == "ok"
+        provider.text_chat.assert_awaited_once_with(
+            prompt="提示词",
+            context=[],
+            temperature=0.66,
+        )
+
+    @pytest.mark.asyncio
+    async def test_call_llm_text_chat_temperature_typeerror_fallback(self, generator):
+        """当 provider 不支持 temperature 参数时应自动回退"""
+        provider = Mock()
+        provider.text_chat = AsyncMock(side_effect=[TypeError("unexpected keyword"), {"text": "ok"}])
+
+        response = await generator._call_llm(provider, "提示词", temperature=0.71)
+
+        assert response == "ok"
+        assert provider.text_chat.await_count == 2
+        first_call = provider.text_chat.await_args_list[0].kwargs
+        second_call = provider.text_chat.await_args_list[1].kwargs
+        assert first_call.get("temperature") == 0.71
+        assert "temperature" not in second_call
+
+    @pytest.mark.asyncio
+    async def test_call_llm_llm_generate_temperature_typeerror_fallback(self, mock_retrieval_engine):
+        """当 llm_generate 不支持 temperature 时应自动回退"""
+        provider = Mock()
+        provider.text_chat = AsyncMock(return_value={"text": "unused"})
+
+        ctx = Mock()
+        llm_resp = Mock()
+        llm_resp.completion_text = "from_llm_generate"
+        ctx.llm_generate = AsyncMock(side_effect=[TypeError("unexpected keyword"), llm_resp])
+
+        gen = ProactiveReplyGenerator(
+            astrbot_context=ctx,
+            retrieval_engine=mock_retrieval_engine,
+        )
+        gen.default_provider_id = "provider-id"
+
+        response = await gen._call_llm(provider, "提示词", temperature=0.52)
+
+        assert response == "from_llm_generate"
+        assert ctx.llm_generate.await_count == 2
+        first_call = ctx.llm_generate.await_args_list[0].kwargs
+        second_call = ctx.llm_generate.await_args_list[1].kwargs
+        assert first_call.get("temperature") == 0.52
+        assert "temperature" not in second_call
+        provider.text_chat.assert_not_called()
+
+
 # =============================================================================
 # 回复提取测试
 # =============================================================================

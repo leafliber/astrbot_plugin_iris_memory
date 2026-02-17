@@ -40,12 +40,6 @@
         "default": 10,
         "hint": "会话内临时记忆数量上限，超过会触发升级"
       },
-      "chat_context_count": {
-        "description": "聊天记录注入数量",
-        "type": "int",
-        "default": 10,
-        "hint": "注入最近N条聊天记录到LLM上下文，让AI了解当前话题（0为禁用，建议5-20）"
-      },
       "upgrade_mode": {
         "description": "记忆升级模式",
         "type": "string",
@@ -64,36 +58,13 @@
         "type": "bool",
         "default": false,
         "hint": "开启后使用LLM进行消息摘要、记忆升级等（质量更高但消耗token）"
-      }
-    }
-  },
-  "batch_processing": {
-    "description": "批量处理设置",
-    "type": "object",
-    "items": {
-      "batch_threshold_count": {
-        "description": "批量处理消息数量阈值",
-        "type": "int",
-        "default": 20,
-        "hint": "累积多少条消息后触发批量处理（默认20条）"
       },
-      "short_message_threshold": {
-        "description": "短消息长度阈值",
-        "type": "int",
-        "default": 15,
-        "hint": "少于多少字符的消息会被合并（默认15字符）"
-      },
-      "merge_time_window": {
-        "description": "消息合并时间窗口",
-        "type": "int",
-        "default": 60,
-        "hint": "多少秒内的短消息会被合并（默认60秒）"
-      },
-      "max_merge_count": {
-        "description": "最大合并消息数",
-        "type": "int",
-        "default": 5,
-        "hint": "最多合并多少条短消息（默认5条）"
+      "provider_id": {
+        "description": "LLM处理使用的提供者",
+        "type": "string",
+        "_special": "select_provider",
+        "default": "",
+        "hint": "留空使用AstrBot默认提供者，或选择其他模型用于摘要/升级等任务"
       }
     }
   },
@@ -112,6 +83,18 @@
         "type": "bool",
         "default": false,
         "hint": "开启后仅在管理员通过指令启用的群聊中触发主动回复，使用 /proactive_reply on|off 控制"
+      }
+    }
+  },
+  "activity_adaptive": {
+    "description": "场景自适应设置",
+    "type": "object",
+    "items": {
+      "enable": {
+        "description": "启用场景自适应",
+        "type": "bool",
+        "default": true,
+        "hint": "根据群活跃度自动调整主动回复频率、批量处理参数等配置，实现温和型陪伴风格。使用 /activity_status 查看各群状态。关闭后使用下方「高级参数」中的固定值"
       }
     }
   },
@@ -136,7 +119,14 @@
         "description": "每日分析次数上限",
         "type": "int",
         "default": 100,
-        "hint": "每天最多分析的图片数量，0表示无限制"
+        "hint": "每天最多分析的图片数量，0表示无限制。群聊场景启用自适应时会被自动调整"
+      },
+      "provider_id": {
+        "description": "图片分析LLM提供者",
+        "type": "string",
+        "_special": "select_provider",
+        "default": "",
+        "hint": "留空使用默认提供者，建议选择支持Vision的模型"
       }
     }
   },
@@ -181,6 +171,60 @@
         "type": "bool",
         "default": true,
         "hint": "LLM提取失败或不可用时自动使用规则匹配"
+      }
+    }
+  },
+  "advanced": {
+    "description": "高级参数（场景自适应关闭时使用）",
+    "type": "object",
+    "items": {
+      "_note": {
+        "description": "说明：以下参数在群聊场景启用「场景自适应」时会被自动覆盖，私聊或关闭自适应时使用此处设定值",
+        "type": "string",
+        "default": "",
+        "hint": "自适应会根据群活跃度（安静/普通/活跃/繁忙）自动调整参数，实现温和型陪伴风格"
+      },
+      "chat_context_count": {
+        "description": "聊天记录注入数量",
+        "type": "int",
+        "default": 15,
+        "hint": "注入最近N条聊天记录到LLM上下文（0为禁用，建议10-25）。群聊自适应范围：10-25条"
+      },
+      "cooldown_seconds": {
+        "description": "主动回复冷却时间",
+        "type": "int",
+        "default": 60,
+        "hint": "两次主动回复之间的最小间隔秒数。群聊自适应范围：30-120秒，安静群更长、繁忙群更短"
+      },
+      "max_daily_replies": {
+        "description": "每日主动回复上限",
+        "type": "int",
+        "default": 20,
+        "hint": "每个群每天最多主动回复次数。群聊自适应范围：8-25次，安静群更少、繁忙群更多"
+      },
+      "reply_temperature": {
+        "description": "主动回复创意度",
+        "type": "float",
+        "default": 0.7,
+        "hint": "LLM生成主动回复的温度参数（0.0-1.0）。群聊自适应范围：0.6-0.8，安静群更保守、繁忙群更活泼"
+      },
+      "batch_threshold_count": {
+        "description": "批量处理消息数阈值",
+        "type": "int",
+        "default": 20,
+        "hint": "累计N条消息后触发批量处理。群聊自适应范围：10-50条，安静群更少、繁忙群更多"
+      },
+      "batch_threshold_interval": {
+        "description": "批量处理时间阈值",
+        "type": "int",
+        "default": 300,
+        "hint": "N秒无新消息后触发批量处理。群聊自适应范围：120-600秒，安静群更长、繁忙群更短"
+      },
+      "daily_analysis_budget": {
+        "description": "群聊每日图片分析上限",
+        "type": "int",
+        "default": 100,
+        "hint": "每个群每天最多分析图片数。群聊自适应范围：30-150次，安静群更少、繁忙群更多"
       }
     }
   }

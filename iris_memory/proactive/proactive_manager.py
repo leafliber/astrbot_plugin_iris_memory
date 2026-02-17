@@ -9,7 +9,7 @@
   人格注入 → 插件 Hook（记忆检索等）→ LLM 生成 → 结果装饰 → 发送
 """
 import asyncio
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, TYPE_CHECKING
 from dataclasses import dataclass
 
 from iris_memory.utils.logger import get_logger
@@ -17,6 +17,9 @@ from iris_memory.proactive.proactive_reply_detector import (
     ProactiveReplyDetector, ProactiveReplyDecision
 )
 from iris_memory.proactive.proactive_event import ProactiveMessageEvent
+
+if TYPE_CHECKING:
+    from iris_memory.core.config_manager import ConfigManager
 
 logger = get_logger("proactive_manager")
 
@@ -45,18 +48,20 @@ class ProactiveReplyManager:
         reply_detector: Optional[ProactiveReplyDetector] = None,
         reply_generator=None,
         event_queue: Optional[asyncio.Queue] = None,
-        config: Optional[Dict] = None
+        config: Optional[Dict] = None,
+        config_manager: Optional['ConfigManager'] = None
     ):
         self.config = config or {}
         self.reply_detector = reply_detector
         self.reply_generator = reply_generator
         self.astrbot_context = astrbot_context
         self.event_queue = event_queue
+        self._config_manager = config_manager
         
-        # 配置
+        # 配置（默认值，会被动态配置覆盖）
         self.enabled = self.config.get("enable_proactive_reply", True)
-        self.cooldown_seconds = self.config.get("reply_cooldown", 60)
-        self.max_daily_replies = self.config.get("max_daily_replies", 20)
+        self._default_cooldown = self.config.get("reply_cooldown", 60)
+        self._default_max_daily = self.config.get("max_daily_replies", 20)
         
         # 群聊白名单（静态配置，空列表表示允许所有群聊）
         self.group_whitelist = self.config.get("group_whitelist", [])
@@ -135,6 +140,18 @@ class ProactiveReplyManager:
         
         logger.info("Proactive reply manager stopped")
     
+    def _get_cooldown_seconds(self, group_id: Optional[str] = None) -> int:
+        """获取冷却时间"""
+        if self._config_manager:
+            return self._config_manager.get_cooldown_seconds(group_id)
+        return self._default_cooldown
+    
+    def _get_max_daily_replies(self, group_id: Optional[str] = None) -> int:
+        """获取每日最大回复数"""
+        if self._config_manager:
+            return self._config_manager.get_max_daily_replies(group_id)
+        return self._default_max_daily
+    
     async def handle_batch(
         self,
         messages: List[str],
@@ -149,12 +166,12 @@ class ProactiveReplyManager:
         
         # 检查冷却时间
         session_key = f"{user_id}:{group_id or 'private'}"
-        if self._is_in_cooldown(session_key):
+        if self._is_in_cooldown(session_key, group_id):
             logger.debug(f"Proactive reply in cooldown for {session_key}")
             return
         
         # 检查每日限制
-        if self._is_daily_limit_reached(user_id):
+        if self._is_daily_limit_reached(user_id, group_id):
             logger.debug(f"Daily proactive reply limit reached for {user_id}")
             return
         
@@ -294,8 +311,9 @@ class ProactiveReplyManager:
             self.stats["replies_sent"] += 1
             
             # 更新每日计数
-            self.daily_reply_count[task.user_id] = \
-                self.daily_reply_count.get(task.user_id, 0) + 1
+            count_key = f"{task.user_id}:{task.group_id or 'private'}"
+            self.daily_reply_count[count_key] = \
+                self.daily_reply_count.get(count_key, 0) + 1
             
             logger.info(
                 f"Proactive reply event dispatched for {task.user_id}, "
@@ -345,18 +363,19 @@ class ProactiveReplyManager:
         
         return prompt
     
-    def _is_in_cooldown(self, session_key: str) -> bool:
+    def _is_in_cooldown(self, session_key: str, group_id: Optional[str] = None) -> bool:
         """检查是否在冷却中"""
         if session_key not in self.last_reply_time:
             return False
         
         elapsed = asyncio.get_running_loop().time() - self.last_reply_time[session_key]
-        return elapsed < self.cooldown_seconds
+        return elapsed < self._get_cooldown_seconds(group_id)
     
-    def _is_daily_limit_reached(self, user_id: str) -> bool:
+    def _is_daily_limit_reached(self, user_id: str, group_id: Optional[str] = None) -> bool:
         """检查是否达到每日限制"""
-        count = self.daily_reply_count.get(user_id, 0)
-        return count >= self.max_daily_replies
+        count_key = f"{user_id}:{group_id or 'private'}"
+        count = self.daily_reply_count.get(count_key, 0)
+        return count >= self._get_max_daily_replies(group_id)
     
     def get_stats(self) -> Dict[str, Any]:
         """获取统计信息"""
