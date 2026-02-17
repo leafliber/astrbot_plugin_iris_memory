@@ -3,6 +3,25 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.4.0] - 2026-02-17
+
+### Added
+- **本地 Embedding 提供器（后台加载 & 就绪检查）** (`iris_memory/embedding/local_provider.py`, `iris_memory/embedding/manager.py`)
+  - 支持后台异步加载本地 sentence-transformers 模型，并通过 `is_ready`/健康检查暴露加载状态，避免在启动时阻塞或在测试中触发实际模型下载。
+- **Persona 提取模块** (`iris_memory/analysis/persona_extractor.py`)
+  - 新增规则/LLM/混合模式的人格提取器，用于从对话/历史构建用户人格画像。
+- **群组活动追踪与自适应配置** (`iris_memory/*`)
+  - 新增群组活跃度追踪逻辑，并根据群组活跃度自动调整某些触发阈值与注入策略。
+- **统一删除命令与增强的记忆删除功能**
+  - 新增统一删除命令并改进记忆删除的边界情况处理与进度报告。
+
+### Changed
+- **重构 RIFScorer 初始化** (`iris_memory/analysis/rif_scorer.py`)：移除多维评分初始化支持并简化参数处理。
+- **测试重构**：重构 `UserPersona` 相关测试，提升覆盖与结构可维护性。
+
+### Fixed
+- 小幅修复与测试稳定性改进（避免在单元测试中触发耗时的模型下载/加载）。
+
 ## [v1.3.1] - 2026-02-17
 
 ### Added
