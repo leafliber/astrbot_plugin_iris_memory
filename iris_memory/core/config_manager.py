@@ -241,6 +241,23 @@ class ConfigManager:
     @property
     def embedding_dimension(self) -> int:
         return DEFAULTS.embedding.embedding_dimension
+    
+    # 画像配置
+    @property
+    def persona_auto_update(self) -> bool:
+        return DEFAULTS.persona.enable_auto_update
+    
+    @property
+    def persona_injection_enabled(self) -> bool:
+        return DEFAULTS.persona.enable_persona_injection
+    
+    @property
+    def persona_max_change_log(self) -> int:
+        return DEFAULTS.persona.max_change_log
+    
+    @property
+    def persona_snapshot_interval(self) -> int:
+        return DEFAULTS.persona.snapshot_interval
 
 
 # 全局配置管理器实例

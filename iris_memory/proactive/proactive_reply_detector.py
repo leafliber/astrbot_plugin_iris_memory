@@ -239,8 +239,10 @@ class ProactiveReplyDetector:
             reply_score += 0.15
             reasons.append(f"positive({emotion_intensity:.2f})")
         
-        # 用户个性化
-        user_preference = user_persona.get("proactive_reply_preference", 0.5)
+        # 用户个性化 — 兼容 to_injection_view() 格式和旧格式
+        prefs = user_persona.get("preferences", {})
+        user_preference = prefs.get("proactive_reply", 
+                           user_persona.get("proactive_reply_preference", 0.5))
         reply_score *= (0.8 + 0.4 * user_preference)
         
         # 根据分数决定（群聊场景优化，降低阈值）
