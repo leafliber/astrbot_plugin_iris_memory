@@ -12,6 +12,7 @@ from iris_memory.core.defaults import DEFAULTS, get_default
 from iris_memory.core.activity_config import (
     ActivityAwareConfigProvider, GroupActivityTracker
 )
+from iris_memory.utils.provider_utils import normalize_provider_id
 
 
 # 配置键映射：简化键 -> (默认配置区块, 默认配置键, 内置默认值)
@@ -26,9 +27,9 @@ CONFIG_KEY_MAPPING = {
     "memory.max_working_memory": ("memory", "max_working_memory", 10),
     "memory.upgrade_mode": ("memory", "upgrade_mode", "rule"),
     
-    # LLM设置
-    "llm.use_llm": ("message_processing", "use_llm_for_processing", False),
-    "llm.provider_id": ("llm_integration", "provider_id", ""),
+    # LLM增强处理（已合并到 memory 区块）
+    "memory.use_llm": ("message_processing", "use_llm_for_processing", False),
+    "memory.provider_id": ("llm_integration", "provider_id", ""),
     
     # 主动回复
     "proactive_reply.enable": ("proactive_reply", "enable", False),
@@ -294,16 +295,16 @@ class ConfigManager:
     
     @property
     def image_analysis_provider_id(self) -> str:
-        return self.get("image_analysis.provider_id", "")
+        return normalize_provider_id(self.get("image_analysis.provider_id", ""))
     
     # LLM增强处理
     @property
     def use_llm(self) -> bool:
-        return self.get("llm.use_llm", False)
+        return self.get("memory.use_llm", False)
     
     @property
     def llm_provider_id(self) -> str:
-        return self.get("llm.provider_id", "")
+        return normalize_provider_id(self.get("memory.provider_id", ""))
     
     # 批量处理配置
     @property
@@ -372,7 +373,8 @@ class ConfigManager:
 
     @property
     def persona_llm_provider(self) -> str:
-        return self.get("persona.llm_provider", "default")
+        provider_id = normalize_provider_id(self.get("persona.llm_provider", "default"))
+        return provider_id or "default"
 
     @property
     def persona_enable_interest(self) -> bool:

@@ -25,6 +25,11 @@ from enum import Enum
 from collections import deque
 
 from iris_memory.utils.logger import get_logger
+from iris_memory.utils.provider_utils import (
+    get_default_provider,
+    get_provider_by_id,
+    normalize_provider_id,
+)
 
 # 模块logger
 logger = get_logger("image_analyzer")
@@ -115,7 +120,7 @@ class ImageAnalyzer:
         """
         self.context = astrbot_context
         self.config = config or {}
-        self._configured_provider_id = provider_id  # 配置指定的 provider_id
+        self._configured_provider_id = normalize_provider_id(provider_id)  # 配置指定的 provider_id
         
         # 配置参数
         self.enable_analysis = self.config.get("enable_image_analysis", True)
@@ -788,23 +793,24 @@ class ImageAnalyzer:
         if not self.context:
             return None
         
-        provider_id = self._configured_provider_id
+        provider_id = normalize_provider_id(self._configured_provider_id)
         
         # 指定了具体 provider_id → 尝试匹配
         if provider_id and provider_id not in ("", "default"):
             try:
-                providers = self.context.get_all_providers()
-                for p in providers:
-                    p_id = getattr(p, 'id', None) or getattr(p, 'provider_id', None)
-                    if p_id == provider_id:
-                        logger.debug(f"Using configured provider for image analysis: {provider_id}")
-                        return p
+                provider, resolved_id = get_provider_by_id(self.context, provider_id)
+                if provider:
+                    logger.debug(
+                        f"Using configured provider for image analysis: {resolved_id or provider_id}"
+                    )
+                    return provider
                 logger.warning(f"Provider not found: {provider_id}, falling back to default")
             except Exception as e:
                 logger.warning(f"Failed to get provider list: {e}")
         
         # 使用默认 provider
-        return self.context.get_using_provider(umo=umo)
+        provider, _ = get_default_provider(self.context, umo=umo)
+        return provider
     
     def _clean_description(self, description: str) -> str:
         """清理LLM返回的描述

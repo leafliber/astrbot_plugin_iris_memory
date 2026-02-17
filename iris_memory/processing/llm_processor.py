@@ -9,6 +9,12 @@ from typing import Dict, Any, Optional, List
 from dataclasses import dataclass
 
 from iris_memory.utils.logger import get_logger
+from iris_memory.utils.provider_utils import (
+    extract_provider_id,
+    get_default_provider,
+    get_provider_by_id,
+    normalize_provider_id,
+)
 
 logger = get_logger("llm_processor")
 
@@ -54,7 +60,7 @@ class LLMMessageProcessor:
         provider_id: Optional[str] = None
     ):
         self.astrbot_context = astrbot_context
-        self._configured_provider_id = provider_id  # 配置指定的 provider_id
+        self._configured_provider_id = normalize_provider_id(provider_id)  # 配置指定的 provider_id
         self.classification_prompt = classification_prompt or (
             "分析以下用户消息，判断其记忆价值。\n"
             "考虑因素：是否包含用户偏好、情感、重要事实、个人信息等。\n"
@@ -133,9 +139,7 @@ class LLMMessageProcessor:
             
             if provider:
                 self.llm_api = provider
-                self.default_provider_id = getattr(
-                    self.llm_api, 'id', None
-                ) or getattr(self.llm_api, 'provider_id', None)
+                self.default_provider_id = extract_provider_id(self.llm_api)
                 logger.info(
                     f"LLM provider loaded on demand: {self.default_provider_id} "
                     f"(attempt {self._init_retry_count})"
@@ -163,23 +167,22 @@ class LLMMessageProcessor:
         if not self.astrbot_context:
             return None
         
-        provider_id = self._configured_provider_id
+        provider_id = normalize_provider_id(self._configured_provider_id)
         
         # 指定了具体 provider_id → 尝试匹配
         if provider_id and provider_id not in ("", "default"):
             try:
-                providers = self.astrbot_context.get_all_providers()
-                for p in providers:
-                    p_id = getattr(p, 'id', None) or getattr(p, 'provider_id', None)
-                    if p_id == provider_id:
-                        logger.debug(f"Using configured provider: {provider_id}")
-                        return p
+                provider, resolved_id = get_provider_by_id(self.astrbot_context, provider_id)
+                if provider:
+                    logger.debug(f"Using configured provider: {resolved_id or provider_id}")
+                    return provider
                 logger.warning(f"Provider not found: {provider_id}, falling back to default")
             except Exception as e:
                 logger.warning(f"Failed to get provider list: {e}")
         
         # 使用默认 provider
-        return self.astrbot_context.get_using_provider()
+        provider, _ = get_default_provider(self.astrbot_context)
+        return provider
     
     async def classify_message(
         self,
