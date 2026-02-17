@@ -175,10 +175,10 @@ class MemoryCaptureEngine:
             if requires_encryption:
                 memory.metadata["requires_encryption"] = True
             
-            # 8. 设置情感信息
+            # 8. 设置情感信息（所有记忆类型都设置情感权重，用于RIF评分差异化）
+            memory.emotional_weight = emotion_result["intensity"]
             if memory_type == MemoryType.EMOTION:
                 memory.subtype = emotion_result["primary"].value if hasattr(emotion_result["primary"], "value") else str(emotion_result["primary"])
-                memory.emotional_weight = emotion_result["intensity"]
             
             # 9. 设置摘要
             memory.summary = self._generate_summary(message, triggers)
@@ -368,24 +368,27 @@ class MemoryCaptureEngine:
             triggers: 触发器列表
             emotion_result: 情感分析结果
         """
-        # 计算置信度
-        confidence_factors = []
+        # 计算置信度（加权平均）
+        # 权重分配：触发器 40%，情感分析 30%，上下文一致性 30%
         
-        # 1. 触发器置信度
+        # 1. 触发器置信度（权重 40%）
         if triggers:
             max_trigger_confidence = max(t["confidence"] for t in triggers)
-            confidence_factors.append(max_trigger_confidence)
+            # 多触发器加成：多信号一致表示更高置信度
+            trigger_bonus = min(0.15, len(triggers) * 0.05)
+            trigger_conf = min(1.0, max_trigger_confidence + trigger_bonus)
         else:
-            confidence_factors.append(0.3)  # 无触发器的默认置信度
+            trigger_conf = 0.3  # 无触发器的默认置信度
         
-        # 2. 情感分析置信度
-        confidence_factors.append(emotion_result["confidence"])
+        # 2. 情感分析置信度（权重 30%）
+        emotion_conf = emotion_result["confidence"]
         
-        # 3. 上下文一致性（简化：假设0.5）
-        confidence_factors.append(0.5)
+        # 3. 上下文一致性（权重 30%）
+        # 基于多个因素动态计算，而非硬编码
+        consistency_score = self._calculate_consistency_score(memory, triggers, emotion_result)
         
-        # 综合置信度
-        memory.confidence = sum(confidence_factors) / len(confidence_factors)
+        # 综合置信度（加权平均）
+        memory.confidence = trigger_conf * 0.4 + emotion_conf * 0.3 + consistency_score * 0.3
         
         # 4. 确定质量等级
         if memory.confidence >= 0.9:
@@ -408,6 +411,97 @@ class MemoryCaptureEngine:
             memory.verification_method = VerificationMethod.MULTIPLE_MENTIONS
         else:
             memory.verification_method = VerificationMethod.SYSTEM_INFERRED
+        
+        # 6. 计算重要性评分（基于触发器质量和情感强度）
+        # 用于 RIF 评分的 Frequency 维度差异化
+        if triggers:
+            # 触发器置信度作为基础重要性
+            max_trigger_conf = max(t["confidence"] for t in triggers)
+            trigger_importance = max_trigger_conf
+        else:
+            trigger_importance = 0.3  # 无触发器的默认重要性
+        
+        # 情感强度加成：高情感内容更重要
+        emotion_importance = emotion_result["intensity"] * 0.3
+        
+        # 综合重要性评分（用户请求的记忆已在 _determine_storage_layer 中设置为 0.8+）
+        if not memory.is_user_requested:
+            memory.importance_score = min(1.0, trigger_importance * 0.7 + emotion_importance)
+        
+        # 7. 计算一致性评分（基于触发器数量和类型）
+        # 用于 RIF 评分的 Relevance 维度差异化
+        if triggers:
+            # 多触发器表示信息一致性高（多种信号指向同一内容）
+            trigger_consistency = min(1.0, len(triggers) * 0.2 + 0.4)
+            
+            # 显式触发器（如"记住"、"重要"）表示高一致性
+            if any(t["type"] == TriggerType.EXPLICIT for t in triggers):
+                trigger_consistency = min(1.0, trigger_consistency + 0.2)
+            
+            # 偏好/事实触发器表示信息明确
+            if any(t["type"] in [TriggerType.PREFERENCE, TriggerType.FACT] for t in triggers):
+                trigger_consistency = min(1.0, trigger_consistency + 0.1)
+        else:
+            trigger_consistency = 0.3  # 无触发器的默认一致性
+        
+        memory.consistency_score = trigger_consistency
+    
+    def _calculate_consistency_score(
+        self,
+        memory: Memory,
+        triggers: List[Dict[str, Any]],
+        emotion_result: Dict[str, Any]
+    ) -> float:
+        """计算上下文一致性评分
+        
+        基于多个信号的一致性来评估置信度，而非固定值：
+        - 触发器类型多样性
+        - 情感强度与记忆类型匹配度
+        - 内容信息密度（实体数量）
+        
+        Args:
+            memory: 记忆对象
+            triggers: 触发器列表
+            emotion_result: 情感分析结果
+            
+        Returns:
+            float: 一致性评分 (0-1)
+        """
+        score = 0.5  # 基础分
+        
+        # 1. 触发器类型多样性加成
+        if triggers:
+            trigger_types = set(t["type"] for t in triggers)
+            # 多种类型触发器表示信息更可靠
+            diversity_bonus = min(0.2, len(trigger_types) * 0.08)
+            score += diversity_bonus
+            
+            # 显式触发器（如"记住"、"重要"）加成
+            if any(t["type"] == TriggerType.EXPLICIT for t in triggers):
+                score += 0.15
+        
+        # 2. 情感强度与记忆类型匹配
+        # 高情感强度 + EMOTION 类型 = 一致性高
+        # 低情感强度 + FACT 类型 = 一致性高
+        emotion_intensity = emotion_result.get("intensity", 0.5)
+        if memory.type == MemoryType.EMOTION and emotion_intensity > 0.6:
+            score += 0.1
+        elif memory.type == MemoryType.FACT and emotion_intensity < 0.4:
+            score += 0.08
+        
+        # 3. 内容信息密度（检测到的实体数量）
+        entity_count = len(memory.detected_entities) if memory.detected_entities else 0
+        if entity_count > 0:
+            # 有实体信息表示内容更明确
+            entity_bonus = min(0.12, entity_count * 0.04)
+            score += entity_bonus
+        
+        # 4. 敏感度与重要性匹配
+        # 高敏感度信息通常更重要
+        if memory.sensitivity_level.value >= 2:  # PRIVATE 或更高
+            score += 0.05
+        
+        return min(1.0, score)
     
     def _determine_storage_layer(self, memory: Memory, is_user_requested: bool):
         """确定初始存储层
