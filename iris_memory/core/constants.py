@@ -45,8 +45,8 @@ class ConfigKeys:
     UPGRADE_MODE: Final[str] = "memory.upgrade_mode"
     CHAT_CONTEXT_COUNT: Final[str] = "memory.chat_context_count"
     
-    # LLM设置
-    USE_LLM: Final[str] = "llm.use_llm"
+    # LLM增强处理（已合并到 memory 区块）
+    USE_LLM: Final[str] = "memory.use_llm"
     
     # 主动回复
     PROACTIVE_REPLY_ENABLE: Final[str] = "proactive_reply.enable"

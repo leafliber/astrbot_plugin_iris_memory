@@ -18,6 +18,12 @@ from typing import Dict, Any, List, Optional
 import yaml
 
 from iris_memory.utils.logger import get_logger
+from iris_memory.utils.provider_utils import (
+    extract_provider_id,
+    get_default_provider,
+    get_provider_by_id,
+    normalize_provider_id,
+)
 
 logger = get_logger("persona_extractor")
 
@@ -262,7 +268,7 @@ class LLMExtractor:
         daily_limit: int = 50,
     ):
         self._astrbot_context = astrbot_context
-        self._provider_id = provider_id  # "default" 或具体 provider_id
+        self._provider_id = normalize_provider_id(provider_id)  # "default" 或具体 provider_id
         self._max_tokens = max_tokens
         self._daily_limit = daily_limit
 
@@ -301,31 +307,22 @@ class LLMExtractor:
         try:
             # 指定了具体 provider_id → 尝试匹配
             if self._provider_id and self._provider_id != "default":
-                providers = (
-                    self._astrbot_context.get_all_providers()
-                    if hasattr(self._astrbot_context, "get_all_providers")
-                    else []
-                )
-                for p in providers:
-                    pid = getattr(p, "id", None) or getattr(p, "provider_id", None)
-                    if pid == self._provider_id:
-                        self._resolved_provider = p
-                        self._resolved_provider_id = pid
-                        logger.info(f"Persona LLM provider resolved: {pid}")
-                        return True
+                provider, resolved_id = get_provider_by_id(self._astrbot_context, self._provider_id)
+                if provider:
+                    self._resolved_provider = provider
+                    self._resolved_provider_id = resolved_id
+                    logger.info(f"Persona LLM provider resolved: {resolved_id}")
+                    return True
                 logger.warning(
                     f"Persona LLM provider '{self._provider_id}' not found, "
                     f"falling back to default"
                 )
 
             # 默认提供者
-            provider = self._astrbot_context.get_using_provider()
+            provider, provider_id = get_default_provider(self._astrbot_context)
             if provider:
                 self._resolved_provider = provider
-                self._resolved_provider_id = (
-                    getattr(provider, "id", None)
-                    or getattr(provider, "provider_id", None)
-                )
+                self._resolved_provider_id = provider_id or extract_provider_id(provider)
                 logger.info(f"Persona LLM provider (default): {self._resolved_provider_id}")
                 return True
         except Exception as e:

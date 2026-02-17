@@ -25,7 +25,7 @@
     }
   },
   "memory": {
-    "description": "记忆设置",
+    "description": "记忆与LLM设置",
     "type": "object",
     "items": {
       "max_context_memories": {
@@ -45,22 +45,16 @@
         "type": "string",
         "default": "rule",
         "options": ["rule", "llm", "hybrid"],
-        "hint": "rule-仅规则（省token），llm-LLM判断（需启用use_llm），hybrid-混合（推荐）"
-      }
-    }
-  },
-  "llm": {
-    "description": "LLM设置",
-    "type": "object",
-    "items": {
+        "hint": "rule-仅规则（省token），llm-LLM判断（需启用下方LLM增强），hybrid-混合（推荐）"
+      },
       "use_llm": {
-        "description": "使用LLM增强处理",
+        "description": "启用LLM增强处理",
         "type": "bool",
         "default": false,
         "hint": "开启后使用LLM进行消息摘要、记忆升级等（质量更高但消耗token）"
       },
       "provider_id": {
-        "description": "LLM处理使用的提供者",
+        "description": "LLM提供者",
         "type": "string",
         "_special": "select_provider",
         "default": "",
@@ -187,15 +181,9 @@
     }
   },
   "advanced": {
-    "description": "高级参数（场景自适应关闭时使用）",
+    "description": "高级参数（场景自适应关闭时使用，开启时无效）",
     "type": "object",
     "items": {
-      "_note": {
-        "description": "说明：以下参数在群聊场景启用「场景自适应」时会被自动覆盖，私聊或关闭自适应时使用此处设定值",
-        "type": "string",
-        "default": "",
-        "hint": "自适应会根据群活跃度（安静/普通/活跃/繁忙）自动调整参数，实现温和型陪伴风格"
-      },
       "chat_context_count": {
         "description": "聊天记录注入数量",
         "type": "int",

@@ -238,19 +238,14 @@ iris_memory/
 | `basic.enable_inject` | 自动注入记忆到对话 | true |
 | `basic.log_level` | 日志级别 | INFO |
 
-### 记忆设置
+### 记忆与LLM设置
 | 配置项 | 说明 | 默认值 |
 |--------|------|--------|
 | `memory.max_context_memories` | 注入记忆数量（1-10） | 3 |
 | `memory.max_working_memory` | 工作记忆数量上限 | 10 |
-| `memory.chat_context_count` | 聊天记录注入数量 | 10 |
 | `memory.upgrade_mode` | 记忆升级模式（rule/llm/hybrid） | rule |
-| `memory.enable_multidimensional_scoring` | 启用多维度评分系统 | false |
-
-### LLM设置
-| 配置项 | 说明 | 默认值 |
-|--------|------|--------|
-| `llm.use_llm` | 使用LLM增强处理 | false |
+| `memory.use_llm` | 使用LLM增强处理 | false |
+| `memory.provider_id` | LLM提供者（留空使用默认） | "" |
 
 ### 批量处理
 | 配置项 | 说明 | 默认值 |

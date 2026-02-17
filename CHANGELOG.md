@@ -3,6 +3,17 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.4.1] - 2026-02-17
+
+### Fixed
+- 修复 provider 检测与解析逻辑，解决 `modelscope-vl` 被误判为不存在的问题（统一了 provider 解析与回退逻辑）。
+  - 变更文件：`iris_memory/utils/provider_utils.py`, `iris_memory/multimodal/image_analyzer.py`, `iris_memory/processing/llm_processor.py`, `iris_memory/analysis/persona_extractor.py`, `iris_memory/core/config_manager.py`
+
+### Changed
+- 规范化配置中 provider 字段的解析，兼容 AstrBot 的 `select_provider` 配置对象与字符串形式。
+
+---
+
 ## [v1.4.0] - 2026-02-17
 
 ### Added

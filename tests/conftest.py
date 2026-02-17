@@ -21,8 +21,6 @@ def setup_test_environment():
         'memory': {
             'max_working_memory': 10,
             'upgrade_mode': 'rule',
-        },
-        'llm': {
             'use_llm': False,
         },
         'proactive_reply': {
