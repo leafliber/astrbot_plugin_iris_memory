@@ -166,8 +166,9 @@
       "llm_provider": {
         "description": "画像提取使用的LLM提供者",
         "type": "string",
+        "_special": "select_provider",
         "default": "default",
-        "hint": "default-使用AstrBot默认提供者，也可填写具体的provider_id来使用其他模型"
+        "hint": "未选择时使用AstrBot默认提供者；选择后将使用指定provider_id进行画像提取"
       },
       "llm_daily_limit": {
         "description": "每日LLM提取次数上限",

@@ -76,6 +76,24 @@ uv sync
 #### 3. 配置插件
 在AstrBot Web界面中配置插件参数。
 
+配置示例（`persona` 区块）：
+
+```json
+{
+   "persona": {
+      "extraction_mode": "hybrid",
+      "llm_provider": {
+         "_special": "select_provider",
+         "value": "default"
+      },
+      "llm_daily_limit": 50,
+      "fallback_to_rule": true
+   }
+}
+```
+
+说明：`llm_provider` 使用 AstrBot 的提供者选择器格式（`_special: select_provider`），未选择时会使用默认提供者。
+
 ## 使用方法
 
 ### 指令列表
