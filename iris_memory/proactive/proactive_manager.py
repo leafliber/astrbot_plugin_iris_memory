@@ -118,7 +118,8 @@ class ProactiveReplyManager:
         logger.info("Proactive reply manager initialized (event queue mode)")
     
     async def stop(self):
-        """停止"""
+        """停止（热更新友好）"""
+        logger.info("[Hot-Reload] Stopping ProactiveReplyManager...")
         self.is_running = False
         
         if self.processing_task:
@@ -127,6 +128,9 @@ class ProactiveReplyManager:
                 await self.processing_task
             except asyncio.CancelledError:
                 pass
+            except Exception as e:
+                logger.warning(f"[Hot-Reload] Error cancelling processing task: {e}")
+            self.processing_task = None
         
         # 处理剩余的任务
         while not self.pending_tasks.empty():
@@ -138,7 +142,7 @@ class ProactiveReplyManager:
             except Exception as e:
                 logger.error(f"Error processing pending task during shutdown: {e}")
         
-        logger.info("Proactive reply manager stopped")
+        logger.info("[Hot-Reload] ProactiveReplyManager stopped")
     
     def _get_cooldown_seconds(self, group_id: Optional[str] = None) -> int:
         """获取冷却时间"""

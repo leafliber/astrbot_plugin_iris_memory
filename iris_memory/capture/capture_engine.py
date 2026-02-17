@@ -19,45 +19,13 @@ from iris_memory.analysis.emotion_analyzer import EmotionAnalyzer
 from iris_memory.analysis.entity_extractor import EntityExtractor
 from iris_memory.capture.trigger_detector import TriggerDetector
 from iris_memory.capture.sensitivity_detector import SensitivityDetector
+from iris_memory.capture.similarity_calculator import sanitize_for_log
+from iris_memory.capture.conflict_resolver import ConflictResolver
 from iris_memory.analysis.rif_scorer import RIFScorer
 from iris_memory.core.defaults import DEFAULTS
 
 # 模块logger
 logger = get_logger("capture_engine")
-
-
-def sanitize_for_log(text: str, max_length: int = 50) -> str:
-    """对文本进行脱敏处理后用于日志记录
-    
-    Args:
-        text: 原始文本
-        max_length: 最大长度
-        
-    Returns:
-        str: 脱敏后的文本
-    """
-    if not text:
-        return "[empty]"
-    
-    # 敏感模式替换
-    sanitized = text
-    
-    # 手机号（11位数字）
-    sanitized = re.sub(r'1[3-9]\d{9}', '[PHONE]', sanitized)
-    # 身份证号
-    sanitized = re.sub(r'\d{17}[\dXx]', '[ID_CARD]', sanitized)
-    # 银行卡号（16-19位数字）
-    sanitized = re.sub(r'\d{16,19}', '[BANK_CARD]', sanitized)
-    # 密码相关
-    sanitized = re.sub(r'密码[:：是]\S+', '密码:[MASKED]', sanitized)
-    sanitized = re.sub(r'password[:：]\S+', 'password:[MASKED]', sanitized, flags=re.IGNORECASE)
-    # 邮箱
-    sanitized = re.sub(r'[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}', '[EMAIL]', sanitized)
-    
-    # 截断
-    if len(sanitized) > max_length:
-        return sanitized[:max_length] + "..."
-    return sanitized
 
 
 class MemoryCaptureEngine:
@@ -92,6 +60,7 @@ class MemoryCaptureEngine:
         self.trigger_detector = TriggerDetector()
         self.sensitivity_detector = SensitivityDetector()
         self.entity_extractor = EntityExtractor()  # 实体提取器
+        self.conflict_resolver = ConflictResolver()  # 冲突解决器
         
         # 配置
         self.auto_capture = True
@@ -234,16 +203,18 @@ class MemoryCaptureEngine:
                 
                 # 去重检查
                 if self.enable_duplicate_check and similar_memories:
-                    duplicate = self._find_duplicate_from_results(memory, similar_memories)
+                    duplicate = self.conflict_resolver.find_duplicate_from_results(memory, similar_memories)
                     if duplicate:
                         logger.info(f"Duplicate memory detected, skipping: {memory.id}")
                         return None
                 
                 # 冲突检测
                 if self.enable_conflict_check and similar_memories:
-                    conflicts = self._find_conflicts_from_results(memory, similar_memories)
+                    conflicts = self.conflict_resolver.find_conflicts_from_results(memory, similar_memories)
                     if conflicts:
-                        resolved = await self._resolve_conflicts(memory, conflicts)
+                        resolved = await self.conflict_resolver.resolve_conflicts(
+                            memory, conflicts, self.chroma_manager
+                        )
                         if not resolved:
                             logger.info(f"Memory conflicts detected but not resolved: {memory.id}")
             
@@ -303,7 +274,6 @@ class MemoryCaptureEngine:
             r'我的(名字|工作|家|手机|电脑|生日|爱好|习惯)',
         ]
         
-        import re
         msg_lower = message.lower()
         
         # 检查是否匹配群共享模式
@@ -493,720 +463,6 @@ class MemoryCaptureEngine:
         memory.storage_layer = StorageLayer.WORKING
         logger.debug(f"Storage layer set to WORKING (low confidence)")
     
-    async def _check_duplicate_by_vector(
-        self,
-        memory: Memory,
-        user_id: str,
-        group_id: Optional[str] = None,
-        similarity_threshold: float = 0.95
-    ) -> Optional[Memory]:
-        """使用向量相似度检查重复记忆
-        
-        性能优化版本：使用ChromaDB的向量查询直接找到最相似的记忆，
-        避免加载全部记忆。
-        
-        Args:
-            memory: 新记忆
-            user_id: 用户ID
-            group_id: 群组ID
-            similarity_threshold: 向量相似度阈值（默认0.95，越高越严格）
-            
-        Returns:
-            Optional[Memory]: 如果找到重复记忆则返回，否则返回None
-        """
-        if not self.chroma_manager:
-            return None
-        
-        try:
-            # 使用向量查询找到最相似的记忆（只查询5条）
-            similar_memories = await self.chroma_manager.query_memories(
-                query_text=memory.content,
-                user_id=user_id,
-                group_id=group_id,
-                top_k=5
-            )
-            
-            if not similar_memories:
-                return None
-            
-            # 检查是否有高相似度的记忆
-            for existing in similar_memories:
-                # 跳过自己（如果已经存在）
-                if existing.id == memory.id:
-                    continue
-                
-                # 使用文本相似度进行精确验证
-                text_sim = self._calculate_similarity(memory.content, existing.content)
-                if text_sim >= similarity_threshold:
-                    logger.debug(f"Found duplicate via vector search: {existing.id} (text_sim={text_sim:.3f})")
-                    return existing
-            
-            return None
-            
-        except Exception as e:
-            logger.warning(f"Vector-based duplicate check failed: {e}, falling back to text-based")
-            return None
-    
-    async def _check_conflicts_by_vector(
-        self,
-        memory: Memory,
-        user_id: str,
-        group_id: Optional[str] = None
-    ) -> List[Memory]:
-        """使用向量相似度检查记忆冲突
-        
-        性能优化版本：使用ChromaDB的向量查询找到语义相似的记忆，
-        然后检查是否存在语义冲突。
-        
-        Args:
-            memory: 新记忆
-            user_id: 用户ID
-            group_id: 群组ID
-            
-        Returns:
-            List[Memory]: 冲突的记忆列表
-        """
-        conflicts = []
-        
-        if not self.chroma_manager:
-            return conflicts
-        
-        try:
-            # 使用向量查询找到语义相关的记忆
-            similar_memories = await self.chroma_manager.query_memories(
-                query_text=memory.content,
-                user_id=user_id,
-                group_id=group_id,
-                top_k=10
-            )
-            
-            if not similar_memories:
-                return conflicts
-            
-            # 检查语义冲突
-            for existing in similar_memories:
-                if existing.id == memory.id:
-                    continue
-                
-                # 只检查相同类型的记忆
-                if existing.type != memory.type:
-                    continue
-                
-                # 检查内容相似度
-                content_sim = self._calculate_content_similarity(memory.content, existing.content)
-                if content_sim < 0.3:
-                    continue
-                
-                # 检查是否为相反内容
-                if self._is_opposite(memory.content, existing.content):
-                    conflicts.append(existing)
-                    memory.add_conflict(existing.id)
-                    logger.debug(f"Conflict detected via vector search: {memory.id} vs {existing.id}")
-            
-            return conflicts
-            
-        except Exception as e:
-            logger.warning(f"Vector-based conflict check failed: {e}")
-            return conflicts
-    
-    def _find_duplicate_from_results(
-        self,
-        memory: Memory,
-        similar_memories: List[Memory],
-        similarity_threshold: float = 0.95
-    ) -> Optional[Memory]:
-        """从查询结果中查找重复记忆
-        
-        用于共享查询结果的优化版本，避免重复查询。
-        
-        Args:
-            memory: 新记忆
-            similar_memories: 相似记忆列表（来自 query_memories 结果）
-            similarity_threshold: 文本相似度阈值
-            
-        Returns:
-            Optional[Memory]: 如果找到重复记忆则返回，否则返回None
-        """
-        if not similar_memories:
-            return None
-        
-        # 只检查前5条（与原始逻辑一致）
-        for existing in similar_memories[:5]:
-            # 跳过自己
-            if existing.id == memory.id:
-                continue
-            
-            # 使用文本相似度进行精确验证
-            text_sim = self._calculate_similarity(memory.content, existing.content)
-            if text_sim >= similarity_threshold:
-                logger.debug(f"Found duplicate via vector search: {existing.id} (text_sim={text_sim:.3f})")
-                return existing
-        
-        return None
-    
-    def _find_conflicts_from_results(
-        self,
-        memory: Memory,
-        similar_memories: List[Memory]
-    ) -> List[Memory]:
-        """从查询结果中查找冲突记忆
-        
-        用于共享查询结果的优化版本，避免重复查询。
-        
-        Args:
-            memory: 新记忆
-            similar_memories: 相似记忆列表（来自 query_memories 结果）
-            
-        Returns:
-            List[Memory]: 冲突的记忆列表
-        """
-        conflicts = []
-        
-        if not similar_memories:
-            return conflicts
-        
-        # 检查语义冲突
-        for existing in similar_memories:
-            if existing.id == memory.id:
-                continue
-            
-            # 只检查相同类型的记忆
-            if existing.type != memory.type:
-                continue
-            
-            # 检查内容相似度
-            content_sim = self._calculate_content_similarity(memory.content, existing.content)
-            if content_sim < 0.3:
-                continue
-            
-            # 检查是否为相反内容
-            if self._is_opposite(memory.content, existing.content):
-                conflicts.append(existing)
-                memory.add_conflict(existing.id)
-                logger.debug(f"Conflict detected via vector search: {memory.id} vs {existing.id}")
-        
-        return conflicts
-    
-    async def _resolve_conflicts(
-        self,
-        new_memory: Memory,
-        conflicting_memories: List[Memory]
-    ) -> bool:
-        """解决记忆冲突
-        
-        冲突解决策略：
-        1. 如果新记忆是用户显式请求的，优先采用新记忆
-        2. 如果新记忆置信度更高，更新旧记忆
-        3. 如果旧记忆质量等级更高，保留旧记忆
-        4. 否则标记为需要用户确认
-        
-        Args:
-            new_memory: 新记忆
-            conflicting_memories: 冲突的记忆列表
-            
-        Returns:
-            bool: 是否成功解决冲突
-        """
-        if not conflicting_memories:
-            return True
-        
-        resolved_count = 0
-        
-        for old_memory in conflicting_memories:
-            resolution = self._determine_conflict_resolution(new_memory, old_memory)
-            
-            if resolution == "replace":
-                # 用新记忆替换旧记忆
-                try:
-                    if self.chroma_manager:
-                        await self.chroma_manager.delete_memory(old_memory.id)
-                        logger.info(f"Conflict resolved: replaced {old_memory.id} with {new_memory.id}")
-                        resolved_count += 1
-                except Exception as e:
-                    logger.error(f"Failed to replace conflicting memory: {e}")
-                    
-            elif resolution == "keep_old":
-                # 保留旧记忆，标记新记忆为低质量
-                new_memory.quality_level = QualityLevel.LOW_CONFIDENCE
-                new_memory.metadata["conflict_resolution"] = "kept_old"
-                logger.info(f"Conflict resolved: keeping {old_memory.id}, lowered {new_memory.id} quality")
-                resolved_count += 1
-                
-            elif resolution == "merge":
-                # 合并两条记忆（增加旧记忆的置信度）
-                try:
-                    if self.chroma_manager:
-                        old_memory.confidence = min(1.0, old_memory.confidence + 0.1)
-                        old_memory.access_count += 1
-                        await self.chroma_manager.update_memory(old_memory)
-                        logger.info(f"Conflict resolved: merged into {old_memory.id}")
-                        resolved_count += 1
-                        # 返回False表示不需要存储新记忆
-                        return False
-                except Exception as e:
-                    logger.error(f"Failed to merge memories: {e}")
-                    
-            else:  # "pending"
-                # 标记为待确认
-                new_memory.metadata["conflict_status"] = "pending_user_confirmation"
-                new_memory.metadata["conflicting_memory_id"] = old_memory.id
-                logger.info(f"Conflict pending: {new_memory.id} vs {old_memory.id}")
-        
-        return resolved_count == len(conflicting_memories)
-    
-    def _determine_conflict_resolution(
-        self,
-        new_memory: Memory,
-        old_memory: Memory
-    ) -> str:
-        """确定冲突解决策略
-        
-        Args:
-            new_memory: 新记忆
-            old_memory: 旧记忆
-            
-        Returns:
-            str: 解决策略 ("replace", "keep_old", "merge", "pending")
-        """
-        # 策略1：用户显式请求的新记忆优先
-        if new_memory.is_user_requested:
-            return "replace"
-        
-        # 策略2：高质量等级的记忆优先
-        if new_memory.quality_level.value > old_memory.quality_level.value + 1:
-            return "replace"
-        if old_memory.quality_level.value > new_memory.quality_level.value + 1:
-            return "keep_old"
-        
-        # 策略3：置信度差异较大时
-        confidence_diff = new_memory.confidence - old_memory.confidence
-        if confidence_diff > 0.3:
-            return "replace"
-        if confidence_diff < -0.3:
-            return "keep_old"
-        
-        # 策略4：如果内容非常相似但不完全相反，可能是更新
-        if new_memory.created_time > old_memory.created_time:
-            # 更新的信息，检查是否是细微修正
-            content_sim = self._calculate_similarity(new_memory.content, old_memory.content)
-            if content_sim > 0.7:
-                return "replace"  # 可能是用户纠正旧信息
-        
-        # 默认：需要用户确认
-        return "pending"
-    
-    async def check_duplicate(
-        self,
-        memory: Memory,
-        existing_memories: List[Memory],
-        similarity_threshold: float = 0.9
-    ) -> Optional[Memory]:
-        """检查重复记忆
-
-        使用多阶段检测策略优化性能：
-        1. 快速预筛选：检查相同用户、相同类型、时间相近的记忆
-        2. 使用ChromaDB向量查询（如果可用）进行近似最近邻搜索
-        3. 精确相似度计算：对候选记忆进行详细比较
-
-        Args:
-            memory: 新记忆
-            existing_memories: 已有记忆列表
-            similarity_threshold: 相似度阈值
-
-        Returns:
-            Optional[Memory]: 如果找到重复记忆则返回，否则返回None
-        """
-        # 如果没有现有记忆，直接返回
-        if not existing_memories:
-            return None
-
-        # 阶段1: 快速预筛选
-        # 只检查最近7天内的记忆，减少比较数量
-        from datetime import datetime, timedelta
-        cutoff_time = datetime.now() - timedelta(days=7)
-
-        candidates = []
-        for existing in existing_memories:
-            # 跳过太久远的记忆
-            if existing.created_time < cutoff_time:
-                continue
-            # 只检查相同用户的记忆
-            if existing.user_id != memory.user_id:
-                continue
-            # 优先检查相同类型的记忆
-            if existing.type == memory.type:
-                candidates.insert(0, existing)  # 插入到前面优先检查
-            else:
-                candidates.append(existing)
-
-        # 限制候选数量，避免过多计算
-        max_candidates = min(50, len(candidates))
-        candidates = candidates[:max_candidates]
-
-        # 阶段2: 多层级相似度检测
-        for existing in candidates:
-            # 快速预检：长度差异过大的直接跳过
-            len_ratio = len(memory.content) / max(1, len(existing.content))
-            if len_ratio < 0.5 or len_ratio > 2.0:
-                continue
-
-            # 层级1: 快速字符级相似度
-            quick_sim = self._calculate_quick_similarity(memory.content, existing.content)
-            if quick_sim < similarity_threshold * 0.8:  # 放宽阈值进行预筛选
-                continue
-
-            # 层级2: 精确相似度计算
-            precise_sim = self._calculate_similarity(memory.content, existing.content)
-            if precise_sim > similarity_threshold:
-                logger.info(f"Duplicate memory detected: {memory.id} similar to {existing.id} (sim={precise_sim:.3f})")
-                return existing
-
-        return None
-
-    def _calculate_quick_similarity(self, text1: str, text2: str) -> float:
-        """快速相似度计算（用于预筛选）
-
-        使用字符集合和哈希签名进行快速比较，时间复杂度 O(n)。
-
-        Args:
-            text1: 文本1
-            text2: 文本2
-
-        Returns:
-            float: 相似度（0-1）
-        """
-        # 方法1: 字符集合Jaccard相似度
-        set1 = set(text1.lower())
-        set2 = set(text2.lower())
-
-        if not set1 or not set2:
-            return 0.0
-
-        intersection = len(set1 & set2)
-        union = len(set1 | set2)
-
-        if union == 0:
-            return 0.0
-
-        char_sim = intersection / union
-
-        # 方法2: 词集合Jaccard相似度（更精确但稍慢）
-        words1 = set(text1.lower().split())
-        words2 = set(text2.lower().split())
-
-        if words1 and words2:
-            word_intersection = len(words1 & words2)
-            word_union = len(words1 | words2)
-            word_sim = word_intersection / word_union if word_union > 0 else 0.0
-        else:
-            word_sim = 0.0
-
-        # 综合得分：字符相似度40% + 词相似度60%
-        return 0.4 * char_sim + 0.6 * word_sim
-
-    def _calculate_similarity(self, text1: str, text2: str) -> float:
-        """计算精确文本相似度 - 多算法融合版
-
-        使用三种互补的相似度算法，综合评估文本语义相似度：
-
-        算法1 - N-gram相似度（权重40%）：
-            使用2-gram捕捉局部字符模式
-            对中文尤其有效，能识别相似词组和短语
-            计算：|intersection(gram1, gram2)| / |union(gram1, gram2)|
-
-        算法2 - 序列相似度（权重40%）：
-            使用Python difflib.SequenceMatcher
-            基于最长公共子序列（LCS）算法
-            能识别整体结构相似性，对词序变化敏感
-
-        算法3 - 最长公共子串（权重20%）：
-            使用动态规划计算最长公共子串长度
-            空间优化：滚动数组将O(M*N)降至O(N)
-            识别连续匹配的片段
-
-        综合公式：similarity = 0.4*ngram + 0.4*sequence + 0.2*lcs
-
-        复杂度：
-            时间：O(N*M)，N和M为文本长度
-            空间：O(N)，使用滚动数组优化
-
-        Args:
-            text1: 待比较的文本1
-            text2: 待比较的文本2
-
-        Returns:
-            float: 综合相似度得分（0-1）
-        """
-        text1_lower = text1.lower()
-        text2_lower = text2.lower()
-
-        # 方法1: N-gram相似度（捕捉局部模式）
-        def get_ngrams(text, n=2):
-            return set(text[i:i+n] for i in range(len(text) - n + 1))
-
-        ngrams1 = get_ngrams(text1_lower, 2)
-        ngrams2 = get_ngrams(text2_lower, 2)
-
-        if ngrams1 and ngrams2:
-            ngram_intersection = len(ngrams1 & ngrams2)
-            ngram_union = len(ngrams1 | ngrams2)
-            ngram_sim = ngram_intersection / ngram_union if ngram_union > 0 else 0.0
-        else:
-            ngram_sim = 0.0
-
-        # 方法2: 序列相似度（使用difflib）
-        import difflib
-        seq_sim = difflib.SequenceMatcher(None, text1_lower, text2_lower).ratio()
-
-        # 方法3: 公共子串比例
-        min_len = min(len(text1_lower), len(text2_lower))
-        max_len = max(len(text1_lower), len(text2_lower))
-        if min_len > 0:
-            # 找到最长公共子串
-            lcs_len = self._longest_common_substring_length(text1_lower, text2_lower)
-            lcs_sim = lcs_len / max_len if max_len > 0 else 0.0
-        else:
-            lcs_sim = 0.0
-
-        # 综合得分
-        return 0.4 * ngram_sim + 0.4 * seq_sim + 0.2 * lcs_sim
-
-    def _longest_common_substring_length(self, s1: str, s2: str) -> int:
-        """计算最长公共子串长度（动态规划）
-
-        Args:
-            s1: 字符串1
-            s2: 字符串2
-
-        Returns:
-            int: 最长公共子串长度
-        """
-        if not s1 or not s2:
-            return 0
-
-        m, n = len(s1), len(s2)
-        # 使用滚动数组优化空间复杂度
-        prev = [0] * (n + 1)
-        curr = [0] * (n + 1)
-        max_length = 0
-
-        for i in range(1, m + 1):
-            for j in range(1, n + 1):
-                if s1[i-1] == s2[j-1]:
-                    curr[j] = prev[j-1] + 1
-                    max_length = max(max_length, curr[j])
-                else:
-                    curr[j] = 0
-            prev, curr = curr, prev
-
-        return max_length
-    
-    def check_conflicts(
-        self,
-        memory: Memory,
-        existing_memories: List[Memory]
-    ) -> List[Memory]:
-        """检查记忆冲突
-
-        优化策略：
-        1. 快速预筛选：只检查相同类型、相同主题、时间相近的记忆
-        2. 限制检查数量，避免大规模遍历
-        3. 使用分层检测策略
-
-        Args:
-            memory: 新记忆
-            existing_memories: 已有记忆列表
-
-        Returns:
-            List[Memory]: 冲突的记忆列表
-        """
-        conflicts = []
-
-        if not existing_memories:
-            return conflicts
-
-        # 快速预筛选：只检查相关记忆
-        from datetime import datetime, timedelta
-        cutoff_time = datetime.now() - timedelta(days=30)  # 只检查最近30天
-
-        candidates = []
-        for existing in existing_memories:
-            # 只检查相同类型的记忆
-            if existing.type != memory.type:
-                continue
-            # 跳过太久远的记忆
-            if existing.created_time < cutoff_time:
-                continue
-            # 只检查相同用户的记忆
-            if existing.user_id != memory.user_id:
-                continue
-            candidates.append(existing)
-
-        # 限制候选数量
-        max_candidates = min(30, len(candidates))
-        candidates = candidates[:max_candidates]
-
-        # 检查冲突
-        for existing in candidates:
-            # 快速预检：长度和主题相关性
-            len_ratio = len(memory.content) / max(1, len(existing.content))
-            if len_ratio < 0.3 or len_ratio > 3.0:
-                continue
-
-            # 检查内容相似度（需要有足够相似度才可能冲突）
-            content_sim = self._calculate_content_similarity(memory.content, existing.content)
-            if content_sim < 0.3:  # 内容完全不相关，不可能冲突
-                continue
-
-            # 检查是否为相反内容
-            if self._is_opposite(memory.content, existing.content):
-                conflicts.append(existing)
-                memory.add_conflict(existing.id)
-                logger.info(f"Conflict detected: {memory.id} conflicts with {existing.id} (similarity={content_sim:.3f})")
-
-        return conflicts
-    
-    def _is_opposite(self, text1: str, text2: str) -> bool:
-        """判断两个文本是否相反（语义冲突检测）
-
-        基于 companion-memory framework 第12节的冲突检测要求，实现多策略语义冲突检测：
-
-        策略1 - 否定词检测（权重最高）：
-            检测逻辑：text1包含否定词而text2不包含，且核心内容相似度>0.6
-            示例："我喜欢咖啡" vs "我不喜欢咖啡" → 冲突
-
-        策略2 - 反义词检测：
-            预定义反义词库覆盖常见对立概念（喜欢/讨厌、开心/难过等）
-            要求两个文本有共同主题（≥2个共同非停用词）
-            示例："工作很开心" vs "工作很痛苦" → 冲突
-
-        策略3 - 数值/时间冲突：
-            检测相同描述框架下的数值差异
-            示例："我有3个苹果" vs "我有5个苹果" → 冲突
-
-        复杂度：O(N + M)，N/M为文本长度
-
-        Args:
-            text1: 待比较的文本1
-            text2: 待比较的文本2
-
-        Returns:
-            bool: 是否存在语义冲突
-        """
-        text1_lower = text1.lower()
-        text2_lower = text2.lower()
-
-        # 策略1: 否定词检测
-        negation_words = ["不", "没", "无", "非", "别", "不是", "don't", "not", "no", "never", "不喜欢", "讨厌", "喜欢"]
-
-        for neg in negation_words:
-            # 情况1: 否定词在text1但不在text2
-            if neg in text1_lower and neg not in text2_lower:
-                text1_clean = text1_lower.replace(neg, "").strip()
-                # 计算相似度，如果核心内容相似则可能是冲突
-                similarity = self._calculate_content_similarity(text1_clean, text2_lower)
-                if similarity > 0.6:
-                    return True
-            # 情况2: 否定词在text2但不在text1
-            elif neg in text2_lower and neg not in text1_lower:
-                text2_clean = text2_lower.replace(neg, "").strip()
-                similarity = self._calculate_content_similarity(text1_lower, text2_clean)
-                if similarity > 0.6:
-                    return True
-
-        # 策略2: 反义词检测
-        antonym_pairs = [
-            ("喜欢", "讨厌"), ("喜欢", "恨"), ("爱", "恨"),
-            ("开心", "难过"), ("高兴", "伤心"), ("快乐", "痛苦"),
-            ("好", "坏"), ("优秀", "差劲"), ("成功", "失败"),
-            ("支持", "反对"), ("同意", "拒绝"),
-            ("有", "没有"), ("能", "不能"), ("会", "不会"),
-            ("大", "小"), ("多", "少"), ("高", "低"),
-            ("喜欢", "dislike"), ("讨厌", "like"), ("love", "hate"),
-            ("happy", "sad"), ("good", "bad"), ("success", "failure")
-        ]
-
-        for word1, word2 in antonym_pairs:
-            if (word1 in text1_lower and word2 in text2_lower) or \
-               (word1 in text2_lower and word2 in text1_lower):
-                # 检查是否有相同的主题/对象
-                if self._have_common_subject(text1_lower, text2_lower):
-                    return True
-
-        # 策略3: 数值冲突检测
-        # 提取数值并检查是否冲突
-        numbers1 = re.findall(r'\d+', text1)
-        numbers2 = re.findall(r'\d+', text2)
-        if numbers1 and numbers2 and numbers1 != numbers2:
-            # 如果有相同的非数字部分，但数值不同，可能是冲突
-            non_num1 = re.sub(r'\d+', '{NUM}', text1)
-            non_num2 = re.sub(r'\d+', '{NUM}', text2)
-            if non_num1 == non_num2 and set(numbers1) != set(numbers2):
-                return True
-
-        return False
-
-    def _calculate_content_similarity(self, text1: str, text2: str) -> float:
-        """计算内容相似度（基于字符和词组）
-
-        Args:
-            text1: 文本1
-            text2: 文本2
-
-        Returns:
-            float: 相似度 (0-1)
-        """
-        # 使用N-gram计算相似度
-        def get_ngrams(text, n=2):
-            text = text.lower()
-            return set(text[i:i+n] for i in range(len(text) - n + 1))
-
-        # 2-gram相似度
-        ngrams1 = get_ngrams(text1, 2)
-        ngrams2 = get_ngrams(text2, 2)
-
-        if not ngrams1 or not ngrams2:
-            return 0.0
-
-        intersection = len(ngrams1 & ngrams2)
-        union = len(ngrams1 | ngrams2)
-
-        if union == 0:
-            return 0.0
-
-        return intersection / union
-
-    def _have_common_subject(self, text1: str, text2: str) -> bool:
-        """检查两个文本是否有相同的主题/对象
-
-        Args:
-            text1: 文本1
-            text2: 文本2
-
-        Returns:
-            bool: 是否有共同主题
-        """
-        # 简单的共同词检测（排除停用词）
-        stopwords = {'的', '了', '在', '是', '我', '你', '他', '她', '它', '我们', '你们',
-                     '他们', '这', '那', '这些', '那些', '和', '与', '或', '就', '都', '而',
-                     '及', '与', '或', '但是', '然而', 'the', 'a', 'an', 'is', 'are', 'was',
-                     'were', 'be', 'been', 'being', 'have', 'has', 'had', 'do', 'does', 'did',
-                     'will', 'would', 'could', 'should', 'may', 'might', 'must', 'shall',
-                     'can', 'need', 'dare', 'ought', 'used', 'to', 'of', 'in', 'for', 'on',
-                     'with', 'at', 'by', 'from', 'as', 'into', 'through', 'during', 'before',
-                     'after', 'above', 'below', 'between', 'under', 'again', 'further', 'then'}
-
-        # 提取关键词（长度大于1的词）
-        words1 = set(w for w in re.findall(r'\w+', text1) if len(w) > 1 and w not in stopwords)
-        words2 = set(w for w in re.findall(r'\w+', text2) if len(w) > 1 and w not in stopwords)
-
-        if not words1 or not words2:
-            return False
-
-        # 如果有超过2个共同词，认为有共同主题
-        common_words = words1 & words2
-        return len(common_words) >= 2
-    
     def set_config(self, config: Dict[str, Any]):
         """设置配置
         
@@ -1219,3 +475,148 @@ class MemoryCaptureEngine:
         self.enable_duplicate_check = config.get("enable_duplicate_check", DEFAULTS.memory.enable_duplicate_check)
         self.enable_conflict_check = config.get("enable_conflict_check", DEFAULTS.memory.enable_conflict_check)
         self.enable_entity_extraction = config.get("enable_entity_extraction", DEFAULTS.memory.enable_entity_extraction)
+    
+    # ===== 向后兼容的委托方法 =====
+    
+    async def _check_duplicate_by_vector(
+        self,
+        memory: Memory,
+        user_id: str,
+        group_id: Optional[str] = None,
+        similarity_threshold: float = 0.95
+    ) -> Optional[Memory]:
+        """使用向量相似度检查重复记忆（向后兼容）
+        
+        委托给 ConflictResolver 实现。
+        """
+        return await self.conflict_resolver.check_duplicate_by_vector(
+            memory, user_id, group_id, self.chroma_manager, similarity_threshold
+        )
+    
+    async def _check_conflicts_by_vector(
+        self,
+        memory: Memory,
+        user_id: str,
+        group_id: Optional[str] = None
+    ) -> List[Memory]:
+        """使用向量相似度检查记忆冲突（向后兼容）
+        
+        委托给 ConflictResolver 实现。
+        """
+        return await self.conflict_resolver.check_conflicts_by_vector(
+            memory, user_id, group_id, self.chroma_manager
+        )
+    
+    def _find_duplicate_from_results(
+        self,
+        memory: Memory,
+        similar_memories: List[Memory],
+        similarity_threshold: float = 0.95
+    ) -> Optional[Memory]:
+        """从查询结果中查找重复记忆（向后兼容）
+        
+        委托给 ConflictResolver 实现。
+        """
+        return self.conflict_resolver.find_duplicate_from_results(
+            memory, similar_memories, similarity_threshold
+        )
+    
+    def _find_conflicts_from_results(
+        self,
+        memory: Memory,
+        similar_memories: List[Memory]
+    ) -> List[Memory]:
+        """从查询结果中查找冲突记忆（向后兼容）
+        
+        委托给 ConflictResolver 实现。
+        """
+        return self.conflict_resolver.find_conflicts_from_results(memory, similar_memories)
+    
+    async def _resolve_conflicts(
+        self,
+        new_memory: Memory,
+        conflicting_memories: List[Memory]
+    ) -> bool:
+        """解决记忆冲突（向后兼容）
+        
+        委托给 ConflictResolver 实现。
+        """
+        return await self.conflict_resolver.resolve_conflicts(
+            new_memory, conflicting_memories, self.chroma_manager
+        )
+    
+    def _determine_conflict_resolution(
+        self,
+        new_memory: Memory,
+        old_memory: Memory
+    ) -> str:
+        """确定冲突解决策略（向后兼容）
+        
+        委托给 ConflictResolver 实现。
+        """
+        return self.conflict_resolver._determine_conflict_resolution(new_memory, old_memory)
+    
+    async def check_duplicate(
+        self,
+        memory: Memory,
+        existing_memories: List[Memory],
+        similarity_threshold: float = 0.9
+    ) -> Optional[Memory]:
+        """检查重复记忆（向后兼容）
+        
+        委托给 ConflictResolver 实现。
+        """
+        return self.conflict_resolver.check_duplicate(memory, existing_memories, similarity_threshold)
+    
+    def check_conflicts(
+        self,
+        memory: Memory,
+        existing_memories: List[Memory]
+    ) -> List[Memory]:
+        """检查记忆冲突（向后兼容）
+        
+        委托给 ConflictResolver 实现。
+        """
+        return self.conflict_resolver.check_conflicts(memory, existing_memories)
+    
+    def _is_opposite(self, text1: str, text2: str) -> bool:
+        """判断两个文本是否相反（向后兼容）
+        
+        委托给 ConflictResolver 实现。
+        """
+        return self.conflict_resolver.is_opposite(text1, text2)
+    
+    def _calculate_quick_similarity(self, text1: str, text2: str) -> float:
+        """快速相似度计算（向后兼容）
+        
+        委托给 SimilarityCalculator 实现。
+        """
+        return self.conflict_resolver.similarity_calculator.calculate_quick_similarity(text1, text2)
+    
+    def _calculate_similarity(self, text1: str, text2: str) -> float:
+        """计算精确文本相似度（向后兼容）
+        
+        委托给 SimilarityCalculator 实现。
+        """
+        return self.conflict_resolver.similarity_calculator.calculate_similarity(text1, text2)
+    
+    def _longest_common_substring_length(self, s1: str, s2: str) -> int:
+        """计算最长公共子串长度（向后兼容）
+        
+        委托给 SimilarityCalculator 实现。
+        """
+        return self.conflict_resolver.similarity_calculator._longest_common_substring_length(s1, s2)
+    
+    def _calculate_content_similarity(self, text1: str, text2: str) -> float:
+        """计算内容相似度（向后兼容）
+        
+        委托给 SimilarityCalculator 实现。
+        """
+        return self.conflict_resolver.similarity_calculator.calculate_content_similarity(text1, text2)
+    
+    def _have_common_subject(self, text1: str, text2: str) -> bool:
+        """检查两个文本是否有相同的主题/对象（向后兼容）
+        
+        委托给 SimilarityCalculator 实现。
+        """
+        return self.conflict_resolver.similarity_calculator.have_common_subject(text1, text2)

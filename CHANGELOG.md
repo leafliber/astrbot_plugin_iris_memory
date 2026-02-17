@@ -3,6 +3,34 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.4.2] - 2026-02-17
+
+### Fixed
+- **修复热更新后 Chroma 数据库查询崩溃** (`iris_memory/storage/chroma_manager.py`)
+  - 问题：热更新（hot-reload）后，`terminate()` 将 `collection` 设为 `None`，新消息在 `initialize()` 完成前到达时触发 `'NoneType' object has no attribute 'query'` 错误
+  - 解决方案：为 ChromaManager 添加 `_is_ready` 标志和 `_ensure_ready()` 前置检查，在所有公开的数据操作方法（`query_memories`、`add_memory`、`update_memory`、`delete_memory`、`delete_session`、`get_all_memories`、`count_memories`、`get_memories_by_storage_layer` 等）入口进行空值保护
+- **修复热更新期间 `close()` 调用 `client.reset()` 导致数据丢失** (`iris_memory/storage/chroma_manager.py`)
+  - 问题：`close()` 调用 `client.reset()` 会清除所有 Chroma 数据（包括持久化的向量数据），热更新后记忆全部丢失
+  - 解决方案：`close()` 不再调用 `reset()`，仅释放客户端和集合引用，持久化数据保留在磁盘上，下次初始化时自动加载
+- **修复全局 `_identity_service` 在热更新后未清理** (`iris_memory/services/memory_service.py`, `iris_memory/utils/member_utils.py`)
+  - 问题：`terminate()` 未调用 `set_identity_service(None)`，导致旧的服务引用残留
+  - 解决方案：在 `terminate()` 中显式清理全局状态引用
+
+### Changed
+- **新增初始化状态跟踪机制** (`iris_memory/services/memory_service.py`, `main.py`)
+  - 为 `MemoryService` 添加 `_is_initialized` 标志和 `is_initialized` 属性，以及 `asyncio.Lock` 防止并发初始化
+  - `main.py` 的 `on_llm_request`、`on_llm_response`、`on_all_messages` 三个核心 Hook 添加 `is_initialized` 前置检查，初始化未完成时优雅跳过或提示
+  - `terminate()` 立即将 `_is_initialized` 设为 `False`，阻止新请求进入
+- **改进服务销毁流程** (`iris_memory/services/memory_service.py`)
+  - 按依赖顺序停止后台任务（消费者 → 生产者）：BatchProcessor → ProactiveManager → LifecycleManager → ChromaManager
+  - 每个组件的关闭逻辑独立 try/except 包裹，一个组件失败不影响其他组件
+  - `terminate()` 中保存 KV 数据操作增加异常保护
+- **后台任务启停日志增强** (`iris_memory/capture/batch_processor.py`, `iris_memory/storage/lifecycle_manager.py`, `iris_memory/proactive/proactive_manager.py`)
+  - 所有 `stop()` 方法添加 `[Hot-Reload]` 前缀日志，便于热更新问题排查
+  - 变更文件：`batch_processor.py`（剩余队列处理增加异常保护）、`lifecycle_manager.py`（批量取消并等待任务，清理引用）、`proactive_manager.py`（处理任务取消异常）
+
+---
+
 ## [v1.4.1] - 2026-02-17
 
 ### Fixed
