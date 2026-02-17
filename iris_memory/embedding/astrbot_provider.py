@@ -18,9 +18,6 @@ class AstrBotProvider(EmbeddingProvider):
     
     使用 AstrBot 内置的 Embedding 接口生成嵌入向量。
     这是最高优先级的嵌入源，优先使用。
-    
-    使用 AstrBot v4.5.7+ 新API:
-    - self.context.get_all_embedding_providers() 获取所有嵌入提供商
     """
 
     def __init__(self, config: Any, astrbot_context: Any = None):
@@ -46,9 +43,6 @@ class AstrBotProvider(EmbeddingProvider):
 
     async def initialize(self) -> bool:
         """初始化 AstrBot 提供者
-        
-        使用 AstrBot v4.5.7+ 新API:
-        - self.context.get_all_embedding_providers() 获取所有嵌入提供商
 
         Returns:
             bool: 是否初始化成功
@@ -58,7 +52,7 @@ class AstrBotProvider(EmbeddingProvider):
             return False
             
         try:
-            # 使用新的 AstrBot API (v4.5.7+) 获取嵌入提供商
+            # 获取嵌入提供商
             if hasattr(self.astrbot_context, 'get_all_embedding_providers'):
                 providers = self.astrbot_context.get_all_embedding_providers()
                 if providers:

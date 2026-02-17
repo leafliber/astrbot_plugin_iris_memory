@@ -18,12 +18,6 @@ class MemoryDefaults:
     # RIF评分
     rif_threshold: float = 0.4
     
-    # 多维度评分配置
-    enable_multidimensional_scoring: bool = False  # 默认使用传统RIF
-    multidimensional_advanced_features: bool = True
-    multidimensional_context_adaptation: bool = True
-    multidimensional_fallback_to_rif: bool = True
-    
     # 记忆升级（高级）
     upgrade_mode: str = "rule"
     llm_upgrade_batch_size: int = 5

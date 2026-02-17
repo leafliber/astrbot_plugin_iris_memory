@@ -1,7 +1,6 @@
 """
 RIF评分器
 根据companion-memory框架文档实现RIF（Recency, Relevance, Frequency）评分系统
-现已扩展支持多维度评分系统
 """
 
 import math
@@ -21,22 +20,11 @@ class RIFScorer:
     
     基于科学遗忘曲线，使用Recency（时近性）、Relevance（相关性）、Frequency（频率）
     三个维度评估记忆价值，实现选择性遗忘机制。
-    
-    现已支持多维度评分系统，可通过配置切换到更精细的五维度评分。
     """
     
-    def __init__(self, use_multidimensional: bool = False, **multidimensional_kwargs):
-        """初始化RIF评分器
-        
-        Args:
-            use_multidimensional: 是否使用多维度评分系统（默认False，保持向后兼容）
-            **multidimensional_kwargs: 传递给MultidimensionalScorer的参数
-        """
-        self.use_multidimensional = use_multidimensional
-        self._multidimensional_scorer = None
-        self._multidimensional_kwargs = multidimensional_kwargs
-        
-        # 传统RIF权重配置
+    def __init__(self):
+        """初始化RIF评分器"""
+        # RIF权重配置
         self.recency_weight = 0.4  # 时近性权重
         self.relevance_weight = 0.3  # 相关性权重
         self.frequency_weight = 0.3  # 频率权重
@@ -51,15 +39,10 @@ class RIFScorer:
         
         # 统计信息
         self.stats = {
-            'traditional_calculations': 0,
-            'multidimensional_calculations': 0,
-            'fallbacks': 0
+            'calculations': 0
         }
         
-        if use_multidimensional:
-            logger.info("RIF Scorer initialized with multidimensional scoring enabled")
-        else:
-            logger.info("RIF Scorer initialized with traditional RIF scoring")
+        logger.info("RIF Scorer initialized")
     
     def calculate_rif(
         self,
@@ -68,78 +51,17 @@ class RIFScorer:
     ) -> float:
         """计算记忆的RIF评分
         
-        根据配置选择传统RIF评分或多维度评分
-        
-        Args:
-            memory: 记忆对象
-            context: 上下文信息（用于多维度评分）
-            
-        Returns:
-            float: RIF评分（0-1）
-        """
-        if self.use_multidimensional:
-            return self._calculate_multidimensional_rif(memory, context)
-        else:
-            return self._calculate_traditional_rif(memory)
-    
-    def _calculate_multidimensional_rif(
-        self,
-        memory: Memory,
-        context: Optional[Dict[str, Any]] = None
-    ) -> float:
-        """使用多维度评分系统计算RIF分数
-        
-        Args:
-            memory: 记忆对象
-            context: 上下文信息
-            
-        Returns:
-            float: 多维度评分结果（0-1）
-        """
-        try:
-            # 延迟导入和初始化MultidimensionalScorer
-            if self._multidimensional_scorer is None:
-                from iris_memory.analysis.multidimensional_scorer import MultidimensionalScorer
-                # 从kwargs中移除fallback_to_rif，避免与下面的显式参数冲突
-                kwargs = {k: v for k, v in self._multidimensional_kwargs.items()
-                          if k != 'fallback_to_rif'}
-                self._multidimensional_scorer = MultidimensionalScorer(
-                    fallback_to_rif=False,  # 避免循环回退
-                    **kwargs
-                )
-                logger.debug("MultidimensionalScorer initialized")
-            
-            # 计算多维度得分
-            result = self._multidimensional_scorer.calculate_score(memory, context)
-            self.stats['multidimensional_calculations'] += 1
-            
-            # 更新记忆对象的RIF评分
-            memory.rif_score = result.final_score
-            
-            logger.debug(f"Multidimensional RIF calculated for memory {memory.id[:8]}: "
-                        f"score={result.final_score:.3f}, scenario={result.scenario_type.value}")
-            
-            return result.final_score
-            
-        except Exception as e:
-            logger.warning(f"Multidimensional scoring failed for memory {memory.id}, "
-                          f"falling back to traditional RIF: {e}")
-            self.stats['fallbacks'] += 1
-            return self._calculate_traditional_rif(memory)
-    
-    def _calculate_traditional_rif(self, memory: Memory) -> float:
-        """计算传统的RIF评分
-        
         RIF = 0.4×时近性 + 0.3×相关性 + 0.3×频率
         
         Args:
             memory: 记忆对象
+            context: 上下文信息（保留用于接口一致性）
             
         Returns:
             float: RIF评分（0-1）
         """
         try:
-            self.stats['traditional_calculations'] += 1
+            self.stats['calculations'] += 1
             
             # 计算各个维度
             recency = self._calculate_recency(memory)
@@ -162,50 +84,10 @@ class RIFScorer:
             return rif_score
             
         except Exception as e:
-            logger.error(f"Traditional RIF calculation failed for memory {memory.id}: {e}")
+            logger.error(f"RIF calculation failed for memory {memory.id}: {e}")
             # 返回默认中等评分
             memory.rif_score = 0.5
             return 0.5
-    
-    def enable_multidimensional_mode(self, **kwargs):
-        """启用多维度评分模式
-        
-        Args:
-            **kwargs: 传递给MultidimensionalScorer的参数
-        """
-        self.use_multidimensional = True
-        self._multidimensional_kwargs.update(kwargs)
-        self._multidimensional_scorer = None  # 重置，下次使用时重新初始化
-        logger.info("Multidimensional scoring mode enabled")
-    
-    def disable_multidimensional_mode(self):
-        """禁用多维度评分模式，回退到传统RIF"""
-        self.use_multidimensional = False
-        self._multidimensional_scorer = None
-        logger.info("Multidimensional scoring mode disabled, using traditional RIF")
-    
-    def get_scoring_mode(self) -> str:
-        """获取当前评分模式"""
-        return "multidimensional" if self.use_multidimensional else "traditional"
-    
-    def get_statistics(self) -> Dict[str, Any]:
-        """获取评分统计信息"""
-        base_stats = {
-            'scoring_mode': self.get_scoring_mode(),
-            'traditional_calculations': self.stats['traditional_calculations'],
-            'multidimensional_calculations': self.stats['multidimensional_calculations'],
-            'fallbacks': self.stats['fallbacks'],
-            'total_calculations': (
-                self.stats['traditional_calculations'] + 
-                self.stats['multidimensional_calculations']
-            )
-        }
-        
-        # 如果有多维度评分器，添加其统计信息
-        if self._multidimensional_scorer:
-            base_stats['multidimensional_stats'] = self._multidimensional_scorer.stats
-        
-        return base_stats
     
     def _calculate_recency(self, memory: Memory) -> float:
         """计算时近性得分（40%权重）
@@ -415,7 +297,7 @@ class RIFScorer:
         return DecayRate.get_decay_rate(memory.type)
     
     def _get_time_weight(self, access_time: datetime) -> float:
-        """根据时间差获取时间权重（基础版本）
+        """根据时间差获取时间权重
         
         根据framework文档：
         - 新记忆（7天内）：时间权重×1.2
@@ -441,7 +323,7 @@ class RIFScorer:
             return self.time_weights['very_old']
     
     def _get_detailed_time_weight(self, access_time: datetime) -> float:
-        """获取更详细的时间权重（改进版本）
+        """获取详细的时间权重
         
         提供更细粒度的时间权重：
         - 1小时内：1.5（非常新鲜）

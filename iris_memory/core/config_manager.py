@@ -24,12 +24,6 @@ CONFIG_KEY_MAPPING = {
     "memory.upgrade_mode": ("memory", "upgrade_mode", "rule"),
     "memory.chat_context_count": ("llm_integration", "chat_context_count", 10),
     
-    # 多维度评分设置
-    "memory.enable_multidimensional_scoring": ("memory", "enable_multidimensional_scoring", False),
-    "memory.multidimensional_advanced_features": ("memory", "multidimensional_advanced_features", True),
-    "memory.multidimensional_context_adaptation": ("memory", "multidimensional_context_adaptation", True),
-    "memory.multidimensional_fallback_to_rif": ("memory", "multidimensional_fallback_to_rif", True),
-    
     # LLM设置
     "llm.use_llm": ("message_processing", "use_llm_for_processing", False),
     
@@ -165,24 +159,7 @@ class ConfigManager:
     @property
     def upgrade_mode(self) -> str:
         return self.get("memory.upgrade_mode", "rule")
-    
-    # 多维度评分设置
-    @property
-    def enable_multidimensional_scoring(self) -> bool:
-        return self.get("memory.enable_multidimensional_scoring", False)
-    
-    @property
-    def multidimensional_advanced_features(self) -> bool:
-        return self.get("memory.multidimensional_advanced_features", True)
-    
-    @property
-    def multidimensional_context_adaptation(self) -> bool:
-        return self.get("memory.multidimensional_context_adaptation", True)
-    
-    @property
-    def multidimensional_fallback_to_rif(self) -> bool:
-        return self.get("memory.multidimensional_fallback_to_rif", True)
-    
+
     # 主动回复
     @property
     def proactive_reply_enabled(self) -> bool:

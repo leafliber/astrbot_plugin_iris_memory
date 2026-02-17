@@ -5,7 +5,7 @@ Member identity helpers.
 
 当 MemberIdentityService 已注册时，``format_member_tag`` 会委托给
 服务的 ``resolve_tag_sync``，从而实现名称变更追踪和活跃度统计。
-未注册时退回到纯函数逻辑，保持向后兼容。
+未注册时退回到纯函数逻辑。
 """
 
 from typing import Optional, TYPE_CHECKING

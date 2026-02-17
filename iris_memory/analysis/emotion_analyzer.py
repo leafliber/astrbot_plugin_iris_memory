@@ -34,9 +34,8 @@ class EmotionAnalyzer:
         """初始化情感分析器
         
         Args:
-            config: 插件配置对象（保留用于接口兼容性）
+            config: 插件配置对象（保留用于未来扩展）
         """
-        self.config = config
         
         # 情感分析始终启用
         self.enable_emotion = True
