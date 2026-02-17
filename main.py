@@ -30,7 +30,7 @@ from iris_memory.utils.event_utils import get_group_id, get_sender_name
 from iris_memory.utils.logger import init_logging_from_config
 from iris_memory.utils.command_utils import (
     CommandParser, DeleteScopeParser, StatsFormatter,
-    SessionKeyBuilder, MessageFilter
+    SessionKeyBuilder, MessageFilter, UnifiedDeleteScopeParser, DeleteMainScope
 )
 from iris_memory.core.constants import (
     CommandPrefix, ErrorMessages, SuccessMessages,
@@ -188,10 +188,22 @@ class IrisMemoryPlugin(Star):
     @filter.command("memory_clear")
     async def clear_memory(self, event: AstrMessageEvent) -> AsyncGenerator[Any, None]:
         """
-        清除记忆指令
-        
+        清除当前会话记忆指令（memory_delete current 的别名）
+
         用法：/memory_clear
         """
+        # 直接复用 delete_memory 的 current 逻辑
+        user_id = event.get_sender_id()
+        group_id = get_group_id(event)
+
+        success = await self._service.clear_memories(user_id, group_id)
+
+        if success:
+            kv_key = SessionKeyBuilder.build_for_kv(user_id, group_id)
+            await self.delete_kv_data(kv_key)
+            yield event.plain_result(SuccessMessages.MEMORY_CLEARED)
+        else:
+            yield event.plain_result(ErrorMessages.DELETE_FAILED)
         user_id = event.get_sender_id()
         group_id = get_group_id(event)
         
@@ -207,118 +219,7 @@ class IrisMemoryPlugin(Star):
             result = ErrorMessages.DELETE_FAILED
         
         yield event.plain_result(result)
-    
-    @filter.command("memory_delete_private")
-    async def delete_private_memories(self, event: AstrMessageEvent) -> AsyncGenerator[Any, None]:
-        """
-        删除个人私聊记忆指令
-        
-        用法：/memory_delete_private
-        功能：删除当前用户在私聊场景下的所有记忆
-        """
-        # 权限检查：私聊场景
-        if not self._check_private_only(event):
-            yield event.plain_result(ErrorMessages.PRIVATE_ONLY)
-            return
-        
-        user_id = event.get_sender_id()
-        
-        # 执行业务逻辑
-        success, count = await self._service.delete_private_memories(user_id)
-        
-        # 删除保存时间记录
-        kv_key = SessionKeyBuilder.build_for_kv(user_id, None)
-        await self.delete_kv_data(kv_key)
-        
-        # 响应结果
-        if success:
-            result = SuccessMessages.PRIVATE_DELETED.format(count=count)
-        else:
-            result = ErrorMessages.DELETE_FAILED
-        
-        yield event.plain_result(result)
-    
-    @filter.command("memory_delete_group")
-    async def delete_group_memories(self, event: AstrMessageEvent) -> AsyncGenerator[Any, None]:
-        """
-        删除当前群聊记忆指令（仅管理员）
-        
-        用法：/memory_delete_group [shared|private|all]
-        功能：删除当前群聊的记忆
-        - shared: 仅删除群组共享记忆
-        - private: 仅删除个人在群聊的记忆
-        - all: 删除群组所有记忆（默认）
-        """
-        # 权限检查：群聊场景
-        group_id = self._check_group_only(event)
-        if not group_id:
-            yield event.plain_result(ErrorMessages.GROUP_ONLY)
-            return
-        
-        # 权限检查：管理员
-        if not self._is_admin(event):
-            yield event.plain_result(ErrorMessages.GROUP_ADMIN_REQUIRED)
-            return
-        
-        # 解析参数
-        parsed = CommandParser.parse_with_slash(event.message_str, "memory_delete_group")
-        
-        if parsed.args and not DeleteScopeParser.is_valid(parsed.first_arg):
-            yield event.plain_result(ErrorMessages.INVALID_SCOPE_PARAM)
-            return
-        
-        scope_filter, scope_desc = DeleteScopeParser.parse(parsed.first_arg)
-        user_id = event.get_sender_id()
-        
-        # 执行业务逻辑
-        success, count = await self._service.delete_group_memories(
-            group_id=group_id,
-            scope_filter=scope_filter,
-            user_id=user_id
-        )
-        
-        # 响应结果
-        if success:
-            result = SuccessMessages.GROUP_DELETED.format(count=count, scope_desc=scope_desc)
-        else:
-            result = ErrorMessages.DELETE_FAILED
-        
-        yield event.plain_result(result)
-    
-    @filter.command("memory_delete_all")
-    async def delete_all_memories(self, event: AstrMessageEvent) -> AsyncGenerator[Any, None]:
-        """
-        删除所有记忆指令（仅超级管理员）
-        
-        用法：/memory_delete_all confirm
-        功能：删除数据库中的所有记忆（危险操作）
-        注意：必须添加 'confirm' 参数确认操作
-        """
-        # 权限检查：管理员
-        if not self._is_admin(event):
-            yield event.plain_result(ErrorMessages.ADMIN_REQUIRED)
-            return
-        
-        # 解析参数
-        parsed = CommandParser.parse_with_slash(event.message_str, "memory_delete_all")
-        
-        # 确认参数检查
-        if len(parsed.args) < NumericDefaults.CONFIRM_PARAM_INDEX or \
-           parsed.args[NumericDefaults.CONFIRM_PARAM_INDEX - 1].lower() != NumericDefaults.CONFIRM_VALUE:
-            yield event.plain_result(ErrorMessages.DELETE_CONFIRM_REQUIRED)
-            return
-        
-        # 执行业务逻辑
-        success, count = await self._service.delete_all_memories()
-        
-        # 响应结果
-        if success:
-            result = SuccessMessages.ALL_DELETED.format(count=count)
-        else:
-            result = ErrorMessages.DELETE_FAILED
-        
-        yield event.plain_result(result)
-    
+
     @filter.command("memory_stats")
     async def memory_stats(self, event: AstrMessageEvent) -> AsyncGenerator[Any, None]:
         """
@@ -344,7 +245,98 @@ class IrisMemoryPlugin(Star):
         )
         
         yield event.plain_result(result)
-    
+
+    @filter.command("memory_delete")
+    async def delete_memory(self, event: AstrMessageEvent) -> AsyncGenerator[Any, None]:
+        """
+        统一删除记忆指令
+
+        用法：
+        /memory_delete              - 删除当前会话记忆
+        /memory_delete current      - 删除当前会话记忆
+        /memory_delete private      - 删除我的私聊记忆
+        /memory_delete group [scope] - 删除群聊记忆（管理员，群聊场景）
+        /memory_delete all confirm   - 删除所有记忆（超管）
+        """
+        user_id = event.get_sender_id()
+        group_id = get_group_id(event)
+
+        # 解析参数
+        parsed = CommandParser.parse_with_slash(event.message_str, "memory_delete")
+
+        # 检查 all confirm 参数
+        has_confirm = (
+            len(parsed.args) >= 2 and
+            parsed.args[-1].lower() == NumericDefaults.CONFIRM_VALUE
+        )
+
+        # 解析范围
+        args_for_parser = parsed.args[:-1] if has_confirm else parsed.args
+        result = UnifiedDeleteScopeParser.parse(args_for_parser, has_confirm)
+
+        if not result.is_valid:
+            yield event.plain_result(result.error_message)
+            return
+
+        # 根据主范围执行不同的删除逻辑
+        if result.main_scope == DeleteMainScope.CURRENT:
+            # 删除当前会话记忆（无权限限制）
+            success = await self._service.clear_memories(user_id, group_id)
+            if success:
+                kv_key = SessionKeyBuilder.build_for_kv(user_id, group_id)
+                await self.delete_kv_data(kv_key)
+                yield event.plain_result(SuccessMessages.MEMORY_CLEARED)
+            else:
+                yield event.plain_result(ErrorMessages.DELETE_FAILED)
+
+        elif result.main_scope == DeleteMainScope.PRIVATE:
+            # 删除私聊记忆（无场景限制，任何地方都可删除自己的私聊记忆）
+            success, count = await self._service.delete_private_memories(user_id)
+            kv_key = SessionKeyBuilder.build_for_kv(user_id, None)
+            await self.delete_kv_data(kv_key)
+            if success:
+                yield event.plain_result(SuccessMessages.PRIVATE_DELETED.format(count=count))
+            else:
+                yield event.plain_result(ErrorMessages.DELETE_FAILED)
+
+        elif result.main_scope == DeleteMainScope.GROUP:
+            # 删除群聊记忆（需要群聊场景 + 管理员权限）
+            if not group_id:
+                yield event.plain_result(ErrorMessages.GROUP_ONLY)
+                return
+
+            if not self._is_admin(event):
+                yield event.plain_result(ErrorMessages.GROUP_ADMIN_REQUIRED)
+                return
+
+            success, count = await self._service.delete_group_memories(
+                group_id=group_id,
+                scope_filter=result.scope_filter,
+                user_id=user_id
+            )
+            if success:
+                yield event.plain_result(
+                    SuccessMessages.GROUP_DELETED.format(count=count, scope_desc=result.scope_desc)
+                )
+            else:
+                yield event.plain_result(ErrorMessages.DELETE_FAILED)
+
+        elif result.main_scope == DeleteMainScope.ALL:
+            # 删除所有记忆（需要超管权限 + confirm 参数）
+            if not self._is_admin(event):
+                yield event.plain_result(ErrorMessages.ADMIN_REQUIRED)
+                return
+
+            if not has_confirm:
+                yield event.plain_result(ErrorMessages.DELETE_CONFIRM_REQUIRED)
+                return
+
+            success, count = await self._service.delete_all_memories()
+            if success:
+                yield event.plain_result(SuccessMessages.ALL_DELETED.format(count=count))
+            else:
+                yield event.plain_result(ErrorMessages.DELETE_FAILED)
+
     @filter.command("proactive_reply")
     async def proactive_reply_control(self, event: AstrMessageEvent) -> AsyncGenerator[Any, None]:
         """
