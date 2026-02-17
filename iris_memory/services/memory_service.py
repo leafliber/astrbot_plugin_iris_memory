@@ -44,7 +44,6 @@ from iris_memory.capture.message_classifier import MessageClassifier, Processing
 from iris_memory.capture.batch_processor import MessageBatchProcessor
 from iris_memory.processing.llm_processor import LLMMessageProcessor
 from iris_memory.proactive.proactive_reply_detector import ProactiveReplyDetector
-from iris_memory.proactive.reply_generator import ProactiveReplyGenerator
 from iris_memory.proactive.proactive_manager import ProactiveReplyManager
 from iris_memory.multimodal.image_analyzer import ImageAnalyzer
 
@@ -87,7 +86,6 @@ class MemoryService:
         self._batch_processor: Optional[MessageBatchProcessor] = None
         self._llm_processor: Optional[LLMMessageProcessor] = None
         self._reply_detector: Optional[ProactiveReplyDetector] = None
-        self._reply_generator: Optional[ProactiveReplyGenerator] = None
         self._proactive_manager: Optional[ProactiveReplyManager] = None
         self._image_analyzer: Optional[ImageAnalyzer] = None
         self._member_identity: Optional[MemberIdentityService] = None
@@ -291,20 +289,18 @@ class MemoryService:
             }
         )
         
-        self._reply_generator = ProactiveReplyGenerator(
-            astrbot_context=self.context,
-            retrieval_engine=self._retrieval_engine,
-            config={
-                "max_reply_tokens": DEFAULTS.proactive_reply.max_reply_tokens,
-                "reply_temperature": DEFAULTS.proactive_reply.reply_temperature
-            }
-        )
-        await self._reply_generator.initialize()
+        # 获取 AstrBot 的事件队列，用于注入合成事件
+        event_queue = getattr(self.context, '_event_queue', None)
+        if event_queue is None:
+            self.logger.warning(
+                "Cannot access context._event_queue, "
+                "proactive reply event dispatch may not work"
+            )
         
         self._proactive_manager = ProactiveReplyManager(
             astrbot_context=self.context,
             reply_detector=self._reply_detector,
-            reply_generator=self._reply_generator,
+            event_queue=event_queue,
             config={
                 "enable_proactive_reply": self.cfg.proactive_reply_enabled,
                 "reply_cooldown": DEFAULTS.proactive_reply.cooldown_seconds,

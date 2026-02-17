@@ -3,6 +3,25 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.3.1] - 2026-02-17
+
+### Added
+- **事件驱动的主动回复事件** (`iris_memory/proactive/proactive_event.py`, `proactive_manager.py`)
+  - 新增 `ProactiveMessageEvent`，主动回复改为构建事件并入队 AstrBot 的事件队列，由标准 LLM 流水线负责生成与发送
+- **单元测试补充** (`tests/proactive/`)
+  - 添加并完善针对 `ProactiveReplyManager`、`ProactiveMessageEvent` 与 `main.py` 主动回复分支的单元测试，覆盖队列注入、白名单与关闭行为
+
+### Changed
+- **主动回复管理器行为调整** (`iris_memory/proactive/proactive_manager.py`)
+  - 管理器在无事件队列时降级为不可用并记录告警；shutdown 时会在处理未完成任务时跳过额外的等待延迟
+- **内存服务与主插件运行时集成** (`iris_memory/services/memory_service.py`, `main.py`)
+  - `MemoryService` 不再直接创建发送器/生成器，而是将 AstrBot 的事件队列注入到 `ProactiveReplyManager`
+  - `main.py` 对合成的主动回复事件在 `on_all_messages`/`on_llm_request`/`on_llm_response` 中增加兼容逻辑，注入主动指令并避免重复捕获或身份解析
+
+### Fixed
+- **测试配置与 pytest 标记** (`pytest.ini`)
+  - 修复 pytest 配置节名以注册自定义标记，消除未知 marker 警告
+
 ## [v1.3.0] - 2026-02-15
 
 ### Added

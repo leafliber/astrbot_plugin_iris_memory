@@ -520,6 +520,7 @@ class IrisMemoryPlugin(Star):
         2. 相关记忆 - 长期记忆检索结果
         3. 图片分析 - 当前消息中的图片描述
         4. 行为指导 - 防止重复/过度反问
+        5. 主动回复指令 - 仅在主动回复时附加
         """
         # 功能开关检查
         if not hasattr(self._service, 'cfg') or not self._service.cfg.enable_inject:
@@ -530,8 +531,10 @@ class IrisMemoryPlugin(Star):
         query = event.message_str
         sender_name = get_sender_name(event)
         
+        is_proactive = event.get_extra("iris_proactive", False)
+        
         # 确保成员身份信息最新（LLM请求时也更新一次）
-        if self._service.member_identity:
+        if self._service.member_identity and not is_proactive:
             await self._service.member_identity.resolve_tag(
                 user_id, sender_name, group_id
             )
@@ -542,9 +545,9 @@ class IrisMemoryPlugin(Star):
         # 注意：@Bot 的消息已在 on_all_messages（先于本 Hook 执行）中
         # 记录到聊天缓冲区，此处不再重复记录。
         
-        # 图片分析
+        # 图片分析（主动回复时跳过，合成事件无真实图片）
         image_context = ""
-        if self._service.image_analyzer:
+        if self._service.image_analyzer and not is_proactive:
             try:
                 llm_ctx, _ = await self._service.analyze_images(
                     message_chain=event.message_obj.message,
@@ -558,6 +561,7 @@ class IrisMemoryPlugin(Star):
                 self._service.logger.warning(f"Image analysis in LLM hook failed: {e}")
         
         # 准备LLM上下文（聊天记录 + 记忆 + 图片 + 行为指导）
+        # 主动回复时：使用触发提示作为 query 检索记忆
         context = await self._service.prepare_llm_context(
             query=query,
             user_id=user_id,
@@ -569,6 +573,15 @@ class IrisMemoryPlugin(Star):
         # 注入上下文
         if context:
             req.system_prompt += f"\n\n{context}\n"
+        
+        # 主动回复场景：附加特殊系统指令
+        if is_proactive:
+            proactive_ctx = event.get_extra("iris_proactive_context", {})
+            proactive_directive = self._build_proactive_directive(proactive_ctx)
+            req.system_prompt += f"\n\n{proactive_directive}\n"
+            self._service.logger.info(
+                f"Proactive reply context injected for user={user_id}"
+            )
     
     @filter.on_llm_response()
     async def on_llm_response(
@@ -579,7 +592,7 @@ class IrisMemoryPlugin(Star):
         """
         在LLM响应后：
         1. 记录Bot的回复到聊天缓冲区
-        2. 自动捕获新记忆
+        2. 自动捕获新记忆（主动回复时跳过用户消息捕获）
         """
         # 功能开关检查
         if not hasattr(self._service, 'cfg') or not self._service.cfg.enable_memory:
@@ -590,7 +603,9 @@ class IrisMemoryPlugin(Star):
         message = event.message_str
         sender_name = get_sender_name(event)
         
-        # 记录Bot回复到聊天缓冲区
+        is_proactive = event.get_extra("iris_proactive", False)
+        
+        # 记录Bot回复到聊天缓冲区（主动回复也要记录Bot的回复）
         bot_reply = ""
         if hasattr(resp, 'completion_text'):
             bot_reply = resp.completion_text or ""
@@ -612,7 +627,16 @@ class IrisMemoryPlugin(Star):
         # 更新会话活动
         self._service.update_session_activity(user_id, group_id)
         
-        # 捕获记忆
+        # 主动回复时：跳过用户消息的记忆捕获
+        # （合成事件的 message_str 是触发提示，不是真实用户消息）
+        if is_proactive:
+            self._service.logger.info(
+                f"Proactive reply completed for user={user_id}, "
+                f"reply_len={len(bot_reply)}"
+            )
+            return
+        
+        # 捕获记忆（仅正常消息流程）
         memory = await self._service.capture_and_store_memory(
             message=message,
             user_id=user_id,
@@ -626,18 +650,34 @@ class IrisMemoryPlugin(Star):
     # ========== 普通消息处理器 ==========
     
     @filter.event_message_type(filter.EventMessageType.ALL)
-    async def on_all_messages(self, event: AstrMessageEvent) -> None:
+    async def on_all_messages(self, event: AstrMessageEvent) -> AsyncGenerator[Any, None]:
         """
         统一处理所有普通消息 - 分层处理策略
         
         职责：
         1. 记录消息到聊天缓冲区（供LLM上下文注入）
         2. 分层处理：immediate/batch/discard
+        3. 主动回复事件检测与 LLM 请求转发
         """
         user_id = event.get_sender_id()
         group_id = get_group_id(event)
         message = event.message_str
         sender_name = get_sender_name(event)
+        
+        # ========== 主动回复事件处理 ==========
+        # 检测合成事件标记，转入完整 LLM 流程
+        if event.get_extra("iris_proactive", False):
+            self._service.logger.info(
+                f"Proactive reply event detected for user={user_id}, "
+                f"group={group_id}"
+            )
+            # 通过 yield event.request_llm() 将请求注入 ProcessStage
+            # 后续经过 build_main_agent（人格+技能）→ OnLLMRequestEvent
+            # （记忆注入）→ LLM 生成 → OnLLMResponseEvent → 装饰 → 发送
+            yield event.request_llm(prompt=message)
+            return
+        
+        # ========== 普通消息处理 ==========
         
         # 过滤指令消息
         if MessageFilter.is_command(message):
@@ -721,6 +761,57 @@ class IrisMemoryPlugin(Star):
             "user_persona": self._service.get_or_create_user_persona(user_id),
             "emotional_state": self._service._get_or_create_emotional_state(user_id)
         }
+    
+    def _build_proactive_directive(self, proactive_ctx: dict) -> str:
+        """
+        构建主动回复的特殊系统指令
+        
+        告诉LLM这是一次主动回复场景，提供触发原因和行为指导。
+        
+        Args:
+            proactive_ctx: 主动回复上下文，包含触发原因、近期消息等
+            
+        Returns:
+            str: 主动回复系统指令文本
+        """
+        reason = proactive_ctx.get("reason", "检测到对话信号")
+        recent_messages = proactive_ctx.get("recent_messages", [])
+        emotion_summary = proactive_ctx.get("emotion_summary", "")
+        target_user = proactive_ctx.get("target_user", "用户")
+        
+        # 构建近期消息摘要
+        recent_text = ""
+        if recent_messages:
+            recent_lines = []
+            for msg in recent_messages[-5:]:  # 最多展示5条
+                name = msg.get("sender_name", "未知")
+                content = msg.get("content", "")
+                recent_lines.append(f"  {name}: {content}")
+            recent_text = "\n".join(recent_lines)
+        
+        directive = (
+            "【主动回复场景】\n"
+            "你正在主动向用户发起对话，而不是回复用户的消息。\n"
+            f"触发原因：{reason}\n"
+        )
+        
+        if recent_text:
+            directive += f"\n近期对话记录：\n{recent_text}\n"
+        
+        if emotion_summary:
+            directive += f"\n用户情绪状态：{emotion_summary}\n"
+        
+        directive += (
+            f"\n对话对象：{target_user}\n"
+            "\n行为指导：\n"
+            "- 你的消息应该自然、简短，像是你忽然想到了什么而发起的对话\n"
+            "- 不要提及'系统检测'、'主动回复'等元信息\n"
+            "- 结合你对用户的记忆和近期话题来开启对话\n"
+            "- 避免重复之前已经讨论过的内容\n"
+            "- 语气要符合你的人格设定\n"
+        )
+        
+        return directive
     
     # ========== 生命周期方法 ==========
     

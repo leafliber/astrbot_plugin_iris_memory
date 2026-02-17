@@ -765,7 +765,8 @@ class MessageBatchProcessor:
                 group_id=first_msg.group_id,
                 context={
                     "time_span": queue[-1].timestamp - queue[0].timestamp if len(queue) > 1 else 0,
-                    "message_count": len(queue)
+                    "message_count": len(queue),
+                    "sender_name": first_msg.sender_name or ""
                 },
                 umo=first_msg.umo
             )

@@ -1,6 +1,12 @@
 """
 主动回复管理器
-协调检测、生成、发送整个流程
+协调检测、事件注入整个流程
+
+重构后架构：
+不再自行调用 LLM 生成回复和直接发送，
+而是构造合成事件注入 AstrBot 事件队列，
+让主动回复经过完整的 Pipeline 处理流程：
+  人格注入 → 插件 Hook（记忆检索等）→ LLM 生成 → 结果装饰 → 发送
 """
 import asyncio
 from typing import Dict, Any, Optional, List
@@ -10,10 +16,7 @@ from iris_memory.utils.logger import get_logger
 from iris_memory.proactive.proactive_reply_detector import (
     ProactiveReplyDetector, ProactiveReplyDecision
 )
-from iris_memory.proactive.reply_generator import (
-    ProactiveReplyGenerator, GeneratedReply
-)
-from iris_memory.proactive.message_sender import MessageSender
+from iris_memory.proactive.proactive_event import ProactiveMessageEvent
 
 logger = get_logger("proactive_manager")
 
@@ -30,19 +33,25 @@ class ProactiveReplyTask:
 
 
 class ProactiveReplyManager:
-    """主动回复管理器"""
+    """主动回复管理器
+    
+    重构后不再持有 ReplyGenerator / MessageSender，
+    改为通过事件队列注入合成事件来触发完整 Pipeline。
+    """
     
     def __init__(
         self,
         astrbot_context=None,
         reply_detector: Optional[ProactiveReplyDetector] = None,
-        reply_generator: Optional[ProactiveReplyGenerator] = None,
+        reply_generator=None,
+        event_queue: Optional[asyncio.Queue] = None,
         config: Optional[Dict] = None
     ):
         self.config = config or {}
         self.reply_detector = reply_detector
         self.reply_generator = reply_generator
-        self.message_sender = None
+        self.astrbot_context = astrbot_context
+        self.event_queue = event_queue
         
         # 配置
         self.enabled = self.config.get("enable_proactive_reply", True)
@@ -53,11 +62,19 @@ class ProactiveReplyManager:
         self.group_whitelist = self.config.get("group_whitelist", [])
         if isinstance(self.group_whitelist, str):
             self.group_whitelist = [self.group_whitelist] if self.group_whitelist else []
+        elif not isinstance(self.group_whitelist, list):
+            self.group_whitelist = []
+        self.group_whitelist = [str(group_id) for group_id in self.group_whitelist if group_id]
         
         # 群聊白名单模式（开启后需管理员用指令控制各群聊的主动回复开关）
         self.group_whitelist_mode = self.config.get("group_whitelist_mode", False)
         # 动态群聊白名单（通过指令管理，仅在 group_whitelist_mode 开启时生效）
-        self._dynamic_whitelist: set = set(self.config.get("dynamic_whitelist", []))
+        dynamic_whitelist = self.config.get("dynamic_whitelist", [])
+        if isinstance(dynamic_whitelist, str):
+            dynamic_whitelist = [dynamic_whitelist] if dynamic_whitelist else []
+        elif not isinstance(dynamic_whitelist, list):
+            dynamic_whitelist = []
+        self._dynamic_whitelist: set = set(str(group_id) for group_id in dynamic_whitelist if group_id)
         
         # 状态跟踪
         self.last_reply_time: Dict[str, float] = {}
@@ -79,23 +96,21 @@ class ProactiveReplyManager:
             logger.info("Proactive reply is disabled")
             return
         
-        # 初始化发送器
-        context = None
-        if self.reply_generator:
-            context = self.reply_generator.astrbot_context
-        
-        self.message_sender = MessageSender(context)
-        
-        if not self.message_sender.is_available():
-            logger.warning("Message sender not available, proactive reply disabled")
-            self.enabled = False
-            return
+        # 检查事件队列是否可用
+        if not self.event_queue:
+            # 尝试从 context 获取
+            if self.astrbot_context and hasattr(self.astrbot_context, '_event_queue'):
+                self.event_queue = self.astrbot_context._event_queue
+            if not self.event_queue:
+                logger.warning("Event queue not available, proactive reply disabled")
+                self.enabled = False
+                return
         
         # 启动处理循环
         self.is_running = True
         self.processing_task = asyncio.create_task(self._process_loop())
         
-        logger.info("Proactive reply manager initialized")
+        logger.info("Proactive reply manager initialized (event queue mode)")
     
     async def stop(self):
         """停止"""
@@ -112,7 +127,7 @@ class ProactiveReplyManager:
         while not self.pending_tasks.empty():
             try:
                 task = self.pending_tasks.get_nowait()
-                await self._process_task(task)
+                await self._process_task(task, skip_delay=True)
             except asyncio.QueueEmpty:
                 break
             except Exception as e:
@@ -206,64 +221,136 @@ class ProactiveReplyManager:
             except Exception as e:
                 logger.error(f"Error in proactive reply process loop: {e}")
     
-    async def _process_task(self, task: ProactiveReplyTask):
-        """处理回复任务"""
+    async def _process_task(self, task: ProactiveReplyTask, skip_delay: bool = False):
+        """处理回复任务：构造合成事件并注入事件队列"""
         try:
             # 延迟发送（根据紧急度）
             delay = task.decision.suggested_delay
-            if delay > 0:
+            if delay > 0 and not skip_delay:
                 await asyncio.sleep(delay)
             
-            # 生成回复
-            if not self.reply_generator:
-                return
-            
-            reply = await self.reply_generator.generate_reply(
-                messages=task.messages,
-                user_id=task.user_id,
-                group_id=task.group_id,
-                reply_context=task.decision.reply_context,
-                emotional_state=task.context.get("emotional_state"),
-                umo=task.umo
-            )
-            
-            if not reply or not reply.content:
-                logger.warning(f"Failed to generate reply for {task.user_id}")
+            # 检查事件队列和 context
+            if not self.event_queue or not self.astrbot_context:
+                logger.warning("Event queue or context not available, skip proactive reply")
                 self.stats["replies_failed"] += 1
                 return
             
-            # 发送回复
-            result = await self.message_sender.send(
-                content=reply.content,
+            # 构建触发提示（LLM 的 prompt，不是最终回复）
+            trigger_prompt = self._build_trigger_prompt(task)
+            
+            if not trigger_prompt:
+                logger.warning(f"Failed to build trigger prompt for {task.user_id}")
+                self.stats["replies_failed"] += 1
+                return
+            
+            # 构建主动回复上下文（附加到合成事件的 extras）
+            # 获取发送者名称（从上下文中获取）
+            sender_name = task.context.get("sender_name", "")
+            
+            # 准备近期消息数据（供 _build_proactive_directive 使用）
+            recent_messages = []
+            for msg in task.messages[-5:]:
+                recent_messages.append({
+                    "sender_name": sender_name or task.user_id,
+                    "content": msg[:200]  # 截断过长消息
+                })
+            
+            # 提取情感摘要
+            reply_context = task.decision.reply_context or {}
+            emotion_data = reply_context.get("emotion", {})
+            emotion_summary = ""
+            if emotion_data:
+                primary = emotion_data.get("primary", "")
+                intensity = emotion_data.get("intensity", 0)
+                if primary:
+                    emotion_summary = f"{primary}（强度 {intensity:.1f}）"
+            
+            proactive_context = {
+                "reason": task.decision.reason,
+                "urgency": task.decision.urgency.value,
+                "reply_context": reply_context,
+                "message_count": len(task.messages),
+                "user_id": task.user_id,
+                "group_id": task.group_id,
+                "recent_messages": recent_messages,
+                "emotion_summary": emotion_summary,
+                "target_user": sender_name or task.user_id,
+            }
+            
+            # 构造合成事件
+            proactive_event = ProactiveMessageEvent(
+                context=self.astrbot_context,
+                umo=task.umo,
+                trigger_prompt=trigger_prompt,
                 user_id=task.user_id,
+                sender_name=sender_name,
                 group_id=task.group_id,
-                session_info=task.context.get("session_info"),
-                umo=task.umo
+                proactive_context=proactive_context,
             )
             
-            if result.success:
-                self.stats["replies_sent"] += 1
-                
-                # 更新每日计数
-                self.daily_reply_count[task.user_id] = \
-                    self.daily_reply_count.get(task.user_id, 0) + 1
-                
-                logger.info(f"Proactive reply sent to {task.user_id}: "
-                           f"{reply.content[:50]}...")
-            else:
-                self.stats["replies_failed"] += 1
-                logger.error(f"Failed to send proactive reply: {result.error}")
+            # 注入事件队列
+            self.event_queue.put_nowait(proactive_event)
+            
+            self.stats["replies_sent"] += 1
+            
+            # 更新每日计数
+            self.daily_reply_count[task.user_id] = \
+                self.daily_reply_count.get(task.user_id, 0) + 1
+            
+            logger.info(
+                f"Proactive reply event dispatched for {task.user_id}, "
+                f"urgency: {task.decision.urgency.value}, "
+                f"reason: {task.decision.reason}"
+            )
                 
         except Exception as e:
             logger.error(f"Error processing proactive reply task: {e}")
             self.stats["replies_failed"] += 1
+    
+    def _build_trigger_prompt(self, task: ProactiveReplyTask) -> str:
+        """构建触发提示词
+        
+        这段文字会作为合成事件的 message_str，经过 on_all_messages 后
+        变成 event.request_llm() 的 prompt，再经过 build_main_agent
+        的 _decorate_llm_request（注入人格、技能等），最终由 LLM 生成回复。
+        
+        关键：不在此处生成最终回复，只提供触发意图和背景上下文。
+        """
+        reply_context = task.decision.reply_context or {}
+        reason = reply_context.get("reason", task.decision.reason)
+        
+        # 最近用户消息摘要
+        recent_messages = task.messages[-5:] if task.messages else []
+        messages_summary = "\n".join(
+            f"- {msg[:100]}" for msg in recent_messages
+        )
+        
+        # 情感信息
+        emotion_info = ""
+        emotion_data = reply_context.get("emotion", {})
+        if emotion_data:
+            primary = emotion_data.get("primary", "")
+            intensity = emotion_data.get("intensity", 0)
+            if primary:
+                emotion_info = f"\n用户当前情绪：{primary}（强度 {intensity:.1f}）"
+        
+        prompt = (
+            f"你现在要主动回复这位用户。\n"
+            f"回复原因：{reason}\n"
+            f"用户最近的消息：\n{messages_summary}"
+            f"{emotion_info}\n\n"
+            f"请根据你的人格和与这位用户的记忆，生成一条自然、简短的主动消息。"
+            f"像朋友一样自然地接话或关心对方，不要说明你是在主动回复。"
+        )
+        
+        return prompt
     
     def _is_in_cooldown(self, session_key: str) -> bool:
         """检查是否在冷却中"""
         if session_key not in self.last_reply_time:
             return False
         
-        elapsed = asyncio.get_event_loop().time() - self.last_reply_time[session_key]
+        elapsed = asyncio.get_running_loop().time() - self.last_reply_time[session_key]
         return elapsed < self.cooldown_seconds
     
     def _is_daily_limit_reached(self, user_id: str) -> bool:

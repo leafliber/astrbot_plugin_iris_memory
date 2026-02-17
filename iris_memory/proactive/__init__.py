@@ -3,8 +3,8 @@
 
 提供批量处理中的主动回复能力：
 - 检测用户是否需要回复
-- 生成个性化回复内容
-- 主动发送消息
+- 构造合成事件注入 AstrBot 事件队列
+- 经由完整 Pipeline 流程（人格、插件钩子、装饰、发送）执行主动回复
 """
 
 from .proactive_reply_detector import (
@@ -18,6 +18,7 @@ from .reply_generator import (
 )
 from .message_sender import MessageSender, SendResult
 from .proactive_manager import ProactiveReplyManager, ProactiveReplyTask
+from .proactive_event import ProactiveMessageEvent
 
 __all__ = [
     'ProactiveReplyDetector',
@@ -28,5 +29,6 @@ __all__ = [
     'MessageSender',
     'SendResult',
     'ProactiveReplyManager',
-    'ProactiveReplyTask'
+    'ProactiveReplyTask',
+    'ProactiveMessageEvent'
 ]
