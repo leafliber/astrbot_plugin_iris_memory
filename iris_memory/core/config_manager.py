@@ -43,6 +43,9 @@ CONFIG_KEY_MAPPING = {
     # 场景自适应
     "activity_adaptive.enable": ("activity_adaptive", "enable_activity_adaptive", True),
     
+    # 嵌入向量
+    "embedding.enable_local_provider": ("embedding", "enable_local_provider", True),
+    
     # 画像提取
     "persona.extraction_mode": ("persona", "extraction_mode", "rule"),
     "persona.llm_provider": ("persona", "llm_provider", "default"),
@@ -340,6 +343,11 @@ class ConfigManager:
     @property
     def embedding_dimension(self) -> int:
         return DEFAULTS.embedding.embedding_dimension
+    
+    @property
+    def enable_local_provider(self) -> bool:
+        """是否启用本地 embedding 提供者"""
+        return self.get("embedding.enable_local_provider", True)
     
     # 画像配置
     @property

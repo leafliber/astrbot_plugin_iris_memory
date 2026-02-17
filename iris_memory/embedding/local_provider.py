@@ -1,6 +1,8 @@
 """
 本地嵌入提供者 - 使用 sentence-transformers
 作为降级选项（优先级第二）
+
+支持后台异步加载模型，避免阻塞插件启动。
 """
 
 import os
@@ -8,6 +10,7 @@ import os
 os.environ["TRANSFORMERS_VERBOSITY"] = "error"
 os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"
 
+import threading
 from typing import List, Dict, Any, Optional
 import numpy as np
 
@@ -23,6 +26,9 @@ class LocalProvider(EmbeddingProvider):
     
     使用 sentence-transformers 在本地生成嵌入向量。
     作为降级选项，在 AstrBot API 不可用时使用。
+    
+    模型在后台线程中加载，不阻塞插件启动。通过 is_ready 属性
+    查询模型是否加载完成。
     """
 
     def __init__(self, config: Any):
@@ -36,20 +42,39 @@ class LocalProvider(EmbeddingProvider):
         self._model_instance = None
         self.model_path = None
         self.device = "cpu"
+        
+        # 后台加载相关
+        self._load_thread: Optional[threading.Thread] = None
+        self._load_complete = threading.Event()
+        self._load_error: Optional[Exception] = None
+
+    @property
+    def is_ready(self) -> bool:
+        """模型是否已加载完成且可用"""
+        return self._load_complete.is_set() and self._load_error is None
 
     async def initialize(self) -> bool:
         """初始化本地提供者
         
+        仅检查依赖可用性并启动后台模型加载，不阻塞启动。
+        
         Returns:
-            bool: 是否初始化成功
+            bool: 依赖检查是否通过（True 表示后台加载已启动）
         """
         try:
+            # 检查是否通过配置禁用了本地提供者
+            from iris_memory.core.config_manager import get_config_manager
+            cfg = get_config_manager()
+            if not cfg.enable_local_provider:
+                logger.info("Local embedding provider disabled by configuration")
+                return False
+            
             # 检查依赖
             try:
                 # 禁用 transformers 进度条
                 from transformers.utils import logging as transformers_logging
                 transformers_logging.disable_progress_bar()
-                from sentence_transformers import SentenceTransformer
+                from sentence_transformers import SentenceTransformer  # noqa: F401
             except ImportError:
                 logger.warning("sentence-transformers not installed. Run: pip install sentence-transformers")
                 return False
@@ -63,28 +88,79 @@ class LocalProvider(EmbeddingProvider):
                 return False
             
             # 获取配置（修复：处理可能返回列表的情况）
-            from iris_memory.core.config_manager import get_config_manager
-            model_name = get_config_manager().embedding_model
+            model_name = cfg.embedding_model
             # 如果是列表，取第一个元素
             if isinstance(model_name, list):
                 model_name = model_name[0] if model_name else "BAAI/bge-small-zh-v1.5"
-
-            # 加载模型
-            logger.info(f"Loading local embedding model: {model_name} on {self.device}")
             
-            self._model_instance = SentenceTransformer(model_name, device=self.device)
             self._model = model_name
-            self._dimension = self._model_instance.get_sentence_embedding_dimension()
+            # 设置配置中的默认维度，模型加载完成后会更新为实际维度
+            self._dimension = cfg.embedding_dimension
             
-            logger.info(f"Local embedding provider initialized: {self._model} (dim={self._dimension})")
+            # 启动后台加载任务
+            self._start_background_load(model_name)
+            logger.info(f"LocalProvider initialized, background model loading started: {model_name}")
             return True
 
         except Exception as e:
             logger.warning(f"Failed to initialize local provider: {e}")
             return False
 
+    def _start_background_load(self, model_name: str):
+        """在后台线程中加载模型
+        
+        Args:
+            model_name: 模型名称或路径
+        """
+        def _load_model():
+            try:
+                from sentence_transformers import SentenceTransformer
+                logger.info(f"[Background] Loading local embedding model: {model_name} on {self.device}")
+                self._model_instance = SentenceTransformer(model_name, device=self.device)
+                actual_dim = self._model_instance.get_sentence_embedding_dimension()
+                self._dimension = actual_dim
+                logger.info(
+                    f"[Background] Local embedding model loaded successfully: "
+                    f"{model_name} (dim={actual_dim}, device={self.device})"
+                )
+            except Exception as e:
+                self._load_error = e
+                logger.error(f"[Background] Failed to load local embedding model: {e}")
+            finally:
+                self._load_complete.set()
+        
+        self._load_thread = threading.Thread(
+            target=_load_model, daemon=True, name="iris-local-embed-loader"
+        )
+        self._load_thread.start()
+
+    def _wait_for_model(self, timeout: float = 120) -> None:
+        """等待模型加载完成
+        
+        Args:
+            timeout: 最大等待时间（秒）
+            
+        Raises:
+            RuntimeError: 加载超时或加载失败
+        """
+        if self._load_complete.is_set():
+            if self._load_error:
+                raise RuntimeError(f"Local embedding model failed to load: {self._load_error}")
+            return
+        
+        logger.info("Waiting for local embedding model to finish loading...")
+        if not self._load_complete.wait(timeout=timeout):
+            raise RuntimeError(
+                f"Local embedding model loading timed out after {timeout}s"
+            )
+        
+        if self._load_error:
+            raise RuntimeError(f"Local embedding model failed to load: {self._load_error}")
+
     async def embed(self, request: EmbeddingRequest) -> EmbeddingResponse:
         """生成嵌入向量
+        
+        如果模型尚未加载完成，会阻塞等待（带超时）。
         
         Args:
             request: 嵌入请求对象
@@ -92,8 +168,8 @@ class LocalProvider(EmbeddingProvider):
         Returns:
             EmbeddingResponse: 嵌入响应对象
         """
-        if not self._model_instance:
-            raise RuntimeError("Local provider not initialized. Call initialize() first.")
+        # 等待模型加载完成
+        self._wait_for_model()
         
         try:
             # 生成嵌入
@@ -122,14 +198,16 @@ class LocalProvider(EmbeddingProvider):
     async def embed_batch(self, requests: List[EmbeddingRequest]) -> List[EmbeddingResponse]:
         """批量生成嵌入向量
         
+        如果模型尚未加载完成，会阻塞等待（带超时）。
+        
         Args:
             requests: 嵌入请求列表
             
         Returns:
             List[EmbeddingResponse]: 嵌入响应列表
         """
-        if not self._model_instance:
-            raise RuntimeError("Local provider not initialized. Call initialize() first.")
+        # 等待模型加载完成
+        self._wait_for_model()
         
         try:
             texts = [req.text for req in requests]
@@ -169,17 +247,21 @@ class LocalProvider(EmbeddingProvider):
         Returns:
             Dict[str, Any]: 健康状态信息
         """
+        loading = not self._load_complete.is_set()
         status = {
             "provider": "local",
-            "status": "ok" if self._model_instance else "not_initialized",
+            "status": "loading" if loading else ("ok" if self._model_instance else "error"),
             "model": self._model,
             "dimension": self._dimension,
             "device": self.device,
-            "available": self._model_instance is not None
+            "available": self._model_instance is not None,
+            "is_ready": self.is_ready,
+            "loading": loading,
+            "load_error": str(self._load_error) if self._load_error else None,
         }
         
-        # 测试调用
-        if self._model_instance:
+        # 测试调用（仅在模型已就绪时）
+        if self._model_instance and self.is_ready:
             try:
                 test_result = await self.embed(EmbeddingRequest(text="test"))
                 status["status"] = "ok"

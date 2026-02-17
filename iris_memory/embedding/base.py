@@ -48,10 +48,21 @@ class EmbeddingProvider(ABC):
         self._model = None
 
     @property
+    def is_ready(self) -> bool:
+        """提供者是否已就绪（模型已加载完成）
+        
+        默认实现：初始化完成（_dimension 已设置）即为就绪。
+        延迟加载的提供者应覆盖此属性。
+        """
+        return self._dimension is not None
+
+    @property
     def dimension(self) -> int:
         """获取嵌入维度"""
         if self._dimension is None:
-            raise RuntimeError("Provider not initialized. Call initialize() first.")
+            # 延迟加载期间返回配置的默认维度
+            from iris_memory.core.config_manager import get_config_manager
+            return get_config_manager().embedding_dimension
         return self._dimension
 
     @property

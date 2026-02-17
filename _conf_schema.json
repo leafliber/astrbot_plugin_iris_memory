@@ -142,6 +142,18 @@
       }
     }
   },
+  "embedding": {
+    "description": "嵌入向量设置",
+    "type": "object",
+    "items": {
+      "enable_local_provider": {
+        "description": "启用本地嵌入模型",
+        "type": "bool",
+        "default": true,
+        "hint": "启用后可在 AstrBot 无 embedding 服务时使用本地模型（首次加载约需10-30秒，不会阻塞启动）"
+      }
+    }
+  },
   "persona": {
     "description": "用户画像提取设置",
     "type": "object",

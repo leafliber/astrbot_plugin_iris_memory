@@ -588,6 +588,13 @@ class IrisMemoryPlugin(Star):
         if not hasattr(self._service, 'cfg') or not self._service.cfg.enable_inject:
             return
         
+        # 检查记忆系统是否就绪（embedding 模型可能还在后台加载）
+        if not self._service.is_embedding_ready():
+            # 跳过记忆注入，在系统提示中添加状态信息
+            req.system_prompt += "\n\n[系统提示：记忆系统正在初始化，暂时无法提供历史记忆参考]\n"
+            self._service.logger.info("Embedding model not ready, skipping memory injection")
+            return
+        
         user_id = event.get_sender_id()
         group_id = get_group_id(event)
         query = event.message_str

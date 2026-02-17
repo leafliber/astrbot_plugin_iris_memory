@@ -4,10 +4,10 @@
 
 import asyncio
 import pytest
-from pathlib import Path
 
 from iris_memory.embedding.manager import EmbeddingManager, EmbeddingStrategy
 from iris_memory.embedding.base import EmbeddingRequest
+from iris_memory.core.config_manager import init_config_manager, reset_config_manager
 
 
 class MockConfig:
@@ -18,7 +18,8 @@ class MockConfig:
                 "embedding_strategy": "auto",
                 "embedding_model": "BAAI/bge-m3",
                 "embedding_dimension": 1024,
-                "auto_detect_dimension": True
+                "auto_detect_dimension": True,
+                "enable_local_provider": False,
             }
         }
 
@@ -26,6 +27,15 @@ class MockConfig:
         if name in self._data:
             return self._data[name]
         raise AttributeError(f"'MockConfig' object has no attribute '{name}'")
+
+
+@pytest.fixture(autouse=True)
+def _reset_global_config_manager():
+    """每个测试前后重置全局配置，确保不会触发真实本地模型加载。"""
+    reset_config_manager()
+    init_config_manager(MockConfig())
+    yield
+    reset_config_manager()
 
 
 @pytest.mark.asyncio
@@ -47,9 +57,8 @@ async def test_fallback_provider():
     """测试降级提供者"""
     config = MockConfig()
     manager = EmbeddingManager(config)
-    
-    # 切换到降级策略
-    await manager.switch_strategy(EmbeddingStrategy.FALLBACK)
+    await manager.initialize()
+    assert "fallback" in manager.providers
     
     # 生成嵌入
     text = "测试文本"
@@ -106,6 +115,7 @@ async def test_auto_strategy_fallback():
     
     # 应该至少有一个提供者
     assert len(manager.providers) >= 1
+    assert "fallback" in manager.providers
     
     # 测试生成嵌入（应该自动选择最佳提供者）
     text = "测试自动降级"

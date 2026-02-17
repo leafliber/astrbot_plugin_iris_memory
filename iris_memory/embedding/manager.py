@@ -83,6 +83,17 @@ class EmbeddingManager:
         # 插件上下文（用于 AstrBot API）
         self.plugin_context = None
     
+    @property
+    def is_ready(self) -> bool:
+        """检查当前嵌入提供者是否已就绪（模型已加载完成）
+        
+        Returns:
+            bool: 提供者是否可用
+        """
+        if self.current_provider is None:
+            return False
+        return self.current_provider.is_ready
+    
     def _get_cache_key(self, text: str, dimension: Optional[int] = None) -> str:
         """生成缓存键
         
@@ -211,7 +222,10 @@ class EmbeddingManager:
             if self.providers:
                 best_provider_name = self._get_best_provider()
                 self.current_provider = self.providers[best_provider_name]
-                logger.info(f"Selected embedding provider: {best_provider_name} (dimension={self.get_dimension()})")
+                if self.current_provider.is_ready:
+                    logger.info(f"Selected embedding provider: {best_provider_name} (dimension={self.get_dimension()})")
+                else:
+                    logger.info(f"Selected embedding provider: {best_provider_name} (dimension=loading...)")
                 logger.debug(f"Available providers: {list(self.providers.keys())}")
                 return True
             

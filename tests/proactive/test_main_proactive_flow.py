@@ -34,6 +34,7 @@ def plugin_stub():
     plugin = IrisMemoryPlugin.__new__(IrisMemoryPlugin)
     plugin._service = SimpleNamespace(
         cfg=SimpleNamespace(enable_inject=True, enable_memory=True),
+        is_embedding_ready=Mock(return_value=True),
         member_identity=SimpleNamespace(resolve_tag=AsyncMock()),
         activate_session=AsyncMock(),
         image_analyzer=object(),
@@ -70,6 +71,20 @@ async def test_on_llm_request_injects_proactive_directive_and_skips_identity_ima
     assert "DIR_BLOCK" in req.system_prompt
     plugin_stub._service.member_identity.resolve_tag.assert_not_awaited()
     plugin_stub._service.analyze_images.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_on_llm_request_embedding_not_ready_adds_hint_and_returns(plugin_stub):
+    event = _FakeEvent(proactive=False, message="hello")
+    req = SimpleNamespace(system_prompt="BASE")
+    plugin_stub._service.is_embedding_ready.return_value = False
+
+    with patch("main.get_group_id", return_value="g1"), patch("main.get_sender_name", return_value="Alice"):
+        await plugin_stub.on_llm_request(event, req)
+
+    assert "记忆系统正在初始化" in req.system_prompt
+    plugin_stub._service.prepare_llm_context.assert_not_awaited()
+    plugin_stub._service.activate_session.assert_not_awaited()
 
 
 @pytest.mark.asyncio

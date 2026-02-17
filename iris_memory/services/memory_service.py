@@ -164,6 +164,16 @@ class MemoryService:
     def activity_provider(self) -> Optional[ActivityAwareConfigProvider]:
         return self._activity_provider
     
+    def is_embedding_ready(self) -> bool:
+        """检查 embedding 系统是否就绪
+        
+        Returns:
+            bool: embedding 提供者是否已加载完成，可正常使用
+        """
+        if not self._chroma_manager:
+            return False
+        return self._chroma_manager.embedding_manager.is_ready
+    
     # ========== 初始化方法 ==========
     
     async def initialize(self) -> None:

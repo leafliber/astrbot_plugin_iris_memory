@@ -152,6 +152,7 @@ class EmbeddingDefaults:
     embedding_dimension: int = 512
     collection_name: str = "iris_memory"
     auto_detect_dimension: bool = True
+    enable_local_provider: bool = True  # 是否启用本地 embedding 模型
 
 
 @dataclass
