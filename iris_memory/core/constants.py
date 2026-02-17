@@ -90,6 +90,7 @@ class KVStoreKeys:
     LAST_SAVE_PREFIX: Final[str] = "last_save_{user_id}_{group_id}"
     PROACTIVE_REPLY_WHITELIST: Final[str] = "proactive_reply_whitelist"
     MEMBER_IDENTITY: Final[str] = "member_identity"
+    USER_PERSONAS: Final[str] = "user_personas"
 
 
 class ErrorMessages:

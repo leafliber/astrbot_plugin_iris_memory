@@ -1,14 +1,24 @@
 """
-UserPersona测试
-测试用户画像数据模型的核心功能
+UserPersona v2 测试
+测试用户画像数据模型核心功能（apply_change审计、to_injection_view、update_from_memory规则引擎）
 """
 
 import pytest
 from datetime import datetime
 from unittest.mock import Mock
-from iris_memory.models.user_persona import UserPersona
-from iris_memory.models.memory import Memory
-from iris_memory.core.types import MemoryType, EmotionType
+
+from iris_memory.models.user_persona import UserPersona, PersonaChangeRecord
+from iris_memory.core.types import MemoryType
+
+
+# ==============================================================
+# Fixtures
+# ==============================================================
+
+@pytest.fixture
+def empty_persona():
+    """空画像"""
+    return UserPersona(user_id="u_empty")
 
 
 @pytest.fixture
@@ -16,7 +26,6 @@ def sample_persona():
     """示例用户画像"""
     return UserPersona(
         user_id="user_123",
-        version=1,
         work_style="创新",
         work_goals=["完成项目", "提升技能"],
         lifestyle="规律",
@@ -26,694 +35,528 @@ def sample_persona():
         personality_openness=0.8,
         personality_conscientiousness=0.7,
         personality_extraversion=0.6,
-        communication_formality=0.4
+        communication_formality=0.4,
     )
 
 
-class TestUserPersonaInit:
-    """测试初始化功能"""
-    
-    def test_init_with_defaults(self):
-        """测试使用默认值初始化"""
-        persona = UserPersona()
+# ==============================================================
+# PersonaChangeRecord 测试
+# ==============================================================
 
-        assert persona.user_id == ""
-        assert persona.version == 1
-        assert isinstance(persona.last_updated, datetime)
-        assert persona.work_style is None
-        assert len(persona.work_goals) == 0
-        assert len(persona.habits) == 0
-        assert persona.emotional_baseline == "neutral"
-        assert persona.emotional_volatility == 0.5
-        assert len(persona.emotional_patterns) == 0
-    
+class TestPersonaChangeRecord:
+    """变更审计记录测试"""
+
+    def test_to_dict(self):
+        r = PersonaChangeRecord(
+            timestamp="2024-01-01T00:00:00",
+            field_name="trust_level",
+            old_value=0.5,
+            new_value=0.6,
+            source_memory_id="m1",
+            memory_type="relationship",
+            rule_id="trust_keyword",
+            confidence=0.8,
+            evidence_type="inferred",
+        )
+        d = r.to_dict()
+        assert d["ts"] == "2024-01-01T00:00:00"
+        assert d["field"] == "trust_level"
+        assert d["old"] == 0.5
+        assert d["new"] == 0.6
+        assert d["mem_id"] == "m1"
+        assert d["mem_type"] == "relationship"
+        assert d["rule"] == "trust_keyword"
+        assert d["conf"] == 0.8
+        assert d["ev"] == "inferred"
+
+    def test_from_dict_roundtrip(self):
+        r = PersonaChangeRecord(
+            timestamp="T", field_name="f", old_value=1, new_value=2,
+            rule_id="r", confidence=0.9, evidence_type="confirmed",
+        )
+        d = r.to_dict()
+        r2 = PersonaChangeRecord.from_dict(d)
+        assert r2.timestamp == r.timestamp
+        assert r2.field_name == r.field_name
+        assert r2.old_value == r.old_value
+        assert r2.new_value == r.new_value
+
+
+# ==============================================================
+# 初始化测试
+# ==============================================================
+
+class TestUserPersonaInit:
+    """初始化功能测试"""
+
+    def test_defaults(self, empty_persona):
+        p = empty_persona
+        assert p.user_id == "u_empty"
+        assert p.version == 2
+        assert isinstance(p.last_updated, datetime)
+        assert p.update_count == 0
+        assert p.emotional_baseline == "neutral"
+        assert p.proactive_reply_preference == 0.5
+        assert p.preferred_reply_style is None
+        assert p.topic_blacklist == []
+        assert p.change_log == []
+        assert len(p.hourly_distribution) == 24
+
     def test_init_with_values(self, sample_persona):
-        """测试使用指定值初始化"""
         assert sample_persona.user_id == "user_123"
-        assert sample_persona.version == 1
         assert sample_persona.work_style == "创新"
         assert "完成项目" in sample_persona.work_goals
-        assert "提升技能" in sample_persona.work_goals
-        assert sample_persona.lifestyle == "规律"
         assert sample_persona.interests["编程"] == 0.9
-        assert sample_persona.interests["阅读"] == 0.7
         assert sample_persona.emotional_baseline == "joy"
-        assert sample_persona.emotional_volatility == 0.3
         assert sample_persona.personality_openness == 0.8
-    
-    def test_init_big_five_personality(self):
-        """测试Big Five人格维度初始化"""
-        persona = UserPersona(
+
+    def test_big_five(self):
+        p = UserPersona(
             personality_openness=0.9,
             personality_conscientiousness=0.8,
             personality_extraversion=0.7,
             personality_agreeableness=0.6,
-            personality_neuroticism=0.2
+            personality_neuroticism=0.2,
         )
-        
-        assert persona.personality_openness == 0.9
-        assert persona.personality_conscientiousness == 0.8
-        assert persona.personality_extraversion == 0.7
-        assert persona.personality_agreeableness == 0.6
-        assert persona.personality_neuroticism == 0.2
-    
-    def test_init_communication_dimensions(self):
-        """测试沟通维度初始化"""
-        persona = UserPersona(
+        assert p.personality_openness == 0.9
+        assert p.personality_neuroticism == 0.2
+
+    def test_communication_dimensions(self):
+        p = UserPersona(
             communication_formality=0.8,
             communication_directness=0.7,
             communication_humor=0.6,
-            communication_empathy=0.9
+            communication_empathy=0.9,
         )
-        
-        assert persona.communication_formality == 0.8
-        assert persona.communication_directness == 0.7
-        assert persona.communication_humor == 0.6
-        assert persona.communication_empathy == 0.9
-    
-    def test_init_hourly_distribution(self):
-        """测试24小时活跃度分布初始化"""
-        persona = UserPersona()
-
-        assert len(persona.hourly_distribution) == 24
-        assert all(v >= 0.0 for v in persona.hourly_distribution)
+        assert p.communication_formality == 0.8
+        assert p.communication_empathy == 0.9
 
 
-class TestUserPersonaSerialization:
-    """测试序列化功能"""
-    
+# ==============================================================
+# apply_change 审计测试
+# ==============================================================
+
+class TestApplyChange:
+    """apply_change 统一变更入口测试"""
+
+    def test_scalar_change(self, empty_persona):
+        rec = empty_persona.apply_change(
+            "emotional_baseline", "joy",
+            rule_id="test", confidence=0.8,
+        )
+        assert rec is not None
+        assert rec.field_name == "emotional_baseline"
+        assert rec.old_value == "neutral"
+        assert rec.new_value == "joy"
+        assert empty_persona.emotional_baseline == "joy"
+        assert empty_persona.update_count == 1
+        assert len(empty_persona.change_log) == 1
+
+    def test_scalar_no_change(self, empty_persona):
+        """值相同时不产生变更"""
+        rec = empty_persona.apply_change(
+            "emotional_baseline", "neutral",
+        )
+        assert rec is None
+        assert empty_persona.update_count == 0
+
+    def test_list_append(self, empty_persona):
+        rec = empty_persona.apply_change("work_goals", "目标A")
+        assert rec is not None
+        assert "目标A" in empty_persona.work_goals
+        # 去重
+        rec2 = empty_persona.apply_change("work_goals", "目标A")
+        assert rec2 is None
+
+    def test_dict_merge(self, empty_persona):
+        rec = empty_persona.apply_change(
+            "interests", {"编程": 0.9, "阅读": 0.7}
+        )
+        assert rec is not None
+        assert empty_persona.interests["编程"] == 0.9
+
+    def test_dict_no_change(self, empty_persona):
+        empty_persona.interests = {"a": 1}
+        rec = empty_persona.apply_change("interests", {"a": 1})
+        assert rec is None
+
+    def test_invalid_field(self, empty_persona):
+        rec = empty_persona.apply_change("nonexistent_field", "val")
+        assert rec is None
+
+    def test_change_log_capped(self, empty_persona):
+        empty_persona._max_change_log = 5
+        for i in range(10):
+            empty_persona.apply_change(
+                "emotional_baseline", f"state_{i}"
+            )
+        assert len(empty_persona.change_log) <= 5
+
+    def test_safe_log_value_truncates(self, empty_persona):
+        long_str = "x" * 300
+        rec = empty_persona.apply_change("work_style", long_str)
+        assert rec is not None
+        assert len(str(rec.new_value)) <= 210  # 200 + "..."
+
+
+# ==============================================================
+# to_injection_view 测试
+# ==============================================================
+
+class TestToInjectionView:
+    """to_injection_view 注入视图测试"""
+
+    def test_basic_view(self, sample_persona):
+        view = sample_persona.to_injection_view()
+        assert "interests" in view
+        assert "communication" in view
+        assert "relationship" in view
+        assert "preferences" in view
+
+    def test_emotional_section(self, sample_persona):
+        view = sample_persona.to_injection_view()
+        assert "emotional" in view
+        assert view["emotional"]["baseline"] == "joy"
+
+    def test_interests_top5(self):
+        p = UserPersona(interests={
+            f"i{i}": float(i) / 10 for i in range(10)
+        })
+        view = p.to_injection_view()
+        assert len(view.get("interests", {})) <= 5
+
+    def test_proactive_preference_in_view(self, empty_persona):
+        empty_persona.proactive_reply_preference = 0.8
+        view = empty_persona.to_injection_view()
+        assert view["preferences"]["proactive_reply"] == 0.8
+
+    def test_topic_blacklist_in_view(self, empty_persona):
+        empty_persona.topic_blacklist = ["政治"]
+        view = empty_persona.to_injection_view()
+        assert "政治" in view["preferences"]["topic_blacklist"]
+
+    def test_no_audit_log_in_view(self, sample_persona):
+        sample_persona.apply_change("work_style", "严谨")
+        view = sample_persona.to_injection_view()
+        assert "change_log" not in view
+
+
+# ==============================================================
+# 序列化 / 反序列化 测试
+# ==============================================================
+
+class TestSerialization:
+    """序列化功能测试"""
+
     def test_to_dict_basic(self, sample_persona):
-        """测试基本序列化"""
-        data = sample_persona.to_dict()
-        
-        assert data['user_id'] == "user_123"
-        assert data['version'] == 1
-        assert data['work_style'] == "创新"
-        assert data['lifestyle'] == "规律"
-        assert 'last_updated' in data
-        assert isinstance(data['last_updated'], str)  # datetime被转换为字符串
-    
-    def test_to_dict_datetime_conversion(self, sample_persona):
-        """测试datetime字段转换"""
-        persona = UserPersona(user_id="test")
-        
-        data = persona.to_dict()
-        
-        # last_updated应该被转换为ISO格式字符串
-        assert 'last_updated' in data
-        datetime.fromisoformat(data['last_updated'])  # 验证可以解析
-    
+        d = sample_persona.to_dict()
+        assert d["user_id"] == "user_123"
+        assert d["version"] == 2
+        assert isinstance(d["last_updated"], str)
+
     def test_from_dict_basic(self):
-        """测试基本反序列化"""
-        data = {
-            'user_id': 'user_456',
-            'version': 2,
-            'work_style': '严谨',
-            'emotional_baseline': 'sadness',
-            'emotional_volatility': 0.6
+        d = {"user_id": "u456", "version": 2, "work_style": "严谨"}
+        p = UserPersona.from_dict(d)
+        assert p.user_id == "u456"
+        assert p.work_style == "严谨"
+
+    def test_from_dict_datetime(self):
+        d = {"user_id": "u", "last_updated": "2024-01-15T10:30:00"}
+        p = UserPersona.from_dict(d)
+        assert isinstance(p.last_updated, datetime)
+        assert p.last_updated.year == 2024
+
+    def test_roundtrip(self, sample_persona):
+        sample_persona.apply_change("work_style", "严谨")
+        d = sample_persona.to_dict()
+        p2 = UserPersona.from_dict(d)
+        assert p2.user_id == sample_persona.user_id
+        assert p2.work_style == "严谨"
+        assert len(p2.change_log) == len(sample_persona.change_log)
+
+    def test_change_log_roundtrip(self, empty_persona):
+        empty_persona.apply_change("trust_level", 0.8, rule_id="test")
+        d = empty_persona.to_dict()
+        p2 = UserPersona.from_dict(d)
+        assert len(p2.change_log) == 1
+        assert p2.change_log[0].field_name == "trust_level"
+
+    def test_from_dict_ignores_unknown_keys(self):
+        d = {"user_id": "u", "unknown_key": 42}
+        p = UserPersona.from_dict(d)
+        assert p.user_id == "u"
+        assert not hasattr(p, "unknown_key") or "unknown_key" not in p.to_dict()
+
+
+# ==============================================================
+# 证据追踪测试
+# ==============================================================
+
+class TestEvidenceTracking:
+    """证据追踪功能测试"""
+
+    def test_add_confirmed(self, empty_persona):
+        empty_persona.add_memory_evidence("m1", "confirmed")
+        assert "m1" in empty_persona.evidence_confirmed
+
+    def test_add_inferred(self, empty_persona):
+        empty_persona.add_memory_evidence("m2", "inferred")
+        assert "m2" in empty_persona.evidence_inferred
+
+    def test_add_contested(self, empty_persona):
+        empty_persona.add_memory_evidence("m3", "contested")
+        assert "m3" in empty_persona.evidence_contested
+
+    def test_dedup(self, empty_persona):
+        empty_persona.add_memory_evidence("m1", "confirmed")
+        empty_persona.add_memory_evidence("m1", "confirmed")
+        assert empty_persona.evidence_confirmed.count("m1") == 1
+
+
+# ==============================================================
+# update_from_memory 规则引擎测试
+# ==============================================================
+
+class TestUpdateFromMemory:
+    """从记忆更新画像功能测试"""
+
+    def _make_memory(self, **kwargs):
+        defaults = {
+            "type": MemoryType.FACT,
+            "content": "",
+            "user_id": "u",
+            "summary": None,
+            "subtype": None,
+            "emotional_weight": 0.0,
+            "confidence": 0.5,
+            "id": "test_mem",
+            "created_time": datetime.now(),
         }
-        
-        persona = UserPersona.from_dict(data)
-        
-        assert persona.user_id == 'user_456'
-        assert persona.version == 2
-        assert persona.work_style == '严谨'
-        assert persona.emotional_baseline == 'sadness'
-        assert persona.emotional_volatility == 0.6
-    
-    def test_from_dict_datetime_parsing(self):
-        """测试datetime字段解析"""
-        data = {
-            'user_id': 'user_789',
-            'last_updated': '2024-01-15T10:30:00'
-        }
-        
-        persona = UserPersona.from_dict(data)
-        
-        assert isinstance(persona.last_updated, datetime)
-        assert persona.last_updated.year == 2024
-        assert persona.last_updated.month == 1
-        assert persona.last_updated.day == 15
-    
-    def test_serialization_roundtrip(self, sample_persona):
-        """测试序列化和反序列化的往返"""
-        # 序列化
-        data = sample_persona.to_dict()
-        
-        # 反序列化
-        new_persona = UserPersona.from_dict(data)
-        
-        # 验证数据一致
-        assert new_persona.user_id == sample_persona.user_id
-        assert new_persona.version == sample_persona.version
-        assert new_persona.work_style == sample_persona.work_style
-        assert new_persona.lifestyle == sample_persona.lifestyle
-        assert new_persona.emotional_baseline == sample_persona.emotional_baseline
-        assert new_persona.interests == sample_persona.interests
-    
-    def test_from_dict_with_lists_and_dicts(self):
-        """测试包含列表和字典的反序列化"""
-        data = {
-            'user_id': 'user_001',
-            'work_goals': ['goal1', 'goal2', 'goal3'],
-            'habits': ['habit1', 'habit2'],
-            'interests': {'sports': 0.8, 'music': 0.9},
-            'work_preferences': {'remote': True, 'flexible': True}
-        }
-        
-        persona = UserPersona.from_dict(data)
-        
-        assert len(persona.work_goals) == 3
-        assert 'goal1' in persona.work_goals
-        assert len(persona.habits) == 2
-        assert persona.interests['sports'] == 0.8
-        assert persona.work_preferences['remote'] is True
+        defaults.update(kwargs)
+        m = Mock()
+        for k, v in defaults.items():
+            setattr(m, k, v)
+        return m
 
+    # --- 情感维度 ---
 
-class TestUserPersonaEvidenceTracking:
-    """测试证据追踪功能"""
-    
-    def test_add_memory_evidence_confirmed(self, sample_persona):
-        """测试添加确认证据"""
-        sample_persona.add_memory_evidence("mem_001", "confirmed")
-        
-        assert "mem_001" in sample_persona.evidence_confirmed
-        assert len(sample_persona.evidence_confirmed) == 1
-    
-    def test_add_memory_evidence_inferred(self, sample_persona):
-        """测试添加推断证据"""
-        sample_persona.add_memory_evidence("mem_002", "inferred")
-        
-        assert "mem_002" in sample_persona.evidence_inferred
-        assert len(sample_persona.evidence_inferred) == 1
-    
-    def test_add_memory_evidence_contested(self, sample_persona):
-        """测试添加争议证据"""
-        sample_persona.add_memory_evidence("mem_003", "contested")
-        
-        assert "mem_003" in sample_persona.evidence_contested
-        assert len(sample_persona.evidence_contested) == 1
-    
-    def test_add_memory_evidence_duplicate(self, sample_persona):
-        """测试添加重复证据（应该被忽略）"""
-        sample_persona.add_memory_evidence("mem_004", "confirmed")
-        sample_persona.add_memory_evidence("mem_004", "confirmed")  # 重复添加
-        
-        assert sample_persona.evidence_confirmed.count("mem_004") == 1
-    
-    def test_add_memory_evidence_multiple_types(self, sample_persona):
-        """测试添加多种类型的证据"""
-        sample_persona.add_memory_evidence("mem_001", "confirmed")
-        sample_persona.add_memory_evidence("mem_002", "inferred")
-        sample_persona.add_memory_evidence("mem_003", "contested")
-        sample_persona.add_memory_evidence("mem_004", "confirmed")
-        
-        assert len(sample_persona.evidence_confirmed) == 2
-        assert len(sample_persona.evidence_inferred) == 1
-        assert len(sample_persona.evidence_contested) == 1
-        assert "mem_001" in sample_persona.evidence_confirmed
-        assert "mem_002" in sample_persona.evidence_inferred
-        assert "mem_003" in sample_persona.evidence_contested
-        assert "mem_004" in sample_persona.evidence_confirmed
+    def test_emotion_pattern_count(self, empty_persona):
+        m = self._make_memory(type=MemoryType.EMOTION, subtype="joy", emotional_weight=0.3)
+        changes = empty_persona.update_from_memory(m)
+        assert empty_persona.emotional_patterns.get("joy") == 1
+        assert any(c.field_name == "emotional_patterns" for c in changes)
 
+    def test_emotion_baseline_high_weight(self, empty_persona):
+        m = self._make_memory(type=MemoryType.EMOTION, subtype="anger", emotional_weight=0.9)
+        changes = empty_persona.update_from_memory(m)
+        assert empty_persona.emotional_baseline == "anger"
+        assert any(c.rule_id == "emotion_baseline_high_weight" for c in changes)
 
-class TestUserPersonaUpdateFromMemory:
-    """测试从记忆更新画像功能"""
-    
-    def test_update_from_memory_basic(self, sample_persona):
-        """测试基本更新"""
-        old_updated = sample_persona.last_updated
+    def test_emotion_baseline_low_weight_no_change(self, empty_persona):
+        m = self._make_memory(type=MemoryType.EMOTION, subtype="sadness", emotional_weight=0.5)
+        empty_persona.update_from_memory(m)
+        assert empty_persona.emotional_baseline == "neutral"
 
-        memory = Memory(
+    def test_negative_ratio_recalc(self, empty_persona):
+        m = self._make_memory(type=MemoryType.EMOTION, subtype="sadness", emotional_weight=0.3)
+        empty_persona.update_from_memory(m)
+        assert empty_persona.negative_ratio > 0
+
+    def test_trajectory_inference(self, empty_persona):
+        """足够多的负面情感应推断出 deteriorating"""
+        for _ in range(5):
+            m = self._make_memory(type=MemoryType.EMOTION, subtype="sadness", emotional_weight=0.3)
+            empty_persona.update_from_memory(m)
+        assert empty_persona.emotional_trajectory in ("deteriorating", "volatile")
+
+    # --- 事实维度 ---
+
+    def test_fact_work_keyword(self, empty_persona):
+        m = self._make_memory(
             type=MemoryType.FACT,
-            content="这是一条测试记忆",
-            user_id="user_123"
+            content="我在工作中想提升",
+            summary="提升技能",
         )
+        changes = empty_persona.update_from_memory(m)
+        assert "提升技能" in empty_persona.work_goals
 
-        sample_persona.update_from_memory(memory)
+    def test_fact_life_keyword(self, empty_persona):
+        m = self._make_memory(
+            type=MemoryType.FACT,
+            content="我喜欢运动",
+            summary="运动",
+        )
+        changes = empty_persona.update_from_memory(m)
+        assert "运动" in empty_persona.habits
 
-        assert sample_persona.last_updated > old_updated
-    
-    def test_update_from_emotional_memory(self, sample_persona):
-        """测试从情感记忆更新"""
-        memory = Memory(
+    def test_interest_weight_increment(self, empty_persona):
+        m = self._make_memory(type=MemoryType.FACT, content="我最近在学编程")
+        empty_persona.update_from_memory(m)
+        assert empty_persona.interests.get("编程", 0) > 0
+
+    # --- 关系维度 ---
+
+    def test_trust_keyword(self, empty_persona):
+        m = self._make_memory(
+            type=MemoryType.RELATIONSHIP,
+            content="我很信任你", summary="信任",
+        )
+        old = empty_persona.trust_level
+        empty_persona.update_from_memory(m)
+        assert empty_persona.trust_level > old
+
+    def test_intimacy_keyword(self, empty_persona):
+        m = self._make_memory(
+            type=MemoryType.RELATIONSHIP,
+            content="我们关系很亲密", summary="亲密",
+        )
+        old = empty_persona.intimacy_level
+        empty_persona.update_from_memory(m)
+        assert empty_persona.intimacy_level > old
+
+    def test_social_style_inferred(self, empty_persona):
+        m = self._make_memory(
+            type=MemoryType.RELATIONSHIP,
+            content="我是一个外向的人", summary="",
+        )
+        empty_persona.update_from_memory(m)
+        assert empty_persona.social_style == "外向"
+
+    def test_trust_cap_at_1(self, empty_persona):
+        empty_persona.trust_level = 0.95
+        m = self._make_memory(
+            type=MemoryType.RELATIONSHIP,
+            content="信任", summary="信任",
+        )
+        empty_persona.update_from_memory(m)
+        assert empty_persona.trust_level <= 1.0
+
+    # --- 交互维度 ---
+
+    def test_reply_style_brief(self, empty_persona):
+        m = self._make_memory(
+            type=MemoryType.INTERACTION,
+            content="回复简短就好",
+        )
+        empty_persona.update_from_memory(m)
+        assert empty_persona.preferred_reply_style == "brief"
+
+    def test_reply_style_detailed(self, empty_persona):
+        m = self._make_memory(
+            type=MemoryType.INTERACTION,
+            content="请详细展开说",
+        )
+        empty_persona.update_from_memory(m)
+        assert empty_persona.preferred_reply_style == "detailed"
+
+    def test_formality_increase(self, empty_persona):
+        m = self._make_memory(
+            type=MemoryType.INTERACTION,
+            content="请正式一些",
+        )
+        old = empty_persona.communication_formality
+        empty_persona.update_from_memory(m)
+        assert empty_persona.communication_formality > old
+
+    def test_formality_decrease(self, empty_persona):
+        empty_persona.communication_formality = 0.8
+        m = self._make_memory(
+            type=MemoryType.INTERACTION,
+            content="不用客气，随意就好",
+        )
+        empty_persona.update_from_memory(m)
+        assert empty_persona.communication_formality < 0.8
+
+    # --- 活跃时段 ---
+
+    def test_hourly_distribution_updated(self, empty_persona):
+        hour = 14
+        m = self._make_memory(
+            type=MemoryType.FACT,
+            content="test",
+            created_time=datetime(2024, 1, 1, hour, 0, 0),
+        )
+        empty_persona.update_from_memory(m)
+        assert empty_persona.hourly_distribution[hour] == 1.0
+
+    # --- 返回值 ---
+
+    def test_returns_change_list(self, empty_persona):
+        m = self._make_memory(
             type=MemoryType.EMOTION,
             subtype="joy",
-            emotional_weight=0.8,
-            content="我感到很开心",
-            user_id="user_123"
+            emotional_weight=0.9,
+            content="happy",
         )
-
-        sample_persona.update_from_memory(memory)
-
-        # 情感基线应该更新为joy
-        assert sample_persona.emotional_baseline == "joy"
-        # 情感模式统计应该增加
-        assert sample_persona.emotional_patterns.get("joy", 0) == 1
-    
-    def test_update_from_emotional_memory_low_weight(self, sample_persona):
-        """测试从低权重情感记忆更新（不应改变基线）"""
-        original_baseline = sample_persona.emotional_baseline
-
-        memory = Memory(
-            type=MemoryType.EMOTION,
-            subtype="sadness",
-            emotional_weight=0.5,  # 低于0.7阈值
-            content="有点难过",
-            user_id="user_123"
-        )
-
-        sample_persona.update_from_memory(memory)
-
-        # 情感基线不应该改变
-        assert sample_persona.emotional_baseline == original_baseline
-        # 但情感模式统计仍然应该更新
-        assert sample_persona.emotional_patterns.get("sadness", 0) == 1
-    
-    def test_update_from_fact_memory_work(self, sample_persona):
-        """测试从工作相关事实记忆更新"""
-        memory = Memory(
-            type=MemoryType.FACT,
-            content="我在工作方面希望能够提升技能",
-            summary="希望提升工作技能",
-            user_id="user_123"
-        )
-
-        initial_count = len(sample_persona.work_goals)
-
-        sample_persona.update_from_memory(memory)
-
-        # 工作目标应该被添加
-        assert len(sample_persona.work_goals) == initial_count + 1
-        assert "希望提升工作技能" in sample_persona.work_goals
-    
-    def test_update_from_fact_memory_life(self, sample_persona):
-        """测试从生活相关事实记忆更新"""
-        memory = Memory(
-            type=MemoryType.FACT,
-            content="我喜欢阅读和运动",
-            summary="喜欢阅读和运动",
-            user_id="user_123"
-        )
-
-        initial_count = len(sample_persona.habits)
-
-        sample_persona.update_from_memory(memory)
-
-        # 生活习惯应该被添加
-        assert len(sample_persona.habits) == initial_count + 1
-        assert "喜欢阅读和运动" in sample_persona.habits
-    
-    def test_update_from_relationship_memory(self, sample_persona):
-        """测试从关系记忆更新"""
-        memory = Memory(
-            type=MemoryType.RELATIONSHIP,
-            summary="我很信任他",
-            content="我对朋友非常信任",
-            user_id="user_123"
-        )
-
-        original_trust = sample_persona.trust_level
-
-        sample_persona.update_from_memory(memory)
-
-        # 信任等级应该提升
-        assert sample_persona.trust_level > original_trust
-        assert sample_persona.trust_level <= 1.0
-    
-    def test_update_from_relationship_memory_intimacy(self, sample_persona):
-        """测试从亲密关系记忆更新"""
-        memory = Memory(
-            type=MemoryType.RELATIONSHIP,
-            summary="我们很亲密",
-            content="我和家人关系很亲密",
-            user_id="user_123"
-        )
-
-        original_intimacy = sample_persona.intimacy_level
-
-        sample_persona.update_from_memory(memory)
-
-        # 亲密程度应该提升
-        assert sample_persona.intimacy_level > original_intimacy
-        assert sample_persona.intimacy_level <= 1.0
-
-    def test_update_from_memory_trust_cap(self, sample_persona):
-        """测试信任等级上限"""
-        sample_persona.trust_level = 0.95  # 接近上限
-
-        memory = Memory(
-            type=MemoryType.RELATIONSHIP,
-            summary="非常信任",
-            content="我完全信任",
-            user_id="user_123"
-        )
-
-        sample_persona.update_from_memory(memory)
-
-        # 不应该超过1.0
-        assert sample_persona.trust_level <= 1.0
+        changes = empty_persona.update_from_memory(m)
+        assert isinstance(changes, list)
+        assert all(isinstance(c, PersonaChangeRecord) for c in changes)
 
 
-class TestUserPersonaEmotionalDimensions:
-    """测试情感维度功能"""
-    
-    def test_emotional_baseline_valid_values(self):
-        """测试情感基线有效值"""
-        valid_emotions = ["joy", "sadness", "anger", "fear", "neutral", "anxiety"]
-        
-        for emotion in valid_emotions:
-            persona = UserPersona(emotional_baseline=emotion)
-            assert persona.emotional_baseline == emotion
-    
-    def test_emotional_volatility_range(self):
-        """测试情感波动性范围"""
-        # 测试边界值
-        persona_low = UserPersona(emotional_volatility=0.0)
-        persona_high = UserPersona(emotional_volatility=1.0)
-        persona_mid = UserPersona(emotional_volatility=0.5)
-        
-        assert persona_low.emotional_volatility == 0.0
-        assert persona_high.emotional_volatility == 1.0
-        assert persona_mid.emotional_volatility == 0.5
-    
-    def test_emotional_triggers(self, sample_persona):
-        """测试情感触发器"""
-        triggers = ["批评", "失败", "压力"]
-        for trigger in triggers:
-            sample_persona.emotional_triggers.append(trigger)
-        
-        assert len(sample_persona.emotional_triggers) == 3
-        assert "批评" in sample_persona.emotional_triggers
-    
-    def test_emotional_soothers(self, sample_persona):
-        """测试情感缓解因素"""
-        sample_persona.emotional_soothers = {
-            "音乐": {"effectiveness": 0.8},
-            "运动": {"effectiveness": 0.7},
-            "休息": {"effectiveness": 0.9}
-        }
-        
-        assert len(sample_persona.emotional_soothers) == 3
-        assert sample_persona.emotional_soothers["音乐"]["effectiveness"] == 0.8
-    
-    def test_emotional_trajectory(self, sample_persona):
-        """测试情感趋势"""
-        valid_trajectories = ["improving", "deteriorating", "stable", "volatile"]
-        
-        for trajectory in valid_trajectories:
-            sample_persona.emotional_trajectory = trajectory
-            assert sample_persona.emotional_trajectory == trajectory
-    
-    def test_negative_ratio(self, sample_persona):
-        """测试负面情感占比"""
-        sample_persona.negative_ratio = 0.4
-        
-        assert sample_persona.negative_ratio == 0.4
+# ==============================================================
+# 边界情况测试
+# ==============================================================
 
+class TestEdgeCases:
+    """边界情况测试"""
 
-class TestUserPersonaWorkDimensions:
-    """测试工作维度功能"""
-    
-    def test_work_style(self, sample_persona):
-        """测试工作风格"""
-        styles = ["严谨", "创新", "高效", "灵活", "传统"]
-        
-        for style in styles:
-            sample_persona.work_style = style
-            assert sample_persona.work_style == style
-    
-    def test_work_goals(self, sample_persona):
-        """测试工作目标"""
-        goals = ["完成项目", "提升技能", "升职加薪", "团队协作"]
-        
-        for goal in goals:
-            if goal not in sample_persona.work_goals:
-                sample_persona.work_goals.append(goal)
-        
-        assert len(sample_persona.work_goals) >= len(goals)
-    
-    def test_work_challenges(self, sample_persona):
-        """测试工作挑战"""
-        challenges = ["时间管理", "技术难题", "团队沟通"]
-        
-        for challenge in challenges:
-            sample_persona.work_challenges.append(challenge)
-        
-        assert len(sample_persona.work_challenges) == len(challenges)
-    
-    def test_work_preferences(self, sample_persona):
-        """测试工作偏好"""
-        sample_persona.work_preferences = {
-            "work_environment": "办公室",
-            "working_hours": "9-6",
-            "team_size": "small"
-        }
-        
-        assert sample_persona.work_preferences["work_environment"] == "办公室"
-        assert sample_persona.work_preferences["working_hours"] == "9-6"
-
-
-class TestUserPersonaLifeDimensions:
-    """测试生活维度功能"""
-    
-    def test_lifestyle(self, sample_persona):
-        """测试生活方式"""
-        lifestyles = ["规律", "忙碌", "悠闲", "不规律", "健康"]
-        
-        for lifestyle in lifestyles:
-            sample_persona.lifestyle = lifestyle
-            assert sample_persona.lifestyle == lifestyle
-    
-    def test_interests(self, sample_persona):
-        """测试兴趣领域"""
-        interests = {
-            "编程": 0.9,
-            "阅读": 0.8,
-            "运动": 0.7,
-            "音乐": 0.6
-        }
-        
-        sample_persona.interests = interests
-        
-        assert len(sample_persona.interests) == len(interests)
-        assert sample_persona.interests["编程"] == 0.9
-    
-    def test_habits(self, sample_persona):
-        """测试习惯"""
-        habits = ["早起", "阅读", "运动", "早睡"]
-        
-        for habit in habits:
-            if habit not in sample_persona.habits:
-                sample_persona.habits.append(habit)
-        
-        assert len(sample_persona.habits) >= len(habits)
-
-
-class TestUserPersonaSocialDimensions:
-    """测试社交维度功能"""
-    
-    def test_social_style(self, sample_persona):
-        """测试社交风格"""
-        styles = ["外向", "内向", "温和", "直率"]
-        
-        for style in styles:
-            sample_persona.social_style = style
-            assert sample_persona.social_style == style
-    
-    def test_social_boundaries(self, sample_persona):
-        """测试社交边界"""
-        sample_persona.social_boundaries = {
-            "personal_space": "moderate",
-            "sharing_personal_info": "selective",
-            "emotional_openness": "gradual"
-        }
-        
-        assert len(sample_persona.social_boundaries) == 3
-        assert sample_persona.social_boundaries["personal_space"] == "moderate"
-    
-    def test_trust_level_range(self, sample_persona):
-        """测试信任等级范围"""
-        for level in [0.0, 0.5, 1.0]:
-            sample_persona.trust_level = level
-            assert 0.0 <= sample_persona.trust_level <= 1.0
-    
-    def test_intimacy_level_range(self, sample_persona):
-        """测试亲密程度范围"""
-        for level in [0.0, 0.5, 1.0]:
-            sample_persona.intimacy_level = level
-            assert 0.0 <= sample_persona.intimacy_level <= 1.0
-
-
-class TestUserPersonaBehaviorPatterns:
-    """测试行为模式功能"""
-    
-    def test_hourly_distribution_complete(self, sample_persona):
-        """测试24小时活跃度分布完整性"""
-        assert len(sample_persona.hourly_distribution) == 24
-    
-    def test_hourly_distribution_values(self, sample_persona):
-        """测试24小时活跃度分布值"""
-        # 设置一些值
-        sample_persona.hourly_distribution = [0.1 * i for i in range(24)]
-
-        assert sample_persona.hourly_distribution[0] == pytest.approx(0.0)
-        assert sample_persona.hourly_distribution[12] == pytest.approx(1.2)
-        assert sample_persona.hourly_distribution[23] == pytest.approx(2.3)
-    
-    def test_topic_sequences(self, sample_persona):
-        """测试话题转换序列"""
-        topics = ["天气", "工作", "生活", "情感", "学习"]
-        sample_persona.topic_sequences.extend(topics)
-        
-        assert len(sample_persona.topic_sequences) == len(topics)
-        assert sample_persona.topic_sequences[0] == "天气"
-        assert sample_persona.topic_sequences[-1] == "学习"
-    
-    def test_memory_cooccurrence(self, sample_persona):
-        """测试记忆共现关系"""
-        sample_persona.memory_cooccurrence = {
-            "mem_001": ["mem_002", "mem_003"],
-            "mem_002": ["mem_001", "mem_004"],
-            "mem_003": ["mem_001"]
-        }
-        
-        assert "mem_002" in sample_persona.memory_cooccurrence["mem_001"]
-        assert "mem_003" in sample_persona.memory_cooccurrence["mem_001"]
-        assert len(sample_persona.memory_cooccurrence["mem_002"]) == 2
-
-
-class TestUserPersonaBigFivePersonality:
-    """测试Big Five人格维度"""
-    
-    def test_personality_openness_range(self, sample_persona):
-        """测试开放性维度范围"""
-        for value in [0.0, 0.5, 1.0]:
-            sample_persona.personality_openness = value
-            assert 0.0 <= sample_persona.personality_openness <= 1.0
-    
-    def test_personality_conscientiousness_range(self, sample_persona):
-        """测试尽责性维度范围"""
-        for value in [0.0, 0.5, 1.0]:
-            sample_persona.personality_conscientiousness = value
-            assert 0.0 <= sample_persona.personality_conscientiousness <= 1.0
-    
-    def test_personality_extraversion_range(self, sample_persona):
-        """测试外向性维度范围"""
-        for value in [0.0, 0.5, 1.0]:
-            sample_persona.personality_extraversion = value
-            assert 0.0 <= sample_persona.personality_extraversion <= 1.0
-    
-    def test_personality_agreeableness_range(self, sample_persona):
-        """测试宜人性维度范围"""
-        for value in [0.0, 0.5, 1.0]:
-            sample_persona.personality_agreeableness = value
-            assert 0.0 <= sample_persona.personality_agreeableness <= 1.0
-    
-    def test_personality_neuroticism_range(self, sample_persona):
-        """测试神经质维度范围"""
-        for value in [0.0, 0.5, 1.0]:
-            sample_persona.personality_neuroticism = value
-            assert 0.0 <= sample_persona.personality_neuroticism <= 1.0
-    
-    def test_personality_profile_complete(self):
-        """测试完整的人格画像"""
-        persona = UserPersona(
-            personality_openness=0.8,
-            personality_conscientiousness=0.7,
-            personality_extraversion=0.6,
-            personality_agreeableness=0.5,
-            personality_neuroticism=0.3
-        )
-        
-        assert all([
-            0.0 <= persona.personality_openness <= 1.0,
-            0.0 <= persona.personality_conscientiousness <= 1.0,
-            0.0 <= persona.personality_extraversion <= 1.0,
-            0.0 <= persona.personality_agreeableness <= 1.0,
-            0.0 <= persona.personality_neuroticism <= 1.0
-        ])
-
-
-class TestUserPersonaEdgeCases:
-    """测试边界情况"""
-    
     def test_empty_user_id(self):
-        """测试空用户ID"""
-        persona = UserPersona(user_id="")
-        assert persona.user_id == ""
-    
-    def test_version_zero(self):
-        """测试版本号为0"""
-        persona = UserPersona(version=0)
-        assert persona.version == 0
-    
-    def test_negative_values(self):
-        """测试负值（边界情况）"""
-        # 虽然不应该有负值，但测试代码的健壮性
-        persona = UserPersona(emotional_volatility=-0.1)
-        assert persona.emotional_volatility == -0.1  # 应该接受并存储
-    
-    def test_very_large_values(self):
-        """测试非常大的值"""
-        persona = UserPersona(
-            emotional_volatility=100.0,
-            trust_level=1000.0,
-            personality_openness=999.0
-        )
-        
-        assert persona.emotional_volatility == 100.0
-        assert persona.trust_level == 1000.0
-        assert persona.personality_openness == 999.0
-    
+        p = UserPersona(user_id="")
+        assert p.user_id == ""
+
     def test_unicode_content(self):
-        """测试Unicode内容"""
-        persona = UserPersona(
-            user_id="用户_123",
-            work_style="创新",
-            habits=["阅读", "运动", "编程"],
-            emotional_baseline="😊"  # emoji
+        p = UserPersona(user_id="用户_123", work_style="创新", emotional_baseline="😊")
+        assert p.emotional_baseline == "😊"
+
+    def test_large_values(self):
+        p = UserPersona(emotional_volatility=100.0, trust_level=1000.0)
+        assert p.emotional_volatility == 100.0
+
+    def test_hourly_distribution_length(self):
+        p = UserPersona()
+        assert len(p.hourly_distribution) == 24
+
+
+# ==============================================================
+# 集成测试
+# ==============================================================
+
+class TestIntegration:
+    """集成场景测试"""
+
+    def test_full_workflow(self):
+        """创建画像 → 多次更新 → 序列化 → 反序列化"""
+        persona = UserPersona(user_id="u_int")
+
+        # 情感更新
+        m1 = Mock(
+            type=MemoryType.EMOTION, subtype="joy", emotional_weight=0.8,
+            content="开心", id="m1", confidence=0.7, created_time=datetime.now(),
         )
-        
-        assert persona.user_id == "用户_123"
-        assert "😊" in persona.emotional_baseline
-
-
-class TestUserPersonaIntegration:
-    """测试集成场景"""
-    
-    def test_full_persona_workflow(self):
-        """测试完整的画像工作流"""
-        # 1. 创建初始画像
-        persona = UserPersona(user_id="user_001")
-        
-        # 2. 从多条记忆更新
-        memories = [
-            Mock(type="emotion", subtype="joy", emotional_weight=0.8, content="很开心"),
-            Mock(type="fact", content="我希望在工作中提升技能", summary="提升工作技能"),
-            Mock(type="fact", content="我喜欢阅读和运动", summary="阅读和运动"),
-            Mock(type="relationship", summary="很信任他", content="信任朋友")
-        ]
-        
-        for memory in memories:
-            persona.update_from_memory(memory)
-        
-        # 3. 添加证据
-        persona.add_memory_evidence("mem_001", "confirmed")
-        persona.add_memory_evidence("mem_002", "inferred")
-        
-        # 4. 验证结果
+        c1 = persona.update_from_memory(m1)
         assert persona.emotional_baseline == "joy"
-        assert "提升工作技能" in persona.work_goals
-        assert "阅读和运动" in persona.habits
-        assert persona.trust_level > 0.5
-        assert len(persona.evidence_confirmed) == 1
-        assert len(persona.evidence_inferred) == 1
-        
-        # 5. 序列化和反序列化
-        data = persona.to_dict()
-        new_persona = UserPersona.from_dict(data)
-        
-        assert new_persona.user_id == persona.user_id
-        assert new_persona.emotional_baseline == persona.emotional_baseline
-        assert len(new_persona.work_goals) == len(persona.work_goals)
+
+        # 事实更新
+        m2 = Mock(
+            type=MemoryType.FACT, content="我在工作中提升技能",
+            summary="提升技能", subtype=None, emotional_weight=0,
+            id="m2", confidence=0.5, created_time=datetime.now(),
+        )
+        persona.update_from_memory(m2)
+        assert "提升技能" in persona.work_goals
+
+        # 添加证据
+        persona.add_memory_evidence("m1", "confirmed")
+
+        # 序列化往返
+        d = persona.to_dict()
+        p2 = UserPersona.from_dict(d)
+        assert p2.user_id == "u_int"
+        assert p2.emotional_baseline == "joy"
+        assert "提升技能" in p2.work_goals
+        assert len(p2.change_log) > 0
+
+        # 注入视图
+        view = p2.to_injection_view()
+        assert "emotional" in view
+        assert "preferences" in view

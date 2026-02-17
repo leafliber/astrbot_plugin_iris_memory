@@ -38,6 +38,7 @@ from iris_memory.core.types import StorageLayer
 from iris_memory.utils.command_utils import SessionKeyBuilder
 from iris_memory.utils.member_utils import format_member_tag, set_identity_service
 from iris_memory.utils.member_identity_service import MemberIdentityService
+from iris_memory.utils.persona_logger import persona_log
 
 # 可选组件（可能未启用）
 from iris_memory.capture.message_classifier import MessageClassifier, ProcessingLayer
@@ -466,6 +467,9 @@ class MemoryService:
             # 分层存储
             await self._store_memory_by_layer(memory)
             
+            # 画像闭环：从新捕获的记忆更新用户画像
+            await self._update_persona_from_memory(memory, user_id)
+            
             return memory
             
         except Exception as e:
@@ -480,6 +484,34 @@ class MemoryService:
         else:
             if self._chroma_manager:
                 await self._chroma_manager.add_memory(memory)
+
+    async def _update_persona_from_memory(self, memory: Memory, user_id: str) -> None:
+        """画像闭环：从记忆更新用户画像并记录 DEBUG 日志
+        
+        在每次成功捕获记忆后调用，使画像始终与最新记忆保持同步。
+        """
+        try:
+            persona = self.get_or_create_user_persona(user_id)
+            mem_id = getattr(memory, "id", None)
+            persona_log.update_start(user_id, mem_id)
+
+            changes = persona.update_from_memory(memory)
+
+            if changes:
+                persona_log.update_applied(
+                    user_id,
+                    [c.to_dict() for c in changes]
+                )
+                self.logger.debug(
+                    f"Persona updated for user={user_id}: "
+                    f"{len(changes)} change(s) from memory={mem_id}"
+                )
+            else:
+                persona_log.update_skipped(user_id, "no_applicable_changes")
+
+        except Exception as e:
+            persona_log.update_error(user_id, e)
+            self.logger.warning(f"Failed to update persona from memory: {e}")
     
     async def search_memories(
         self,
@@ -739,9 +771,15 @@ class MemoryService:
             
             # 2. 添加记忆上下文（带scope和sender标注）
             if memories:
+                # 获取用户画像注入视图
+                persona = self.get_or_create_user_persona(user_id)
+                persona_view = persona.to_injection_view()
+                persona_log.inject_view(user_id, persona_view)
+
                 memory_context = self._retrieval_engine.format_memories_for_llm(
                     memories,
                     persona_style=PersonaStyle.NATURAL,
+                    user_persona=persona_view,
                     group_id=group_id,
                     current_sender_name=sender_name
                 )
@@ -1227,6 +1265,18 @@ class MemoryService:
                         f"{stats['total_groups']} groups"
                     )
             
+            # 加载用户画像
+            personas_data = await get_kv_data(KVStoreKeys.USER_PERSONAS, {})
+            if personas_data:
+                persona_log.restore_start(len(personas_data))
+                for uid, pdata in personas_data.items():
+                    try:
+                        self._user_personas[uid] = UserPersona.from_dict(pdata)
+                        persona_log.restore_ok(uid)
+                    except Exception as e:
+                        persona_log.restore_error(uid, e)
+                self.logger.info(f"Loaded {len(self._user_personas)} user personas")
+            
         except Exception as e:
             self.logger.warning(f"Failed to load from KV: {e}")
     
@@ -1264,6 +1314,19 @@ class MemoryService:
                 identity_data = self._member_identity.serialize()
                 await put_kv_data(KVStoreKeys.MEMBER_IDENTITY, identity_data)
                 self.logger.info("Saved member identity data")
+            
+            # 保存用户画像
+            if self._user_personas:
+                personas_data = {}
+                for uid, persona in self._user_personas.items():
+                    try:
+                        persona_log.persist_start(uid)
+                        personas_data[uid] = persona.to_dict()
+                        persona_log.persist_ok(uid, persona.update_count)
+                    except Exception as e:
+                        persona_log.persist_error(uid, e)
+                await put_kv_data(KVStoreKeys.USER_PERSONAS, personas_data)
+                self.logger.info(f"Saved {len(personas_data)} user personas")
                 
         except Exception as e:
             self.logger.warning(f"Failed to save to KV: {e}")

@@ -1,12 +1,15 @@
 """
 人格管理器
 管理Bot人格与用户画像的协调和冲突检测
+
+v2: 适配 UserPersona.to_injection_view() 输出格式
 """
 
 from enum import Enum
 from typing import List, Dict, Any, Optional
 
 from iris_memory.utils.logger import get_logger
+from iris_memory.utils.persona_logger import persona_log
 
 # 模块logger
 logger = get_logger("persona_coordinator")
@@ -402,7 +405,7 @@ class PersonaCoordinator:
         
         Args:
             memory_context: 记忆上下文
-            user_persona: 用户画像
+            user_persona: 用户画像数据（支持 UserPersona.to_injection_view() 输出）
             bot_persona: Bot人格
             
         Returns:
@@ -419,10 +422,97 @@ class PersonaCoordinator:
         # 构建最终上下文
         formatted_context = memory_context
         
+        # 注入画像摘要（来自 to_injection_view）
+        persona_summary = self._build_persona_summary(user_persona)
+        if persona_summary:
+            formatted_context += f"\n\n{persona_summary}"
+        
         if conflicts and coordination_hint:
             formatted_context += f"\n\n【人格协调提示】\n{coordination_hint}"
+
+        logger.debug(
+            f"Persona coordination: conflicts={len(conflicts)}, "
+            f"strategy={self.strategy.value}"
+        )
         
         return formatted_context
+
+    def _build_persona_summary(self, user_persona: Dict[str, Any]) -> str:
+        """从画像视图生成可读摘要供 LLM 上下文使用
+        
+        Args:
+            user_persona: to_injection_view() 输出的画像字典
+            
+        Returns:
+            str: 画像摘要文本
+        """
+        if not user_persona:
+            return ""
+        
+        parts = ["【用户画像】"]
+        
+        # 情感状态
+        emotional = user_persona.get("emotional", {})
+        if emotional:
+            baseline = emotional.get("baseline", "neutral")
+            trajectory = emotional.get("trajectory")
+            if baseline != "neutral" or trajectory:
+                desc = f"情感基线: {baseline}"
+                if trajectory:
+                    desc += f", 趋势: {trajectory}"
+                parts.append(desc)
+        
+        # 兴趣
+        interests = user_persona.get("interests", {})
+        if interests:
+            top = sorted(interests.items(), key=lambda x: x[1], reverse=True)[:3]
+            interest_str = ", ".join(f"{k}" for k, _ in top)
+            parts.append(f"兴趣: {interest_str}")
+        
+        # 习惯
+        habits = user_persona.get("habits", [])
+        if habits:
+            parts.append(f"习惯: {', '.join(habits[:3])}")
+        
+        # 沟通偏好
+        comm = user_persona.get("communication", {})
+        if comm:
+            hints = []
+            formality = comm.get("formality", 0.5)
+            if formality > 0.7:
+                hints.append("倾向正式沟通")
+            elif formality < 0.3:
+                hints.append("倾向随意沟通")
+            humor = comm.get("humor", 0.5)
+            if humor > 0.7:
+                hints.append("喜欢幽默")
+            if hints:
+                parts.append("沟通: " + ", ".join(hints))
+        
+        # 交互偏好
+        prefs = user_persona.get("preferences", {})
+        if prefs:
+            style = prefs.get("style")
+            if style:
+                parts.append(f"偏好回复风格: {style}")
+            blacklist = prefs.get("topic_blacklist", [])
+            if blacklist:
+                parts.append(f"回避话题: {', '.join(blacklist[:3])}")
+        
+        # 关系
+        rel = user_persona.get("relationship", {})
+        if rel:
+            trust = rel.get("trust", 0.5)
+            intimacy = rel.get("intimacy", 0.5)
+            if trust > 0.7 or intimacy > 0.7:
+                parts.append("与你关系亲近，可以更自然地交流")
+            elif trust < 0.3:
+                parts.append("对你的信任度较低，注意措辞")
+        
+        if len(parts) <= 1:
+            return ""
+        
+        return "\n".join(parts)
     
     def set_strategy(self, strategy: CoordinationStrategy):
         """设置协调策略

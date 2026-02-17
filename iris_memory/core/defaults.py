@@ -171,6 +171,19 @@ class LogDefaults:
     backup_count: int = 5
 
 
+@dataclass
+class PersonaDefaults:
+    """用户画像默认配置"""
+    # 是否启用画像自动更新
+    enable_auto_update: bool = True
+    # 变更审计日志最大条数
+    max_change_log: int = 200
+    # 画像快照间隔（每N次更新输出一次DEBUG快照）
+    snapshot_interval: int = 10
+    # 是否启用画像注入到LLM上下文
+    enable_persona_injection: bool = True
+
+
 @dataclass  
 class AllDefaults:
     """所有默认配置的聚合"""
@@ -183,6 +196,7 @@ class AllDefaults:
     proactive_reply: ProactiveReplyDefaults = field(default_factory=ProactiveReplyDefaults)
     image_analysis: ImageAnalysisDefaults = field(default_factory=ImageAnalysisDefaults)
     log: LogDefaults = field(default_factory=LogDefaults)
+    persona: PersonaDefaults = field(default_factory=PersonaDefaults)
 
 
 # 全局默认配置实例
@@ -216,7 +230,8 @@ def get_defaults_dict() -> Dict[str, Dict[str, Any]]:
     result = {}
     for section_name in ['memory', 'session', 'cache', 'embedding', 
                          'llm_integration', 'message_processing', 
-                         'proactive_reply', 'image_analysis', 'log']:
+                         'proactive_reply', 'image_analysis', 'log',
+                         'persona']:
         section_obj = getattr(DEFAULTS, section_name, None)
         if section_obj:
             result[section_name] = asdict(section_obj)

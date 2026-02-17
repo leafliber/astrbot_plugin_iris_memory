@@ -759,6 +759,16 @@ class MessageBatchProcessor:
             first_msg = queue[0]
             messages = [msg.content for msg in queue]
             
+            # 从首条消息的上下文中提取用户画像
+            user_persona = {}
+            if first_msg.context:
+                persona_obj = first_msg.context.get("user_persona")
+                if persona_obj is not None:
+                    if hasattr(persona_obj, "to_injection_view"):
+                        user_persona = persona_obj.to_injection_view()
+                    elif isinstance(persona_obj, dict):
+                        user_persona = persona_obj
+            
             await self.proactive_manager.handle_batch(
                 messages=messages,
                 user_id=first_msg.user_id,
@@ -766,7 +776,8 @@ class MessageBatchProcessor:
                 context={
                     "time_span": queue[-1].timestamp - queue[0].timestamp if len(queue) > 1 else 0,
                     "message_count": len(queue),
-                    "sender_name": first_msg.sender_name or ""
+                    "sender_name": first_msg.sender_name or "",
+                    "user_persona": user_persona
                 },
                 umo=first_msg.umo
             )
