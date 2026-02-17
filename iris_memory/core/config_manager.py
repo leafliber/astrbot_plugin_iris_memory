@@ -35,6 +35,16 @@ CONFIG_KEY_MAPPING = {
     "image_analysis.enable": ("image_analysis", "enable_image_analysis", True),
     "image_analysis.mode": ("image_analysis", "analysis_mode", "auto"),
     "image_analysis.daily_budget": ("image_analysis", "daily_analysis_budget", 100),
+    
+    # 画像提取
+    "persona.extraction_mode": ("persona", "extraction_mode", "rule"),
+    "persona.llm_provider": ("persona", "llm_provider", "default"),
+    "persona.enable_interest_extraction": ("persona", "enable_interest_extraction", True),
+    "persona.enable_style_extraction": ("persona", "enable_style_extraction", True),
+    "persona.enable_preference_extraction": ("persona", "enable_preference_extraction", True),
+    "persona.llm_max_tokens": ("persona", "llm_max_tokens", 300),
+    "persona.llm_daily_limit": ("persona", "llm_daily_limit", 50),
+    "persona.fallback_to_rule": ("persona", "fallback_to_rule", True),
 }
 
 
@@ -258,6 +268,38 @@ class ConfigManager:
     @property
     def persona_snapshot_interval(self) -> int:
         return DEFAULTS.persona.snapshot_interval
+
+    @property
+    def persona_extraction_mode(self) -> str:
+        return self.get("persona.extraction_mode", "rule")
+
+    @property
+    def persona_llm_provider(self) -> str:
+        return self.get("persona.llm_provider", "default")
+
+    @property
+    def persona_enable_interest(self) -> bool:
+        return self.get("persona.enable_interest_extraction", True)
+
+    @property
+    def persona_enable_style(self) -> bool:
+        return self.get("persona.enable_style_extraction", True)
+
+    @property
+    def persona_enable_preference(self) -> bool:
+        return self.get("persona.enable_preference_extraction", True)
+
+    @property
+    def persona_llm_max_tokens(self) -> int:
+        return self.get("persona.llm_max_tokens", 300)
+
+    @property
+    def persona_llm_daily_limit(self) -> int:
+        return self.get("persona.llm_daily_limit", 50)
+
+    @property
+    def persona_fallback_to_rule(self) -> bool:
+        return self.get("persona.fallback_to_rule", True)
 
 
 # 全局配置管理器实例

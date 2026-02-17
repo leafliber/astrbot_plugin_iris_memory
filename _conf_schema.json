@@ -151,5 +151,36 @@
         "hint": "将框架发送的技术性错误消息替换为友好的提示语"
       }
     }
+  },
+  "persona": {
+    "description": "用户画像提取设置",
+    "type": "object",
+    "items": {
+      "extraction_mode": {
+        "description": "画像提取模式",
+        "type": "string",
+        "default": "rule",
+        "options": ["rule", "llm", "hybrid"],
+        "hint": "rule-纯规则匹配（零成本）, llm-LLM智能提取（消耗token）, hybrid-混合模式（推荐，规则优先+LLM补充）"
+      },
+      "llm_provider": {
+        "description": "画像提取使用的LLM提供者",
+        "type": "string",
+        "default": "default",
+        "hint": "default-使用AstrBot默认提供者，也可填写具体的provider_id来使用其他模型"
+      },
+      "llm_daily_limit": {
+        "description": "每日LLM提取次数上限",
+        "type": "int",
+        "default": 50,
+        "hint": "每天最多调用LLM进行画像提取的次数，0表示无限制"
+      },
+      "fallback_to_rule": {
+        "description": "LLM失败时回退到规则",
+        "type": "bool",
+        "default": true,
+        "hint": "LLM提取失败或不可用时自动使用规则匹配"
+      }
+    }
   }
 }

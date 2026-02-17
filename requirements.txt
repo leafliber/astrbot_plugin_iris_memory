@@ -19,6 +19,7 @@ aiofiles
 
 # 其他工具
 python-dateutil
+pyyaml>=6.0
 
 # 测试依赖
 pytest>=7.4.0
