@@ -56,6 +56,7 @@ class ChromaManager:
         self.data_path = data_path
         self.client = None
         self.collection = None
+        self._is_ready: bool = False  # 初始化状态跟踪（热更新兼容）
         
         # 导入配置管理器和默认值
         from iris_memory.core.config_manager import get_config_manager
@@ -74,6 +75,23 @@ class ChromaManager:
         self.embedding_manager = EmbeddingManager(config, data_path)
         if plugin_context:
             self.embedding_manager.set_plugin_context(plugin_context)
+    
+    @property
+    def is_ready(self) -> bool:
+        """检查 Chroma 管理器是否已初始化并可用"""
+        return self._is_ready and self.client is not None and self.collection is not None
+    
+    def _ensure_ready(self) -> None:
+        """确保 Chroma 已初始化，否则抛出明确异常
+        
+        在所有公开数据操作方法开头调用，避免热更新期间
+        collection 为 None 导致 'NoneType' object has no attribute 'query' 错误。
+        """
+        if not self._is_ready or self.collection is None:
+            raise RuntimeError(
+                "ChromaManager is not initialized. "
+                "This may happen during hot-reload. Please wait for initialization to complete."
+            )
     
     async def initialize(self):
         """异步初始化Chroma客户端和集合"""
@@ -176,7 +194,10 @@ class ChromaManager:
                 f"Dimension: {self.embedding_dimension}"
             )
             
+            self._is_ready = True
+            
         except Exception as e:
+            self._is_ready = False
             logger.error(f"Failed to initialize Chroma manager: {e}", exc_info=True)
             raise
     
@@ -209,6 +230,7 @@ class ChromaManager:
             Optional[str]: 记忆ID，如果嵌入生成失败则返回None
         """
         try:
+            self._ensure_ready()
             logger.debug(f"Adding memory to Chroma: id={memory.id}, user={memory.user_id}, type={memory.type.value}")
             
             # 生成嵌入向量
@@ -303,6 +325,7 @@ class ChromaManager:
             List[Memory]: 相关记忆列表（如果嵌入生成失败则返回空列表）
         """
         try:
+            self._ensure_ready()
             logger.debug(f"Querying memories: user={user_id}, group={group_id}, top_k={top_k}, storage_layer={storage_layer.value if storage_layer else 'all'}")
             
             # 生成查询嵌入
@@ -568,6 +591,7 @@ class ChromaManager:
             bool: 是否更新成功
         """
         try:
+            self._ensure_ready()
             # 生成嵌入向量
             if memory.embedding is None:
                 embedding = await self._generate_embedding(memory.content)
@@ -622,6 +646,7 @@ class ChromaManager:
             bool: 是否删除成功
         """
         try:
+            self._ensure_ready()
             self.collection.delete(ids=[memory_id])
             logger.debug(f"Memory deleted from Chroma: {memory_id}")
             return True
@@ -641,6 +666,7 @@ class ChromaManager:
             bool: 是否删除成功
         """
         try:
+            self._ensure_ready()
             # 构建过滤条件
             where = {"user_id": user_id}
 
@@ -672,6 +698,7 @@ class ChromaManager:
             Tuple[bool, int]: (是否成功, 删除数量)
         """
         try:
+            self._ensure_ready()
             all_ids = set()
             
             if in_private_only:
@@ -716,6 +743,7 @@ class ChromaManager:
             Tuple[bool, int]: (是否成功, 删除数量)
         """
         try:
+            self._ensure_ready()
             all_ids = set()
             
             if scope_filter == "group_shared":
@@ -755,6 +783,7 @@ class ChromaManager:
             Tuple[bool, int]: (是否成功, 删除数量)
         """
         try:
+            self._ensure_ready()
             # 获取所有记忆ID
             results = self.collection.get()
             
@@ -809,6 +838,7 @@ class ChromaManager:
             List[Memory]: 记忆列表
         """
         try:
+            self._ensure_ready()
             all_memories = []
 
             if group_id:
@@ -955,6 +985,7 @@ class ChromaManager:
             int: 记忆数量
         """
         try:
+            self._ensure_ready()
             all_ids = set()
 
             if group_id:
@@ -1030,6 +1061,7 @@ class ChromaManager:
             List[Memory]: 记忆列表
         """
         try:
+            self._ensure_ready()
             where = {"storage_layer": storage_layer.value}
             
             results = self.collection.get(
@@ -1054,12 +1086,24 @@ class ChromaManager:
             return []
     
     async def close(self):
-        """关闭Chroma客户端"""
-        if self.client:
+        """关闭 Chroma 客户端（热更新友好）
+        
+        不再调用 client.reset()（会清除所有数据），
+        仅释放客户端引用和集合引用。
+        持久化数据保留在磁盘，下次初始化时自动加载。
+        """
+        self._is_ready = False
+        
+        # 关闭嵌入管理器
+        if hasattr(self, 'embedding_manager') and self.embedding_manager:
             try:
-                self.client.reset()
+                if hasattr(self.embedding_manager, 'close'):
+                    await self.embedding_manager.close()
             except Exception as e:
-                logger.debug(f"Error during Chroma client reset: {e}")
-            self.client = None
-            self.collection = None
-            logger.info("Chroma manager closed")
+                logger.debug(f"Error closing embedding manager: {e}")
+        
+        # 释放 Chroma 引用（不调用 reset，保留持久化数据）
+        self.collection = None
+        self.client = None
+        
+        logger.info("[Hot-Reload] Chroma manager closed (data preserved on disk)")
