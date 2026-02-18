@@ -39,13 +39,21 @@ class MemoryCaptureEngine:
     - 冲突检测
     - 质量评估
     - RIF评分计算
+    
+    支持LLM增强：
+    - LLM敏感度检测（语义层面）
+    - LLM触发器检测（意图理解）
+    - LLM冲突解决（语义判断）
     """
     
     def __init__(
         self,
         chroma_manager=None,
         emotion_analyzer: Optional[EmotionAnalyzer] = None,
-        rif_scorer: Optional[RIFScorer] = None
+        rif_scorer: Optional[RIFScorer] = None,
+        llm_sensitivity_detector=None,
+        llm_trigger_detector=None,
+        llm_conflict_resolver=None,
     ):
         """初始化记忆捕获引擎
         
@@ -53,14 +61,22 @@ class MemoryCaptureEngine:
             chroma_manager: Chroma存储管理器（用于去重和冲突检测）
             emotion_analyzer: 情感分析器（可选）
             rif_scorer: RIF评分器（可选）
+            llm_sensitivity_detector: LLM敏感度检测器（可选）
+            llm_trigger_detector: LLM触发器检测器（可选）
+            llm_conflict_resolver: LLM冲突解决器（可选）
         """
         self.chroma_manager = chroma_manager
         self.emotion_analyzer = emotion_analyzer or EmotionAnalyzer()
         self.rif_scorer = rif_scorer or RIFScorer()
         self.trigger_detector = TriggerDetector()
         self.sensitivity_detector = SensitivityDetector()
-        self.entity_extractor = EntityExtractor()  # 实体提取器
-        self.conflict_resolver = ConflictResolver()  # 冲突解决器
+        self.entity_extractor = EntityExtractor()
+        self.conflict_resolver = ConflictResolver()
+        
+        # LLM增强组件
+        self._llm_sensitivity_detector = llm_sensitivity_detector
+        self._llm_trigger_detector = llm_trigger_detector
+        self._llm_conflict_resolver = llm_conflict_resolver
         
         # 配置
         self.auto_capture = True
@@ -127,15 +143,14 @@ class MemoryCaptureEngine:
                 logger.debug("Negative sample, skipping")
                 return None
             
-            # 2. 检测触发器
-            triggers = self.trigger_detector.detect_triggers(message)
+            # 2. 检测触发器（支持LLM增强）
+            triggers = await self._detect_triggers(message)
             if not triggers and not is_user_requested and not self.auto_capture:
                 logger.debug("No trigger and auto_capture disabled, skipping")
                 return None
             
-            # 3. 敏感度检测
-            sensitivity_level, detected_entities = \
-                self.sensitivity_detector.detect_sensitivity(message, context)
+            # 3. 敏感度检测（支持LLM增强）
+            sensitivity_level, detected_entities = await self._detect_sensitivity(message, context)
             
             # 3.5 实体提取（如果启用）
             if self.enable_entity_extraction:
@@ -569,6 +584,55 @@ class MemoryCaptureEngine:
         self.enable_duplicate_check = config.get("enable_duplicate_check", DEFAULTS.memory.enable_duplicate_check)
         self.enable_conflict_check = config.get("enable_conflict_check", DEFAULTS.memory.enable_conflict_check)
         self.enable_entity_extraction = config.get("enable_entity_extraction", DEFAULTS.memory.enable_entity_extraction)
+    
+    async def _detect_triggers(self, message: str) -> List[Dict[str, Any]]:
+        """检测触发器（支持LLM增强）
+        
+        Args:
+            message: 消息文本
+            
+        Returns:
+            触发器列表
+        """
+        if self._llm_trigger_detector:
+            try:
+                result = await self._llm_trigger_detector.detect(message)
+                if result.should_remember and result.trigger_type:
+                    return [{
+                        "type": result.trigger_type,
+                        "pattern": "llm_detected",
+                        "confidence": result.confidence,
+                        "position": 0
+                    }]
+                elif not result.should_remember and result.confidence >= 0.7:
+                    return []
+            except Exception as e:
+                logger.debug(f"LLM trigger detection failed: {e}")
+        
+        return self.trigger_detector.detect_triggers(message)
+    
+    async def _detect_sensitivity(
+        self,
+        message: str,
+        context: Optional[Dict[str, Any]] = None
+    ) -> tuple:
+        """检测敏感度（支持LLM增强）
+        
+        Args:
+            message: 消息文本
+            context: 上下文
+            
+        Returns:
+            (敏感度等级, 检测到的实体列表)
+        """
+        if self._llm_sensitivity_detector:
+            try:
+                result = await self._llm_sensitivity_detector.detect(message, context)
+                return (result.level, result.entities)
+            except Exception as e:
+                logger.debug(f"LLM sensitivity detection failed: {e}")
+        
+        return self.sensitivity_detector.detect_sensitivity(message, context)
     
     # ===== 向后兼容的委托方法 =====
     

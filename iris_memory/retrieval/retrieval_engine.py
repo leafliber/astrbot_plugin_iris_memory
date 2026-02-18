@@ -79,7 +79,8 @@ class MemoryRetrievalEngine:
         rif_scorer: Optional[RIFScorer] = None,
         emotion_analyzer: Optional[EmotionAnalyzer] = None,
         reranker: Optional[Reranker] = None,
-        session_manager=None
+        session_manager=None,
+        llm_retrieval_router=None,
     ):
         """初始化记忆检索引擎
 
@@ -89,6 +90,7 @@ class MemoryRetrievalEngine:
             emotion_analyzer: 情感分析器（可选）
             reranker: 重排序器（可选，默认创建新实例）
             session_manager: 会话管理器（可选，用于合并工作记忆）
+            llm_retrieval_router: LLM增强检索路由器（可选）
         """
         self.chroma_manager = chroma_manager
         self.rif_scorer = rif_scorer or RIFScorer()
@@ -99,9 +101,9 @@ class MemoryRetrievalEngine:
         self.max_context_memories = 3
         self.enable_time_aware = True
         self.enable_emotion_aware = True
-        self.enable_token_budget = True  # 启用token预算管理
-        self.enable_routing = True  # 启用检索路由
-        self.enable_working_memory_merge = True  # 启用工作记忆合并
+        self.enable_token_budget = True
+        self.enable_routing = True
+        self.enable_working_memory_merge = True
 
         # Token管理器
         self.token_budget = TokenBudget(total_budget=512)
@@ -119,7 +121,8 @@ class MemoryRetrievalEngine:
         # 重排序器
         self.reranker = reranker or Reranker(enable_vector_score=True)
         
-        # 检索路由器
+        # 检索路由器（支持LLM增强）
+        self._llm_router = llm_retrieval_router
         self.router = RetrievalRouter()
     
     async def retrieve(
@@ -156,7 +159,7 @@ class MemoryRetrievalEngine:
             strategy = RetrievalStrategy.HYBRID
             if self.enable_routing:
                 context = {'emotional_state': emotional_state}
-                strategy = self.router.route(query, context)
+                strategy = await self._route_query(query, context)
                 logger.debug(f"Retrieval router selected strategy: {strategy}")
             else:
                 logger.debug("Routing disabled, using HYBRID strategy")
@@ -185,22 +188,45 @@ class MemoryRetrievalEngine:
             emotional_state: 情感状态
             
         Returns:
-            List[Memory]: 过滤后的记忆列表
+            过滤后的记忆列表
         """
-        # 检查是否应该过滤高强度正面记忆
-        if not self.emotion_analyzer.should_filter_positive_memories(emotional_state):
+        if not emotional_state:
             return memories
         
-        # 过滤掉高强度正面记忆
         filtered = []
         for memory in memories:
-            if memory.type == MemoryType.EMOTION and memory.subtype in ["joy", "excitement"]:
-                if memory.emotional_weight > 0.8:
-                    logger.debug(f"Filtered high-intensity positive memory: {memory.id}")
-                    continue
+            # 负面情感时，过滤掉高强度的正面记忆
+            if emotional_state.current.primary in [EmotionType.SADNESS, EmotionType.ANGER, EmotionType.FEAR]:
+                if memory.emotional_weight > 0.7 and memory.type == MemoryType.EMOTION:
+                    # 检查记忆情感是否与当前情感相反
+                    if hasattr(memory, 'subtype') and memory.subtype:
+                        if memory.subtype in ['joy', 'excitement']:
+                            logger.debug(f"Filtered high-positive memory during negative state: {memory.id[:8]}")
+                            continue
+            
             filtered.append(memory)
         
         return filtered
+    
+    async def _route_query(self, query: str, context: Optional[Dict] = None) -> RetrievalStrategy:
+        """路由查询（支持LLM增强）
+        
+        Args:
+            query: 查询文本
+            context: 上下文
+            
+        Returns:
+            RetrievalStrategy: 检索策略
+        """
+        if self._llm_router:
+            try:
+                result = await self._llm_router.detect(query, context)
+                if result.confidence >= 0.6:
+                    return result.strategy
+            except Exception as e:
+                logger.debug(f"LLM retrieval routing failed: {e}")
+        
+        return self.router.route(query, context)
     
     def _rerank_memories(
         self,

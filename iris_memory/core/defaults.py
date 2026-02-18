@@ -274,24 +274,48 @@ class LogDefaults:
 @dataclass
 class PersonaDefaults:
     """用户画像默认配置"""
-    # 是否启用画像自动更新
     enable_auto_update: bool = True
-    # 变更审计日志最大条数
     max_change_log: int = 200
-    # 画像快照间隔（每N次更新输出一次DEBUG快照）
     snapshot_interval: int = 10
-    # 是否启用画像注入到LLM上下文
     enable_persona_injection: bool = True
     
-    # LLM 画像提取
-    extraction_mode: str = "rule"       # "rule" | "llm" | "hybrid"
-    llm_provider: str = "default"       # "default" 或具体 provider_id
+    extraction_mode: str = "rule"
+    llm_provider: str = ""
     enable_interest_extraction: bool = True
     enable_style_extraction: bool = True
     enable_preference_extraction: bool = True
     llm_max_tokens: int = 300
-    llm_daily_limit: int = 50           # 每日 LLM 提取次数限制
-    fallback_to_rule: bool = True       # LLM 失败时回退到规则
+    llm_daily_limit: int = 50
+    fallback_to_rule: bool = True
+
+
+@dataclass
+class LLMEnhancedDefaults:
+    """LLM智能增强默认配置
+    
+    各模块模式说明：
+    - rule: 仅使用规则（快速，零成本）
+    - llm: 仅使用LLM（准确，消耗token）
+    - hybrid: 混合模式（推荐，规则预筛+LLM确认）
+    """
+    provider_id: str = ""
+    
+    sensitivity_mode: str = "rule"
+    sensitivity_confidence_threshold: float = 0.7
+    
+    trigger_mode: str = "rule"
+    trigger_daily_limit: int = 200
+    
+    emotion_mode: str = "rule"
+    emotion_llm_weight: float = 0.4
+    emotion_enable_context_aware: bool = True
+    
+    proactive_mode: str = "rule"
+    proactive_daily_limit: int = 100
+    
+    conflict_mode: str = "rule"
+    
+    retrieval_mode: str = "rule"
 
 
 @dataclass  
@@ -308,6 +332,7 @@ class AllDefaults:
     log: LogDefaults = field(default_factory=LogDefaults)
     persona: PersonaDefaults = field(default_factory=PersonaDefaults)
     activity_adaptive: ActivityAdaptiveDefaults = field(default_factory=ActivityAdaptiveDefaults)
+    llm_enhanced: LLMEnhancedDefaults = field(default_factory=LLMEnhancedDefaults)
 
 
 # 全局默认配置实例
@@ -342,7 +367,7 @@ def get_defaults_dict() -> Dict[str, Dict[str, Any]]:
     for section_name in ['memory', 'session', 'cache', 'embedding', 
                          'llm_integration', 'message_processing', 
                          'proactive_reply', 'image_analysis', 'log',
-                         'persona', 'activity_adaptive']:
+                         'persona', 'activity_adaptive', 'llm_enhanced']:
         section_obj = getattr(DEFAULTS, section_name, None)
         if section_obj:
             result[section_name] = asdict(section_obj)
