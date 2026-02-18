@@ -216,6 +216,8 @@ docker/**/*.pyc
 docker/__pycache__/
 docker/*.sock
 
-# codebuddy
+# ai
 .codebuddy/
 CODEBUDDY.md
+QWEN.md
+.trae/

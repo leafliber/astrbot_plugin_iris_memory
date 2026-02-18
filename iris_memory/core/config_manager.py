@@ -58,7 +58,6 @@ CONFIG_KEY_MAPPING = {
     "persona.fallback_to_rule": ("persona", "fallback_to_rule", True),
     
     # 高级参数（群聊自适应覆盖）
-    # 这些配置在群聊启用自适应时会被自动覆盖
     "advanced.chat_context_count": ("llm_integration", "chat_context_count", 10),
     "advanced.cooldown_seconds": ("proactive_reply", "cooldown_seconds", 60),
     "advanced.max_daily_replies": ("proactive_reply", "max_daily_replies", 20),
@@ -66,6 +65,15 @@ CONFIG_KEY_MAPPING = {
     "advanced.batch_threshold_count": ("message_processing", "batch_threshold_count", 20),
     "advanced.batch_threshold_interval": ("message_processing", "batch_threshold_interval", 300),
     "advanced.daily_analysis_budget": ("image_analysis", "daily_analysis_budget", 100),
+    
+    # LLM智能增强（简化配置）
+    "llm_enhanced.provider_id": ("llm_enhanced", "provider_id", ""),
+    "llm_enhanced.sensitivity_mode": ("llm_enhanced", "sensitivity_mode", "rule"),
+    "llm_enhanced.trigger_mode": ("llm_enhanced", "trigger_mode", "rule"),
+    "llm_enhanced.emotion_mode": ("llm_enhanced", "emotion_mode", "rule"),
+    "llm_enhanced.proactive_mode": ("llm_enhanced", "proactive_mode", "rule"),
+    "llm_enhanced.conflict_mode": ("llm_enhanced", "conflict_mode", "rule"),
+    "llm_enhanced.retrieval_mode": ("llm_enhanced", "retrieval_mode", "rule"),
 }
 
 
@@ -399,6 +407,48 @@ class ConfigManager:
     @property
     def persona_fallback_to_rule(self) -> bool:
         return self.get("persona.fallback_to_rule", True)
+    
+    # LLM智能增强配置
+    @property
+    def llm_enhanced_provider_id(self) -> str:
+        return normalize_provider_id(self.get("llm_enhanced.provider_id", ""))
+    
+    @property
+    def sensitivity_mode(self) -> str:
+        return self.get("llm_enhanced.sensitivity_mode", "rule")
+    
+    @property
+    def trigger_mode(self) -> str:
+        return self.get("llm_enhanced.trigger_mode", "rule")
+    
+    @property
+    def emotion_mode(self) -> str:
+        return self.get("llm_enhanced.emotion_mode", "rule")
+    
+    @property
+    def proactive_mode(self) -> str:
+        return self.get("llm_enhanced.proactive_mode", "rule")
+    
+    @property
+    def conflict_mode(self) -> str:
+        return self.get("llm_enhanced.conflict_mode", "rule")
+    
+    @property
+    def retrieval_mode(self) -> str:
+        return self.get("llm_enhanced.retrieval_mode", "rule")
+    
+    @property
+    def llm_enhanced_enabled(self) -> bool:
+        """判断是否有任何模块启用了LLM增强"""
+        modes = [
+            self.sensitivity_mode,
+            self.trigger_mode,
+            self.emotion_mode,
+            self.proactive_mode,
+            self.conflict_mode,
+            self.retrieval_mode,
+        ]
+        return any(mode in ("llm", "hybrid") for mode in modes)
     
     # ========== 批量处理动态配置 ==========
     

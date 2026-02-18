@@ -45,7 +45,7 @@
         "type": "string",
         "default": "rule",
         "options": ["rule", "llm", "hybrid"],
-        "hint": "rule-仅规则（省token），llm-LLM判断（需启用下方LLM增强），hybrid-混合（推荐）"
+        "hint": "rule-仅规则（省token），llm-LLM判断，hybrid-混合（推荐）"
       },
       "use_llm": {
         "description": "启用LLM增强处理",
@@ -59,6 +59,61 @@
         "_special": "select_provider",
         "default": "",
         "hint": "留空使用AstrBot默认提供者，或选择其他模型用于摘要/升级等任务"
+      }
+    }
+  },
+  "llm_enhanced": {
+    "description": "LLM智能增强",
+    "type": "object",
+    "items": {
+      "provider_id": {
+        "description": "LLM增强提供者",
+        "type": "string",
+        "_special": "select_provider",
+        "default": "",
+        "hint": "留空使用默认提供者。选择后可为下方各功能启用LLM增强"
+      },
+      "sensitivity_mode": {
+        "description": "敏感度检测模式",
+        "type": "string",
+        "default": "rule",
+        "options": ["rule", "llm", "hybrid"],
+        "hint": "rule-规则匹配（默认），llm-语义理解，hybrid-混合（推荐）"
+      },
+      "trigger_mode": {
+        "description": "触发器检测模式",
+        "type": "string",
+        "default": "rule",
+        "options": ["rule", "llm", "hybrid"],
+        "hint": "rule-关键词匹配（默认），llm-意图理解，hybrid-混合（推荐）"
+      },
+      "emotion_mode": {
+        "description": "情感分析模式",
+        "type": "string",
+        "default": "rule",
+        "options": ["rule", "llm", "hybrid"],
+        "hint": "rule-词典+规则（默认），llm-深度理解，hybrid-混合（推荐）"
+      },
+      "proactive_mode": {
+        "description": "主动回复检测模式",
+        "type": "string",
+        "default": "rule",
+        "options": ["rule", "llm", "hybrid"],
+        "hint": "rule-规则判断（默认），llm-社交理解，hybrid-混合（推荐）"
+      },
+      "conflict_mode": {
+        "description": "冲突解决模式",
+        "type": "string",
+        "default": "rule",
+        "options": ["rule", "llm", "hybrid"],
+        "hint": "rule-相似度判断（默认），llm-语义判断，hybrid-混合（推荐）"
+      },
+      "retrieval_mode": {
+        "description": "检索路由模式",
+        "type": "string",
+        "default": "rule",
+        "options": ["rule", "llm", "hybrid"],
+        "hint": "rule-规则路由（默认），llm-意图理解，hybrid-混合（推荐）"
       }
     }
   },
@@ -88,7 +143,7 @@
         "description": "启用场景自适应",
         "type": "bool",
         "default": true,
-        "hint": "根据群活跃度自动调整主动回复频率、批量处理参数等配置，实现温和型陪伴风格。使用 /activity_status 查看各群状态。关闭后使用下方「高级参数」中的固定值"
+        "hint": "根据群活跃度自动调整主动回复频率、批量处理参数等配置，实现温和型陪伴风格。使用 /activity_status 查看各群状态"
       }
     }
   },
@@ -113,7 +168,7 @@
         "description": "每日分析次数上限",
         "type": "int",
         "default": 100,
-        "hint": "每天最多分析的图片数量，0表示无限制。群聊场景启用自适应时会被自动调整"
+        "hint": "每天最多分析的图片数量，0表示无限制"
       },
       "provider_id": {
         "description": "图片分析LLM提供者",
@@ -157,74 +212,14 @@
         "type": "string",
         "default": "rule",
         "options": ["rule", "llm", "hybrid"],
-        "hint": "rule-纯规则匹配（零成本）, llm-LLM智能提取（消耗token）, hybrid-混合模式（推荐，规则优先+LLM补充）"
+        "hint": "rule-纯规则匹配（默认），llm-LLM智能提取，hybrid-混合模式（推荐）"
       },
       "llm_provider": {
-        "description": "画像提取使用的LLM提供者",
+        "description": "画像提取LLM提供者",
         "type": "string",
         "_special": "select_provider",
-        "default": "default",
-        "hint": "未选择时使用AstrBot默认提供者；选择后将使用指定provider_id进行画像提取"
-      },
-      "llm_daily_limit": {
-        "description": "每日LLM提取次数上限",
-        "type": "int",
-        "default": 50,
-        "hint": "每天最多调用LLM进行画像提取的次数，0表示无限制"
-      },
-      "fallback_to_rule": {
-        "description": "LLM失败时回退到规则",
-        "type": "bool",
-        "default": true,
-        "hint": "LLM提取失败或不可用时自动使用规则匹配"
-      }
-    }
-  },
-  "advanced": {
-    "description": "高级参数（场景自适应关闭时使用，开启时无效）",
-    "type": "object",
-    "items": {
-      "chat_context_count": {
-        "description": "聊天记录注入数量",
-        "type": "int",
-        "default": 15,
-        "hint": "注入最近N条聊天记录到LLM上下文（0为禁用，建议10-25）。群聊自适应范围：10-25条"
-      },
-      "cooldown_seconds": {
-        "description": "主动回复冷却时间",
-        "type": "int",
-        "default": 60,
-        "hint": "两次主动回复之间的最小间隔秒数。群聊自适应范围：30-120秒，安静群更长、繁忙群更短"
-      },
-      "max_daily_replies": {
-        "description": "每日主动回复上限",
-        "type": "int",
-        "default": 20,
-        "hint": "每个群每天最多主动回复次数。群聊自适应范围：8-25次，安静群更少、繁忙群更多"
-      },
-      "reply_temperature": {
-        "description": "主动回复创意度",
-        "type": "float",
-        "default": 0.7,
-        "hint": "LLM生成主动回复的温度参数（0.0-1.0）。群聊自适应范围：0.6-0.8，安静群更保守、繁忙群更活泼"
-      },
-      "batch_threshold_count": {
-        "description": "批量处理消息数阈值",
-        "type": "int",
-        "default": 20,
-        "hint": "累计N条消息后触发批量处理。群聊自适应范围：10-50条，安静群更少、繁忙群更多"
-      },
-      "batch_threshold_interval": {
-        "description": "批量处理时间阈值",
-        "type": "int",
-        "default": 300,
-        "hint": "N秒无新消息后触发批量处理。群聊自适应范围：120-600秒，安静群更长、繁忙群更短"
-      },
-      "daily_analysis_budget": {
-        "description": "群聊每日图片分析上限",
-        "type": "int",
-        "default": 100,
-        "hint": "每个群每天最多分析图片数。群聊自适应范围：30-150次，安静群更少、繁忙群更多"
+        "default": "",
+        "hint": "留空使用AstrBot默认提供者"
       }
     }
   }

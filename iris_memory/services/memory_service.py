@@ -51,6 +51,15 @@ from iris_memory.proactive.proactive_manager import ProactiveReplyManager
 from iris_memory.multimodal.image_analyzer import ImageAnalyzer
 from iris_memory.analysis.persona_extractor import PersonaExtractor, KeywordMaps
 
+# LLM增强组件
+from iris_memory.processing.llm_enhanced_base import DetectionMode
+from iris_memory.capture.llm_sensitivity_detector import LLMSensitivityDetector
+from iris_memory.capture.llm_trigger_detector import LLMTriggerDetector
+from iris_memory.analysis.llm_emotion_analyzer import LLMEmotionAnalyzer
+from iris_memory.proactive.llm_proactive_reply_detector import LLMProactiveReplyDetector
+from iris_memory.capture.llm_conflict_resolver import LLMConflictResolver
+from iris_memory.retrieval.llm_retrieval_router import LLMRetrievalRouter
+
 
 class MemoryService:
     """
@@ -100,6 +109,14 @@ class MemoryService:
         self._persona_extractor: Optional[PersonaExtractor] = None
         self._activity_tracker: Optional[GroupActivityTracker] = None
         self._activity_provider: Optional[ActivityAwareConfigProvider] = None
+        
+        # LLM增强组件
+        self._llm_sensitivity_detector: Optional[LLMSensitivityDetector] = None
+        self._llm_trigger_detector: Optional[LLMTriggerDetector] = None
+        self._llm_emotion_analyzer: Optional[LLMEmotionAnalyzer] = None
+        self._llm_proactive_reply_detector: Optional[LLMProactiveReplyDetector] = None
+        self._llm_conflict_resolver: Optional[LLMConflictResolver] = None
+        self._llm_retrieval_router: Optional[LLMRetrievalRouter] = None
         
         # 用户状态缓存
         self._user_emotional_states: Dict[str, EmotionalState] = {}
@@ -173,6 +190,30 @@ class MemoryService:
     def activity_provider(self) -> Optional[ActivityAwareConfigProvider]:
         return self._activity_provider
     
+    @property
+    def llm_sensitivity_detector(self) -> Optional[LLMSensitivityDetector]:
+        return self._llm_sensitivity_detector
+    
+    @property
+    def llm_trigger_detector(self) -> Optional[LLMTriggerDetector]:
+        return self._llm_trigger_detector
+    
+    @property
+    def llm_emotion_analyzer(self) -> Optional[LLMEmotionAnalyzer]:
+        return self._llm_emotion_analyzer
+    
+    @property
+    def llm_proactive_reply_detector(self) -> Optional[LLMProactiveReplyDetector]:
+        return self._llm_proactive_reply_detector
+    
+    @property
+    def llm_conflict_resolver(self) -> Optional[LLMConflictResolver]:
+        return self._llm_conflict_resolver
+    
+    @property
+    def llm_retrieval_router(self) -> Optional[LLMRetrievalRouter]:
+        return self._llm_retrieval_router
+    
     def is_embedding_ready(self) -> bool:
         """检查 embedding 系统是否就绪
         
@@ -197,6 +238,7 @@ class MemoryService:
                 self.plugin_data_path.mkdir(parents=True, exist_ok=True)
                 self.logger.info(LogTemplates.PLUGIN_INIT_START)
                 
+                await self._init_llm_enhanced()
                 await self._init_core_components()
                 await self._init_activity_adaptive()
                 await self._init_message_processing()
@@ -252,7 +294,10 @@ class MemoryService:
         self._capture_engine = MemoryCaptureEngine(
             chroma_manager=self._chroma_manager,
             emotion_analyzer=self._emotion_analyzer,
-            rif_scorer=self._rif_scorer
+            rif_scorer=self._rif_scorer,
+            llm_sensitivity_detector=self._llm_sensitivity_detector,
+            llm_trigger_detector=self._llm_trigger_detector,
+            llm_conflict_resolver=self._llm_conflict_resolver,
         )
         
         # 检索引擎
@@ -260,7 +305,8 @@ class MemoryService:
             chroma_manager=self._chroma_manager,
             rif_scorer=self._rif_scorer,
             emotion_analyzer=self._emotion_analyzer,
-            session_manager=self._session_manager
+            session_manager=self._session_manager,
+            llm_retrieval_router=self._llm_retrieval_router,
         )
         
         # 聊天记录缓冲区
@@ -368,15 +414,20 @@ class MemoryService:
             self.logger.info(LogTemplates.COMPONENT_INIT_DISABLED.format(component="Proactive reply"))
             return
         
-        self._reply_detector = ProactiveReplyDetector(
-            emotion_analyzer=self._emotion_analyzer,
-            config={
-                "high_emotion_threshold": DEFAULTS.proactive_reply.high_emotion_threshold,
-                "question_threshold": DEFAULTS.proactive_reply.question_threshold
-            }
-        )
+        reply_detector = None
+        if self._llm_proactive_reply_detector:
+            reply_detector = self._llm_proactive_reply_detector
+            self.logger.info("Using LLM-enhanced proactive reply detector")
+        else:
+            self._reply_detector = ProactiveReplyDetector(
+                emotion_analyzer=self._emotion_analyzer,
+                config={
+                    "high_emotion_threshold": DEFAULTS.proactive_reply.high_emotion_threshold,
+                    "question_threshold": DEFAULTS.proactive_reply.question_threshold
+                }
+            )
+            reply_detector = self._reply_detector
         
-        # 获取 AstrBot 的事件队列，用于注入合成事件
         event_queue = getattr(self.context, '_event_queue', None)
         if event_queue is None:
             self.logger.warning(
@@ -386,7 +437,7 @@ class MemoryService:
         
         self._proactive_manager = ProactiveReplyManager(
             astrbot_context=self.context,
-            reply_detector=self._reply_detector,
+            reply_detector=reply_detector,
             event_queue=event_queue,
             config={
                 "enable_proactive_reply": self.cfg.proactive_reply_enabled,
@@ -431,6 +482,70 @@ class MemoryService:
         )
         
         self.logger.info(f"Image analyzer initialized: mode={self.cfg.image_analysis_mode}")
+    
+    async def _init_llm_enhanced(self) -> None:
+        """初始化LLM智能增强组件"""
+        self.logger.info(LogTemplates.COMPONENT_INIT.format(component="LLM enhanced"))
+        
+        if not self.cfg.llm_enhanced_enabled:
+            self.logger.info("LLM enhanced: all modules using rule mode")
+            return
+        
+        provider_id = self.cfg.llm_enhanced_provider_id
+        modes = []
+        
+        if self.cfg.sensitivity_mode != "rule":
+            self._llm_sensitivity_detector = LLMSensitivityDetector(
+                astrbot_context=self.context,
+                provider_id=provider_id,
+                mode=DetectionMode(self.cfg.sensitivity_mode),
+            )
+            modes.append(f"sensitivity={self.cfg.sensitivity_mode}")
+        
+        if self.cfg.trigger_mode != "rule":
+            self._llm_trigger_detector = LLMTriggerDetector(
+                astrbot_context=self.context,
+                provider_id=provider_id,
+                mode=DetectionMode(self.cfg.trigger_mode),
+            )
+            modes.append(f"trigger={self.cfg.trigger_mode}")
+        
+        if self.cfg.emotion_mode != "rule":
+            self._llm_emotion_analyzer = LLMEmotionAnalyzer(
+                astrbot_context=self.context,
+                provider_id=provider_id,
+                mode=DetectionMode(self.cfg.emotion_mode),
+            )
+            modes.append(f"emotion={self.cfg.emotion_mode}")
+        
+        if self.cfg.proactive_mode != "rule":
+            self._llm_proactive_reply_detector = LLMProactiveReplyDetector(
+                astrbot_context=self.context,
+                provider_id=provider_id,
+                mode=DetectionMode(self.cfg.proactive_mode),
+            )
+            modes.append(f"proactive={self.cfg.proactive_mode}")
+        
+        if self.cfg.conflict_mode != "rule":
+            self._llm_conflict_resolver = LLMConflictResolver(
+                astrbot_context=self.context,
+                provider_id=provider_id,
+                mode=DetectionMode(self.cfg.conflict_mode),
+            )
+            modes.append(f"conflict={self.cfg.conflict_mode}")
+        
+        if self.cfg.retrieval_mode != "rule":
+            self._llm_retrieval_router = LLMRetrievalRouter(
+                astrbot_context=self.context,
+                provider_id=provider_id,
+                mode=DetectionMode(self.cfg.retrieval_mode),
+            )
+            modes.append(f"retrieval={self.cfg.retrieval_mode}")
+        
+        if modes:
+            self.logger.info(f"LLM enhanced enabled: {', '.join(modes)}")
+        else:
+            self.logger.info("LLM enhanced: all modules using rule mode")
     
     async def _init_batch_processor(self) -> None:
         """初始化批量处理器"""
