@@ -114,6 +114,16 @@ class LLMProactiveReplyDetector(LLMEnhancedDetector[LLMReplyDecision]):
         """空消息时跳过"""
         return not messages
     
+    async def analyze(
+        self,
+        messages: List[str],
+        user_id: str = "",
+        group_id: Optional[str] = None,
+        context: Optional[Dict[str, Any]] = None
+    ) -> LLMReplyDecision:
+        """分析消息，判断是否需要主动回复（detect的别名，保持接口兼容）"""
+        return await self.detect(messages, user_id, group_id, context)
+    
     def _get_empty_result(self) -> LLMReplyDecision:
         """空输入默认结果"""
         return LLMReplyDecision(
