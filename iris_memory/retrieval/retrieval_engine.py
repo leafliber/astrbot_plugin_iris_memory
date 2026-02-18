@@ -7,8 +7,6 @@ import asyncio
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 
-from iris_memory.utils.logger import get_logger
-
 from iris_memory.models.memory import Memory
 from iris_memory.core.types import StorageLayer, RetrievalStrategy, EmotionType, MemoryType
 from iris_memory.analysis.rif_scorer import RIFScorer
@@ -19,9 +17,7 @@ from iris_memory.analysis.persona.persona_coordinator import PersonaCoordinator,
 from iris_memory.utils.member_utils import format_member_tag
 from iris_memory.retrieval.reranker import Reranker
 from iris_memory.retrieval.retrieval_router import RetrievalRouter
-
-# 模块logger
-logger = get_logger("retrieval_engine")
+from iris_memory.retrieval.retrieval_logger import retrieval_log
 
 
 class MemoryRetrievalEngine:
@@ -148,60 +144,50 @@ class MemoryRetrievalEngine:
             List[Memory]: 相关记忆列表（已排序）
         """
         try:
-            query_preview = query[:50] + "..." if len(query) > 50 else query
-            logger.debug(f"Starting memory retrieval: user={user_id}, group={group_id}, top_k={top_k}")
-            logger.debug(f"Query: '{query_preview}'")
+            retrieval_log.retrieve_start(user_id, query, group_id, top_k)
             
             if emotional_state:
-                logger.debug(f"Emotional state: primary={emotional_state.current.primary.value}, intensity={emotional_state.current.intensity:.2f}")
+                retrieval_log.emotional_state(
+                    user_id,
+                    emotional_state.current.primary.value,
+                    emotional_state.current.intensity
+                )
             
-            # 使用检索路由器选择策略
             strategy = RetrievalStrategy.HYBRID
             if self.enable_routing:
                 context = {'emotional_state': emotional_state}
                 strategy = await self._route_query(query, context)
-                logger.debug(f"Retrieval router selected strategy: {strategy}")
+                retrieval_log.strategy_selected(user_id, strategy.value if hasattr(strategy, 'value') else str(strategy))
             else:
-                logger.debug("Routing disabled, using HYBRID strategy")
+                retrieval_log.strategy_selected(user_id, "HYBRID", "default")
             
-            # 使用选定策略检索
             result = await self.retrieve_with_strategy(
                 query, user_id, group_id, strategy, top_k, emotional_state, storage_layer
             )
             
-            logger.info(f"Retrieved {len(result)} memories for user={user_id}, strategy={strategy}")
+            retrieval_log.retrieve_ok(user_id, len(result), strategy.value if hasattr(strategy, 'value') else str(strategy))
             return result
             
         except Exception as e:
-            logger.error(f"Failed to retrieve memories: user={user_id}, error={e}", exc_info=True)
+            retrieval_log.retrieve_error(user_id, e)
             return []
     
     def _apply_emotion_filter(
         self,
         memories: List[Memory],
-        emotional_state: EmotionalState
+        emotional_state: EmotionalState,
+        user_id: str = ""
     ) -> List[Memory]:
-        """应用情感过滤
-        
-        Args:
-            memories: 记忆列表
-            emotional_state: 情感状态
-            
-        Returns:
-            过滤后的记忆列表
-        """
         if not emotional_state:
             return memories
         
         filtered = []
         for memory in memories:
-            # 负面情感时，过滤掉高强度的正面记忆
             if emotional_state.current.primary in [EmotionType.SADNESS, EmotionType.ANGER, EmotionType.FEAR]:
                 if memory.emotional_weight > 0.7 and memory.type == MemoryType.EMOTION:
-                    # 检查记忆情感是否与当前情感相反
                     if hasattr(memory, 'subtype') and memory.subtype:
                         if memory.subtype in ['joy', 'excitement']:
-                            logger.debug(f"Filtered high-positive memory during negative state: {memory.id[:8]}")
+                            retrieval_log.memory_filtered(user_id, memory.id, "emotion_mismatch")
                             continue
             
             filtered.append(memory)
@@ -224,7 +210,7 @@ class MemoryRetrievalEngine:
                 if result.confidence >= 0.6:
                     return result.strategy
             except Exception as e:
-                logger.debug(f"LLM retrieval routing failed: {e}")
+                retrieval_log.routing_failed("", str(e))
         
         return self.router.route(query, context)
     
@@ -300,11 +286,7 @@ class MemoryRetrievalEngine:
                 query, user_id, group_id, top_k, emotional_state, storage_layer
             )
         elif strategy == RetrievalStrategy.GRAPH_ONLY:
-            # 图检索暂未完整实现，降级到混合检索并记录警告
-            logger.warning(
-                f"GRAPH_ONLY strategy requested but not fully implemented. "
-                f"Falling back to HYBRID retrieval. Query: '{query[:50]}...'"
-            )
+            retrieval_log.graph_fallback(user_id, query)
             return await self._hybrid_retrieval(
                 query, user_id, group_id, top_k, emotional_state, storage_layer
             )
@@ -322,55 +304,43 @@ class MemoryRetrievalEngine:
         emotional_state: Optional[EmotionalState] = None,
         storage_layer: Optional[StorageLayer] = None
     ) -> List[Memory]:
-        """混合检索（原来的核心逻辑）
-        
-        Args:
-            query: 查询文本
-            user_id: 用户ID
-            group_id: 群组ID（可选）
-            top_k: 返回的最大数量
-            emotional_state: 情感状态（用于情感感知检索）
-            storage_layer: 存储层过滤（可选）
-            
-        Returns:
-            List[Memory]: 相关记忆列表（已排序）
-        """
-        # 1. 从Chroma检索候选记忆（EPISODIC/SEMANTIC）
         candidate_memories = await self.chroma_manager.query_memories(
             query_text=query,
             user_id=user_id,
             group_id=group_id,
-            top_k=top_k * 2,  # 获取更多候选
+            top_k=top_k * 2,
             storage_layer=storage_layer
         )
+        retrieval_log.vector_query(user_id, len(candidate_memories), storage_layer.value if storage_layer and hasattr(storage_layer, 'value') else None)
         
-        # 2. 合并工作记忆（如果启用且有session_manager）
         if self.enable_working_memory_merge and self.session_manager:
             working_memories = await self._get_relevant_working_memories(
                 query, user_id, group_id, storage_layer
             )
             if working_memories:
-                logger.debug(f"Merging {len(working_memories)} working memories")
+                retrieval_log.working_memory_merged(user_id, len(working_memories), len(candidate_memories) + len(working_memories))
                 candidate_memories = self._merge_memories(
                     candidate_memories, working_memories
                 )
         
         if not candidate_memories:
-            logger.debug(f"No memories found for query: {query[:50]}...")
+            retrieval_log.no_memories_found(user_id, query)
             return []
         
-        # 2. 应用情感过滤
         if self.enable_emotion_aware and emotional_state:
+            before_count = len(candidate_memories)
             candidate_memories = self._apply_emotion_filter(
                 candidate_memories,
-                emotional_state
+                emotional_state,
+                user_id
+            )
+            retrieval_log.emotion_filter_applied(
+                user_id, before_count, len(candidate_memories), "negative_state"
             )
         
-        # 3. 更新访问统计
         for memory in candidate_memories:
             memory.update_access()
         
-        # 4. 结果重排序
         ranked_memories = self._rerank_memories(
             candidate_memories,
             query,
@@ -378,10 +348,7 @@ class MemoryRetrievalEngine:
             user_id
         )
         
-        # 5. 返回Top-N结果
         result = ranked_memories[:top_k]
-        
-        logger.info(f"Retrieved {len(result)} memories for query: {query[:50]}...")
         
         return result
     
@@ -485,9 +452,8 @@ class MemoryRetrievalEngine:
         for memory in memories:
             memory.update_access()
         
-        # 应用情感过滤
         if emotional_state:
-            memories = self._apply_emotion_filter(memories, emotional_state)
+            memories = self._apply_emotion_filter(memories, emotional_state, user_id)
         
         return memories[:top_k]
     
@@ -540,11 +506,9 @@ class MemoryRetrievalEngine:
                 elif len(query) < 20:
                     relevant.append(memory)
             
-            logger.debug(f"Found {len(relevant)} relevant working memories out of {len(working_memories)}")
             return relevant
             
         except Exception as e:
-            logger.warning(f"Failed to get working memories: {e}")
             return []
     
     def _merge_memories(
@@ -580,13 +544,7 @@ class MemoryRetrievalEngine:
         return merged
     
     def set_session_manager(self, session_manager):
-        """设置会话管理器（用于延迟注入）
-        
-        Args:
-            session_manager: 会话管理器实例
-        """
         self.session_manager = session_manager
-        logger.debug("SessionManager injected into MemoryRetrievalEngine")
     
     def format_memories_for_llm(
         self,
