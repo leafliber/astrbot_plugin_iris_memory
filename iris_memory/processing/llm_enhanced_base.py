@@ -1,6 +1,10 @@
 """
 LLM增强基类
 提供统一的LLM调用封装，支持多种检测模式的基类
+
+包含两层抽象：
+- LLMEnhancedBase: 底层LLM调用封装（provider管理、重试、JSON解析）
+- LLMEnhancedDetector: 上层模板方法模式（统一 detect/rule/llm/hybrid 流程）
 """
 import asyncio
 import json
@@ -9,8 +13,9 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import date
 from enum import Enum
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Generic, List, Optional, Tuple, TypeVar
 
+from iris_memory.processing.detection_result import BaseDetectionResult
 from iris_memory.utils.logger import get_logger
 from iris_memory.utils.provider_utils import (
     extract_provider_id,
@@ -20,6 +25,9 @@ from iris_memory.utils.provider_utils import (
 )
 
 logger = get_logger("llm_enhanced_base")
+
+# 泛型结果类型，子类指定具体的检测结果类型
+T = TypeVar('T')
 
 MAX_RETRIES = 2
 INITIAL_BACKOFF = 0.5
@@ -265,4 +273,123 @@ class LLMEnhancedBase(ABC):
     @abstractmethod
     def _rule_detect(self, *args, **kwargs) -> Any:
         """子类实现的规则检测方法"""
+        pass
+
+
+class LLMEnhancedDetector(LLMEnhancedBase, Generic[T]):
+    """增强的LLM检测器基类 - 支持泛型结果类型和模板方法模式
+    
+    将 detect/rule/llm/hybrid 的公共流程提取到基类中，
+    子类只需实现以下抽象方法：
+    
+    - _build_prompt(*args, **kwargs) -> str: 构建LLM提示词
+    - _parse_llm_result(data: Dict) -> T: 解析LLM返回的JSON
+    - _rule_detect(*args, **kwargs) -> T: 规则检测实现
+    
+    可选覆写：
+    - _get_empty_result() -> T: 空输入时的默认结果
+    - _should_skip_input(*args, **kwargs) -> bool: 是否跳过输入
+    - _hybrid_detect(*args, **kwargs) -> T: 自定义混合检测逻辑
+    - _llm_detect(*args, **kwargs) -> T: 自定义LLM检测逻辑
+    """
+    
+    async def detect(self, *args, **kwargs) -> T:
+        """模板方法 - 统一检测流程
+        
+        根据当前模式分派到对应的检测方法。
+        子类通常不需要覆写此方法。
+        """
+        if self._should_skip_input(*args, **kwargs):
+            return self._get_empty_result()
+        
+        if self._mode == DetectionMode.RULE:
+            return self._rule_detect(*args, **kwargs)
+        elif self._mode == DetectionMode.LLM:
+            return await self._llm_detect(*args, **kwargs)
+        else:
+            return await self._hybrid_detect(*args, **kwargs)
+    
+    async def _llm_detect(self, *args, **kwargs) -> T:
+        """统一LLM检测流程
+        
+        构建提示词 → 调用LLM → 解析结果 → 失败时回退到规则。
+        子类可覆写以定制LLM检测逻辑。
+        """
+        prompt = self._build_prompt(*args, **kwargs)
+        result = await self._call_llm(prompt)
+        
+        if not result.success or not result.parsed_json:
+            logger.debug(
+                f"LLM detection failed for {self.__class__.__name__}, "
+                f"falling back to rule"
+            )
+            return self._rule_detect(*args, **kwargs)
+        
+        parsed = self._parse_llm_result(result.parsed_json)
+        return parsed
+    
+    async def _hybrid_detect(self, *args, **kwargs) -> T:
+        """默认混合检测逻辑
+        
+        规则预筛 → LLM确认。
+        子类应覆写此方法以提供定制化的混合逻辑。
+        """
+        rule_result = self._rule_detect(*args, **kwargs)
+        
+        llm_result = await self._llm_detect(*args, **kwargs)
+        if hasattr(llm_result, 'confidence') and llm_result.confidence >= 0.6:
+            if hasattr(llm_result, 'source'):
+                llm_result.source = "hybrid"
+            return llm_result
+        
+        if hasattr(rule_result, 'source'):
+            rule_result.source = "hybrid"
+        return rule_result
+    
+    def _should_skip_input(self, *args, **kwargs) -> bool:
+        """判断是否跳过输入（空值、过短等）
+        
+        子类可覆写以提供定制的跳过逻辑。
+        默认行为：检查第一个位置参数是否为空字符串。
+        """
+        if args:
+            first_arg = args[0]
+            if isinstance(first_arg, str) and not first_arg.strip():
+                return True
+            if isinstance(first_arg, list) and not first_arg:
+                return True
+        return False
+    
+    def _get_empty_result(self) -> T:
+        """返回空输入时的默认结果
+        
+        子类必须覆写此方法。
+        """
+        raise NotImplementedError(
+            f"{self.__class__.__name__} must implement _get_empty_result()"
+        )
+    
+    @abstractmethod
+    def _build_prompt(self, *args, **kwargs) -> str:
+        """构建LLM提示词
+        
+        子类实现。将输入转换为LLM可理解的提示词。
+        """
+        pass
+    
+    @abstractmethod
+    def _parse_llm_result(self, data: Dict[str, Any]) -> T:
+        """解析LLM结果
+        
+        子类实现。将LLM返回的JSON字典转换为结果对象。
+        应使用 BaseDetectionResult 的工具方法处理通用转换。
+        """
+        pass
+    
+    @abstractmethod
+    def _rule_detect(self, *args, **kwargs) -> T:
+        """规则检测实现
+        
+        子类实现。纯规则逻辑，不涉及LLM调用。
+        """
         pass

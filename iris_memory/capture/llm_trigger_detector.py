@@ -1,15 +1,18 @@
 """
 LLM增强触发器检测器
 使用LLM进行语义层面的记忆触发器检测
+
+重构版本：继承 LLMEnhancedDetector 模板方法模式
 """
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 from iris_memory.core.types import TriggerType
 from iris_memory.capture.trigger_detector import TriggerDetector
+from iris_memory.processing.detection_result import BaseDetectionResult
 from iris_memory.processing.llm_enhanced_base import (
     DetectionMode,
-    LLMEnhancedBase,
+    LLMEnhancedDetector,
 )
 from iris_memory.utils.logger import get_logger
 
@@ -53,18 +56,33 @@ TRIGGER_DETECTION_PROMPT = """分析以下文本是否值得作为记忆保存�
 
 
 @dataclass
-class TriggerDetectionResult:
+class TriggerDetectionResult(BaseDetectionResult):
     """触发器检测结果"""
-    should_remember: bool
-    trigger_type: Optional[TriggerType]
-    confidence: float
-    reason: str
-    memory_value: str  # "high" | "medium" | "low"
-    key_info: List[str]
-    source: str  # "rule" | "llm" | "hybrid"
+    should_remember: bool = False
+    trigger_type: Optional[TriggerType] = None
+    memory_value: str = "low"  # "high" | "medium" | "low"
+    key_info: List[str] = field(default_factory=list)
 
 
-class LLMTriggerDetector(LLMEnhancedBase):
+# 触发器类型枚举映射
+_TRIGGER_TYPE_MAP = {
+    "explicit": TriggerType.EXPLICIT,
+    "preference": TriggerType.PREFERENCE,
+    "emotion": TriggerType.EMOTION,
+    "relationship": TriggerType.RELATIONSHIP,
+    "fact": TriggerType.FACT,
+    "boundary": TriggerType.BOUNDARY,
+}
+
+# 隐藏价值指示词
+_VALUE_INDICATORS = [
+    "今天", "昨天", "最近", "发现", "终于",
+    "觉得", "感觉", "认为", "希望", "打算", "计划",
+    "第一次", "好久", "突然", "意外"
+]
+
+
+class LLMTriggerDetector(LLMEnhancedDetector[TriggerDetectionResult]):
     """LLM增强触发器检测器
     
     支持三种模式：
@@ -89,37 +107,18 @@ class LLMTriggerDetector(LLMEnhancedBase):
         )
         self._rule_detector = TriggerDetector()
     
-    async def detect(
-        self,
-        text: str,
-        context: Optional[Dict[str, Any]] = None
-    ) -> TriggerDetectionResult:
-        """检测文本是否值得记忆
-        
-        Args:
-            text: 输入文本
-            context: 上下文信息
-            
-        Returns:
-            TriggerDetectionResult: 检测结果
-        """
-        if not text or len(text.strip()) < 3:
-            return TriggerDetectionResult(
-                should_remember=False,
-                trigger_type=None,
-                confidence=1.0,
-                reason="文本过短",
-                memory_value="low",
-                key_info=[],
-                source="rule"
-            )
-        
-        if self._mode == DetectionMode.RULE:
-            return self._rule_detect(text, context)
-        elif self._mode == DetectionMode.LLM:
-            return await self._llm_detect(text, context)
-        else:
-            return await self._hybrid_detect(text, context)
+    def _should_skip_input(self, text: str = "", **kwargs) -> bool:
+        """文本过短时跳过"""
+        return not text or len(text.strip()) < 3
+    
+    def _get_empty_result(self) -> TriggerDetectionResult:
+        """空输入默认结果"""
+        return TriggerDetectionResult(
+            confidence=1.0,
+            source="rule",
+            reason="文本过短",
+            should_remember=False,
+        )
     
     def _rule_detect(
         self,
@@ -130,12 +129,9 @@ class LLMTriggerDetector(LLMEnhancedBase):
         if self._rule_detector.is_query(text):
             return TriggerDetectionResult(
                 should_remember=False,
-                trigger_type=None,
                 confidence=0.9,
                 reason="查询类消息",
-                memory_value="low",
-                key_info=[],
-                source="rule"
+                source="rule",
             )
         
         triggers = self._rule_detector.detect_triggers(text)
@@ -143,12 +139,9 @@ class LLMTriggerDetector(LLMEnhancedBase):
         if not triggers:
             return TriggerDetectionResult(
                 should_remember=False,
-                trigger_type=None,
                 confidence=0.8,
                 reason="无触发器",
-                memory_value="low",
-                key_info=[],
-                source="rule"
+                source="rule",
             )
         
         highest = self._rule_detector.get_highest_confidence_trigger(text)
@@ -159,34 +152,33 @@ class LLMTriggerDetector(LLMEnhancedBase):
                 confidence=highest["confidence"],
                 reason=f"规则匹配: {highest['pattern']}",
                 memory_value="medium",
-                key_info=[],
-                source="rule"
+                source="rule",
             )
         
         return TriggerDetectionResult(
             should_remember=False,
-            trigger_type=None,
             confidence=0.5,
             reason="触发器置信度低",
-            memory_value="low",
-            key_info=[],
-            source="rule"
+            source="rule",
         )
     
-    async def _llm_detect(
-        self,
-        text: str,
-        context: Optional[Dict[str, Any]] = None
-    ) -> TriggerDetectionResult:
-        """LLM检测"""
-        prompt = TRIGGER_DETECTION_PROMPT.format(text=text[:500])
-        result = await self._call_llm(prompt)
-        
-        if not result.success or not result.parsed_json:
-            logger.debug(f"LLM trigger detection failed, falling back to rule")
-            return self._rule_detect(text, context)
-        
-        return self._parse_llm_result(result.parsed_json)
+    def _build_prompt(self, text: str, **kwargs) -> str:
+        """构建LLM提示词"""
+        return TRIGGER_DETECTION_PROMPT.format(text=text[:500])
+    
+    def _parse_llm_result(self, data: Dict[str, Any]) -> TriggerDetectionResult:
+        """解析LLM结果"""
+        return TriggerDetectionResult(
+            should_remember=data.get("should_remember", False),
+            trigger_type=BaseDetectionResult.map_enum(
+                data.get("trigger_type", ""), _TRIGGER_TYPE_MAP
+            ),
+            confidence=BaseDetectionResult.parse_confidence(data),
+            reason=data.get("reason", "LLM判断"),
+            memory_value=data.get("memory_value", "medium"),
+            key_info=BaseDetectionResult.ensure_list(data.get("key_info", [])),
+            source="llm",
+        )
     
     async def _hybrid_detect(
         self,
@@ -196,12 +188,12 @@ class LLMTriggerDetector(LLMEnhancedBase):
         """混合检测：规则预筛 + LLM确认"""
         rule_result = self._rule_detect(text, context)
         
+        # 高置信度的显式/边界触发 → 直接返回
         if rule_result.should_remember and rule_result.confidence >= 0.8:
-            if rule_result.trigger_type == TriggerType.EXPLICIT:
-                return rule_result
-            if rule_result.trigger_type == TriggerType.BOUNDARY:
+            if rule_result.trigger_type in (TriggerType.EXPLICIT, TriggerType.BOUNDARY):
                 return rule_result
         
+        # 高置信度无触发 → 检查隐藏价值后返回
         if not rule_result.should_remember and rule_result.confidence >= 0.8:
             if self._might_have_hidden_value(text):
                 llm_result = await self._llm_detect(text, context)
@@ -210,6 +202,7 @@ class LLMTriggerDetector(LLMEnhancedBase):
                     return llm_result
             return rule_result
         
+        # 不确定区间 → LLM确认
         llm_result = await self._llm_detect(text, context)
         if llm_result.confidence >= 0.6:
             llm_result.source = "hybrid"
@@ -220,44 +213,9 @@ class LLMTriggerDetector(LLMEnhancedBase):
     
     def _might_have_hidden_value(self, text: str) -> bool:
         """检查是否有隐藏价值"""
-        value_indicators = [
-            "今天", "昨天", "最近", "发现", "终于", "终于",
-            "觉得", "感觉", "认为", "希望", "打算", "计划",
-            "第一次", "好久", "突然", "意外"
-        ]
-        return any(indicator in text for indicator in value_indicators)
+        return any(indicator in text for indicator in _VALUE_INDICATORS)
     
-    def _parse_llm_result(self, data: Dict[str, Any]) -> TriggerDetectionResult:
-        """解析LLM结果"""
-        should_remember = data.get("should_remember", False)
-        
-        trigger_type_str = data.get("trigger_type", "").lower()
-        trigger_type_map = {
-            "explicit": TriggerType.EXPLICIT,
-            "preference": TriggerType.PREFERENCE,
-            "emotion": TriggerType.EMOTION,
-            "relationship": TriggerType.RELATIONSHIP,
-            "fact": TriggerType.FACT,
-            "boundary": TriggerType.BOUNDARY,
-        }
-        trigger_type = trigger_type_map.get(trigger_type_str)
-        
-        confidence = float(data.get("confidence", 0.5))
-        confidence = max(0.0, min(1.0, confidence))
-        
-        key_info = data.get("key_info", [])
-        if isinstance(key_info, str):
-            key_info = [key_info]
-        
-        return TriggerDetectionResult(
-            should_remember=should_remember,
-            trigger_type=trigger_type,
-            confidence=confidence,
-            reason=data.get("reason", "LLM判断"),
-            memory_value=data.get("memory_value", "medium"),
-            key_info=key_info,
-            source="llm"
-        )
+    # ===== 向后兼容方法 =====
     
     def has_trigger(self, text: str) -> bool:
         """判断文本是否包含触发器（同步版本）"""
