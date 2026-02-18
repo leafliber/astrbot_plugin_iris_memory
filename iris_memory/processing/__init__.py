@@ -6,6 +6,8 @@
 - LLM摘要生成
 - 混合处理策略
 - LLM记忆升级评估
+- 通用检测结果基类
+- LLM增强检测器泛型基类
 """
 
 from .llm_processor import (
@@ -19,10 +21,20 @@ from .upgrade_evaluator import (
     UpgradeMode
 )
 
+from .detection_result import BaseDetectionResult
+
+from .llm_enhanced_base import (
+    LLMEnhancedDetector,
+    DetectionMode,
+)
+
 __all__ = [
     'LLMMessageProcessor',
     'LLMClassificationResult',
     'LLMSummaryResult',
     'UpgradeEvaluator',
-    'UpgradeMode'
+    'UpgradeMode',
+    'BaseDetectionResult',
+    'LLMEnhancedDetector',
+    'DetectionMode',
 ]

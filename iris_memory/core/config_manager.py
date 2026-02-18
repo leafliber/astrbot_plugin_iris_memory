@@ -9,71 +9,17 @@
 import threading
 from typing import Any, Dict, Optional
 from iris_memory.core.defaults import DEFAULTS, get_default
+from iris_memory.core.config_registry import CONFIG_REGISTRY, get_registry_mapping
 from iris_memory.core.activity_config import (
     ActivityAwareConfigProvider, GroupActivityTracker
 )
 from iris_memory.utils.provider_utils import normalize_provider_id
 
 
-# 配置键映射：简化键 -> (默认配置区块, 默认配置键, 内置默认值)
-CONFIG_KEY_MAPPING = {
-    # 基础功能
-    "basic.enable_memory": ("memory", "auto_capture", True),
-    "basic.enable_inject": ("llm_integration", "enable_inject", True),
-    "basic.log_level": ("log", "level", "INFO"),
-    
-    # 记忆设置
-    "memory.max_context_memories": ("llm_integration", "max_context_memories", 3),
-    "memory.max_working_memory": ("memory", "max_working_memory", 10),
-    "memory.upgrade_mode": ("memory", "upgrade_mode", "rule"),
-    
-    # LLM增强处理（已合并到 memory 区块）
-    "memory.use_llm": ("message_processing", "use_llm_for_processing", False),
-    "memory.provider_id": ("llm_integration", "provider_id", ""),
-    
-    # 主动回复
-    "proactive_reply.enable": ("proactive_reply", "enable", False),
-    "proactive_reply.group_whitelist_mode": ("proactive_reply", "group_whitelist_mode", False),
-    
-    # 图片分析
-    "image_analysis.enable": ("image_analysis", "enable_image_analysis", True),
-    "image_analysis.mode": ("image_analysis", "analysis_mode", "auto"),
-    "image_analysis.daily_budget": ("image_analysis", "daily_analysis_budget", 100),
-    "image_analysis.provider_id": ("image_analysis", "provider_id", ""),
-    
-    # 场景自适应
-    "activity_adaptive.enable": ("activity_adaptive", "enable_activity_adaptive", True),
-    
-    # 嵌入向量
-    "embedding.enable_local_provider": ("embedding", "enable_local_provider", True),
-    
-    # 画像提取
-    "persona.extraction_mode": ("persona", "extraction_mode", "rule"),
-    "persona.llm_provider": ("persona", "llm_provider", "default"),
-    "persona.enable_interest_extraction": ("persona", "enable_interest_extraction", True),
-    "persona.enable_style_extraction": ("persona", "enable_style_extraction", True),
-    "persona.enable_preference_extraction": ("persona", "enable_preference_extraction", True),
-    "persona.llm_max_tokens": ("persona", "llm_max_tokens", 300),
-    "persona.llm_daily_limit": ("persona", "llm_daily_limit", 50),
-    "persona.fallback_to_rule": ("persona", "fallback_to_rule", True),
-    
-    # 高级参数（群聊自适应覆盖）
-    "advanced.chat_context_count": ("llm_integration", "chat_context_count", 10),
-    "advanced.cooldown_seconds": ("proactive_reply", "cooldown_seconds", 60),
-    "advanced.max_daily_replies": ("proactive_reply", "max_daily_replies", 20),
-    "advanced.reply_temperature": ("proactive_reply", "reply_temperature", 0.7),
-    "advanced.batch_threshold_count": ("message_processing", "batch_threshold_count", 20),
-    "advanced.batch_threshold_interval": ("message_processing", "batch_threshold_interval", 300),
-    "advanced.daily_analysis_budget": ("image_analysis", "daily_analysis_budget", 100),
-    
-    # LLM智能增强（简化配置）
-    "llm_enhanced.provider_id": ("llm_enhanced", "provider_id", ""),
-    "llm_enhanced.sensitivity_mode": ("llm_enhanced", "sensitivity_mode", "rule"),
-    "llm_enhanced.trigger_mode": ("llm_enhanced", "trigger_mode", "rule"),
-    "llm_enhanced.emotion_mode": ("llm_enhanced", "emotion_mode", "rule"),
-    "llm_enhanced.proactive_mode": ("llm_enhanced", "proactive_mode", "rule"),
-    "llm_enhanced.conflict_mode": ("llm_enhanced", "conflict_mode", "rule"),
-    "llm_enhanced.retrieval_mode": ("llm_enhanced", "retrieval_mode", "rule"),
+# 向后兼容：CONFIG_KEY_MAPPING 现在由 CONFIG_REGISTRY 自动生成
+CONFIG_KEY_MAPPING: Dict[str, tuple] = {
+    key: (defn.section, defn.attr, defn.default)
+    for key, defn in CONFIG_REGISTRY.items()
 }
 
 

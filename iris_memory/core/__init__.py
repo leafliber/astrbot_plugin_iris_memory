@@ -12,6 +12,13 @@ from iris_memory.core.activity_config import (
     GroupActivityTracker,
     ActivityAwareConfigProvider,
 )
+from iris_memory.core.config_registry import (
+    ConfigDefinition,
+    CONFIG_REGISTRY,
+    get_registry_default,
+    get_registry_mapping,
+)
+from iris_memory.core.service_container import ServiceContainer
 
 __all__ = [
     'DEFAULTS',
@@ -25,4 +32,9 @@ __all__ = [
     'init_config_manager',
     'GroupActivityTracker',
     'ActivityAwareConfigProvider',
+    'ConfigDefinition',
+    'CONFIG_REGISTRY',
+    'get_registry_default',
+    'get_registry_mapping',
+    'ServiceContainer',
 ]

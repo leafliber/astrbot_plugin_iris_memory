@@ -1,15 +1,18 @@
 """
 LLM增强检索路由器
 使用LLM进行查询意图理解，选择最优检索策略
+
+重构版本：继承 LLMEnhancedDetector 模板方法模式
 """
-from dataclasses import dataclass
-from typing import Any, Dict, Optional
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional
 
 from iris_memory.core.types import RetrievalStrategy
 from iris_memory.retrieval.retrieval_router import RetrievalRouter
+from iris_memory.processing.detection_result import BaseDetectionResult
 from iris_memory.processing.llm_enhanced_base import (
     DetectionMode,
-    LLMEnhancedBase,
+    LLMEnhancedDetector,
 )
 from iris_memory.utils.logger import get_logger
 
@@ -57,18 +60,32 @@ RETRIEVAL_ROUTING_PROMPT = """分析以下查询，选择最优的检索策略�
 仅返回JSON，不要有其他文字。"""
 
 
+# 检索策略枚举映射
+_STRATEGY_MAP = {
+    "vector_only": RetrievalStrategy.VECTOR_ONLY,
+    "time_aware": RetrievalStrategy.TIME_AWARE,
+    "emotion_aware": RetrievalStrategy.EMOTION_AWARE,
+    "graph_only": RetrievalStrategy.GRAPH_ONLY,
+    "hybrid": RetrievalStrategy.HYBRID,
+}
+
+# 复杂查询指示词
+_COMPLEX_INDICATORS = [
+    "和", "与", "跟", "一起", "同时",
+    "之前", "之后", "期间", "时候",
+    "为什么", "怎么", "如何", "原因"
+]
+
+
 @dataclass
-class RoutingResult:
+class RoutingResult(BaseDetectionResult):
     """路由结果"""
-    strategy: RetrievalStrategy
-    confidence: float
-    reason: str
-    query_type: str
-    key_entities: list
-    source: str
+    strategy: RetrievalStrategy = RetrievalStrategy.VECTOR_ONLY
+    query_type: str = "simple"
+    key_entities: List[str] = field(default_factory=list)
 
 
-class LLMRetrievalRouter(LLMEnhancedBase):
+class LLMRetrievalRouter(LLMEnhancedDetector[RoutingResult]):
     """LLM增强检索路由器
     
     支持三种模式：
@@ -93,36 +110,17 @@ class LLMRetrievalRouter(LLMEnhancedBase):
         )
         self._rule_router = RetrievalRouter()
     
-    async def detect(
-        self,
-        query: str,
-        context: Optional[Dict[str, Any]] = None
-    ) -> RoutingResult:
-        """路由查询到最优策略
-        
-        Args:
-            query: 查询文本
-            context: 上下文信息
-            
-        Returns:
-            RoutingResult: 路由结果
-        """
-        if not query:
-            return RoutingResult(
-                strategy=RetrievalStrategy.VECTOR_ONLY,
-                confidence=1.0,
-                reason="空查询",
-                query_type="simple",
-                key_entities=[],
-                source="rule"
-            )
-        
-        if self._mode == DetectionMode.RULE:
-            return self._rule_detect(query, context)
-        elif self._mode == DetectionMode.LLM:
-            return await self._llm_detect(query, context)
-        else:
-            return await self._hybrid_detect(query, context)
+    def _should_skip_input(self, query: str = "", **kwargs) -> bool:
+        """空查询时跳过"""
+        return not query
+    
+    def _get_empty_result(self) -> RoutingResult:
+        """空输入默认结果"""
+        return RoutingResult(
+            confidence=1.0,
+            source="rule",
+            reason="空查询",
+        )
     
     def _rule_detect(
         self,
@@ -138,24 +136,29 @@ class LLMRetrievalRouter(LLMEnhancedBase):
             confidence=0.7,
             reason=f"规则路由: {analysis['complexity']}",
             query_type=analysis["complexity"],
-            key_entities=[],
-            source="rule"
+            source="rule",
         )
     
-    async def _llm_detect(
-        self,
-        query: str,
-        context: Optional[Dict[str, Any]] = None
-    ) -> RoutingResult:
-        """LLM路由"""
-        prompt = RETRIEVAL_ROUTING_PROMPT.format(query=query[:300])
-        result = await self._call_llm(prompt)
-        
-        if not result.success or not result.parsed_json:
-            logger.debug(f"LLM retrieval routing failed, falling back to rule")
-            return self._rule_detect(query, context)
-        
-        return self._parse_llm_result(result.parsed_json)
+    def _build_prompt(self, query: str, **kwargs) -> str:
+        """构建LLM提示词"""
+        return RETRIEVAL_ROUTING_PROMPT.format(query=query[:300])
+    
+    def _parse_llm_result(self, data: Dict[str, Any]) -> RoutingResult:
+        """解析LLM结果"""
+        return RoutingResult(
+            strategy=BaseDetectionResult.map_enum(
+                data.get("strategy", "vector_only"),
+                _STRATEGY_MAP,
+                RetrievalStrategy.VECTOR_ONLY,
+            ),
+            confidence=BaseDetectionResult.parse_confidence(data),
+            reason=data.get("reason", "LLM判断"),
+            query_type=data.get("query_type", "simple"),
+            key_entities=BaseDetectionResult.ensure_list(
+                data.get("key_entities", [])
+            ),
+            source="llm",
+        )
     
     async def _hybrid_detect(
         self,
@@ -165,6 +168,7 @@ class LLMRetrievalRouter(LLMEnhancedBase):
         """混合路由：规则快速判断 + LLM复杂确认"""
         rule_result = self._rule_detect(query, context)
         
+        # VECTOR_ONLY 且可能复杂 → LLM确认
         if rule_result.strategy == RetrievalStrategy.VECTOR_ONLY:
             if len(query) > 20 or self._might_be_complex(query):
                 llm_result = await self._llm_detect(query, context)
@@ -172,6 +176,7 @@ class LLMRetrievalRouter(LLMEnhancedBase):
                     llm_result.source = "hybrid"
                     return llm_result
         
+        # HYBRID策略 → LLM确认
         if rule_result.strategy == RetrievalStrategy.HYBRID:
             llm_result = await self._llm_detect(query, context)
             if llm_result.confidence >= 0.6:
@@ -183,42 +188,13 @@ class LLMRetrievalRouter(LLMEnhancedBase):
     
     def _might_be_complex(self, query: str) -> bool:
         """检查是否可能是复杂查询"""
-        complex_indicators = [
-            "和", "与", "跟", "一起", "同时",
-            "之前", "之后", "期间", "时候",
-            "为什么", "怎么", "如何", "原因"
-        ]
-        return any(ind in query for ind in complex_indicators)
+        return any(ind in query for ind in _COMPLEX_INDICATORS)
     
-    def _parse_llm_result(self, data: Dict[str, Any]) -> RoutingResult:
-        """解析LLM结果"""
-        strategy_str = data.get("strategy", "vector_only").lower()
-        strategy_map = {
-            "vector_only": RetrievalStrategy.VECTOR_ONLY,
-            "time_aware": RetrievalStrategy.TIME_AWARE,
-            "emotion_aware": RetrievalStrategy.EMOTION_AWARE,
-            "graph_only": RetrievalStrategy.GRAPH_ONLY,
-            "hybrid": RetrievalStrategy.HYBRID,
-        }
-        strategy = strategy_map.get(strategy_str, RetrievalStrategy.VECTOR_ONLY)
-        
-        confidence = float(data.get("confidence", 0.5))
-        confidence = max(0.0, min(1.0, confidence))
-        
-        key_entities = data.get("key_entities", [])
-        if isinstance(key_entities, str):
-            key_entities = [key_entities]
-        
-        return RoutingResult(
-            strategy=strategy,
-            confidence=confidence,
-            reason=data.get("reason", "LLM判断"),
-            query_type=data.get("query_type", "simple"),
-            key_entities=key_entities,
-            source="llm"
-        )
+    # ===== 向后兼容方法 =====
     
-    def route(self, query: str, context: Optional[dict] = None) -> RetrievalStrategy:
+    def route(
+        self, query: str, context: Optional[dict] = None
+    ) -> RetrievalStrategy:
         """路由查询（同步版本，兼容原接口）"""
         result = self._rule_detect(query, context)
         return result.strategy
