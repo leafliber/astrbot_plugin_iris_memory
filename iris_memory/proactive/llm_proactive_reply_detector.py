@@ -110,9 +110,14 @@ class LLMProactiveReplyDetector(LLMEnhancedDetector[LLMReplyDecision]):
         )
         self._rule_detector = ProactiveReplyDetector()
     
-    def _should_skip_input(self, messages: List[str] = None, **kwargs) -> bool:
+    def _should_skip_input(self, *args, **kwargs) -> bool:
         """空消息时跳过"""
-        return not messages
+        messages = args[0] if args else kwargs.get("messages")
+        if not messages:
+            return True
+        if all(not m or not m.strip() for m in messages):
+            return True
+        return False
     
     async def analyze(
         self,
