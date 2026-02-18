@@ -30,16 +30,16 @@ from iris_memory.utils.event_utils import get_group_id, get_sender_name
 from iris_memory.utils.logger import init_logging_from_config
 from iris_memory.utils.command_utils import (
     CommandParser, DeleteScopeParser, StatsFormatter,
-    SessionKeyBuilder, MessageFilter, UnifiedDeleteScopeParser, DeleteMainScope
+    SessionKeyBuilder, MessageFilter, UnifiedDeleteScopeParser
 )
 from iris_memory.core.constants import (
     CommandPrefix, ErrorMessages, SuccessMessages,
     DeleteScope, NumericDefaults, LogTemplates,
-    ErrorFriendlyMessages, ConfigKeys
+    ErrorFriendlyMessages, ConfigKeys, DeleteMainScope
 )
 
 
-@register("iris_memory", "YourName", "基于companion-memory框架的三层记忆插件", "1.3.0")
+@register("iris_memory", "YourName", "基于companion-memory框架的三层记忆插件", "1.4.1")
 class IrisMemoryPlugin(Star):
     """
     Iris记忆插件 - Handler层
@@ -192,7 +192,6 @@ class IrisMemoryPlugin(Star):
 
         用法：/memory_clear
         """
-        # 直接复用 delete_memory 的 current 逻辑
         user_id = event.get_sender_id()
         group_id = get_group_id(event)
 
@@ -204,21 +203,6 @@ class IrisMemoryPlugin(Star):
             yield event.plain_result(SuccessMessages.MEMORY_CLEARED)
         else:
             yield event.plain_result(ErrorMessages.DELETE_FAILED)
-        user_id = event.get_sender_id()
-        group_id = get_group_id(event)
-        
-        # 执行业务逻辑
-        success = await self._service.clear_memories(user_id, group_id)
-        
-        if success:
-            # 删除保存时间记录
-            kv_key = SessionKeyBuilder.build_for_kv(user_id, group_id)
-            await self.delete_kv_data(kv_key)
-            result = SuccessMessages.MEMORY_CLEARED
-        else:
-            result = ErrorMessages.DELETE_FAILED
-        
-        yield event.plain_result(result)
 
     @filter.command("memory_stats")
     async def memory_stats(self, event: AstrMessageEvent) -> AsyncGenerator[Any, None]:
