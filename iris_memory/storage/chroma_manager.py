@@ -1,19 +1,21 @@
 """
 Chroma存储管理器
 管理Chroma向量数据库的CRUD操作，支持会话隔离
+
+架构：
+- 使用 Mixin 模式拆分功能模块
+- chroma_queries.py: 查询操作
+- chroma_operations.py: CRUD操作
 """
 
 import os
-import asyncio
 from typing import List, Dict, Any, Optional, Tuple
 from pathlib import Path
 
 import numpy as np
 
-# 本地导入
 from iris_memory.core.memory_scope import MemoryScope
 
-# Chroma导入
 try:
     import chromadb
     from chromadb.config import Settings
@@ -26,16 +28,17 @@ except ImportError:
     ChromaNotFoundError = None
 
 from iris_memory.utils.logger import get_logger
-
 from iris_memory.models.memory import Memory
 from iris_memory.core.types import QualityLevel, SensitivityLevel
 from iris_memory.core.types import StorageLayer, MemoryType, ModalityType
 
-# 模块logger
+from iris_memory.storage.chroma_queries import ChromaQueries
+from iris_memory.storage.chroma_operations import ChromaOperations
+
 logger = get_logger("chroma_manager")
 
 
-class ChromaManager:
+class ChromaManager(ChromaQueries, ChromaOperations):
     """Chroma向量数据库管理器
     
     负责管理Chroma的CRUD操作，包括：
@@ -43,6 +46,10 @@ class ChromaManager:
     - 记忆的增删改查
     - 向量相似度检索
     - 会话隔离（基于user_id和group_id的元数据过滤）
+    
+    使用 Mixin 模式组织代码：
+    - ChromaQueries: 查询操作
+    - ChromaOperations: CRUD操作
     """
     
     def __init__(self, config, data_path: Path, plugin_context=None):
@@ -53,24 +60,22 @@ class ChromaManager:
             data_path: 插件数据目录路径
             plugin_context: AstrBot 插件上下文（用于嵌入API）
         """
+        self.config = config
         self.data_path = data_path
         self.client = None
         self.collection = None
-        self._is_ready: bool = False  # 初始化状态跟踪（支持热更新场景）
+        self._is_ready: bool = False
         
-        # 导入配置管理器和默认值
         from iris_memory.core.config_manager import get_config_manager
         from iris_memory.core.defaults import DEFAULTS
         
         cfg = get_config_manager()
         
-        # 从配置管理器获取Chroma参数
         self.embedding_model_name = cfg.embedding_model
         self.embedding_dimension = cfg.embedding_dimension
         self.collection_name = DEFAULTS.embedding.collection_name
         self.auto_detect_dimension = DEFAULTS.embedding.auto_detect_dimension
         
-        # 嵌入管理器（策略模式）
         from iris_memory.embedding.manager import EmbeddingManager
         self.embedding_manager = EmbeddingManager(config, data_path)
         if plugin_context:
@@ -82,11 +87,7 @@ class ChromaManager:
         return self._is_ready and self.client is not None and self.collection is not None
     
     def _ensure_ready(self) -> None:
-        """确保 Chroma 已初始化，否则抛出明确异常
-        
-        在所有公开数据操作方法开头调用，避免热更新期间
-        collection 为 None 导致 'NoneType' object has no attribute 'query' 错误。
-        """
+        """确保 Chroma 已初始化，否则抛出明确异常"""
         if not self._is_ready or self.collection is None:
             raise RuntimeError(
                 "ChromaManager is not initialized. "
@@ -101,12 +102,10 @@ class ChromaManager:
             if chromadb is None:
                 raise ImportError("chromadb is not installed. Please install it with: pip install chromadb")
             
-            # 创建数据目录
             chroma_path = self.data_path / "chroma"
             chroma_path.mkdir(parents=True, exist_ok=True)
             logger.debug(f"Chroma data path: {chroma_path}")
             
-            # 初始化Chroma客户端（持久化存储）
             logger.debug("Creating Chroma persistent client...")
             self.client = chromadb.PersistentClient(
                 path=str(chroma_path),
@@ -116,76 +115,13 @@ class ChromaManager:
                 )
             )
             
-            # 检查集合是否存在
-            existing_collection = None
-            try:
-                existing_collection = self.client.get_collection(name=self.collection_name)
-                logger.debug(f"Found existing collection: {self.collection_name}")
-            except Exception as e:
-                # 捕获所有异常（包括 ValueError, NotFoundError, 通用 Exception 等）
-                # 检查是否是 NotFoundError 或通过异常消息判断集合不存在
-                is_not_found = (
-                    (ChromaNotFoundError and isinstance(e, ChromaNotFoundError)) or
-                    isinstance(e, ValueError) or
-                    "not exist" in str(e).lower() or
-                    "not found" in str(e).lower() or
-                    "does not exist" in str(e).lower()
-                )
-                if is_not_found:
-                    logger.debug(f"Collection does not exist: {self.collection_name}")
-                else:
-                    # 其他异常（如权限问题、磁盘问题）需要记录和抛出
-                    logger.error(f"Error accessing collection {self.collection_name}: {e}")
-                    raise
+            existing_collection = self._get_or_check_collection()
             
-            # 自动检测现有集合的维度（如果启用）
-            detected_dimension: Optional[int] = None
-            if self.auto_detect_dimension and existing_collection:
-                logger.debug("Auto-detecting embedding dimension from existing collection...")
-                detected_dimension = await self.embedding_manager.detect_existing_dimension(existing_collection)
-                if detected_dimension:
-                    logger.info(f"Auto-detected embedding dimension: {detected_dimension}")
-                    self.embedding_dimension = detected_dimension
+            detected_dimension = await self._detect_and_init_embedding(existing_collection)
             
-            # 初始化嵌入管理器
-            logger.debug("Initializing embedding manager...")
-            await self.embedding_manager.initialize()
+            self._handle_dimension_conflict(existing_collection, detected_dimension)
             
-            # 获取实际使用的维度
-            actual_dimension = self.embedding_manager.get_dimension()
-            logger.debug(f"Embedding provider dimension: {actual_dimension}, configured: {self.embedding_dimension}")
-            if self.embedding_dimension != actual_dimension:
-                logger.warning(f"Configured dimension ({self.embedding_dimension}) differs from provider dimension ({actual_dimension}), using provider dimension")
-                self.embedding_dimension = actual_dimension
-            
-            # 维度冲突检测: 当现有集合的维度与当前嵌入提供者的维度不匹配时，
-            # 旧的向量无法与新查询向量一起使用，必须重建集合。
-            if existing_collection and detected_dimension and detected_dimension != actual_dimension:
-                old_count = existing_collection.count()
-                logger.warning(
-                    f"Embedding dimension conflict detected! "
-                    f"Collection has {detected_dimension}-dim vectors but provider outputs {actual_dimension}-dim. "
-                    f"Recreating collection (old memories count: {old_count} will be lost). "
-                    f"This usually happens when the embedding model/provider changes."
-                )
-                self.client.delete_collection(name=self.collection_name)
-                existing_collection = None
-            
-            # 获取或创建集合
-            if existing_collection:
-                self.collection = existing_collection
-                logger.info(f"Using existing collection: {self.collection_name}")
-            else:
-                logger.debug(f"Creating new collection: {self.collection_name}")
-                self.collection = self.client.create_collection(
-                    name=self.collection_name,
-                    metadata={
-                        "description": "Iris Memory Plugin - Three-layer memory system",
-                        "embedding_model": self.embedding_manager.get_model(),
-                        "embedding_dimension": self.embedding_dimension
-                    }
-                )
-                logger.info(f"Created new collection: {self.collection_name}")
+            self._create_or_use_collection(existing_collection)
             
             logger.info(
                 f"Chroma manager initialized successfully. "
@@ -200,7 +136,84 @@ class ChromaManager:
             self._is_ready = False
             logger.error(f"Failed to initialize Chroma manager: {e}", exc_info=True)
             raise
-    
+
+    def _get_or_check_collection(self):
+        """获取或检查现有集合"""
+        existing_collection = None
+        try:
+            existing_collection = self.client.get_collection(name=self.collection_name)
+            logger.debug(f"Found existing collection: {self.collection_name}")
+        except Exception as e:
+            is_not_found = (
+                (ChromaNotFoundError and isinstance(e, ChromaNotFoundError)) or
+                isinstance(e, ValueError) or
+                "not exist" in str(e).lower() or
+                "not found" in str(e).lower() or
+                "does not exist" in str(e).lower()
+            )
+            if is_not_found:
+                logger.debug(f"Collection does not exist: {self.collection_name}")
+            else:
+                logger.error(f"Error accessing collection {self.collection_name}: {e}")
+                raise
+        return existing_collection
+
+    async def _detect_and_init_embedding(self, existing_collection) -> Optional[int]:
+        """检测并初始化嵌入"""
+        detected_dimension: Optional[int] = None
+        if self.auto_detect_dimension and existing_collection:
+            logger.debug("Auto-detecting embedding dimension from existing collection...")
+            detected_dimension = await self.embedding_manager.detect_existing_dimension(existing_collection)
+            if detected_dimension:
+                logger.info(f"Auto-detected embedding dimension: {detected_dimension}")
+                self.embedding_dimension = detected_dimension
+        
+        logger.debug("Initializing embedding manager...")
+        await self.embedding_manager.initialize()
+        
+        actual_dimension = self.embedding_manager.get_dimension()
+        logger.debug(f"Embedding provider dimension: {actual_dimension}, configured: {self.embedding_dimension}")
+        if self.embedding_dimension != actual_dimension:
+            logger.warning(f"Configured dimension ({self.embedding_dimension}) differs from provider dimension ({actual_dimension}), using provider dimension")
+            self.embedding_dimension = actual_dimension
+        
+        return detected_dimension
+
+    def _handle_dimension_conflict(self, existing_collection, detected_dimension: Optional[int]) -> None:
+        """处理维度冲突"""
+        if not existing_collection or not detected_dimension:
+            return
+        
+        actual_dimension = self.embedding_manager.get_dimension()
+        if detected_dimension == actual_dimension:
+            return
+        
+        old_count = existing_collection.count()
+        logger.warning(
+            f"Embedding dimension conflict detected! "
+            f"Collection has {detected_dimension}-dim vectors but provider outputs {actual_dimension}-dim. "
+            f"Recreating collection (old memories count: {old_count} will be lost). "
+            f"This usually happens when the embedding model/provider changes."
+        )
+        self.client.delete_collection(name=self.collection_name)
+
+    def _create_or_use_collection(self, existing_collection) -> None:
+        """创建或使用现有集合"""
+        if existing_collection and self.collection_name in [c.name for c in self.client.list_collections()]:
+            self.collection = self.client.get_collection(name=self.collection_name)
+            logger.info(f"Using existing collection: {self.collection_name}")
+        else:
+            logger.debug(f"Creating new collection: {self.collection_name}")
+            self.collection = self.client.create_collection(
+                name=self.collection_name,
+                metadata={
+                    "description": "Iris Memory Plugin - Three-layer memory system",
+                    "embedding_model": self.embedding_manager.get_model(),
+                    "embedding_dimension": self.embedding_dimension
+                }
+            )
+            logger.info(f"Created new collection: {self.collection_name}")
+
     async def _generate_embedding(self, text: str) -> Optional[List[float]]:
         """生成文本嵌入向量（使用策略模式的嵌入管理器）
         
@@ -211,300 +224,12 @@ class ChromaManager:
             Optional[List[float]]: 嵌入向量，如果生成失败则返回None
         """
         try:
-            # 使用嵌入管理器生成嵌入（自动降级）
             embedding = await self.embedding_manager.embed(text, self.embedding_dimension)
             return embedding
         except Exception as e:
             logger.error(f"Failed to generate embedding: {e}")
-            # 不再使用MD5哈希作为降级方案，因为它与真实语义嵌入不匹配
-            # 返回None让调用者处理失败情况
             return None
-    
-    async def add_memory(self, memory: Memory) -> Optional[str]:
-        """添加记忆到Chroma
-        
-        Args:
-            memory: 记忆对象
-            
-        Returns:
-            Optional[str]: 记忆ID，如果嵌入生成失败则返回None
-        """
-        try:
-            self._ensure_ready()
-            logger.debug(f"Adding memory to Chroma: id={memory.id}, user={memory.user_id}, type={memory.type.value}")
-            
-            # 生成嵌入向量
-            if memory.embedding is None:
-                logger.debug(f"Generating embedding for memory {memory.id}...")
-                embedding = await self._generate_embedding(memory.content)
-                if embedding is None:
-                    logger.error(f"Failed to generate embedding for memory {memory.id}, skipping storage")
-                    return None
-                memory.embedding = np.array(embedding)
-                logger.debug(f"Embedding generated: dimension={len(embedding)}")
-            else:
-                embedding = memory.embedding.tolist()
-                logger.debug(f"Using existing embedding: dimension={len(embedding)}")
-            
-            # 构建元数据
-            metadata = {
-                "user_id": memory.user_id,
-                "sender_name": memory.sender_name if memory.sender_name else "",  # 发送者显示名称
-                "group_id": memory.group_id if memory.group_id else "",  # 私聊场景用空字符串
-                "scope": memory.scope.value,
-                "type": memory.type.value,
-                "modality": memory.modality.value,
-                "quality_level": memory.quality_level.value,
-                "sensitivity_level": memory.sensitivity_level.value,
-                "storage_layer": memory.storage_layer.value,
-                "created_time": memory.created_time.isoformat(),
-                "last_access_time": memory.last_access_time.isoformat(),
-                "access_count": memory.access_count,
-                "rif_score": memory.rif_score,
-                "importance_score": memory.importance_score,
-                "is_user_requested": memory.is_user_requested,
-            }
 
-            # 添加额外元数据
-            metadata.update(memory.metadata)
-            
-            logger.debug(f"Memory metadata: {metadata}")
-            
-            # 详细记录要添加的记忆内容
-            if logger.isEnabledFor(10):  # DEBUG level
-                logger.debug(f"Adding memory details:")
-                logger.debug(f"  ID: {memory.id}")
-                logger.debug(f"  Content: '{memory.content[:100]}...'" if len(memory.content) > 100 else f"  Content: '{memory.content}'")
-                logger.debug(f"  User: {memory.user_id}, Group: {memory.group_id}")
-                logger.debug(f"  Type: {memory.type.value}, Scope: {memory.scope.value}, Layer: {memory.storage_layer.value}")
-                logger.debug(f"  RIF: {memory.rif_score:.3f}, Quality: {memory.quality_level.value}")
-            
-            # 添加到Chroma
-            self.collection.add(
-                ids=[memory.id],
-                embeddings=[embedding],
-                documents=[memory.content],
-                metadatas=[metadata]
-            )
-            
-            logger.info(f"Memory added to Chroma: id={memory.id}, user={memory.user_id}, storage_layer={memory.storage_layer.value}")
-            return memory.id
-            
-        except Exception as e:
-            logger.error(f"Failed to add memory to Chroma: id={memory.id}, error={e}", exc_info=True)
-            raise
-    
-    async def query_memories(
-        self,
-        query_text: str,
-        user_id: str,
-        group_id: Optional[str] = None,
-        top_k: int = 10,
-        storage_layer: Optional[StorageLayer] = None
-    ) -> List[Memory]:
-        """查询相关记忆（支持多层级记忆）
-
-        查询策略：
-        1. 私聊场景（group_id=None）：
-           - 查询所有用户私有记忆（scope=USER_PRIVATE）
-           - 查询用户的全局记忆（scope=GLOBAL）
-        
-        2. 群聊场景（group_id有值）：
-           - 查询该群组的共享记忆（scope=GROUP_SHARED）
-           - 查询该用户在该群组的个人记忆（scope=GROUP_PRIVATE AND user_id=当前用户）
-           - 查询全局记忆（scope=GLOBAL）
-
-        Args:
-            query_text: 查询文本
-            user_id: 用户ID
-            group_id: 群组ID（私聊时为None）
-            top_k: 返回的最大数量
-            storage_layer: 存储层过滤（可选）
-
-        Returns:
-            List[Memory]: 相关记忆列表（如果嵌入生成失败则返回空列表）
-        """
-        try:
-            self._ensure_ready()
-            logger.debug(f"Querying memories: user={user_id}, group={group_id}, top_k={top_k}, storage_layer={storage_layer.value if storage_layer else 'all'}")
-            
-            # 生成查询嵌入
-            logger.debug(f"Generating query embedding for: '{query_text[:50]}...' " if len(query_text) > 50 else f"Generating query embedding for: '{query_text}'")
-            query_embedding = await self._generate_embedding(query_text)
-            if query_embedding is None:
-                logger.error("Failed to generate query embedding, returning empty results")
-                return []
-            logger.debug(f"Query embedding generated: dimension={len(query_embedding)}")
-
-            # 构建多个查询条件，分别查询不同的记忆范围
-            all_results = []
-
-            if group_id:
-                logger.debug(f"Group chat query mode: group_id={group_id}")
-                # 群聊场景：分别查询群组共享记忆、用户个人记忆、全局记忆
-
-                # 1. 群组共享记忆
-                where_shared = {"group_id": group_id, "scope": MemoryScope.GROUP_SHARED.value}
-                if storage_layer:
-                    where_shared["storage_layer"] = storage_layer.value
-                
-                logger.debug(f"Querying GROUP_SHARED memories: where={where_shared}")
-                results = self.collection.query(
-                    query_embeddings=[query_embedding],
-                    n_results=top_k,
-                    where=self._build_where_clause(where_shared),
-                    include=["embeddings", "documents", "metadatas", "distances"]
-                )
-                if results['ids'] and results['ids'][0]:
-                    logger.debug(f"Found {len(results['ids'][0])} GROUP_SHARED memories")
-                    for i in range(len(results['ids'][0])):
-                        all_results.append({
-                            'id': results['ids'][0][i],
-                            'content': results['documents'][0][i] if results.get('documents') and len(results['documents']) > 0 else '',
-                            'embedding': results['embeddings'][0][i] if results.get('embeddings') and len(results['embeddings']) > 0 else None,
-                            'metadata': results['metadatas'][0][i] if results.get('metadatas') and len(results['metadatas']) > 0 else {},
-                            'distance': results['distances'][0][i] if results.get('distances') and len(results['distances']) > 0 else None
-                        })
-                else:
-                    logger.debug("No GROUP_SHARED memories found")
-
-                # 2. 用户在群组的个人记忆
-                where_private = {"user_id": user_id, "group_id": group_id, "scope": MemoryScope.GROUP_PRIVATE.value}
-                if storage_layer:
-                    where_private["storage_layer"] = storage_layer.value
-
-                results = self.collection.query(
-                    query_embeddings=[query_embedding],
-                    n_results=top_k,
-                    where=self._build_where_clause(where_private),
-                    include=["embeddings", "documents", "metadatas", "distances"]
-                )
-                if results['ids'] and results['ids'][0]:
-                    for i in range(len(results['ids'][0])):
-                        all_results.append({
-                            'id': results['ids'][0][i],
-                            'content': results['documents'][0][i] if results.get('documents') and len(results['documents']) > 0 else '',
-                            'embedding': results['embeddings'][0][i] if results.get('embeddings') and len(results['embeddings']) > 0 else None,
-                            'metadata': results['metadatas'][0][i] if results.get('metadatas') and len(results['metadatas']) > 0 else {},
-                            'distance': results['distances'][0][i] if results.get('distances') and len(results['distances']) > 0 else None
-                        })
-
-                # 3. 全局记忆
-                where_global = {"scope": MemoryScope.GLOBAL.value}
-                if storage_layer:
-                    where_global["storage_layer"] = storage_layer.value
-
-                results = self.collection.query(
-                    query_embeddings=[query_embedding],
-                    n_results=top_k,
-                    where=self._build_where_clause(where_global),
-                    include=["embeddings", "documents", "metadatas", "distances"]
-                )
-                if results['ids'] and results['ids'][0]:
-                    for i in range(len(results['ids'][0])):
-                        all_results.append({
-                            'id': results['ids'][0][i],
-                            'content': results['documents'][0][i] if results.get('documents') and len(results['documents']) > 0 else '',
-                            'embedding': results['embeddings'][0][i] if results.get('embeddings') and len(results['embeddings']) > 0 else None,
-                            'metadata': results['metadatas'][0][i] if results.get('metadatas') and len(results['metadatas']) > 0 else {},
-                            'distance': results['distances'][0][i] if results.get('distances') and len(results['distances']) > 0 else None
-                        })
-            else:
-                # 私聊场景：分别查询用户私有记忆、全局记忆
-
-                # 1. 用户私有记忆
-                where_user_private = {"user_id": user_id, "scope": MemoryScope.USER_PRIVATE.value}
-                if storage_layer:
-                    where_user_private["storage_layer"] = storage_layer.value
-
-                results = self.collection.query(
-                    query_embeddings=[query_embedding],
-                    n_results=top_k,
-                    where=self._build_where_clause(where_user_private),
-                    include=["embeddings", "documents", "metadatas", "distances"]
-                )
-                if results['ids'] and results['ids'][0]:
-                    for i in range(len(results['ids'][0])):
-                        all_results.append({
-                            'id': results['ids'][0][i],
-                            'content': results['documents'][0][i] if results.get('documents') and len(results['documents']) > 0 else '',
-                            'embedding': results['embeddings'][0][i] if results.get('embeddings') and len(results['embeddings']) > 0 else None,
-                            'metadata': results['metadatas'][0][i] if results.get('metadatas') and len(results['metadatas']) > 0 else {},
-                            'distance': results['distances'][0][i] if results.get('distances') and len(results['distances']) > 0 else None
-                        })
-
-                # 2. 全局记忆
-                where_global = {"scope": MemoryScope.GLOBAL.value}
-                if storage_layer:
-                    where_global["storage_layer"] = storage_layer.value
-
-                results = self.collection.query(
-                    query_embeddings=[query_embedding],
-                    n_results=top_k,
-                    where=self._build_where_clause(where_global),
-                    include=["embeddings", "documents", "metadatas", "distances"]
-                )
-                if results['ids'] and results['ids'][0]:
-                    for i in range(len(results['ids'][0])):
-                        all_results.append({
-                            'id': results['ids'][0][i],
-                            'content': results['documents'][0][i] if results.get('documents') and len(results['documents']) > 0 else '',
-                            'embedding': results['embeddings'][0][i] if results.get('embeddings') and len(results['embeddings']) > 0 else None,
-                            'metadata': results['metadatas'][0][i] if results.get('metadatas') and len(results['metadatas']) > 0 else {},
-                            'distance': results['distances'][0][i] if results.get('distances') and len(results['distances']) > 0 else None
-                        })
-
-            # 去重（如果同一个记忆出现在多个查询结果中）
-            seen_ids = set()
-            unique_results = []
-            for result in all_results:
-                if result['id'] not in seen_ids:
-                    seen_ids.add(result['id'])
-                    unique_results.append(result)
-            
-            logger.debug(f"Total results: {len(all_results)}, Unique results: {len(unique_results)}")
-            
-            # 详细记录原始查询结果
-            if logger.isEnabledFor(10):  # DEBUG level is 10
-                for i, result in enumerate(all_results[:5], 1):  # 只记录前5条避免日志过长
-                    distance = result.get('distance')
-                    distance_str = f"{distance:.4f}" if distance is not None else "N/A"
-                    content = result.get('content', '')
-                    if len(content) > 50:
-                        content_str = f"content='{content[:50]}...'"
-                    else:
-                        content_str = f"content='{content}'"
-                    logger.debug(f"  Raw result {i}: id={result['id'][:8]}..., distance={distance_str}, {content_str}")
-
-            # 按 distance 排序并取 top_k
-            if unique_results:
-                unique_results.sort(key=lambda x: x['distance'] if x['distance'] is not None else float('inf'))
-                unique_results = unique_results[:top_k]
-                logger.debug(f"Sorted and limited to top {len(unique_results)} results")
-
-            # 转换结果为Memory对象
-            memories = []
-            for memory_data in unique_results:
-                # 移除 distance 字段
-                memory_data_without_distance = {k: v for k, v in memory_data.items() if k != 'distance'}
-                memory = self._result_to_memory(memory_data_without_distance)
-                memories.append(memory)
-            
-            # 详细记录最终的Memory对象
-            if logger.isEnabledFor(10) and memories:  # DEBUG level is 10
-                logger.debug(f"Final query results ({len(memories)} memories):")
-                for i, memory in enumerate(memories, 1):
-                    logger.debug(f"  [{i}] ID={memory.id[:8]}..., Type={memory.type.value}, "
-                               f"Scope={memory.scope.value}, Layer={memory.storage_layer.value}, "
-                               f"RIF={memory.rif_score:.3f}, Content='{memory.content[:40]}...'")
-
-            logger.info(f"Queried {len(memories)} memories for user={user_id}, group={group_id}, query='{query_text[:30]}...'")
-            return memories
-
-        except Exception as e:
-            logger.error(f"Failed to query memories: user={user_id}, error={e}", exc_info=True)
-            return []
-    
     def _build_where_clause(self, filters: Dict[str, Any]) -> Dict[str, Any]:
         """构建 ChromaDB 的 where 查询条件
         
@@ -519,7 +244,6 @@ class ChromaManager:
         if len(filters) <= 1:
             return filters
         
-        # 多字段条件使用 $and 包装
         return {"$and": [{k: v} for k, v in filters.items()]}
 
     def _result_to_memory(self, memory_data: Dict[str, Any]) -> Memory:
@@ -533,7 +257,6 @@ class ChromaManager:
         """
         metadata = memory_data.get('metadata', {})
         
-        # 创建Memory对象
         memory = Memory(
             id=memory_data['id'],
             content=memory_data['content'],
@@ -552,26 +275,11 @@ class ChromaManager:
             is_user_requested=metadata.get('is_user_requested', False),
         )
         
-        # 设置嵌入向量
         if 'embedding' in memory_data and memory_data['embedding'] is not None:
             memory.embedding = np.array(memory_data['embedding'])
         
-        # 设置时间戳
-        if 'created_time' in metadata:
-            from datetime import datetime
-            try:
-                memory.created_time = datetime.fromisoformat(metadata['created_time'])
-            except (ValueError, TypeError):
-                pass
+        self._set_memory_timestamps(memory, metadata)
         
-        if 'last_access_time' in metadata:
-            from datetime import datetime
-            try:
-                memory.last_access_time = datetime.fromisoformat(metadata['last_access_time'])
-            except (ValueError, TypeError):
-                pass
-        
-        # 移除系统元数据，保留自定义元数据
         system_keys = {
             'user_id', 'sender_name', 'group_id', 'scope', 'type', 'modality', 'quality_level',
             'sensitivity_level', 'storage_layer', 'created_time', 'last_access_time',
@@ -580,345 +288,22 @@ class ChromaManager:
         memory.metadata = {k: v for k, v in metadata.items() if k not in system_keys}
         
         return memory
-    
-    async def update_memory(self, memory: Memory) -> bool:
-        """更新记忆
+
+    def _set_memory_timestamps(self, memory, metadata: Dict) -> None:
+        """设置记忆时间戳"""
+        from datetime import datetime
         
-        Args:
-            memory: 更新后的记忆对象
-            
-        Returns:
-            bool: 是否更新成功
-        """
-        try:
-            self._ensure_ready()
-            # 生成嵌入向量
-            if memory.embedding is None:
-                embedding = await self._generate_embedding(memory.content)
-                memory.embedding = np.array(embedding)
-            else:
-                embedding = memory.embedding.tolist()
-            
-            # 构建元数据
-            metadata = {
-                "user_id": memory.user_id,
-                "scope": memory.scope.value,
-                "type": memory.type.value,
-                "modality": memory.modality.value,
-                "quality_level": memory.quality_level.value,
-                "sensitivity_level": memory.sensitivity_level.value,
-                "storage_layer": memory.storage_layer.value,
-                "last_access_time": memory.last_access_time.isoformat(),
-                "access_count": memory.access_count,
-                "rif_score": memory.rif_score,
-                "importance_score": memory.importance_score,
-            }
-
-            # 只在有 group_id 时才添加到元数据
-            if memory.group_id:
-                metadata["group_id"] = memory.group_id
-            
-            # 添加额外元数据
-            metadata.update(memory.metadata)
-            
-            # 更新Chroma
-            self.collection.update(
-                ids=[memory.id],
-                embeddings=[embedding],
-                documents=[memory.content],
-                metadatas=[metadata]
-            )
-            
-            logger.debug(f"Memory updated in Chroma: {memory.id}")
-            return True
-            
-        except Exception as e:
-            logger.error(f"Failed to update memory: {e}")
-            return False
-    
-    async def delete_memory(self, memory_id: str) -> bool:
-        """删除记忆
+        if 'created_time' in metadata:
+            try:
+                memory.created_time = datetime.fromisoformat(metadata['created_time'])
+            except (ValueError, TypeError):
+                pass
         
-        Args:
-            memory_id: 记忆ID
-            
-        Returns:
-            bool: 是否删除成功
-        """
-        try:
-            self._ensure_ready()
-            self.collection.delete(ids=[memory_id])
-            logger.debug(f"Memory deleted from Chroma: {memory_id}")
-            return True
-            
-        except Exception as e:
-            logger.error(f"Failed to delete memory: {e}")
-            return False
-    
-    async def delete_session(self, user_id: str, group_id: Optional[str] = None) -> bool:
-        """删除会话的所有记忆
-        
-        Args:
-            user_id: 用户ID
-            group_id: 群组ID（可选）
-            
-        Returns:
-            bool: 是否删除成功
-        """
-        try:
-            self._ensure_ready()
-            # 构建过滤条件
-            where = {"user_id": user_id}
-
-            # Always include group_id to match metadata structure
-            where["group_id"] = group_id if group_id else ""
-
-            # 查询所有符合条件的记忆ID
-            results = self.collection.get(where=self._build_where_clause(where))
-            
-            if results['ids']:
-                self.collection.delete(ids=results['ids'])
-                logger.info(f"Deleted {len(results['ids'])} memories for session {user_id}/{group_id}")
-                return True
-            
-            return False
-            
-        except Exception as e:
-            logger.error(f"Failed to delete session memories: {e}")
-            return False
-    
-    async def delete_user_memories(self, user_id: str, in_private_only: bool = False) -> Tuple[bool, int]:
-        """删除用户的所有记忆（跨群聊）
-        
-        Args:
-            user_id: 用户ID
-            in_private_only: 是否只删除私聊记忆（不包括群聊）
-            
-        Returns:
-            Tuple[bool, int]: (是否成功, 删除数量)
-        """
-        try:
-            self._ensure_ready()
-            all_ids = set()
-            
-            if in_private_only:
-                # 只删除私聊记忆：USER_PRIVATE + GLOBAL(created by user)
-                # 1. 用户私有记忆
-                where_user_private = {"user_id": user_id, "scope": MemoryScope.USER_PRIVATE.value}
-                results = self.collection.get(where=self._build_where_clause(where_user_private))
-                if results['ids']:
-                    all_ids.update(results['ids'])
-                
-                # 2. 用户创建的全局记忆（私聊场景）
-                where_global = {"user_id": user_id, "scope": MemoryScope.GLOBAL.value, "group_id": ""}
-                results = self.collection.get(where=self._build_where_clause(where_global))
-                if results['ids']:
-                    all_ids.update(results['ids'])
-            else:
-                # 删除所有用户相关的记忆（包括私聊和群聊）
-                where = {"user_id": user_id}
-                results = self.collection.get(where=self._build_where_clause(where))
-                if results['ids']:
-                    all_ids.update(results['ids'])
-            
-            if all_ids:
-                self.collection.delete(ids=list(all_ids))
-                logger.info(f"Deleted {len(all_ids)} memories for user {user_id} (private_only={in_private_only})")
-                return True, len(all_ids)
-            
-            return False, 0
-            
-        except Exception as e:
-            logger.error(f"Failed to delete user memories: {e}")
-            return False, 0
-    
-    async def delete_group_memories(self, group_id: str, scope_filter: Optional[str] = None) -> Tuple[bool, int]:
-        """删除群组的记忆
-        
-        Args:
-            group_id: 群组ID
-            scope_filter: 可选的scope过滤（"group_shared" 只删除共享记忆，"group_private" 只删除个人记忆）
-            
-        Returns:
-            Tuple[bool, int]: (是否成功, 删除数量)
-        """
-        try:
-            self._ensure_ready()
-            all_ids = set()
-            
-            if scope_filter == "group_shared":
-                # 只删除群组共享记忆
-                where = {"group_id": group_id, "scope": MemoryScope.GROUP_SHARED.value}
-                results = self.collection.get(where=self._build_where_clause(where))
-                if results['ids']:
-                    all_ids.update(results['ids'])
-            elif scope_filter == "group_private":
-                # 只删除群组个人记忆
-                where = {"group_id": group_id, "scope": MemoryScope.GROUP_PRIVATE.value}
-                results = self.collection.get(where=self._build_where_clause(where))
-                if results['ids']:
-                    all_ids.update(results['ids'])
-            else:
-                # 删除群组所有记忆（共享+所有成员的个人记忆）
-                where = {"group_id": group_id}
-                results = self.collection.get(where=self._build_where_clause(where))
-                if results['ids']:
-                    all_ids.update(results['ids'])
-            
-            if all_ids:
-                self.collection.delete(ids=list(all_ids))
-                logger.info(f"Deleted {len(all_ids)} memories for group {group_id} (scope_filter={scope_filter})")
-                return True, len(all_ids)
-            
-            return False, 0
-            
-        except Exception as e:
-            logger.error(f"Failed to delete group memories: {e}")
-            return False, 0
-    
-    async def delete_all_memories(self) -> Tuple[bool, int]:
-        """删除所有记忆（危险操作，需要管理员权限）
-        
-        Returns:
-            Tuple[bool, int]: (是否成功, 删除数量)
-        """
-        try:
-            self._ensure_ready()
-            # 获取所有记忆ID
-            results = self.collection.get()
-            
-            # 检查是否有记忆
-            if not results or not results.get('ids'):
-                # 数据库为空，视为成功（无需删除）
-                logger.info("Database is empty, nothing to delete")
-                return True, 0
-            
-            count = len(results['ids'])
-            
-            # 详细记录要删除的记忆
-            if logger.isEnabledFor(10) and count > 0:  # DEBUG level
-                logger.debug(f"Preparing to delete {count} memories:")
-                for i, (mid, content, metadata) in enumerate(zip(
-                    results['ids'][:10],  # 只显示前10条
-                    results.get('documents', [])[:10],
-                    results.get('metadatas', [])[:10]
-                ), 1):
-                    content_preview = content[:40] + "..." if content and len(content) > 40 else content
-                    user_id = metadata.get('user_id', 'N/A') if metadata else 'N/A'
-                    logger.debug(f"  [{i}] ID={mid[:8]}..., User={user_id}, Content='{content_preview}'")
-                if count > 10:
-                    logger.debug(f"  ... and {count - 10} more")
-            
-            if count > 0:
-                self.collection.delete(ids=results['ids'])
-                logger.warning(f"Deleted ALL {count} memories from database!")
-            
-            return True, count
-            
-        except Exception as e:
-            logger.error(f"Failed to delete all memories: {e}", exc_info=True)
-            return False, 0
-    
-    async def get_all_memories(
-        self,
-        user_id: str,
-        group_id: Optional[str] = None,
-        storage_layer: Optional[StorageLayer] = None
-    ) -> List[Memory]:
-        """获取用户的所有记忆（支持多层级记忆）
-
-        与 query_memories 和 count_memories 相同的查询策略。
-
-        Args:
-            user_id: 用户ID
-            group_id: 群组ID（可选）
-            storage_layer: 存储层过滤（可选）
-
-        Returns:
-            List[Memory]: 记忆列表
-        """
-        try:
-            self._ensure_ready()
-            all_memories = []
-
-            if group_id:
-                # 群聊场景：分别查询群组共享记忆、用户个人记忆、全局记忆
-
-                # 1. 群组共享记忆
-                where_shared = {"group_id": group_id, "scope": MemoryScope.GROUP_SHARED.value}
-                if storage_layer:
-                    where_shared["storage_layer"] = storage_layer.value
-
-                results = self.collection.get(where=self._build_where_clause(where_shared))
-                if results['ids']:
-                    for i in range(len(results['ids'])):
-                        memory_data = self._extract_memory_data(results, i)
-                        memory = self._result_to_memory(memory_data)
-                        all_memories.append(memory)
-
-                # 2. 用户在群组的个人记忆
-                where_private = {"user_id": user_id, "group_id": group_id, "scope": MemoryScope.GROUP_PRIVATE.value}
-                if storage_layer:
-                    where_private["storage_layer"] = storage_layer.value
-
-                results = self.collection.get(where=self._build_where_clause(where_private))
-                if results['ids']:
-                    for i in range(len(results['ids'])):
-                        memory_data = self._extract_memory_data(results, i)
-                        memory = self._result_to_memory(memory_data)
-                        all_memories.append(memory)
-
-                # 3. 全局记忆
-                where_global = {"scope": MemoryScope.GLOBAL.value}
-                if storage_layer:
-                    where_global["storage_layer"] = storage_layer.value
-
-                results = self.collection.get(where=self._build_where_clause(where_global))
-                if results['ids']:
-                    for i in range(len(results['ids'])):
-                        memory_data = self._extract_memory_data(results, i)
-                        memory = self._result_to_memory(memory_data)
-                        all_memories.append(memory)
-            else:
-                # 私聊场景：分别查询用户私有记忆、全局记忆
-
-                # 1. 用户私有记忆
-                where_user_private = {"user_id": user_id, "scope": MemoryScope.USER_PRIVATE.value}
-                if storage_layer:
-                    where_user_private["storage_layer"] = storage_layer.value
-
-                results = self.collection.get(where=self._build_where_clause(where_user_private))
-                if results['ids']:
-                    for i in range(len(results['ids'])):
-                        memory_data = self._extract_memory_data(results, i)
-                        memory = self._result_to_memory(memory_data)
-                        all_memories.append(memory)
-
-                # 2. 全局记忆
-                where_global = {"scope": MemoryScope.GLOBAL.value}
-                if storage_layer:
-                    where_global["storage_layer"] = storage_layer.value
-
-                results = self.collection.get(where=self._build_where_clause(where_global))
-                if results['ids']:
-                    for i in range(len(results['ids'])):
-                        memory_data = self._extract_memory_data(results, i)
-                        memory = self._result_to_memory(memory_data)
-                        all_memories.append(memory)
-
-            # 去重
-            seen_ids = set()
-            unique_memories = []
-            for memory in all_memories:
-                if memory.id not in seen_ids:
-                    seen_ids.add(memory.id)
-                    unique_memories.append(memory)
-
-            return unique_memories
-
-        except Exception as e:
-            logger.error(f"Failed to get all memories: {e}")
-            return []
+        if 'last_access_time' in metadata:
+            try:
+                memory.last_access_time = datetime.fromisoformat(metadata['last_access_time'])
+            except (ValueError, TypeError):
+                pass
 
     def _extract_memory_data(self, results: Dict, index: int) -> Dict[str, Any]:
         """从Chroma查询结果中提取记忆数据
@@ -930,12 +315,10 @@ class ChromaManager:
         Returns:
             Dict[str, Any]: 记忆数据字典
         """
-        # 处理documents和embeddings
         documents = results.get('documents', [])
         embeddings = results.get('embeddings', [])
         metadatas = results.get('metadatas', [])
 
-        # 处理content
         if documents and index < len(documents):
             content = documents[index]
             if isinstance(content, list) and len(content) > 0:
@@ -943,17 +326,15 @@ class ChromaManager:
         else:
             content = ''
 
-        # 处理embedding
         if embeddings and index < len(embeddings):
             embedding = embeddings[index]
         else:
             embedding = None
 
-        # 处理metadatas
         if metadatas and index < len(metadatas):
             metadata = metadatas[index]
             if isinstance(metadata, list) and len(metadata) > 0:
-                metadata = metadata[0]  # 取第一个元素
+                metadata = metadata[0]
         else:
             metadata = {}
 
@@ -964,127 +345,6 @@ class ChromaManager:
             'metadata': metadata
         }
     
-    async def count_memories(
-        self,
-        user_id: str,
-        group_id: Optional[str] = None,
-        storage_layer: Optional[StorageLayer] = None
-    ) -> int:
-        """统计记忆数量（支持多层级记忆）
-
-        与 query_memories 相同的查询策略：
-        - 群聊：GROUP_SHARED + GROUP_PRIVATE(user_id) + GLOBAL
-        - 私聊：USER_PRIVATE + GLOBAL
-
-        Args:
-            user_id: 用户ID
-            group_id: 群组ID（可选）
-            storage_layer: 存储层过滤（可选）
-
-        Returns:
-            int: 记忆数量
-        """
-        try:
-            self._ensure_ready()
-            all_ids = set()
-
-            if group_id:
-                # 群聊场景：分别统计群组共享记忆、用户个人记忆、全局记忆
-
-                # 1. 群组共享记忆
-                where_shared = {"group_id": group_id, "scope": MemoryScope.GROUP_SHARED.value}
-                if storage_layer:
-                    where_shared["storage_layer"] = storage_layer.value
-
-                results = self.collection.get(where=self._build_where_clause(where_shared))
-                if results['ids']:
-                    all_ids.update(results['ids'])
-
-                # 2. 用户在群组的个人记忆
-                where_private = {"user_id": user_id, "group_id": group_id, "scope": MemoryScope.GROUP_PRIVATE.value}
-                if storage_layer:
-                    where_private["storage_layer"] = storage_layer.value
-
-                results = self.collection.get(where=self._build_where_clause(where_private))
-                if results['ids']:
-                    all_ids.update(results['ids'])
-
-                # 3. 全局记忆
-                where_global = {"scope": MemoryScope.GLOBAL.value}
-                if storage_layer:
-                    where_global["storage_layer"] = storage_layer.value
-
-                results = self.collection.get(where=self._build_where_clause(where_global))
-                if results['ids']:
-                    all_ids.update(results['ids'])
-            else:
-                # 私聊场景：分别统计用户私有记忆、全局记忆
-
-                # 1. 用户私有记忆
-                where_user_private = {"user_id": user_id, "scope": MemoryScope.USER_PRIVATE.value}
-                if storage_layer:
-                    where_user_private["storage_layer"] = storage_layer.value
-
-                results = self.collection.get(where=self._build_where_clause(where_user_private))
-                if results['ids']:
-                    all_ids.update(results['ids'])
-
-                # 2. 全局记忆
-                where_global = {"scope": MemoryScope.GLOBAL.value}
-                if storage_layer:
-                    where_global["storage_layer"] = storage_layer.value
-
-                results = self.collection.get(where=self._build_where_clause(where_global))
-                if results['ids']:
-                    all_ids.update(results['ids'])
-
-            return len(all_ids)
-
-        except Exception as e:
-            logger.error(f"Failed to count memories: {e}")
-            return 0
-    
-    async def get_memories_by_storage_layer(
-        self,
-        storage_layer: StorageLayer,
-        limit: int = 1000
-    ) -> List[Memory]:
-        """获取指定存储层的所有记忆
-        
-        用于记忆升级检查（EPISODIC → SEMANTIC）
-        
-        Args:
-            storage_layer: 存储层类型
-            limit: 最大返回数量
-            
-        Returns:
-            List[Memory]: 记忆列表
-        """
-        try:
-            self._ensure_ready()
-            where = {"storage_layer": storage_layer.value}
-            
-            results = self.collection.get(
-                where=self._build_where_clause(where),
-                include=["embeddings", "documents", "metadatas"]
-            )
-            
-            memories = []
-            if results['ids']:
-                for i in range(min(len(results['ids']), limit)):
-                    memory_data = self._extract_memory_data(results, i)
-                    memory = self._result_to_memory(memory_data)
-                    memories.append(memory)
-            
-            logger.debug(
-                f"Retrieved {len(memories)} memories with storage_layer={storage_layer.value}"
-            )
-            return memories
-            
-        except Exception as e:
-            logger.error(f"Failed to get memories by storage layer: {e}")
-            return []
-    
     async def close(self):
         """关闭 Chroma 客户端（热更新友好）
         
@@ -1094,7 +354,6 @@ class ChromaManager:
         """
         self._is_ready = False
         
-        # 关闭嵌入管理器
         if hasattr(self, 'embedding_manager') and self.embedding_manager:
             try:
                 if hasattr(self.embedding_manager, 'close'):
@@ -1102,7 +361,6 @@ class ChromaManager:
             except Exception as e:
                 logger.debug(f"Error closing embedding manager: {e}")
         
-        # 释放 Chroma 引用（不调用 reset，保留持久化数据）
         self.collection = None
         self.client = None
         

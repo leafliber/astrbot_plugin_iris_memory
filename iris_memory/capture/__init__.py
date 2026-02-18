@@ -1,6 +1,8 @@
 """Capture module for iris memory"""
 
 from iris_memory.capture.engine import MemoryCaptureEngine
+from iris_memory.capture.batch_processor import MessageBatchProcessor
+from iris_memory.capture.message_merger import MessageMerger, QueuedMessage
 from iris_memory.capture.conflict.similarity_calculator import SimilarityCalculator, sanitize_for_log
 from iris_memory.capture.conflict.conflict_resolver import ConflictResolver
 from iris_memory.capture.detector.trigger_detector import TriggerDetector
@@ -11,6 +13,9 @@ from iris_memory.capture.conflict.llm_conflict_resolver import LLMConflictResolv
 
 __all__ = [
     "MemoryCaptureEngine",
+    "MessageBatchProcessor",
+    "MessageMerger",
+    "QueuedMessage",
     "SimilarityCalculator",
     "ConflictResolver",
     "sanitize_for_log",
