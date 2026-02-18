@@ -24,42 +24,38 @@ class KnownCommands:
     ])
 
 
-class DeleteScopeParam(Enum):
-    """删除范围参数"""
-    CURRENT = "current"      # 当前会话（默认）
-    PRIVATE = "private"      # 私聊记忆
-    GROUP = "group"          # 群聊记忆
-    ALL = "all"              # 所有记忆
+class DeleteMainScope(Enum):
+    """删除主范围"""
+    CURRENT = "current"
+    PRIVATE = "private"
+    GROUP = "group"
+    ALL = "all"
 
 
 class ConfigKeys:
     """配置键常量"""
-    # 基础功能
     ENABLE_MEMORY: Final[str] = "basic.enable_memory"
     ENABLE_INJECT: Final[str] = "basic.enable_inject"
     LOG_LEVEL: Final[str] = "basic.log_level"
     
-    # 记忆设置
     MAX_CONTEXT_MEMORIES: Final[str] = "memory.max_context_memories"
     MAX_WORKING_MEMORY: Final[str] = "memory.max_working_memory"
     UPGRADE_MODE: Final[str] = "memory.upgrade_mode"
     CHAT_CONTEXT_COUNT: Final[str] = "memory.chat_context_count"
-    
-    # LLM增强处理（已合并到 memory 区块）
     USE_LLM: Final[str] = "memory.use_llm"
     
-    # 主动回复
     PROACTIVE_REPLY_ENABLE: Final[str] = "proactive_reply.enable"
     PROACTIVE_REPLY_MAX_DAILY: Final[str] = "proactive_reply.max_daily"
     PROACTIVE_REPLY_GROUP_WHITELIST_MODE: Final[str] = "proactive_reply.group_whitelist_mode"
     
-    # 图片分析
     IMAGE_ANALYSIS_ENABLE: Final[str] = "image_analysis.enable"
     IMAGE_ANALYSIS_MODE: Final[str] = "image_analysis.mode"
     IMAGE_ANALYSIS_MAX_IMAGES: Final[str] = "image_analysis.max_images"
     IMAGE_ANALYSIS_DAILY_BUDGET: Final[str] = "image_analysis.daily_budget"
     IMAGE_ANALYSIS_SESSION_BUDGET: Final[str] = "image_analysis.session_budget"
     IMAGE_ANALYSIS_REQUIRE_CONTEXT: Final[str] = "image_analysis.require_context"
+    
+    ERROR_FRIENDLY_ENABLE: Final[str] = "error_friendly.enable"
 
 
 class SessionScope:
@@ -180,7 +176,6 @@ class Separators:
 
 class ErrorFriendlyMessages:
     """错误消息友好化配置"""
-    # AstrBot 框架错误消息检测模式
     ERROR_PATTERNS: Final[tuple] = (
         "AstrBot 请求失败",
         "错误类型:",
@@ -188,13 +183,7 @@ class ErrorFriendlyMessages:
         "请在平台日志查看",
     )
     
-    # 友好提示消息
     DEFAULT_FRIENDLY_MSG: Final[str] = "呜...遇到了一点问题，请稍后再试试吧~"
     NETWORK_ERROR_MSG: Final[str] = "网络好像不太稳定呢，稍后再试试？"
     RATE_LIMIT_MSG: Final[str] = "我需要休息一下，请稍后再来找我~"
     BAD_REQUEST_MSG: Final[str] = "请求出了点问题，稍后再试试吧~"
-
-
-class ConfigKeys:
-    """配置键常量 - 错误消息友好化"""
-    ERROR_FRIENDLY_ENABLE: Final[str] = "error_friendly.enable"

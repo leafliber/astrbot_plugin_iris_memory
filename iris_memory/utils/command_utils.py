@@ -3,15 +3,8 @@
 """
 from typing import Optional, Set, List
 from dataclasses import dataclass
-from enum import Enum
 
-
-class DeleteMainScope(Enum):
-    """删除主范围"""
-    CURRENT = "current"      # 当前会话（默认）
-    PRIVATE = "private"      # 私聊记忆
-    GROUP = "group"          # 群聊记忆
-    ALL = "all"              # 所有记忆
+from iris_memory.core.constants import DeleteMainScope
 
 
 @dataclass(frozen=True)
