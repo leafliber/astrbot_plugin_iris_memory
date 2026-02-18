@@ -238,16 +238,34 @@ class TestApplyEmotionFilter:
             chroma_manager=mock_chroma_manager,
             emotion_analyzer=mock_emotion_analyzer
         )
+        
+        negative_emotional_state = EmotionalState(
+            current=CurrentEmotionState(
+                primary=EmotionType.SADNESS,
+                secondary=[EmotionType.NEUTRAL],
+                intensity=0.8,
+                confidence=0.9
+            ),
+            config=EmotionConfig(
+                history_size=100,
+                window_size=7,
+                min_confidence=0.3
+            ),
+            context=EmotionContext(
+                active_session="test_session",
+                user_situation="test situation"
+            )
+        )
 
         results = engine._apply_emotion_filter(
             memories=sample_memories,
-            emotional_state=emotional_state
+            emotional_state=negative_emotional_state,
+            user_id="test_user"
         )
 
-        # 应该过滤掉高强度的正面记忆（emotional_weight > 0.8）
         assert len(results) <= 3
         assert all(
-            m.type != "emotion" or m.emotional_weight <= 0.8
+            m.type != "emotion" or m.emotional_weight <= 0.7 or m.subtype not in ['joy', 'excitement']
             for m in results
         )
 
@@ -268,7 +286,8 @@ class TestApplyEmotionFilter:
 
         results = engine._apply_emotion_filter(
             memories=low_weight_memories,
-            emotional_state=emotional_state
+            emotional_state=emotional_state,
+            user_id="test_user"
         )
 
         assert len(results) == len(low_weight_memories)
