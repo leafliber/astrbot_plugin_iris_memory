@@ -1,5 +1,5 @@
 """
-Iris Memory Plugin - 主入口（重构版）
+Iris Memory Plugin - 主入口
 基于 companion-memory 框架的三层记忆插件
 
 架构：
@@ -585,7 +585,7 @@ class IrisMemoryPlugin(Star):
         5. 主动回复指令 - 仅在主动回复时附加
         """
         # 初始化状态检查（热更新兼容）
-        if not self._service.is_initialized:
+        if not getattr(self._service, 'is_initialized', False):
             req.system_prompt += "\n\n[系统提示：记忆插件正在初始化，暂时无法提供服务]\n"
             return
         
@@ -670,7 +670,7 @@ class IrisMemoryPlugin(Star):
         2. 自动捕获新记忆（主动回复时跳过用户消息捕获）
         """
         # 初始化状态检查（热更新兼容）
-        if not self._service.is_initialized:
+        if not getattr(self._service, 'is_initialized', False):
             return
         
         # 功能开关检查
@@ -739,7 +739,7 @@ class IrisMemoryPlugin(Star):
         3. 主动回复事件检测与 LLM 请求转发
         """
         # 初始化状态检查（热更新兼容）
-        if not self._service.is_initialized:
+        if not getattr(self._service, 'is_initialized', False):
             return
         
         user_id = event.get_sender_id()
