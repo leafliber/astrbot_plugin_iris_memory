@@ -18,13 +18,13 @@ from iris_memory.models.memory import Memory
 from iris_memory.models.user_persona import UserPersona
 from iris_memory.models.emotion_state import EmotionalState
 from iris_memory.storage.chroma_manager import ChromaManager
-from iris_memory.capture.capture_engine import MemoryCaptureEngine
+from iris_memory.capture.engine import MemoryCaptureEngine
 from iris_memory.retrieval.retrieval_engine import MemoryRetrievalEngine
 from iris_memory.storage.session_manager import SessionManager
 from iris_memory.storage.lifecycle_manager import SessionLifecycleManager
 from iris_memory.storage.cache import CacheManager
 from iris_memory.storage.chat_history_buffer import ChatHistoryBuffer, ChatMessage
-from iris_memory.analysis.emotion_analyzer import EmotionAnalyzer
+from iris_memory.analysis.emotion.emotion_analyzer import EmotionAnalyzer
 from iris_memory.analysis.rif_scorer import RIFScorer
 # MemoryInjector/InjectionMode/HookPriority 保留在 hook_manager 模块中
 # 但本服务不再实例化 MemoryInjector，注入通过 req.system_prompt += 完成
@@ -39,7 +39,7 @@ from iris_memory.core.types import StorageLayer
 from iris_memory.utils.command_utils import SessionKeyBuilder
 from iris_memory.utils.member_utils import format_member_tag, set_identity_service
 from iris_memory.utils.member_identity_service import MemberIdentityService
-from iris_memory.utils.persona_logger import persona_log
+from iris_memory.analysis.persona.logger import persona_log
 from iris_memory.core.activity_config import GroupActivityTracker, ActivityAwareConfigProvider
 
 # 可选组件（可能未启用）
@@ -49,15 +49,16 @@ from iris_memory.processing.llm_processor import LLMMessageProcessor
 from iris_memory.proactive.proactive_reply_detector import ProactiveReplyDetector
 from iris_memory.proactive.proactive_manager import ProactiveReplyManager
 from iris_memory.multimodal.image_analyzer import ImageAnalyzer
-from iris_memory.analysis.persona_extractor import PersonaExtractor, KeywordMaps
+from iris_memory.analysis.persona.extractor import PersonaExtractor
+from iris_memory.analysis.persona.keyword_maps import KeywordMaps
 
 # LLM增强组件
-from iris_memory.processing.llm_enhanced_base import DetectionMode
-from iris_memory.capture.llm_sensitivity_detector import LLMSensitivityDetector
-from iris_memory.capture.llm_trigger_detector import LLMTriggerDetector
-from iris_memory.analysis.llm_emotion_analyzer import LLMEmotionAnalyzer
+from iris_memory.core.detection.llm_enhanced_base import DetectionMode
+from iris_memory.capture.detector.llm_sensitivity_detector import LLMSensitivityDetector
+from iris_memory.capture.detector.llm_trigger_detector import LLMTriggerDetector
+from iris_memory.analysis.emotion.llm_emotion_analyzer import LLMEmotionAnalyzer
 from iris_memory.proactive.llm_proactive_reply_detector import LLMProactiveReplyDetector
-from iris_memory.capture.llm_conflict_resolver import LLMConflictResolver
+from iris_memory.capture.conflict.llm_conflict_resolver import LLMConflictResolver
 from iris_memory.retrieval.llm_retrieval_router import LLMRetrievalRouter
 
 
@@ -83,7 +84,7 @@ class MemoryService:
         self.cfg = init_config_manager(config)
         self.logger = get_logger("memory_service")
         
-        # 初始化状态跟踪（热更新兼容）
+        # 初始化状态跟踪（支持热更新场景）
         self._is_initialized: bool = False
         self._init_lock: asyncio.Lock = asyncio.Lock()
         
@@ -131,7 +132,7 @@ class MemoryService:
     
     @property
     def is_initialized(self) -> bool:
-        """检查服务是否已完成初始化（热更新兼容）"""
+        """检查服务是否已完成初始化（热更新场景）"""
         return self._is_initialized
     
     @property

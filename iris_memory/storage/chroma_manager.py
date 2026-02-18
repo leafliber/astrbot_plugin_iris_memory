@@ -56,7 +56,7 @@ class ChromaManager:
         self.data_path = data_path
         self.client = None
         self.collection = None
-        self._is_ready: bool = False  # 初始化状态跟踪（热更新兼容）
+        self._is_ready: bool = False  # 初始化状态跟踪（支持热更新场景）
         
         # 导入配置管理器和默认值
         from iris_memory.core.config_manager import get_config_manager
@@ -216,7 +216,7 @@ class ChromaManager:
             return embedding
         except Exception as e:
             logger.error(f"Failed to generate embedding: {e}")
-            # 不再使用MD5哈希作为降级方案，因为它与真实语义嵌入不兼容
+            # 不再使用MD5哈希作为降级方案，因为它与真实语义嵌入不匹配
             # 返回None让调用者处理失败情况
             return None
     
@@ -514,7 +514,7 @@ class ChromaManager:
             filters: 过滤条件字典
             
         Returns:
-            Dict[str, Any]: ChromaDB 兼容的 where 子句
+            Dict[str, Any]: ChromaDB 可用的 where 子句
         """
         if len(filters) <= 1:
             return filters

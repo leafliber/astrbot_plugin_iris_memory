@@ -16,8 +16,8 @@ from iris_memory.capture.message_classifier import (
     ProcessingLayer,
     ClassificationResult
 )
-from iris_memory.capture.trigger_detector import TriggerDetector
-from iris_memory.analysis.emotion_analyzer import EmotionAnalyzer
+from iris_memory.capture.detector.trigger_detector import TriggerDetector
+from iris_memory.analysis.emotion.emotion_analyzer import EmotionAnalyzer
 from iris_memory.processing.llm_processor import LLMMessageProcessor, LLMClassificationResult
 
 

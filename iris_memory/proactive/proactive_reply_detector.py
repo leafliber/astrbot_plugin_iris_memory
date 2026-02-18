@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from enum import Enum
 
 from iris_memory.utils.logger import get_logger
-from iris_memory.analysis.emotion_analyzer import EmotionAnalyzer
+from iris_memory.analysis.emotion.emotion_analyzer import EmotionAnalyzer
 
 logger = get_logger("proactive_reply")
 
@@ -239,7 +239,7 @@ class ProactiveReplyDetector:
             reply_score += 0.15
             reasons.append(f"positive({emotion_intensity:.2f})")
         
-        # 用户个性化 — 兼容 to_injection_view() 格式和旧格式
+        # 用户个性化 — 同时处理 to_injection_view() 与历史字段格式
         prefs = user_persona.get("preferences", {})
         user_preference = prefs.get("proactive_reply", 
                            user_persona.get("proactive_reply_preference", 0.5))

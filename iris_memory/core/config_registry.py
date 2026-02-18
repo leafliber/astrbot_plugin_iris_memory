@@ -395,7 +395,7 @@ def get_registry_default(key: str) -> Any:
 def get_registry_mapping(key: str) -> Optional[tuple]:
     """获取配置键到 (section, attr, default) 的映射
 
-    与旧版 ``CONFIG_KEY_MAPPING`` 兼容的访问方式。
+    延续 ``CONFIG_KEY_MAPPING`` 的访问方式。
 
     Args:
         key: 配置键

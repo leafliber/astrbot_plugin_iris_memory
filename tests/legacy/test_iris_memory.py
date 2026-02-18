@@ -22,8 +22,8 @@ from iris_memory.core.types import (
     DecayRate,
     EmotionType
 )
-from iris_memory.analysis.entity_extractor import EntityExtractor, EntityType, Entity
-from iris_memory.analysis.emotion_analyzer import EmotionAnalyzer
+from iris_memory.analysis.entity.entity_extractor import EntityExtractor, EntityType, Entity
+from iris_memory.analysis.emotion.emotion_analyzer import EmotionAnalyzer
 from iris_memory.analysis.rif_scorer import RIFScorer
 from iris_memory.storage.cache import (
     LRUCache,

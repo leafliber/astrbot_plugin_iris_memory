@@ -5,7 +5,7 @@
 
 import pytest
 
-from iris_memory.capture.similarity_calculator import SimilarityCalculator, sanitize_for_log
+from iris_memory.capture.conflict.similarity_calculator import SimilarityCalculator, sanitize_for_log
 
 
 class TestSanitizeForLog:

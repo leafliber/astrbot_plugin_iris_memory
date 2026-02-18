@@ -11,7 +11,7 @@ from typing import List, Optional
 from iris_memory.utils.logger import get_logger
 from iris_memory.models.memory import Memory
 from iris_memory.core.types import QualityLevel
-from iris_memory.capture.similarity_calculator import SimilarityCalculator
+from iris_memory.capture.conflict.similarity_calculator import SimilarityCalculator
 
 logger = get_logger("conflict_resolver")
 

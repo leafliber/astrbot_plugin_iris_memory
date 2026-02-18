@@ -7,8 +7,8 @@ import pytest
 from unittest.mock import Mock, AsyncMock
 from datetime import datetime, timedelta
 
-from iris_memory.capture.conflict_resolver import ConflictResolver
-from iris_memory.capture.similarity_calculator import SimilarityCalculator
+from iris_memory.capture.conflict.conflict_resolver import ConflictResolver
+from iris_memory.capture.conflict.similarity_calculator import SimilarityCalculator
 from iris_memory.models.memory import Memory
 from iris_memory.core.types import MemoryType, QualityLevel
 

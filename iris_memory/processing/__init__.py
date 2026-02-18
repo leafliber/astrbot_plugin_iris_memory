@@ -6,8 +6,8 @@
 - LLM摘要生成
 - 混合处理策略
 - LLM记忆升级评估
-- 通用检测结果基类
-- LLM增强检测器泛型基类
+
+检测基类统一由 iris_memory.core.detection 提供。
 """
 
 from .llm_processor import (
@@ -21,9 +21,8 @@ from .upgrade_evaluator import (
     UpgradeMode
 )
 
-from .detection_result import BaseDetectionResult
-
-from .llm_enhanced_base import (
+from iris_memory.core.detection.base_result import BaseDetectionResult
+from iris_memory.core.detection.llm_enhanced_base import (
     LLMEnhancedDetector,
     DetectionMode,
 )

@@ -5,7 +5,7 @@ EmotionAnalyzer测试
 
 import pytest
 from unittest.mock import Mock
-from iris_memory.analysis.emotion_analyzer import EmotionAnalyzer
+from iris_memory.analysis.emotion.emotion_analyzer import EmotionAnalyzer
 from iris_memory.models.emotion_state import EmotionalState
 from iris_memory.core.types import EmotionType
 

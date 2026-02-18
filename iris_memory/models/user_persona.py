@@ -1,5 +1,5 @@
 """
-UserPersona数据模型（v2 - 画像补完重构）
+UserPersona数据模型（v2 - 画像补完）
 支持：变更审计日志、注入视图生成、主动回复偏好、结构化DEBUG
 """
 
@@ -10,7 +10,7 @@ from typing import List, Dict, Any, Optional, TYPE_CHECKING
 from iris_memory.core.types import DecayRate, MemoryType
 
 if TYPE_CHECKING:
-    from iris_memory.analysis.persona_extractor import ExtractionResult
+    from iris_memory.analysis.persona.keyword_maps import ExtractionResult
 
 
 # ---------------------------------------------------------------------------
@@ -600,7 +600,7 @@ class UserPersona:
 
         关键词来源优先级：
         1. 外部传入的 ``keyword_maps``
-        2. 内置默认值（兼容旧行为）
+        2. 内置默认值（保持既有行为）
         """
         changes: List[PersonaChangeRecord] = []
         content = getattr(memory, "content", "") or ""

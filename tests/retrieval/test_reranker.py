@@ -1,6 +1,6 @@
 """
 Reranker单元测试
-测试重构后的Reranker模块，验证权重合并后的正确性
+测试Reranker模块，验证权重合并后的正确性
 """
 
 import pytest

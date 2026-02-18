@@ -5,7 +5,7 @@
 
 import pytest
 
-from iris_memory.capture.sensitivity_detector import SensitivityDetector
+from iris_memory.capture.detector.sensitivity_detector import SensitivityDetector
 from iris_memory.core.types import SensitivityLevel
 
 

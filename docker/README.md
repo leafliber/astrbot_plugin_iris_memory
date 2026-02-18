@@ -973,7 +973,7 @@ cd docker
 ### 更新日志
 
 **v2.0.0** (2026-01-31)
-- 🎉 重构Docker管理结构，统一使用manager.sh
+- 🎉 调整Docker管理结构，统一使用manager.sh
 - ✅ 删除冗余文件（docker-compose.quick.yml, Dockerfile.test, docker-quick-start.sh）
 - ✅ 创建独立test_docker.sh测试脚本
 - ✅ 优化文档结构，简化使用说明

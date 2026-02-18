@@ -1,11 +1,11 @@
 """
 测试人格协调器
-测试 iris_memory.utils.persona_coordinator 中的 PersonaConflictDetector 和 PersonaCoordinator 类
+测试 iris_memory.analysis.persona.coordinator 中的 PersonaConflictDetector 和 PersonaCoordinator 类
 """
 
 import pytest
 
-from iris_memory.utils.persona_coordinator import (
+from iris_memory.analysis.persona.coordinator import (
     ConflictType,
     CoordinationStrategy,
     PersonaConflictDetector,

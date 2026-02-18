@@ -16,7 +16,7 @@ from iris_memory.core.types import (
 from iris_memory.storage.lifecycle_manager import SessionState
 from iris_memory.storage.chroma_manager import ChromaManager
 from iris_memory.storage.lifecycle_manager import SessionLifecycleManager
-from iris_memory.analysis.emotion_analyzer import EmotionAnalyzer
+from iris_memory.analysis.emotion.emotion_analyzer import EmotionAnalyzer
 from iris_memory.analysis.rif_scorer import RIFScorer
 from iris_memory.utils.token_manager import TokenBudget, MemoryCompressor, DynamicMemorySelector
 

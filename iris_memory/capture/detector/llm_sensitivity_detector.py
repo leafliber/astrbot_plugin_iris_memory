@@ -2,15 +2,15 @@
 LLM增强敏感度检测器
 使用LLM进行语义层面的敏感信息检测
 
-重构版本：继承 LLMEnhancedDetector 模板方法模式
+基于 LLMEnhancedDetector 模板方法模式
 """
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
 from iris_memory.core.types import SensitivityLevel
-from iris_memory.capture.sensitivity_detector import SensitivityDetector
-from iris_memory.processing.detection_result import BaseDetectionResult
-from iris_memory.processing.llm_enhanced_base import (
+from iris_memory.capture.detector.sensitivity_detector import SensitivityDetector
+from iris_memory.core.detection.base_result import BaseDetectionResult
+from iris_memory.core.detection.llm_enhanced_base import (
     DetectionMode,
     LLMEnhancedDetector,
 )

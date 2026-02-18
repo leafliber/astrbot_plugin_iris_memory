@@ -46,7 +46,7 @@ def extract_provider_id(provider: Any) -> Optional[str]:
 
 
 def get_provider_by_id(context: Any, provider_id: Any) -> Tuple[Optional[Any], Optional[str]]:
-    """根据 provider_id 获取 provider 对象（兼容多种 AstrBot API 形态）。"""
+    """根据 provider_id 获取 provider 对象（适配多种 AstrBot API 形态）。"""
     pid = normalize_provider_id(provider_id)
     if not pid or pid == "default" or not context:
         return None, None
@@ -81,7 +81,7 @@ def get_provider_by_id(context: Any, provider_id: Any) -> Tuple[Optional[Any], O
 
 
 def get_default_provider(context: Any, umo: str = "") -> Tuple[Optional[Any], Optional[str]]:
-    """获取默认 provider（兼容 get_using_provider 的不同签名）。"""
+    """获取默认 provider（适配 get_using_provider 的不同签名）。"""
     if not context:
         return None, None
 

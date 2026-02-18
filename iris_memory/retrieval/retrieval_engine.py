@@ -12,10 +12,10 @@ from iris_memory.utils.logger import get_logger
 from iris_memory.models.memory import Memory
 from iris_memory.core.types import StorageLayer, RetrievalStrategy, EmotionType, MemoryType
 from iris_memory.analysis.rif_scorer import RIFScorer
-from iris_memory.analysis.emotion_analyzer import EmotionAnalyzer
+from iris_memory.analysis.emotion.emotion_analyzer import EmotionAnalyzer
 from iris_memory.models.emotion_state import EmotionalState
 from iris_memory.utils.token_manager import TokenBudget, MemoryCompressor, DynamicMemorySelector
-from iris_memory.utils.persona_coordinator import PersonaCoordinator, CoordinationStrategy
+from iris_memory.analysis.persona.coordinator import PersonaCoordinator, CoordinationStrategy
 from iris_memory.utils.member_utils import format_member_tag
 from iris_memory.retrieval.reranker import Reranker
 from iris_memory.retrieval.retrieval_router import RetrievalRouter

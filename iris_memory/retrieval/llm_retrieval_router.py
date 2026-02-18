@@ -2,15 +2,15 @@
 LLM增强检索路由器
 使用LLM进行查询意图理解，选择最优检索策略
 
-重构版本：继承 LLMEnhancedDetector 模板方法模式
+基于 LLMEnhancedDetector 模板方法模式
 """
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 from iris_memory.core.types import RetrievalStrategy
 from iris_memory.retrieval.retrieval_router import RetrievalRouter
-from iris_memory.processing.detection_result import BaseDetectionResult
-from iris_memory.processing.llm_enhanced_base import (
+from iris_memory.core.detection.base_result import BaseDetectionResult
+from iris_memory.core.detection.llm_enhanced_base import (
     DetectionMode,
     LLMEnhancedDetector,
 )
@@ -190,15 +190,3 @@ class LLMRetrievalRouter(LLMEnhancedDetector[RoutingResult]):
         """检查是否可能是复杂查询"""
         return any(ind in query for ind in _COMPLEX_INDICATORS)
     
-    # ===== 向后兼容方法 =====
-    
-    def route(
-        self, query: str, context: Optional[dict] = None
-    ) -> RetrievalStrategy:
-        """路由查询（同步版本，兼容原接口）"""
-        result = self._rule_detect(query, context)
-        return result.strategy
-    
-    def analyze_query_complexity(self, query: str) -> dict:
-        """分析查询复杂度（兼容原接口）"""
-        return self._rule_router.analyze_query_complexity(query)

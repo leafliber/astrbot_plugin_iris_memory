@@ -2,15 +2,15 @@
 LLM增强触发器检测器
 使用LLM进行语义层面的记忆触发器检测
 
-重构版本：继承 LLMEnhancedDetector 模板方法模式
+基于 LLMEnhancedDetector 模板方法模式
 """
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 from iris_memory.core.types import TriggerType
-from iris_memory.capture.trigger_detector import TriggerDetector
-from iris_memory.processing.detection_result import BaseDetectionResult
-from iris_memory.processing.llm_enhanced_base import (
+from iris_memory.capture.detector.trigger_detector import TriggerDetector
+from iris_memory.core.detection.base_result import BaseDetectionResult
+from iris_memory.core.detection.llm_enhanced_base import (
     DetectionMode,
     LLMEnhancedDetector,
 )
@@ -215,17 +215,3 @@ class LLMTriggerDetector(LLMEnhancedDetector[TriggerDetectionResult]):
         """检查是否有隐藏价值"""
         return any(indicator in text for indicator in _VALUE_INDICATORS)
     
-    # ===== 向后兼容方法 =====
-    
-    def has_trigger(self, text: str) -> bool:
-        """判断文本是否包含触发器（同步版本）"""
-        result = self._rule_detect(text)
-        return result.should_remember
-    
-    def is_query(self, text: str) -> bool:
-        """判断是否为查询类消息"""
-        return self._rule_detector.is_query(text)
-    
-    def get_trigger_types(self, text: str) -> List[TriggerType]:
-        """获取触发器类型列表"""
-        return self._rule_detector.get_trigger_types(text)

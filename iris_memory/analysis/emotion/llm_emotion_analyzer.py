@@ -2,16 +2,16 @@
 LLM增强情感分析器
 使用LLM进行深度情感分析，识别复杂情感表达
 
-重构版本：继承 LLMEnhancedDetector 模板方法模式
+基于 LLMEnhancedDetector 模板方法模式
 修复了 sync/async 阻抗不匹配问题
 """
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 from iris_memory.core.types import EmotionType
-from iris_memory.analysis.emotion_analyzer import EmotionAnalyzer
-from iris_memory.processing.detection_result import BaseDetectionResult
-from iris_memory.processing.llm_enhanced_base import (
+from iris_memory.analysis.emotion.emotion_analyzer import EmotionAnalyzer
+from iris_memory.core.detection.base_result import BaseDetectionResult
+from iris_memory.core.detection.llm_enhanced_base import (
     DetectionMode,
     LLMEnhancedDetector,
 )
@@ -308,21 +308,3 @@ class LLMEmotionAnalyzer(LLMEnhancedDetector[EmotionAnalysisResult]):
             reason="混合分析",
         )
     
-    # ===== 向后兼容方法 =====
-    
-    async def analyze_emotion(
-        self,
-        text: str,
-        context: Optional[Dict[str, Any]] = None
-    ) -> Dict[str, Any]:
-        """兼容原有接口"""
-        result = await self.detect(text, context)
-        return {
-            "primary": result.primary,
-            "secondary": result.secondary,
-            "intensity": result.intensity,
-            "confidence": result.confidence,
-            "contextual_correction": result.is_sarcastic,
-            "is_complex": result.is_complex,
-            "context_note": result.context_note,
-        }

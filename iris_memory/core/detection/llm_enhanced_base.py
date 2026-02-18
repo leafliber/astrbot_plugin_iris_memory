@@ -15,7 +15,7 @@ from datetime import date
 from enum import Enum
 from typing import Any, Dict, Generic, List, Optional, Tuple, TypeVar
 
-from iris_memory.processing.detection_result import BaseDetectionResult
+from iris_memory.core.detection.base_result import BaseDetectionResult
 from iris_memory.utils.logger import get_logger
 from iris_memory.utils.provider_utils import (
     extract_provider_id,

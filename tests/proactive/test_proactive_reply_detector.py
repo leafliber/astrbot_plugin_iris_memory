@@ -16,7 +16,7 @@ from iris_memory.proactive.proactive_reply_detector import (
     ProactiveReplyDecision,
     ReplyUrgency
 )
-from iris_memory.analysis.emotion_analyzer import EmotionAnalyzer
+from iris_memory.analysis.emotion.emotion_analyzer import EmotionAnalyzer
 
 
 # =============================================================================

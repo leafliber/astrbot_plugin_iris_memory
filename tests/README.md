@@ -54,7 +54,7 @@ tests/
 │   ├── __init__.py
 │   └── test_end_to_end.py             # 端到端测试
 │
-├── legacy/                             # 遗留测试（逐步重构）
+├── legacy/                             # 遗留测试（逐步迁移）
 │   ├── __init__.py
 │   └── test_iris_memory.py            # 旧版综合测试
 │

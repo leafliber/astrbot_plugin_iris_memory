@@ -9,7 +9,7 @@ from enum import Enum
 from typing import List, Dict, Any, Optional
 
 from iris_memory.utils.logger import get_logger
-from iris_memory.utils.persona_logger import persona_log
+from iris_memory.analysis.persona.logger import persona_log
 
 # 模块logger
 logger = get_logger("persona_coordinator")

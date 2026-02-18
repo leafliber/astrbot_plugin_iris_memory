@@ -2,7 +2,7 @@
 LLM增强主动回复检测器
 使用LLM进行社交语境理解，判断是否需要主动回复
 
-重构版本：继承 LLMEnhancedDetector 模板方法模式
+基于 LLMEnhancedDetector 模板方法模式
 修复了 sync/async 阻抗不匹配问题
 """
 from dataclasses import dataclass
@@ -13,8 +13,8 @@ from iris_memory.proactive.proactive_reply_detector import (
     ProactiveReplyDecision,
     ReplyUrgency,
 )
-from iris_memory.processing.detection_result import BaseDetectionResult
-from iris_memory.processing.llm_enhanced_base import (
+from iris_memory.core.detection.base_result import BaseDetectionResult
+from iris_memory.core.detection.llm_enhanced_base import (
     DetectionMode,
     LLMEnhancedDetector,
 )
@@ -327,26 +327,3 @@ class LLMProactiveReplyDetector(LLMEnhancedDetector[LLMReplyDecision]):
     def _might_need_reply_anyway(self, text: str) -> bool:
         """检查是否可能仍需要回复"""
         return any(signal in text for signal in _SUBTLE_REPLY_SIGNALS)
-    
-    # ===== 向后兼容方法 =====
-    
-    async def analyze(
-        self,
-        messages: List[str],
-        user_id: str,
-        group_id: Optional[str] = None,
-        context: Optional[Dict[str, Any]] = None
-    ) -> ProactiveReplyDecision:
-        """兼容原有接口"""
-        result = await self.detect(messages, user_id, group_id, context)
-        return ProactiveReplyDecision(
-            should_reply=result.should_reply,
-            urgency=result.urgency,
-            reason=result.reason,
-            suggested_delay=result.suggested_delay,
-            reply_context={
-                "confidence": result.confidence,
-                "reply_type": result.reply_type,
-                "source": result.source
-            }
-        )

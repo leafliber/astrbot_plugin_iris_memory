@@ -1,4 +1,4 @@
-"""主动回复管理器测试（事件队列重构版）"""
+"""主动回复管理器测试（事件队列版本）"""
 
 import asyncio
 from unittest.mock import AsyncMock, Mock, patch

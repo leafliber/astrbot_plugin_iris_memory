@@ -16,7 +16,7 @@ from iris_memory.core.activity_config import (
 from iris_memory.utils.provider_utils import normalize_provider_id
 
 
-# 向后兼容：CONFIG_KEY_MAPPING 现在由 CONFIG_REGISTRY 自动生成
+# CONFIG_KEY_MAPPING 由 CONFIG_REGISTRY 自动生成
 CONFIG_KEY_MAPPING: Dict[str, tuple] = {
     key: (defn.section, defn.attr, defn.default)
     for key, defn in CONFIG_REGISTRY.items()

@@ -5,7 +5,7 @@
 
 import pytest
 
-from iris_memory.capture.trigger_detector import TriggerDetector
+from iris_memory.capture.detector.trigger_detector import TriggerDetector
 from iris_memory.core.types import TriggerType
 
 

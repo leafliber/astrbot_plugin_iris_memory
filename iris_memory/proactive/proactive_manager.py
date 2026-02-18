@@ -2,7 +2,7 @@
 主动回复管理器
 协调检测、事件注入整个流程
 
-重构后架构：
+当前架构：
 不再自行调用 LLM 生成回复和直接发送，
 而是构造合成事件注入 AstrBot 事件队列，
 让主动回复经过完整的 Pipeline 处理流程：
@@ -38,7 +38,7 @@ class ProactiveReplyTask:
 class ProactiveReplyManager:
     """主动回复管理器
     
-    重构后不再持有 ReplyGenerator / MessageSender，
+    当前实现不再持有 ReplyGenerator / MessageSender，
     改为通过事件队列注入合成事件来触发完整 Pipeline。
     """
     

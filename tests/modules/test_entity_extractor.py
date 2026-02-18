@@ -5,7 +5,7 @@
 
 import pytest
 from unittest.mock import Mock
-from iris_memory.analysis.entity_extractor import EntityExtractor, EntityType
+from iris_memory.analysis.entity.entity_extractor import EntityExtractor, EntityType
 
 
 class TestEntityExtractorInit:

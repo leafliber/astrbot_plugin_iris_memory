@@ -2,15 +2,15 @@
 LLM增强冲突解决器
 使用LLM进行语义层面的记忆冲突检测和解决
 
-重构版本：继承 LLMEnhancedDetector 模板方法模式
+基于 LLMEnhancedDetector 模板方法模式
 """
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
-from iris_memory.capture.conflict_resolver import ConflictResolver
+from iris_memory.capture.conflict.conflict_resolver import ConflictResolver
 from iris_memory.models.memory import Memory
-from iris_memory.processing.detection_result import BaseDetectionResult
-from iris_memory.processing.llm_enhanced_base import (
+from iris_memory.core.detection.base_result import BaseDetectionResult
+from iris_memory.core.detection.llm_enhanced_base import (
     DetectionMode,
     LLMEnhancedDetector,
 )
@@ -245,33 +245,3 @@ class LLMConflictResolver(LLMEnhancedDetector[ConflictDetectionResult]):
         
         return "need_context"
     
-    # ===== 向后兼容方法 =====
-    
-    def is_opposite(self, text1: str, text2: str) -> bool:
-        """判断两个文本是否相反（兼容原接口）"""
-        return self._rule_resolver.is_opposite(text1, text2)
-    
-    async def check_duplicate_by_vector(
-        self,
-        memory: Memory,
-        user_id: str,
-        group_id: Optional[str],
-        chroma_manager,
-        similarity_threshold: float = 0.95
-    ) -> Optional[Memory]:
-        """检查重复记忆（兼容原接口）"""
-        return await self._rule_resolver.check_duplicate_by_vector(
-            memory, user_id, group_id, chroma_manager, similarity_threshold
-        )
-    
-    async def check_conflicts_by_vector(
-        self,
-        memory: Memory,
-        user_id: str,
-        group_id: Optional[str],
-        chroma_manager
-    ) -> List[Memory]:
-        """检查记忆冲突（兼容原接口）"""
-        return await self._rule_resolver.check_conflicts_by_vector(
-            memory, user_id, group_id, chroma_manager
-        )

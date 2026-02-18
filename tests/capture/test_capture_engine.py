@@ -8,13 +8,13 @@ import asyncio
 from unittest.mock import Mock, AsyncMock, patch
 from datetime import datetime, timedelta
 
-from iris_memory.capture.capture_engine import MemoryCaptureEngine
+from iris_memory.capture.engine import MemoryCaptureEngine
 from iris_memory.models.memory import Memory
 from iris_memory.core.types import (
     MemoryType, ModalityType, QualityLevel, SensitivityLevel,
     StorageLayer, VerificationMethod, TriggerType, EmotionType
 )
-from iris_memory.analysis.emotion_analyzer import EmotionAnalyzer
+from iris_memory.analysis.emotion.emotion_analyzer import EmotionAnalyzer
 from iris_memory.analysis.rif_scorer import RIFScorer
 from iris_memory.core.defaults import DEFAULTS
 
@@ -393,7 +393,7 @@ class TestMemoryCaptureEngine:
             group_id=group_id
         )
 
-        duplicate = await engine.check_duplicate(
+        duplicate = engine.conflict_resolver.check_duplicate(
             Memory(
                 id="new_001",
                 content=message,
@@ -424,7 +424,7 @@ class TestMemoryCaptureEngine:
             group_id="group456"
         )
 
-        duplicate = await engine.check_duplicate(
+        duplicate = engine.conflict_resolver.check_duplicate(
             new_memory,
             [existing_memory],
             similarity_threshold=0.9
@@ -439,8 +439,8 @@ class TestMemoryCaptureEngine:
         text2 = "我喜欢吃苹果"
         text3 = "我喜欢吃橙子"
 
-        sim1 = engine._calculate_similarity(text1, text2)
-        sim2 = engine._calculate_similarity(text1, text3)
+        sim1 = engine.conflict_resolver.similarity_calculator.calculate_similarity(text1, text2)
+        sim2 = engine.conflict_resolver.similarity_calculator.calculate_similarity(text1, text3)
 
         # 相同文本应该相似度为1
         assert sim1 == 1.0
@@ -468,7 +468,7 @@ class TestMemoryCaptureEngine:
             type=MemoryType.FACT
         )
 
-        conflicts = engine.check_conflicts(new_memory, [existing_memory])
+        conflicts = engine.conflict_resolver.check_conflicts(new_memory, [existing_memory])
 
         assert len(conflicts) > 0
         assert conflicts[0].id == "existing_001"
@@ -493,16 +493,16 @@ class TestMemoryCaptureEngine:
             type=MemoryType.FACT
         )
 
-        conflicts = engine.check_conflicts(new_memory, [existing_memory])
+        conflicts = engine.conflict_resolver.check_conflicts(new_memory, [existing_memory])
 
         assert len(conflicts) == 0
 
     def test_is_opposite(self, engine):
         """测试判断文本是否相反"""
-        assert engine._is_opposite("我不喜欢", "我喜欢") is True
-        assert engine._is_opposite("我喜欢", "我不喜欢") is True
-        assert engine._is_opposite("我喜欢", "我喜欢") is False
-        assert engine._is_opposite("我不喜欢", "不喜欢") is False
+        assert engine.conflict_resolver.is_opposite("我不喜欢", "我喜欢") is True
+        assert engine.conflict_resolver.is_opposite("我喜欢", "我不喜欢") is True
+        assert engine.conflict_resolver.is_opposite("我喜欢", "我喜欢") is False
+        assert engine.conflict_resolver.is_opposite("我不喜欢", "不喜欢") is False
 
     # ========== 配置测试 ==========
 

@@ -19,6 +19,11 @@ from iris_memory.core.config_registry import (
     get_registry_mapping,
 )
 from iris_memory.core.service_container import ServiceContainer
+from iris_memory.core.detection import (
+    BaseDetectionResult,
+    DetectionMode,
+    LLMEnhancedDetector,
+)
 
 __all__ = [
     'DEFAULTS',
@@ -37,4 +42,7 @@ __all__ = [
     'get_registry_default',
     'get_registry_mapping',
     'ServiceContainer',
+    'BaseDetectionResult',
+    'DetectionMode',
+    'LLMEnhancedDetector',
 ]

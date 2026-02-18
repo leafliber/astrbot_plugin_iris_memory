@@ -8,7 +8,7 @@
   → ResultDecorate → Respond
 
 关键特性：
-- send() 通过 Context.send_message() 实现，兼容所有平台
+- send() 通过 Context.send_message() 实现，适配所有平台
 - _extras["iris_proactive"] 标记防止死循环
 - 保留原始 user_id / group_id / umo 供记忆检索和会话定位
 """
@@ -38,7 +38,7 @@ class ProactiveMessageEvent(AstrMessageEvent):
 
     与 CronMessageEvent 相似，但专为插件主动回复设计。
     通过 Context.send_message(session, message) 发送消息，
-    兼容所有平台适配器。
+    适配所有平台适配器。
     """
 
     def __init__(

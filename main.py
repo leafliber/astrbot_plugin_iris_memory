@@ -568,7 +568,7 @@ class IrisMemoryPlugin(Star):
         4. 行为指导 - 防止重复/过度反问
         5. 主动回复指令 - 仅在主动回复时附加
         """
-        # 初始化状态检查（热更新兼容）
+        # 初始化状态检查（热更新场景）
         if not getattr(self._service, 'is_initialized', False):
             req.system_prompt += "\n\n[系统提示：记忆插件正在初始化，暂时无法提供服务]\n"
             return
@@ -653,7 +653,7 @@ class IrisMemoryPlugin(Star):
         1. 记录Bot的回复到聊天缓冲区
         2. 自动捕获新记忆（主动回复时跳过用户消息捕获）
         """
-        # 初始化状态检查（热更新兼容）
+        # 初始化状态检查（热更新场景）
         if not getattr(self._service, 'is_initialized', False):
             return
         
@@ -722,7 +722,7 @@ class IrisMemoryPlugin(Star):
         2. 分层处理：immediate/batch/discard
         3. 主动回复事件检测与 LLM 请求转发
         """
-        # 初始化状态检查（热更新兼容）
+        # 初始化状态检查（热更新场景）
         if not getattr(self._service, 'is_initialized', False):
             return
         
