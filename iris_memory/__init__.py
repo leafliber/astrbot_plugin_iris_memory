@@ -2,4 +2,4 @@
 Iris Memory Plugin - 基于companion-memory框架的三层记忆系统
 """
 
-__version__ = "1.4.1"
+__version__ = "1.5.0"

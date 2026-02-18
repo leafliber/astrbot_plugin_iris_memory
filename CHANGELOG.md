@@ -3,6 +3,66 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.5.0] - 2026-02-19
+
+### Added
+- **LLM智能增强功能模块** (`iris_memory/core/detection/`, `iris_memory/capture/detector/`, `iris_memory/analysis/emotion/`, `iris_memory/proactive/`, `iris_memory/retrieval/`)
+  - 新增 `LLMEnhancedDetector` 基类，实现模板方法模式统一 LLM 检测流程
+  - 新增 `LLMSensitivityDetector`：基于 LLM 的敏感度检测
+  - 新增 `LLMTriggerDetector`：基于 LLM 的触发器检测
+  - 新增 `LLMEmotionAnalyzer`：基于 LLM 的情感分析
+  - 新增 `LLMProactiveReplyDetector`：基于 LLM 的主动回复检测
+  - 新增 `LLMConflictResolver`：基于 LLM 的冲突解决
+  - 新增 `LLMRetrievalRouter`：基于 LLM 的检索路由
+- **Memory Capture Engine** (`iris_memory/capture/capture_engine.py`)
+  - 智能记忆捕获引擎，集成触发检测、情感分析、冲突解决
+  - 支持敏感度检测和实体提取
+  - 支持 LLM 增强的检测模式
+- **Persona Extractor** (`iris_memory/analysis/persona/`)
+  - 支持规则、LLM、混合三种人格提取模式
+  - 新增 `PersonaLogger` 用于人格生命周期事件的结构化日志
+  - 新增 `RuleExtractor` 和 `LLMExtractor` 实现
+- **结构化日志系统** (`iris_memory/capture/capture_logger.py`, `iris_memory/retrieval/retrieval_logger.py`)
+  - 记忆捕获过程的结构化日志记录
+  - 记忆检索过程的结构化日志记录
+- **消息合并器** (`iris_memory/capture/message_merger.py`)
+  - 支持消息合并逻辑，优化批量处理
+- **图片缓存管理** (`iris_memory/multimodal/image_cache.py`)
+  - 新增图片缓存机制，避免重复分析
+- **服务容器** (`iris_memory/core/service_container.py`)
+  - 轻量级依赖注入容器，替代全局变量，确保线程安全
+
+### Changed
+- **重构配置管理** (`iris_memory/core/config_registry.py`)
+  - 新增 `ConfigDefinition` 和 `CONFIG_REGISTRY` 统一配置管理
+  - 配置定义集中管理，单一数据源
+- **重构持久化层** (`iris_memory/services/persistence.py`)
+  - 新增 `PersistenceOperations` 类处理所有持久化逻辑
+  - 包括会话数据、生命周期状态、批量队列、聊天历史、主动回复白名单、成员身份、活动数据、用户画像的加载与保存
+- **重构 Chroma 操作** (`iris_memory/storage/chroma_operations.py`, `iris_memory/storage/chroma_queries.py`)
+  - 新增 `ChromaOperations` 类管理记忆的 CRUD 操作
+  - 新增 `ChromaQueries` 类封装查询逻辑，支持群聊和私聊多种查询模式
+- **重构业务操作** (`iris_memory/services/business_operations.py`)
+  - 新增 `BusinessOperations` 类封装业务逻辑
+- **重构初始化流程** (`iris_memory/services/initializers.py`)
+  - 新增 `Initializers` 类管理服务初始化
+- **重构 LLM 检测框架** (`iris_memory/core/detection/`)
+  - 新增 `BaseDetectionResult` 泛型基类统一结果处理
+  - 减少约 40% 的重复代码
+- **优化 MemoryService** (`iris_memory/services/memory_service.py`)
+  - 大幅简化代码，将逻辑拆分到独立模块
+- **优化 ChromaManager** (`iris_memory/storage/chroma_manager.py`)
+  - 简化代码，将操作和查询逻辑分离
+
+### Fixed
+- **修复热更新兼容性问题** (`main.py`, `iris_memory/utils/command_utils.py`)
+  - 使用 `getattr` 替代直接属性访问以兼容热更新场景
+
+### Removed
+- 移除不再使用的 `PROJECT_REFERENCE.md` 文档文件
+
+---
+
 ## [v1.4.2] - 2026-02-17
 
 ### Fixed
