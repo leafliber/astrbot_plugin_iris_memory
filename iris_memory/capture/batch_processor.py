@@ -567,7 +567,7 @@ class MessageBatchProcessor:
         
         try:
             last_msg = queue[-1]
-            await self.proactive_manager.check_and_queue(
+            await self.proactive_manager.handle_batch(
                 messages=[m.content for m in queue],
                 user_id=last_msg.user_id,
                 group_id=last_msg.group_id,
