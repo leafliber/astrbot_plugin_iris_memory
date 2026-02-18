@@ -23,7 +23,7 @@ from iris_memory.models.memory import Memory
 from iris_memory.models.user_persona import UserPersona
 from iris_memory.models.emotion_state import EmotionalState
 from iris_memory.storage.chroma_manager import ChromaManager
-from iris_memory.capture.engine import MemoryCaptureEngine
+from iris_memory.capture.capture_engine import MemoryCaptureEngine
 from iris_memory.retrieval.retrieval_engine import MemoryRetrievalEngine
 from iris_memory.storage.session_manager import SessionManager
 from iris_memory.storage.lifecycle_manager import SessionLifecycleManager
@@ -42,7 +42,7 @@ from iris_memory.core.types import StorageLayer
 from iris_memory.utils.command_utils import SessionKeyBuilder
 from iris_memory.utils.member_utils import format_member_tag, set_identity_service
 from iris_memory.utils.member_identity_service import MemberIdentityService
-from iris_memory.analysis.persona.logger import persona_log
+from iris_memory.analysis.persona.persona_logger import persona_log
 from iris_memory.core.activity_config import GroupActivityTracker, ActivityAwareConfigProvider
 
 from iris_memory.services.initializers import ServiceInitializer

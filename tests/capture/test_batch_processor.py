@@ -18,7 +18,7 @@ from iris_memory.capture.batch_processor import (
     MessageBatchProcessor,
     QueuedMessage
 )
-from iris_memory.capture.engine import MemoryCaptureEngine
+from iris_memory.capture.capture_engine import MemoryCaptureEngine
 from iris_memory.processing.llm_processor import LLMMessageProcessor, LLMSummaryResult
 from iris_memory.proactive.proactive_manager import ProactiveReplyManager
 

@@ -24,7 +24,7 @@ class TestEndToEndPipeline:
         # 模拟完整的消息处理流程
         from iris_memory.capture.message_classifier import MessageClassifier, ProcessingLayer
         from iris_memory.capture.batch_processor import MessageBatchProcessor
-        from iris_memory.capture.engine import MemoryCaptureEngine
+        from iris_memory.capture.capture_engine import MemoryCaptureEngine
         
         # 模拟组件
         capture_engine = Mock(spec=MemoryCaptureEngine)

@@ -662,8 +662,8 @@ class WorkingMemoryCache:
             }
 
 
-class MemoryCompressor:
-    """记忆压缩器
+class CacheContentCompressor:
+    """缓存内容压缩器
     
     功能：
     1. 提取记忆摘要，压缩内容
@@ -763,7 +763,7 @@ class CacheManager:
         
         # 记忆压缩器
         compression_config = config.get('compression', {})
-        self.compressor = MemoryCompressor(
+        self.compressor = CacheContentCompressor(
             max_length=compression_config.get('max_length', 200)
         )
     
@@ -775,7 +775,7 @@ class CacheManager:
         """获取工作记忆缓存"""
         return self.working_cache
     
-    def get_compressor(self) -> MemoryCompressor:
+    def get_compressor(self) -> CacheContentCompressor:
         """获取记忆压缩器"""
         return self.compressor
     

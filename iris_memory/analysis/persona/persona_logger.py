@@ -6,7 +6,7 @@
 
 用法示例::
 
-    from iris_memory.analysis.persona.logger import persona_log
+    from iris_memory.analysis.persona.persona_logger import persona_log
     persona_log.update_start(user_id, memory_id)
     persona_log.update_applied(user_id, changes)
     persona_log.persist(user_id)

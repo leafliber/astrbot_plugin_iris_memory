@@ -76,7 +76,7 @@ class BusinessOperations:
     async def _update_persona_from_memory(self, memory, user_id: str) -> None:
         """画像闭环：从记忆更新用户画像并记录 DEBUG 日志"""
         try:
-            from iris_memory.analysis.persona.logger import persona_log
+            from iris_memory.analysis.persona.persona_logger import persona_log
             
             persona = self.get_or_create_user_persona(user_id)
             mem_id = getattr(memory, "id", None)
@@ -127,7 +127,7 @@ class BusinessOperations:
                 persona_log.update_skipped(user_id, "no_applicable_changes")
 
         except Exception as e:
-            from iris_memory.analysis.persona.logger import persona_log
+            from iris_memory.analysis.persona.persona_logger import persona_log
             persona_log.update_error(user_id, e)
             logger.warning(f"Failed to update persona from memory: {e}")
 
@@ -322,7 +322,7 @@ class BusinessOperations:
             if memories:
                 persona = self.get_or_create_user_persona(user_id)
                 persona_view = persona.to_injection_view()
-                from iris_memory.analysis.persona.logger import persona_log
+                from iris_memory.analysis.persona.persona_logger import persona_log
                 persona_log.inject_view(user_id, persona_view)
 
                 memory_context = self._retrieval_engine.format_memories_for_llm(

@@ -7,7 +7,7 @@ from typing import Optional
 from iris_memory.analysis.persona.keyword_maps import ExtractionResult, KeywordMaps
 
 
-class RuleBasedExtractor:
+class RuleExtractor:
     """基于关键词规则的画像提取"""
 
     def __init__(self, keyword_maps: KeywordMaps):

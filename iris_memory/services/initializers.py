@@ -84,7 +84,7 @@ class ServiceInitializer:
         return manager
 
     def _create_capture_engine(self):
-        from iris_memory.capture.engine import MemoryCaptureEngine
+        from iris_memory.capture.capture_engine import MemoryCaptureEngine
         return MemoryCaptureEngine(
             chroma_manager=self._chroma_manager,
             emotion_analyzer=self._emotion_analyzer,
@@ -188,7 +188,7 @@ class ServiceInitializer:
     async def _init_persona_extractor(self) -> None:
         """初始化画像提取器"""
         from pathlib import Path
-        from iris_memory.analysis.persona.extractor import PersonaExtractor
+        from iris_memory.analysis.persona.persona_extractor import PersonaExtractor
         from iris_memory.analysis.persona.keyword_maps import KeywordMaps
         
         mode = self.cfg.persona_extraction_mode

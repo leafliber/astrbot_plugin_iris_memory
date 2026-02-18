@@ -13,7 +13,7 @@ from typing import Dict, Any, Optional
 
 from iris_memory.utils.logger import get_logger
 from iris_memory.analysis.persona.keyword_maps import ExtractionResult, KeywordMaps
-from iris_memory.analysis.persona.rule_extractor import RuleBasedExtractor
+from iris_memory.analysis.persona.rule_extractor import RuleExtractor
 from iris_memory.analysis.persona.llm_extractor import LLMExtractor
 
 logger = get_logger("persona_extractor")
@@ -49,7 +49,7 @@ class PersonaExtractor:
 
         # 规则提取器（所有模式均可用于兜底）
         self._kw = keyword_maps or KeywordMaps()
-        self._rule_extractor = RuleBasedExtractor(self._kw)
+        self._rule_extractor = RuleExtractor(self._kw)
 
         # LLM 提取器
         self._llm_extractor: Optional[LLMExtractor] = None

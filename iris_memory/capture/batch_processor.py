@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 
 from iris_memory.utils.logger import get_logger
-from iris_memory.capture.engine import MemoryCaptureEngine
+from iris_memory.capture.capture_engine import MemoryCaptureEngine
 from iris_memory.capture.message_merger import QueuedMessage, MessageMerger
 from iris_memory.models.memory import Memory
 from iris_memory.processing.llm_processor import LLMMessageProcessor, LLMSummaryResult

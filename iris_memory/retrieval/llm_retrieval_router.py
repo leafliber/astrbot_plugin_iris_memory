@@ -78,14 +78,14 @@ _COMPLEX_INDICATORS = [
 
 
 @dataclass
-class RoutingResult(BaseDetectionResult):
-    """路由结果"""
+class RoutingDetectionResult(BaseDetectionResult):
+    """路由检测结果"""
     strategy: RetrievalStrategy = RetrievalStrategy.VECTOR_ONLY
     query_type: str = "simple"
     key_entities: List[str] = field(default_factory=list)
 
 
-class LLMRetrievalRouter(LLMEnhancedDetector[RoutingResult]):
+class LLMRetrievalRouter(LLMEnhancedDetector[RoutingDetectionResult]):
     """LLM增强检索路由器
     
     支持三种模式：
@@ -114,9 +114,9 @@ class LLMRetrievalRouter(LLMEnhancedDetector[RoutingResult]):
         """空查询时跳过"""
         return not query
     
-    def _get_empty_result(self) -> RoutingResult:
+    def _get_empty_result(self) -> RoutingDetectionResult:
         """空输入默认结果"""
-        return RoutingResult(
+        return RoutingDetectionResult(
             confidence=1.0,
             source="rule",
             reason="空查询",
@@ -126,12 +126,12 @@ class LLMRetrievalRouter(LLMEnhancedDetector[RoutingResult]):
         self,
         query: str,
         context: Optional[Dict[str, Any]] = None
-    ) -> RoutingResult:
+    ) -> RoutingDetectionResult:
         """规则路由"""
         strategy = self._rule_router.route(query, context)
         analysis = self._rule_router.analyze_query_complexity(query)
         
-        return RoutingResult(
+        return RoutingDetectionResult(
             strategy=strategy,
             confidence=0.7,
             reason=f"规则路由: {analysis['complexity']}",
@@ -143,9 +143,9 @@ class LLMRetrievalRouter(LLMEnhancedDetector[RoutingResult]):
         """构建LLM提示词"""
         return RETRIEVAL_ROUTING_PROMPT.format(query=query[:300])
     
-    def _parse_llm_result(self, data: Dict[str, Any]) -> RoutingResult:
+    def _parse_llm_result(self, data: Dict[str, Any]) -> RoutingDetectionResult:
         """解析LLM结果"""
-        return RoutingResult(
+        return RoutingDetectionResult(
             strategy=BaseDetectionResult.map_enum(
                 data.get("strategy", "vector_only"),
                 _STRATEGY_MAP,
@@ -164,7 +164,7 @@ class LLMRetrievalRouter(LLMEnhancedDetector[RoutingResult]):
         self,
         query: str,
         context: Optional[Dict[str, Any]] = None
-    ) -> RoutingResult:
+    ) -> RoutingDetectionResult:
         """混合路由：规则快速判断 + LLM复杂确认"""
         rule_result = self._rule_detect(query, context)
         

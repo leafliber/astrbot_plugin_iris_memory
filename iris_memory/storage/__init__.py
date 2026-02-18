@@ -10,7 +10,7 @@ from .cache import (
     LFUCache,
     EmbeddingCache,
     WorkingMemoryCache,
-    MemoryCompressor
+    CacheContentCompressor
 )
 from .chroma_manager import ChromaManager
 from .lifecycle_manager import SessionLifecycleManager
@@ -27,7 +27,7 @@ __all__ = [
     'LFUCache',
     'EmbeddingCache',
     'WorkingMemoryCache',
-    'MemoryCompressor',
+    'CacheContentCompressor',
     'ChromaManager',
     'SessionLifecycleManager',
     'SessionManager',

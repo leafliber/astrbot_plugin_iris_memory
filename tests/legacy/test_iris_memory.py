@@ -30,7 +30,7 @@ from iris_memory.storage.cache import (
     LFUCache,
     EmbeddingCache,
     WorkingMemoryCache,
-    MemoryCompressor,
+    CacheContentCompressor,
     CacheStrategy
 )
 from iris_memory.storage.session_manager import SessionManager
@@ -598,7 +598,7 @@ async def test_working_memory_cache_stats():
 
 def test_memory_compressor():
     """测试记忆压缩器"""
-    compressor = MemoryCompressor(max_length=50)
+    compressor = CacheContentCompressor(max_length=50)
 
     short_text = "短文本"
     long_text = "这是一个非常长的文本，应该被压缩。这个文本的长度超过了50个字符的限制，所以应该被截断并添加省略号以示压缩成功。"
@@ -615,7 +615,7 @@ def test_memory_compressor():
 
 def test_memory_compressor_keywords():
     """测试关键词提取"""
-    compressor = MemoryCompressor()
+    compressor = CacheContentCompressor()
     
     text = "苹果是一种水果，橙子也是一种水果。水果对健康有益，苹果富含维生素。"
     

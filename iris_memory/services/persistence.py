@@ -42,7 +42,7 @@ class PersistenceOperations:
         if not self._session_manager:
             return
         
-        from iris_memory.analysis.persona.logger import persona_log
+        from iris_memory.analysis.persona.persona_logger import persona_log
         
         sessions_data = await get_kv_data(KVStoreKeys.SESSIONS, {})
         if sessions_data:
@@ -119,7 +119,7 @@ class PersistenceOperations:
     async def _load_user_personas(self, get_kv_data) -> None:
         """加载用户画像"""
         from iris_memory.models.user_persona import UserPersona
-        from iris_memory.analysis.persona.logger import persona_log
+        from iris_memory.analysis.persona.persona_logger import persona_log
         
         personas_data = await get_kv_data(KVStoreKeys.USER_PERSONAS, {})
         if personas_data:
@@ -207,7 +207,7 @@ class PersistenceOperations:
         if not self._user_personas:
             return
         
-        from iris_memory.analysis.persona.logger import persona_log
+        from iris_memory.analysis.persona.persona_logger import persona_log
         
         personas_data = {}
         for uid, persona in self._user_personas.items():

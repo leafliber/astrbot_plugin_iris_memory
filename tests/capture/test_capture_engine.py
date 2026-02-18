@@ -8,7 +8,7 @@ import asyncio
 from unittest.mock import Mock, AsyncMock, patch
 from datetime import datetime, timedelta
 
-from iris_memory.capture.engine import MemoryCaptureEngine
+from iris_memory.capture.capture_engine import MemoryCaptureEngine
 from iris_memory.models.memory import Memory
 from iris_memory.core.types import (
     MemoryType, ModalityType, QualityLevel, SensitivityLevel,
