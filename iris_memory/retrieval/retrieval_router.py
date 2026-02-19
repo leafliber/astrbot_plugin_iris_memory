@@ -32,11 +32,17 @@ class RetrievalRouter:
             r'recently|before|ago|last year|this year'
         ]
         
-        # 关系相关关键词
+        # 关系相关关键词（多跳推理查询识别）
         self.relation_keywords = [
             r'谁是|谁是.*的上司|.*的上司是谁|.*的同事|.*的朋友',
             r'who is|boss of|my boss|colleague|friend of',
-            r'关系|认识|了解'
+            r'关系|认识|了解',
+            # 多跳结构模式
+            r'谁的|的上司|的同事|的朋友|的老板|的导师|的学生',
+            r'谁认识|谁喜欢|在哪里工作|在哪里上学|住在哪',
+            r'和谁|跟谁|是谁的',
+            # 英文多跳
+            r'whose|mentor of|student of|lives where|works where',
         ]
     
     def route(self, query: str, context: Optional[dict] = None) -> RetrievalStrategy:

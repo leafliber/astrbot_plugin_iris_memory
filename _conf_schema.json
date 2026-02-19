@@ -222,5 +222,48 @@
         "hint": "留空使用AstrBot默认提供者"
       }
     }
+  },
+  "knowledge_graph": {
+    "description": "知识图谱设置",
+    "type": "object",
+    "items": {
+      "enabled": {
+        "description": "启用知识图谱",
+        "type": "bool",
+        "default": true,
+        "hint": "从对话中自动提取实体关系，构建知识图谱，支持多跳推理"
+      },
+      "extraction_mode": {
+        "description": "三元组提取模式",
+        "type": "string",
+        "default": "rule",
+        "options": ["rule", "llm", "hybrid"],
+        "hint": "rule-规则匹配（默认），llm-LLM智能提取（更准确但消耗token），hybrid-混合"
+      },
+      "max_depth": {
+        "description": "最大推理跳数",
+        "type": "int",
+        "default": 3,
+        "hint": "多跳推理的最大深度（1-5），值越大能发现越远的关联但速度越慢"
+      },
+      "max_nodes_per_hop": {
+        "description": "每跳最大节点数",
+        "type": "int",
+        "default": 10,
+        "hint": "每次跳转最多探索的节点数量，控制搜索广度（5-50）"
+      },
+      "max_facts": {
+        "description": "注入事实数量上限",
+        "type": "int",
+        "default": 8,
+        "hint": "注入LLM上下文的知识关联事实数量上限（3-20）"
+      },
+      "min_confidence": {
+        "description": "最小置信度",
+        "type": "float",
+        "default": 0.3,
+        "hint": "低于此置信度的推理路径将被过滤（0.1-0.9）"
+      }
+    }
   }
 }

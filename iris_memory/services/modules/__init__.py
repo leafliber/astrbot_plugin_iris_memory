@@ -10,6 +10,7 @@ from iris_memory.services.modules.llm_enhanced_module import LLMEnhancedModule
 from iris_memory.services.modules.capture_module import CaptureModule
 from iris_memory.services.modules.retrieval_module import RetrievalModule
 from iris_memory.services.modules.proactive_module import ProactiveModule
+from iris_memory.services.modules.kg_module import KnowledgeGraphModule
 
 __all__ = [
     "StorageModule",
@@ -18,4 +19,5 @@ __all__ = [
     "CaptureModule",
     "RetrievalModule",
     "ProactiveModule",
+    "KnowledgeGraphModule",
 ]

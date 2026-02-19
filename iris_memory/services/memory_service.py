@@ -1,13 +1,14 @@
 """
 记忆业务服务层 - 封装核心业务逻辑
 
-架构重构后，MemoryService 持有 6 个 Feature Module 而非 20+ 个原子组件：
+架构重构后，MemoryService 持有 7 个 Feature Module 而非 20+ 个原子组件：
 - StorageModule:      存储基础设施
 - AnalysisModule:     分析能力
 - LLMEnhancedModule:  LLM 增强检测器 + LLM 处理器
 - CaptureModule:      记忆捕获
 - RetrievalModule:    记忆检索
 - ProactiveModule:    主动回复
+- KnowledgeGraphModule: 知识图谱（实体关系 + 多跳推理）
 
 保留 Mixin 拆分：
 - initializers.py:        初始化逻辑
@@ -35,6 +36,7 @@ from iris_memory.services.modules.llm_enhanced_module import LLMEnhancedModule
 from iris_memory.services.modules.capture_module import CaptureModule
 from iris_memory.services.modules.retrieval_module import RetrievalModule
 from iris_memory.services.modules.proactive_module import ProactiveModule
+from iris_memory.services.modules.kg_module import KnowledgeGraphModule
 
 from iris_memory.services.initializers import ServiceInitializer
 from iris_memory.services.business_operations import BusinessOperations
@@ -49,7 +51,7 @@ class MemoryService(
     """
     记忆业务服务层
 
-    持有 6 个 Feature Module + 少量共享状态，
+    持有 7 个 Feature Module + 少量共享状态，
     通过 Mixin 拆分初始化 / 业务 / 持久化逻辑。
     """
 
@@ -70,6 +72,7 @@ class MemoryService(
         self.capture = CaptureModule()
         self.retrieval = RetrievalModule()
         self.proactive = ProactiveModule()
+        self.kg = KnowledgeGraphModule()
 
         # ── 共享状态 ──
         self._user_emotional_states: Dict[str, EmotionalState] = {}
@@ -193,6 +196,7 @@ class MemoryService(
 
                 await self._init_llm_enhanced()
                 await self._init_core_components()
+                await self._init_knowledge_graph()
                 await self._init_activity_adaptive()
                 await self._init_message_processing()
                 await self._init_persona_extractor()

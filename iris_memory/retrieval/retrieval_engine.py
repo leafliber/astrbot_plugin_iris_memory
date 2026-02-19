@@ -120,6 +120,9 @@ class MemoryRetrievalEngine:
         # 检索路由器（支持LLM增强）
         self._llm_router = llm_retrieval_router
         self.router = RetrievalRouter()
+
+        # 知识图谱模块（可选，由外部注入）
+        self._kg_module = None
     
     async def retrieve(
         self,
@@ -286,10 +289,15 @@ class MemoryRetrievalEngine:
                 query, user_id, group_id, top_k, emotional_state, storage_layer
             )
         elif strategy == RetrievalStrategy.GRAPH_ONLY:
-            retrieval_log.graph_fallback(user_id, query)
-            return await self._hybrid_retrieval(
-                query, user_id, group_id, top_k, emotional_state, storage_layer
-            )
+            if self._kg_module and self._kg_module.enabled:
+                return await self._graph_retrieval(
+                    query, user_id, group_id, top_k, emotional_state, storage_layer
+                )
+            else:
+                retrieval_log.graph_fallback(user_id, query)
+                return await self._hybrid_retrieval(
+                    query, user_id, group_id, top_k, emotional_state, storage_layer
+                )
         else:  # HYBRID
             return await self._hybrid_retrieval(
                 query, user_id, group_id, top_k, emotional_state, storage_layer
@@ -438,6 +446,103 @@ class MemoryRetrievalEngine:
         # 仅对最终返回的记忆更新访问统计
         for memory in result:
             memory.update_access()
+        return result
+
+    def set_kg_module(self, kg_module) -> None:
+        """注入知识图谱模块
+
+        Args:
+            kg_module: KnowledgeGraphModule 实例
+        """
+        self._kg_module = kg_module
+
+    async def _graph_retrieval(
+        self,
+        query: str,
+        user_id: str,
+        group_id: Optional[str] = None,
+        top_k: int = 10,
+        emotional_state: Optional[EmotionalState] = None,
+        storage_layer: Optional[StorageLayer] = None
+    ) -> List[Memory]:
+        """知识图谱检索 + 向量检索混合
+
+        流程：
+        1. 图推理获取相关 memory_id
+        2. 向量检索获取候选记忆
+        3. 图结果提升相关记忆的排序权重
+        4. 合并 + 重排序
+
+        Args:
+            query: 查询文本
+            user_id: 用户ID
+            group_id: 群组ID
+            top_k: 最大返回数
+            emotional_state: 情感状态
+            storage_layer: 存储层过滤
+
+        Returns:
+            List[Memory]: 记忆列表
+        """
+        # 向量检索部分
+        vector_memories = await self.chroma_manager.query_memories(
+            query_text=query,
+            user_id=user_id,
+            group_id=group_id,
+            top_k=top_k * 2,
+            storage_layer=storage_layer
+        )
+
+        # 图推理部分
+        kg_memory_ids: set = set()
+        if self._kg_module and self._kg_module.reasoning:
+            try:
+                reasoning_result = await self._kg_module.graph_retrieve(
+                    query=query,
+                    user_id=user_id,
+                    group_id=group_id,
+                )
+                # 收集推理路径涉及的 memory_id
+                for edge in reasoning_result.get_all_edges():
+                    if edge.memory_id:
+                        kg_memory_ids.add(edge.memory_id)
+            except Exception as e:
+                retrieval_log.graph_fallback(user_id, f"KG reason error: {e}")
+
+        # 工作记忆合并
+        if self.enable_working_memory_merge and self.session_manager:
+            working_memories = await self._get_relevant_working_memories(
+                query, user_id, group_id, storage_layer
+            )
+            if working_memories:
+                vector_memories = self._merge_memories(vector_memories, working_memories)
+
+        if not vector_memories:
+            retrieval_log.no_memories_found(user_id, query)
+            return []
+
+        # KG boost: 如果记忆的 ID 出现在图推理路径中，提升其 importance_score
+        if kg_memory_ids:
+            for mem in vector_memories:
+                if mem.id in kg_memory_ids:
+                    mem.importance_score = min(1.0, mem.importance_score + 0.3)
+                    mem.rif_score = min(1.0, mem.rif_score + 0.2)
+
+        # 情感过滤
+        if self.enable_emotion_aware and emotional_state:
+            vector_memories = self._apply_emotion_filter(
+                vector_memories, emotional_state, user_id
+            )
+
+        # 重排序
+        ranked = self._rerank_memories(
+            vector_memories, query, emotional_state, user_id
+        )
+
+        result = ranked[:top_k]
+        for memory in result:
+            memory.update_access()
+
         return result
     
     async def _get_relevant_working_memories(

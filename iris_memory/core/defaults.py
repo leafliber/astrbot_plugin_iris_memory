@@ -318,6 +318,17 @@ class LLMEnhancedDefaults:
     retrieval_mode: str = "rule"
 
 
+@dataclass
+class KnowledgeGraphDefaults:
+    """知识图谱默认配置"""
+    enabled: bool = True                   # 是否启用知识图谱
+    extraction_mode: str = "rule"           # 提取模式: rule / llm / hybrid
+    max_depth: int = 3                     # BFS 最大跳数
+    max_nodes_per_hop: int = 10            # 每跳最大节点数
+    max_facts: int = 8                     # 注入LLM的最大事实数
+    min_confidence: float = 0.2            # 最低置信度阈值
+
+
 @dataclass  
 class AllDefaults:
     """所有默认配置的聚合"""
@@ -333,6 +344,7 @@ class AllDefaults:
     persona: PersonaDefaults = field(default_factory=PersonaDefaults)
     activity_adaptive: ActivityAdaptiveDefaults = field(default_factory=ActivityAdaptiveDefaults)
     llm_enhanced: LLMEnhancedDefaults = field(default_factory=LLMEnhancedDefaults)
+    knowledge_graph: KnowledgeGraphDefaults = field(default_factory=KnowledgeGraphDefaults)
 
 
 # 全局默认配置实例
@@ -367,7 +379,8 @@ def get_defaults_dict() -> Dict[str, Dict[str, Any]]:
     for section_name in ['memory', 'session', 'cache', 'embedding', 
                          'llm_integration', 'message_processing', 
                          'proactive_reply', 'image_analysis', 'log',
-                         'persona', 'activity_adaptive', 'llm_enhanced']:
+                         'persona', 'activity_adaptive', 'llm_enhanced',
+                         'knowledge_graph']:
         section_obj = getattr(DEFAULTS, section_name, None)
         if section_obj:
             result[section_name] = asdict(section_obj)

@@ -45,6 +45,12 @@ class RetrievalModule:
         )
         logger.info("RetrievalModule initialized")
 
+    def set_kg_module(self, kg_module: Any) -> None:
+        """注入知识图谱模块到检索引擎"""
+        if self._retrieval_engine:
+            self._retrieval_engine.set_kg_module(kg_module)
+            logger.info("KG module injected into RetrievalEngine")
+
     def apply_config(self, cfg: Any) -> None:
         """应用配置到检索引擎"""
         from iris_memory.core.defaults import DEFAULTS

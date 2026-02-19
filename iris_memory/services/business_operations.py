@@ -60,6 +60,13 @@ class BusinessOperations:
             
             await self._store_memory_by_layer(memory)
             await self._update_persona_from_memory(memory, user_id)
+
+            # 知识图谱：提取三元组
+            if hasattr(self, 'kg') and self.kg and self.kg.enabled:
+                try:
+                    await self.kg.process_memory(memory)
+                except Exception as kg_err:
+                    logger.debug(f"KG processing skipped: {kg_err}")
             
             return memory
             
@@ -167,6 +174,9 @@ class BusinessOperations:
             
             if self.session_manager:
                 await self.session_manager.clear_working_memory(user_id, group_id)
+
+            if hasattr(self, 'kg') and self.kg and self.kg.enabled:
+                await self.kg.delete_user_data(user_id, group_id)
             
             return True
             
@@ -186,6 +196,10 @@ class BusinessOperations:
             
             if self.session_manager:
                 await self.session_manager.clear_working_memory(user_id, None)
+
+            # 同步删除图谱关联数据（私聊场景: group_id=None）
+            if hasattr(self, 'kg') and self.kg and self.kg.enabled:
+                await self.kg.delete_user_data(user_id, group_id=None)
             
             return success, count
             
@@ -211,6 +225,14 @@ class BusinessOperations:
             if user_id and scope_filter != SessionScope.GROUP_SHARED:
                 if self.session_manager:
                     await self.session_manager.clear_working_memory(user_id, group_id)
+
+            # 同步删除图谱关联数据
+            if hasattr(self, 'kg') and self.kg and self.kg.enabled:
+                if user_id:
+                    await self.kg.delete_user_data(user_id, group_id)
+                else:
+                    # 无特定用户时，删除整个群的图谱数据
+                    await self.kg.storage.delete_user_data_by_group(group_id)
             
             return success, count
             
@@ -233,6 +255,9 @@ class BusinessOperations:
                     max_sessions=self.cfg.get("session.max_sessions", 3),
                     ttl=self.cfg.session_timeout
                 )
+
+            if hasattr(self, 'kg') and self.kg and self.kg.enabled:
+                await self.kg.delete_all()
             
             return success, count
             
@@ -268,6 +293,15 @@ class BusinessOperations:
                 image_stats = self._image_analyzer.get_statistics()
                 stats["image_analyzed"] = image_stats.get('total_analyzed', 0)
                 stats["cache_hits"] = image_stats.get('cache_hits', 0)
+
+            if hasattr(self, 'kg') and self.kg and self.kg.enabled:
+                try:
+                    kg_stats = await self.kg.get_stats(user_id, group_id)
+                    stats["kg_nodes"] = kg_stats.get("nodes", 0)
+                    stats["kg_edges"] = kg_stats.get("edges", 0)
+                except Exception:
+                    stats["kg_nodes"] = 0
+                    stats["kg_edges"] = 0
                 
         except Exception as e:
             logger.warning(f"Failed to get memory stats: {e}")
@@ -346,6 +380,20 @@ class BusinessOperations:
             )
             if member_context:
                 context_parts.append(member_context)
+
+            # 知识图谱上下文
+            if hasattr(self, 'kg') and self.kg and self.kg.enabled:
+                try:
+                    kg_context = await self.kg.format_graph_context(
+                        query=query,
+                        user_id=user_id,
+                        group_id=group_id,
+                    )
+                    if kg_context:
+                        context_parts.append(kg_context)
+                        logger.debug("Injected knowledge graph context into LLM prompt")
+                except Exception as kg_err:
+                    logger.debug(f"KG context skipped: {kg_err}")
             
             if image_context:
                 context_parts.append(image_context)

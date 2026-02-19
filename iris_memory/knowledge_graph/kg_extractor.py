@@ -1,0 +1,571 @@
+"""
+知识图谱三元组提取器
+
+从消息文本中提取 (主语, 谓语, 宾语) 三元组，并将其映射到图节点和边。
+
+支持两种模式：
+- rule : 纯规则/正则提取（零 LLM 开销）
+- llm  : 使用 LLM 进行语义级关系提取（精度高）
+- hybrid: 规则预筛 + LLM 补充（推荐）
+"""
+
+from __future__ import annotations
+
+import json
+import re
+from typing import Any, Dict, List, Optional, Tuple
+
+from iris_memory.knowledge_graph.kg_models import (
+    KGEdge,
+    KGNode,
+    KGNodeType,
+    KGRelationType,
+    KGTriple,
+)
+from iris_memory.knowledge_graph.kg_storage import KGStorage
+from iris_memory.utils.logger import get_logger
+
+logger = get_logger("kg_extractor")
+
+
+# ── LLM Prompt ──
+_TRIPLE_EXTRACTION_PROMPT = """从以下文本中提取实体关系三元组。
+
+## 提取规则
+1. 提取所有 (主语, 关系, 宾语) 三元组
+2. 主语和宾语应是具体的实体（人名、地名、组织、事物、概念等）
+3. 关系应是动词或动词短语
+4. 忽略代词（我、你、他），用实际名称替换（如已知）
+5. 最多提取 5 个最重要的三元组
+
+## 关系类型参考
+- 人际: friend_of, colleague_of, family_of, boss_of, subordinate_of, knows
+- 属性: lives_in, works_at, studies_at, belongs_to, owns
+- 行为: likes, dislikes, does, is, has, wants
+- 事件: participated_in, happened_at, caused_by
+- 通用: related_to
+
+## 实体类型参考
+- person, location, organization, object, event, concept, time, unknown
+
+## 文本
+{text}
+
+## 发送者信息
+发送者: {sender_name}（用户ID: {user_id}）
+
+## 输出格式
+```json
+{{
+  "triples": [
+    {{
+      "subject": "实体A",
+      "subject_type": "person",
+      "predicate": "关系描述",
+      "relation_type": "likes",
+      "object": "实体B",
+      "object_type": "concept",
+      "confidence": 0.8
+    }}
+  ]
+}}
+```
+仅返回JSON，不要有其他文字。"""
+
+
+# ── 规则模式匹配 ──
+
+# 中文关系模式
+_CN_RELATION_PATTERNS: List[Tuple[str, KGRelationType, str]] = [
+    # 人际关系
+    (r"(?P<s>[\u4e00-\u9fa5A-Za-z]+)(?:是|为)(?P<o>[\u4e00-\u9fa5A-Za-z]+)的(?:上司|领导|老板)", KGRelationType.BOSS_OF, "是...的上司"),
+    (r"(?P<s>[\u4e00-\u9fa5A-Za-z]+)(?:是|为)(?P<o>[\u4e00-\u9fa5A-Za-z]+)的(?:下属|手下)", KGRelationType.SUBORDINATE_OF, "是...的下属"),
+    (r"(?P<s>[\u4e00-\u9fa5A-Za-z]+)(?:和|与|跟)(?P<o>[\u4e00-\u9fa5A-Za-z]+)(?:是)?(?:朋友|好友|闺蜜|哥们)", KGRelationType.FRIEND_OF, "是朋友"),
+    (r"(?P<s>[\u4e00-\u9fa5A-Za-z]+)(?:和|与|跟)(?P<o>[\u4e00-\u9fa5A-Za-z]+)(?:是)?(?:同事|同学)", KGRelationType.COLLEAGUE_OF, "是同事"),
+    (r"(?P<s>[\u4e00-\u9fa5A-Za-z]+)(?:和|与|跟)(?P<o>[\u4e00-\u9fa5A-Za-z]+)(?:是)?(?:一家人|家人|亲戚|父母|兄弟|姐妹|夫妻|爸爸|妈妈|儿子|女儿)", KGRelationType.FAMILY_OF, "是家人"),
+    (r"(?P<s>[\u4e00-\u9fa5A-Za-z]+)认识(?P<o>[\u4e00-\u9fa5A-Za-z]+)", KGRelationType.KNOWS, "认识"),
+
+    # 补充人际关系模式
+    # "XXX是我的朋友" / "XXX是YYY的朋友"
+    (r"(?P<o>[\u4e00-\u9fa5A-Za-z]+)是(?P<s>[\u4e00-\u9fa5A-Za-z]+)的(?:朋友|好友|闺蜜|哥们|兄弟)", KGRelationType.FRIEND_OF, "是...的朋友"),
+    # "XXX和YYY谈恋爱/交往"
+    (r"(?P<s>[\u4e00-\u9fa5A-Za-z]+)(?:和|与|跟)(?P<o>[\u4e00-\u9fa5A-Za-z]+)(?:在)?(?:谈恋爱|交往|恋爱|约会)", KGRelationType.RELATED_TO, "谈恋爱"),
+    # "XXX是YYY的导师/老师/师父"
+    (r"(?P<s>[\u4e00-\u9fa5A-Za-z]+)是(?P<o>[\u4e00-\u9fa5A-Za-z]+)的(?:导师|老师|师父|师傅|教练)", KGRelationType.RELATED_TO, "是...的导师"),
+    # "XXX是YYY的学生/徒弟"
+    (r"(?P<s>[\u4e00-\u9fa5A-Za-z]+)是(?P<o>[\u4e00-\u9fa5A-Za-z]+)的(?:学生|徒弟|弟子)", KGRelationType.RELATED_TO, "是...的学生"),
+    # "XXX是YYY的家人" (补充 "是...的" 句式)
+    (r"(?P<o>[\u4e00-\u9fa5A-Za-z]+)是(?P<s>[\u4e00-\u9fa5A-Za-z]+)的(?:家人|亲戚|父亲|母亲|哥哥|姐姐|弟弟|妹妹|老公|老婆|丈夫|妻子|爸爸|妈妈|儿子|女儿)", KGRelationType.FAMILY_OF, "是...的家人"),
+    # "XXX是YYY的同事/同学" (补充 "是...的" 句式)
+    (r"(?P<o>[\u4e00-\u9fa5A-Za-z]+)是(?P<s>[\u4e00-\u9fa5A-Za-z]+)的(?:同事|同学|室友|邻居|搭档)", KGRelationType.COLLEAGUE_OF, "是...的同事"),
+
+    # 属性关系
+    (r"(?P<s>[\u4e00-\u9fa5A-Za-z]+)(?:住在|居住在|家在)(?P<o>[\u4e00-\u9fa5A-Za-z]+)", KGRelationType.LIVES_IN, "住在"),
+    (r"(?P<s>[\u4e00-\u9fa5A-Za-z]+)(?:在|就职于)(?P<o>[\u4e00-\u9fa5A-Za-z]+)(?:工作|上班|就职)", KGRelationType.WORKS_AT, "在...工作"),
+    (r"(?P<s>[\u4e00-\u9fa5A-Za-z]+)(?:在|就读于)(?P<o>[\u4e00-\u9fa5A-Za-z]+)(?:上学|读书|学习|就读)", KGRelationType.STUDIES_AT, "在...上学"),
+
+    # 喜好
+    (r"(?P<s>[\u4e00-\u9fa5A-Za-z]+)(?:喜欢|爱|热爱|钟爱|迷恋)(?P<o>[\u4e00-\u9fa5A-Za-z]+)", KGRelationType.LIKES, "喜欢"),
+    (r"(?P<s>[\u4e00-\u9fa5A-Za-z]+)(?:讨厌|不喜欢|厌恶|反感)(?P<o>[\u4e00-\u9fa5A-Za-z]+)", KGRelationType.DISLIKES, "讨厌"),
+    (r"(?P<s>[\u4e00-\u9fa5A-Za-z]+)(?:有|拥有|养了)(?:一只|一个|一条)?(?P<o>[\u4e00-\u9fa5A-Za-z]+)", KGRelationType.HAS, "有"),
+    (r"(?P<s>[\u4e00-\u9fa5A-Za-z]+)(?:想要|想买|想学|想去)(?P<o>[\u4e00-\u9fa5A-Za-z]+)", KGRelationType.WANTS, "想要"),
+
+    # 身份
+    (r"(?P<s>[\u4e00-\u9fa5A-Za-z]+)是(?:一[名个位])?(?P<o>[\u4e00-\u9fa5A-Za-z]+(?:师|员|家|生|手|者))", KGRelationType.IS, "是"),
+]
+
+# 英文关系模式
+_EN_RELATION_PATTERNS: List[Tuple[str, KGRelationType, str]] = [
+    (r"(?P<s>[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?) (?:is|was) (?:a )?(?:friend|buddy) of (?P<o>[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)", KGRelationType.FRIEND_OF, "friend of"),
+    (r"(?P<s>[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?) (?:is|was) (?:the )?(?:boss|manager|supervisor) of (?P<o>[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)", KGRelationType.BOSS_OF, "boss of"),
+    (r"(?P<s>[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?) (?:works|worked) at (?P<o>[A-Z][\w\s]+)", KGRelationType.WORKS_AT, "works at"),
+    (r"(?P<s>[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?) (?:lives|lived) in (?P<o>[A-Z][\w\s]+)", KGRelationType.LIVES_IN, "lives in"),
+    (r"(?P<s>[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?) (?:likes?|loves?) (?P<o>[\w\s]+)", KGRelationType.LIKES, "likes"),
+    (r"(?P<s>[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?) (?:hates?|dislikes?) (?P<o>[\w\s]+)", KGRelationType.DISLIKES, "dislikes"),
+]
+
+# 实体类型猜测规则
+_ENTITY_TYPE_HINTS: Dict[str, KGNodeType] = {}
+
+# ── 概念关键词 → CONCEPT ──
+_CONCEPT_KEYWORDS: set = {
+    # 兴趣/技能
+    "编程", "音乐", "运动", "阅读", "游戏", "美食", "旅行", "摄影", "绘画", "写作",
+    "烹饪", "健身", "瑜伽", "跑步", "游泳", "篮球", "足球", "乒乓球", "羽毛球",
+    "钓鱼", "登山", "滑雪", "冲浪", "骑行", "舞蹈", "唱歌", "弹琴", "吉他",
+    # 学科/技术领域
+    "机器学习", "深度学习", "人工智能", "区块链", "大数据", "云计算",
+    "数学", "物理", "化学", "生物", "历史", "地理", "哲学", "心理学", "经济学",
+    "计算机科学", "数据科学", "自然语言处理", "计算机视觉",
+    "前端开发", "后端开发", "全栈开发", "移动开发", "嵌入式开发",
+    # 通用概念
+    "自由", "民主", "科学", "艺术", "文化", "教育", "环保", "健康",
+    # 英文概念
+    "programming", "music", "sports", "reading", "gaming", "cooking",
+    "machine learning", "deep learning", "artificial intelligence",
+    "blockchain", "data science",
+}
+
+# ── 事件关键词 → EVENT ──
+_EVENT_KEYWORDS: set = {
+    "会议", "聚会", "婚礼", "生日", "毕业", "面试", "考试", "比赛",
+    "旅行", "出差", "搬家", "入职", "离职", "升职", "年会",
+    "春节", "中秋", "国庆", "元旦", "圣诞",
+}
+
+# ── 物品关键词 → OBJECT ──
+_OBJECT_KEYWORDS: set = {
+    "手机", "电脑", "笔记本", "平板", "耳机", "相机",
+    "汽车", "自行车", "摩托车",
+    "猫", "狗", "宠物", "仓鼠", "兔子", "鹦鹉", "金鱼",
+    "书", "书籍",
+}
+
+# 中文职业/身份后缀 → PERSON
+_PERSON_SUFFIXES = [
+    "师", "员", "家", "生", "手", "者", "长",
+    "教授", "医生", "老师", "同学", "朋友",
+    # 新兴职业/网络用语
+    "博主", "主播", "大佬", "萌新", "大神", "小白",
+]
+
+# 中文人名/昵称模式 → PERSON
+_PERSON_PATTERNS = [
+    # 小X/老X/阿X (1~2字)
+    r'^[小老阿][\u4e00-\u9fa5]{1,2}$',
+    # UP主、KOL 等特殊身份
+    r'^(?:UP主|KOL|CEO|CTO|CFO|COO)$',
+]
+
+# 中文地名后缀 → LOCATION
+_LOCATION_SUFFIXES = ["市", "省", "区", "县", "镇", "村", "路", "街", "大学", "学校", "医院"]
+
+# 组织后缀 → ORGANIZATION
+_ORG_SUFFIXES = ["公司", "集团", "科技", "有限", "股份", "银行", "基金", "协会", "委员会"]
+
+
+def _guess_node_type(text: str) -> KGNodeType:
+    """根据文本猜测节点类型
+
+    优先级：关键词精确匹配 > 后缀匹配 > 正则模式匹配 > UNKNOWN
+    """
+    # ── 1. 关键词精确匹配（最高优先级）──
+    text_lower = text.lower()
+    if text in _CONCEPT_KEYWORDS or text_lower in _CONCEPT_KEYWORDS:
+        return KGNodeType.CONCEPT
+    if text in _EVENT_KEYWORDS:
+        return KGNodeType.EVENT
+    if text in _OBJECT_KEYWORDS:
+        return KGNodeType.OBJECT
+
+    # ── 2. 后缀匹配 ──
+    for suffix in _PERSON_SUFFIXES:
+        if text.endswith(suffix):
+            return KGNodeType.PERSON
+    for suffix in _LOCATION_SUFFIXES:
+        if text.endswith(suffix):
+            return KGNodeType.LOCATION
+    for suffix in _ORG_SUFFIXES:
+        if text.endswith(suffix):
+            return KGNodeType.ORGANIZATION
+
+    # ── 3. 正则模式匹配 ──
+    # 纯英文首字母大写 → 大概率是名字
+    if re.match(r'^[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*$', text):
+        return KGNodeType.PERSON
+
+    # 中文 2~4 字，常见姓氏开头 → PERSON
+    surnames = '王李张刘陈杨黄赵吴周徐孙马朱胡郭何高林罗郑梁谢宋唐许韩冯邓曹'
+    if re.match(f'^[{surnames}][\u4e00-\u9fa5]{{1,2}}$', text):
+        return KGNodeType.PERSON
+    # 昵称模式
+    for pattern in _PERSON_PATTERNS:
+        if re.match(pattern, text):
+            return KGNodeType.PERSON
+
+    return KGNodeType.UNKNOWN
+
+
+class KGExtractor:
+    """三元组提取器
+
+    从文本中提取实体关系，并写入 KGStorage。
+
+    支持三种模式：
+    - rule: 正则/规则提取
+    - llm: LLM 语义提取
+    - hybrid: 规则 + LLM
+    """
+
+    def __init__(
+        self,
+        storage: KGStorage,
+        mode: str = "rule",
+        astrbot_context: Any = None,
+        provider_id: Optional[str] = None,
+    ) -> None:
+        self.storage = storage
+        self.mode = mode  # "rule" | "llm" | "hybrid"
+        self._astrbot_context = astrbot_context
+        self._provider_id = provider_id
+        self._provider = None
+        self._provider_initialized = False
+
+    # ================================================================
+    # 主入口
+    # ================================================================
+
+    async def extract_and_store(
+        self,
+        text: str,
+        user_id: str,
+        group_id: Optional[str] = None,
+        memory_id: Optional[str] = None,
+        sender_name: Optional[str] = None,
+        existing_entities: Optional[List[str]] = None,
+    ) -> List[KGTriple]:
+        """从文本中提取三元组并存入图谱
+
+        Args:
+            text: 消息文本
+            user_id: 用户 ID
+            group_id: 群组 ID
+            memory_id: 关联的记忆 ID
+            sender_name: 发送者名称
+            existing_entities: 已提取的实体列表（来自 EntityExtractor）
+
+        Returns:
+            提取到的三元组列表
+        """
+        if not text or len(text.strip()) < 4:
+            return []
+
+        triples: List[KGTriple] = []
+
+        if self.mode in ("rule", "hybrid"):
+            rule_triples = self._extract_by_rules(text, sender_name)
+            triples.extend(rule_triples)
+
+        if self.mode in ("llm", "hybrid"):
+            llm_triples = await self._extract_by_llm(text, user_id, sender_name)
+            # 与规则结果去重
+            triples = self._merge_triples(triples, llm_triples)
+
+        if not triples:
+            # 尝试从 existing_entities 构建隐含关系
+            if existing_entities and sender_name:
+                triples = self._build_implicit_triples(
+                    text, sender_name, existing_entities
+                )
+
+        # 写入 KGStorage
+        for triple in triples:
+            await self._store_triple(triple, user_id, group_id, memory_id)
+
+        if triples:
+            logger.debug(
+                f"Extracted {len(triples)} triples from text (mode={self.mode}): "
+                + ", ".join(str(t) for t in triples[:3])
+            )
+
+        return triples
+
+    # ================================================================
+    # 规则提取
+    # ================================================================
+
+    def _extract_by_rules(
+        self,
+        text: str,
+        sender_name: Optional[str] = None,
+    ) -> List[KGTriple]:
+        """基于正则模式提取三元组"""
+        triples: List[KGTriple] = []
+        seen: set = set()
+
+        all_patterns = _CN_RELATION_PATTERNS + _EN_RELATION_PATTERNS
+
+        for pattern_str, relation_type, label in all_patterns:
+            for m in re.finditer(pattern_str, text, re.IGNORECASE):
+                subject = m.group("s").strip()
+                obj = m.group("o").strip()
+
+                # 替换代词
+                subject = self._resolve_pronoun(subject, sender_name)
+                obj = self._resolve_pronoun(obj, sender_name)
+
+                if not subject or not obj or subject == obj:
+                    continue
+
+                key = (subject.lower(), relation_type.value, obj.lower())
+                if key in seen:
+                    continue
+                seen.add(key)
+
+                triple = KGTriple(
+                    subject=subject,
+                    predicate=label,
+                    object=obj,
+                    subject_type=_guess_node_type(subject),
+                    object_type=_guess_node_type(obj),
+                    relation_type=relation_type,
+                    confidence=0.7,
+                    source_text=text,
+                )
+                triples.append(triple)
+
+        return triples
+
+    def _resolve_pronoun(self, text: str, sender_name: Optional[str]) -> str:
+        """将代词替换为发送者名称"""
+        pronouns_cn = {"我", "本人", "自己", "俺", "吾"}
+        pronouns_en = {"i", "me", "myself"}
+
+        if text in pronouns_cn or text.lower() in pronouns_en:
+            return sender_name or text
+        return text
+
+    def _build_implicit_triples(
+        self,
+        text: str,
+        sender_name: str,
+        entities: List[str],
+    ) -> List[KGTriple]:
+        """从已提取实体构建隐含关系"""
+        triples: List[KGTriple] = []
+
+        for entity in entities:
+            if entity == sender_name:
+                continue
+            # 默认创建 "related_to" 关系
+            triple = KGTriple(
+                subject=sender_name,
+                predicate="提到了",
+                object=entity,
+                subject_type=KGNodeType.PERSON,
+                object_type=_guess_node_type(entity),
+                relation_type=KGRelationType.RELATED_TO,
+                confidence=0.3,
+                source_text=text,
+            )
+            triples.append(triple)
+
+        return triples[:3]  # 限制隐含关系数量
+
+    # ================================================================
+    # LLM 提取
+    # ================================================================
+
+    async def _extract_by_llm(
+        self,
+        text: str,
+        user_id: str,
+        sender_name: Optional[str],
+    ) -> List[KGTriple]:
+        """使用 LLM 提取三元组"""
+        if not self._astrbot_context:
+            return []
+
+        try:
+            if not await self._ensure_provider():
+                return []
+
+            prompt = _TRIPLE_EXTRACTION_PROMPT.format(
+                text=text,
+                sender_name=sender_name or "未知",
+                user_id=user_id,
+            )
+
+            from iris_memory.utils.llm_helper import call_llm, parse_llm_json
+            result = await call_llm(
+                provider=self._provider,
+                prompt=prompt,
+                max_tokens=500,
+                temperature=0.3,
+            )
+
+            if not result.success or not result.content:
+                return []
+
+            data = parse_llm_json(result.content)
+            if not data or "triples" not in data:
+                return []
+
+            triples: List[KGTriple] = []
+            for item in data["triples"][:5]:
+                subject = item.get("subject", "").strip()
+                obj = item.get("object", "").strip()
+                predicate = item.get("predicate", "").strip()
+                if not subject or not obj or not predicate:
+                    continue
+
+                # 解析 relation_type
+                rt_str = item.get("relation_type", "related_to")
+                try:
+                    relation_type = KGRelationType(rt_str)
+                except ValueError:
+                    relation_type = KGRelationType.RELATED_TO
+
+                # 解析 node types
+                st_str = item.get("subject_type", "unknown")
+                ot_str = item.get("object_type", "unknown")
+                try:
+                    subject_type = KGNodeType(st_str)
+                except ValueError:
+                    subject_type = _guess_node_type(subject)
+                try:
+                    object_type = KGNodeType(ot_str)
+                except ValueError:
+                    object_type = _guess_node_type(obj)
+
+                triple = KGTriple(
+                    subject=subject,
+                    predicate=predicate,
+                    object=obj,
+                    subject_type=subject_type,
+                    object_type=object_type,
+                    relation_type=relation_type,
+                    confidence=float(item.get("confidence", 0.6)),
+                    source_text=text,
+                )
+                triples.append(triple)
+
+            return triples
+
+        except Exception as e:
+            logger.warning(f"LLM triple extraction failed: {e}")
+            return []
+
+    async def _ensure_provider(self) -> bool:
+        """确保 LLM provider 可用"""
+        if self._provider_initialized:
+            return self._provider is not None
+
+        self._provider_initialized = True
+        try:
+            from iris_memory.utils.llm_helper import resolve_llm_provider
+            provider, _ = resolve_llm_provider(
+                self._astrbot_context,
+                self._provider_id or "",
+                label="KGExtractor",
+            )
+            if provider:
+                self._provider = provider
+                return True
+        except Exception as e:
+            logger.warning(f"Failed to resolve LLM provider for KGExtractor: {e}")
+
+        return False
+
+    # ================================================================
+    # 三元组 → 图节点/边
+    # ================================================================
+
+    async def _store_triple(
+        self,
+        triple: KGTriple,
+        user_id: str,
+        group_id: Optional[str],
+        memory_id: Optional[str],
+    ) -> None:
+        """将三元组写入 KGStorage"""
+        # 创建/更新主语节点
+        subject_node = KGNode(
+            name=triple.subject,
+            display_name=triple.subject,
+            node_type=triple.subject_type,
+            user_id=user_id,
+            group_id=group_id,
+            confidence=triple.confidence,
+        )
+        subject_node = await self.storage.upsert_node(subject_node)
+
+        # 创建/更新宾语节点
+        object_node = KGNode(
+            name=triple.object,
+            display_name=triple.object,
+            node_type=triple.object_type,
+            user_id=user_id,
+            group_id=group_id,
+            confidence=triple.confidence,
+        )
+        object_node = await self.storage.upsert_node(object_node)
+
+        # 创建/更新边
+        edge = KGEdge(
+            source_id=subject_node.id,
+            target_id=object_node.id,
+            relation_type=triple.relation_type,
+            relation_label=triple.predicate,
+            memory_id=memory_id,
+            user_id=user_id,
+            group_id=group_id,
+            confidence=triple.confidence,
+        )
+        await self.storage.upsert_edge(edge)
+
+    # ================================================================
+    # 工具方法
+    # ================================================================
+
+    def _merge_triples(
+        self,
+        rule_triples: List[KGTriple],
+        llm_triples: List[KGTriple],
+    ) -> List[KGTriple]:
+        """合并规则和 LLM 提取的三元组（去重）"""
+        seen: set = set()
+        merged: List[KGTriple] = []
+
+        for t in rule_triples:
+            key = (t.subject.lower(), t.relation_type.value, t.object.lower())
+            seen.add(key)
+            merged.append(t)
+
+        for t in llm_triples:
+            key = (t.subject.lower(), t.relation_type.value, t.object.lower())
+            if key not in seen:
+                seen.add(key)
+                merged.append(t)
+
+        return merged

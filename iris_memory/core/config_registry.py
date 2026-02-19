@@ -370,6 +370,56 @@ def _build_registry() -> Dict[str, ConfigDefinition]:
             description="检索路由模式 (rule/llm/hybrid)",
             value_type=str,
         ),
+
+        # ── 知识图谱 ──
+        ConfigDefinition(
+            key="knowledge_graph.enabled",
+            section="knowledge_graph",
+            attr="enabled",
+            default=True,
+            description="是否启用知识图谱",
+            value_type=bool,
+        ),
+        ConfigDefinition(
+            key="knowledge_graph.extraction_mode",
+            section="knowledge_graph",
+            attr="extraction_mode",
+            default="rule",
+            description="三元组提取模式 (rule/llm/hybrid)",
+            value_type=str,
+        ),
+        ConfigDefinition(
+            key="knowledge_graph.max_depth",
+            section="knowledge_graph",
+            attr="max_depth",
+            default=3,
+            description="多跳推理最大跳数",
+            value_type=int,
+        ),
+        ConfigDefinition(
+            key="knowledge_graph.max_nodes_per_hop",
+            section="knowledge_graph",
+            attr="max_nodes_per_hop",
+            default=10,
+            description="每跳最大探索节点数",
+            value_type=int,
+        ),
+        ConfigDefinition(
+            key="knowledge_graph.max_facts",
+            section="knowledge_graph",
+            attr="max_facts",
+            default=8,
+            description="注入LLM上下文的最大事实数",
+            value_type=int,
+        ),
+        ConfigDefinition(
+            key="knowledge_graph.min_confidence",
+            section="knowledge_graph",
+            attr="min_confidence",
+            default=0.2,
+            description="最低置信度阈值",
+            value_type=float,
+        ),
     ]
 
     return {e.key: e for e in entries}

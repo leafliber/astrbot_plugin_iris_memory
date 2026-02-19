@@ -72,6 +72,33 @@ class ServiceInitializer:
         set_identity_service(self._member_identity)
         logger.info("MemberIdentityService initialized")
 
+    # ── 知识图谱 ──
+
+    async def _init_knowledge_graph(self) -> None:
+        """初始化知识图谱模块"""
+        logger.info(LogTemplates.COMPONENT_INIT.format(component="knowledge graph"))
+
+        kg_enabled = self.cfg.get("knowledge_graph.enabled", True)
+        kg_mode = self.cfg.get("knowledge_graph.extraction_mode", "rule")
+        kg_max_depth = self.cfg.get("knowledge_graph.max_depth", 3)
+        kg_max_nodes = self.cfg.get("knowledge_graph.max_nodes_per_hop", 10)
+        kg_max_facts = self.cfg.get("knowledge_graph.max_facts", 8)
+
+        await self.kg.initialize(
+            plugin_data_path=self.plugin_data_path,
+            astrbot_context=self.context,
+            provider_id=None,
+            kg_mode=kg_mode,
+            max_depth=kg_max_depth,
+            max_nodes_per_hop=kg_max_nodes,
+            max_facts=kg_max_facts,
+            enabled=kg_enabled,
+        )
+
+        # 注入到检索引擎
+        if self.kg.enabled:
+            self.retrieval.set_kg_module(self.kg)
+
     # ── LLM 增强 ──
 
     async def _init_llm_enhanced(self) -> None:
