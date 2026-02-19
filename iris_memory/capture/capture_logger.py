@@ -28,10 +28,9 @@ class CaptureLogger:
         message: str,
         is_user_requested: bool = False
     ) -> None:
-        msg_preview = _trunc(message, 50)
         flag = "USER_REQUESTED" if is_user_requested else "AUTO"
         _logger.debug(
-            f"CAPTURE.START user={user_id} flag={flag} msg='{msg_preview}'"
+            f"CAPTURE.START user={user_id} flag={flag} msg_len={len(message)}"
         )
 
     def negative_sample(self, user_id: str, reason: str = "chat") -> None:

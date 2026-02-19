@@ -340,8 +340,7 @@ class EmbeddingManager:
         
         self.stats["cache_misses"] += 1
         
-        text_preview = text[:30] + "..." if len(text) > 30 else text
-        logger.debug(f"Generating embedding: text='{text_preview}', dimension={dimension}")
+        logger.debug(f"Generating embedding: text_len={len(text)}, dimension={dimension}")
         
         # 2. 如果有当前提供者，尝试使用
         embedding_result = None
@@ -443,10 +442,22 @@ class EmbeddingManager:
             List[List[float]]: 嵌入向量列表
         """
         if not self.current_provider:
-            raise RuntimeError("No embedding provider available")
-        requests = [EmbeddingRequest(text=text, dimension=dimension) for text in texts]
-        responses = await self.current_provider.embed_batch(requests)
-        return [response.to_list() for response in responses]
+            # 尝试降级而非直接报错
+            logger.warning("No current provider for embed_batch, attempting fallback")
+            results = []
+            for text in texts:
+                results.append(await self.embed(text, dimension))
+            return results
+        try:
+            requests = [EmbeddingRequest(text=text, dimension=dimension) for text in texts]
+            responses = await self.current_provider.embed_batch(requests)
+            return [response.to_list() for response in responses]
+        except Exception as e:
+            logger.warning(f"embed_batch failed with current provider: {e}, falling back to individual embed")
+            results = []
+            for text in texts:
+                results.append(await self.embed(text, dimension))
+            return results
 
     def get_dimension(self) -> int:
         """获取当前提供者的维度
@@ -466,7 +477,10 @@ class EmbeddingManager:
             str: 模型名称
         """
         if self.current_provider:
-            return self.current_provider.model
+            try:
+                return self.current_provider.model
+            except Exception:
+                return "unknown"
         return "unknown"
 
     async def health_check(self) -> Dict[str, Any]:

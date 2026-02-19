@@ -76,10 +76,10 @@ class MemoryService(
         self.proactive = ProactiveModule()
         self.kg = KnowledgeGraphModule()
 
-        # ── 共享状态（有界，防止内存无限增长）──
-        self._user_emotional_states: BoundedDict[str, EmotionalState] = BoundedDict(max_size=500)
-        self._user_personas: BoundedDict[str, UserPersona] = BoundedDict(max_size=500)
-        self._recently_injected: BoundedDict[str, List[str]] = BoundedDict(max_size=500)
+        # ── 共享状态（有界 LRU，防止内存无限增长）──
+        self._user_emotional_states: BoundedDict[str, EmotionalState] = BoundedDict(max_size=2000)
+        self._user_personas: BoundedDict[str, UserPersona] = BoundedDict(max_size=2000)
+        self._recently_injected: BoundedDict[str, List[str]] = BoundedDict(max_size=2000)
         self._max_recent_track: int = 20
 
         # ── 独立组件（不适合归入 Module 的辅助组件） ──

@@ -32,7 +32,7 @@ class ConfigManager:
     """
     
     # 默认配置缓存 TTL（秒），可通过构造参数覆盖
-    DEFAULT_CACHE_TTL: float = 30.0
+    DEFAULT_CACHE_TTL: float = 10.0
 
     def __init__(self, user_config: Any = None, *, cache_ttl: Optional[float] = None):
         """初始化配置管理器

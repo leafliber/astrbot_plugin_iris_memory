@@ -69,7 +69,7 @@ class EmbeddingProvider(ABC):
     def model(self) -> str:
         """获取模型名称"""
         if self._model is None:
-            raise RuntimeError("Provider not initialized. Call initialize() first.")
+            return "unknown"
         return self._model
 
     @abstractmethod
