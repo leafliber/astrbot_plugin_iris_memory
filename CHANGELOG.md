@@ -3,6 +3,49 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.6.0] - 2026-02-19
+
+### Added
+- **输入安全清理能力** (`iris_memory/core/constants.py`, `main.py`)
+  - 为 `InputValidationConfig` 新增 `sanitize_input()` 与 `has_dangerous_content()`，用于过滤 HTML 标签、脚本注入片段与控制字符。
+  - `memory_save` 指令接入输入清理流程，避免将危险内容直接写入记忆。
+- **知识图谱动态推理深度估算** (`iris_memory/knowledge_graph/kg_reasoning.py`)
+  - 新增 `estimate_query_depth()`，根据查询复杂度（关系词/链路词）动态调整多跳推理深度（1~5）。
+- **主动回复动态冷却策略** (`iris_memory/proactive/proactive_manager.py`, `iris_memory/core/constants.py`)
+  - 新增基于 `urgency` 的冷却时间乘数配置（critical/high/medium/low），提升紧急场景响应能力。
+- **常量集中化补充** (`iris_memory/core/constants.py`)
+  - 新增 `CaptureQualityThresholds`、`LLMCallDefaults`、`TextTruncation`、`UrgencyCooldownMultiplier` 等常量组，减少关键逻辑中的魔法数字。
+
+### Changed
+- **依赖版本策略收紧** (`pyproject.toml`)
+  - 收紧核心依赖版本上界，降低跨大版本 API 变更风险：`chromadb`、`numpy`、`sentence-transformers`。
+  - 将测试相关依赖移动到 `project.optional-dependencies.dev`。
+- **配置读取实时性提升** (`iris_memory/core/config_manager.py`)
+  - 配置缓存默认 TTL 从 30 秒调整为 10 秒，减少热更新配置生效延迟。
+- **批量会话过期窗口调整** (`iris_memory/core/constants.py`)
+  - `BatchSessionConfig.SESSION_EXPIRY_SECONDS` 从 2 小时提升到 4 小时，降低长间隔会话消息丢失概率。
+- **熔断恢复策略调整** (`iris_memory/core/constants.py`)
+  - `CircuitBreakerConfig.RECOVERY_TIMEOUT` 从 60 秒调整为 30 秒，加快临时网络抖动后的恢复。
+- **高并发状态缓存容量扩展** (`iris_memory/services/memory_service.py`)
+  - 用户相关 `BoundedDict` 容量从 500 提升到 2000；配合现有 LRU 淘汰策略，提升多活跃用户场景稳定性。
+- **日志隐私策略收敛** (`iris_memory/embedding/manager.py`, `iris_memory/capture/capture_logger.py`, `iris_memory/retrieval/retrieval_logger.py`)
+  - 调试日志改为记录长度/摘要元信息，不再记录用户原文片段，降低敏感信息泄露风险。
+
+### Fixed
+- **EmbeddingManager 在 provider 未就绪时的状态不一致问题** (`iris_memory/embedding/base.py`, `iris_memory/embedding/manager.py`)
+  - 修复 `embed()` 过程中因 provider 未初始化导致的 `RuntimeError: Provider not initialized`。
+  - `get_model()` 与 `model` 属性改为安全回退，`embed_batch()` 增加降级路径，避免整体流程崩溃。
+- **知识图谱家族关系规则漏匹配** (`iris_memory/knowledge_graph/kg_extractor.py`)
+  - 修复家族关键词拼写错误（`"爵父"` → `"爸爸"`），补充亲属关键词，恢复 `family_of` 抽取覆盖。
+- **敏感信息检测可绕过模式修复** (`iris_memory/capture/detector/sensitivity_detector.py`)
+  - 扩展密码与凭证正则，覆盖 `密码是 xxx`、`pass=xxx`、大小写 token/key 变体与云服务密钥模式。
+
+### Test
+- 测试验证通过：
+  - `tests/embedding/test_lazy_loading.py` 全量通过（含 `test_embed_fallback_when_local_load_failed`）
+  - `tests/knowledge_graph/test_kg_extractor.py` 全量通过（含 `test_family_of_pattern`）
+  - `tests/` 全量通过：`1220 passed`
+
 ## [v1.5.0] - 2026-02-19
 
 ### Added
