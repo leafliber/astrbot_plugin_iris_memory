@@ -124,12 +124,17 @@ class PersistenceOperations:
         personas_data = await get_kv_data(KVStoreKeys.USER_PERSONAS, {})
         if personas_data:
             persona_log.restore_start(len(personas_data))
+            success_count = 0
+            fail_count = 0
             for uid, pdata in personas_data.items():
                 try:
                     self._user_personas[uid] = UserPersona.from_dict(pdata)
                     persona_log.restore_ok(uid)
+                    success_count += 1
                 except Exception as e:
                     persona_log.restore_error(uid, e)
+                    fail_count += 1
+            persona_log.restore_summary(len(personas_data), success_count, fail_count)
             logger.info(f"Loaded {len(self._user_personas)} user personas")
 
     async def save_to_kv(self, put_kv_data) -> None:

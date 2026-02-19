@@ -35,26 +35,18 @@ class ChromaOperations:
         """
         try:
             self._ensure_ready()
-            logger.debug(f"Adding memory to Chroma: id={memory.id}, user={memory.user_id}, type={memory.type.value}")
             
             if memory.embedding is None:
-                logger.debug(f"Generating embedding for memory {memory.id}...")
                 embedding = await self._generate_embedding(memory.content)
                 if embedding is None:
                     logger.error(f"Failed to generate embedding for memory {memory.id}, skipping storage")
                     return None
                 memory.embedding = np.array(embedding)
-                logger.debug(f"Embedding generated: dimension={len(embedding)}")
             else:
                 embedding = memory.embedding.tolist()
-                logger.debug(f"Using existing embedding: dimension={len(embedding)}")
             
             metadata = self._build_memory_metadata(memory)
             metadata.update(memory.metadata)
-            
-            logger.debug(f"Memory metadata: {metadata}")
-            
-            self._log_memory_details(memory, embedding)
             
             self.collection.add(
                 ids=[memory.id],
@@ -91,16 +83,17 @@ class ChromaOperations:
         }
 
     def _log_memory_details(self, memory, embedding: List[float]) -> None:
-        """记录记忆详情"""
+        """记录记忆详情（单行汇总）"""
         if not logger.isEnabledFor(10):
             return
         
-        logger.debug(f"Adding memory details:")
-        logger.debug(f"  ID: {memory.id}")
-        logger.debug(f"  Content: '{memory.content[:100]}...'" if len(memory.content) > 100 else f"  Content: '{memory.content}'")
-        logger.debug(f"  User: {memory.user_id}, Group: {memory.group_id}")
-        logger.debug(f"  Type: {memory.type.value}, Scope: {memory.scope.value}, Layer: {memory.storage_layer.value}")
-        logger.debug(f"  RIF: {memory.rif_score:.3f}, Quality: {memory.quality_level.value}")
+        content_preview = memory.content[:60] + "..." if len(memory.content) > 60 else memory.content
+        logger.debug(
+            f"Memory detail: id={memory.id[:8]}... user={memory.user_id} "
+            f"type={memory.type.value} scope={memory.scope.value} "
+            f"layer={memory.storage_layer.value} rif={memory.rif_score:.3f} "
+            f"quality={memory.quality_level.value} content='{content_preview}'"
+        )
 
     async def update_memory(self, memory) -> bool:
         """更新记忆
@@ -299,14 +292,4 @@ class ChromaOperations:
         if not logger.isEnabledFor(10) or count <= 0:
             return
         
-        logger.debug(f"Preparing to delete {count} memories:")
-        for i, (mid, content, metadata) in enumerate(zip(
-            results['ids'][:10],
-            results.get('documents', [])[:10],
-            results.get('metadatas', [])[:10]
-        ), 1):
-            content_preview = content[:40] + "..." if content and len(content) > 40 else content
-            user_id = metadata.get('user_id', 'N/A') if metadata else 'N/A'
-            logger.debug(f"  [{i}] ID={mid[:8]}..., User={user_id}, Content='{content_preview}'")
-        if count > 10:
-            logger.debug(f"  ... and {count - 10} more")
+        logger.debug(f"Preparing to delete {count} memories")

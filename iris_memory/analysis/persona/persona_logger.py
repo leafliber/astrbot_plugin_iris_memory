@@ -79,7 +79,15 @@ class PersonaLogger:
         _logger.debug(f"PERSONA.RESTORE.START count={count}")
 
     def restore_ok(self, user_id: str) -> None:
-        _logger.debug(f"PERSONA.RESTORE.OK user={user_id}")
+        # 单用户恢复成功不再逐条打印，由 restore_summary 统一输出
+        pass
+
+    def restore_summary(self, total: int, success: int, failed: int) -> None:
+        """批量恢复完成的汇总日志"""
+        if failed:
+            _logger.info(f"PERSONA.RESTORE.DONE total={total} ok={success} fail={failed}")
+        else:
+            _logger.debug(f"PERSONA.RESTORE.DONE total={total} ok={success}")
 
     def restore_error(self, user_id: str, error: Exception) -> None:
         _logger.warning(

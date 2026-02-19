@@ -174,12 +174,12 @@ class CaptureLogger:
 
     def llm_trigger_detection_failed(self, user_id: str, error: str) -> None:
         _logger.debug(
-            f"CAPTURE.LLM.TRIGGER.FALLBACK user={user_id} error={_trunc(error, 30)}"
+            f"CAPTURE.LLM.TRIGGER.FALLBACK user={user_id} error={_trunc(error, 100)}"
         )
 
     def llm_sensitivity_detection_failed(self, user_id: str, error: str) -> None:
         _logger.debug(
-            f"CAPTURE.LLM.SENSITIVITY.FALLBACK user={user_id} error={_trunc(error, 30)}"
+            f"CAPTURE.LLM.SENSITIVITY.FALLBACK user={user_id} error={_trunc(error, 100)}"
         )
 
 

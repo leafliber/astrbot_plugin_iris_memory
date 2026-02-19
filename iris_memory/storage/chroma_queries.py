@@ -56,13 +56,11 @@ class ChromaQueries:
         """
         try:
             self._ensure_ready()
-            logger.debug(f"Querying memories: user={user_id}, group={group_id}, top_k={top_k}, storage_layer={storage_layer.value if storage_layer else 'all'}")
             
             query_embedding = await self._generate_embedding(query_text)
             if query_embedding is None:
                 logger.error("Failed to generate query embedding, returning empty results")
                 return []
-            logger.debug(f"Query embedding generated: dimension={len(query_embedding)}")
 
             all_results = []
 
@@ -81,15 +79,10 @@ class ChromaQueries:
                 if result['id'] not in seen_ids:
                     seen_ids.add(result['id'])
                     unique_results.append(result)
-            
-            logger.debug(f"Total results: {len(all_results)}, Unique results: {len(unique_results)}")
-            
-            self._log_query_results(all_results)
 
             if unique_results:
                 unique_results.sort(key=lambda x: x['distance'] if x['distance'] is not None else float('inf'))
                 unique_results = unique_results[:top_k]
-                logger.debug(f"Sorted and limited to top {len(unique_results)} results")
 
             memories = []
             for memory_data in unique_results:
@@ -97,7 +90,11 @@ class ChromaQueries:
                 memory = self._result_to_memory(memory_data_without_distance)
                 memories.append(memory)
             
-            self._log_final_memories(memories)
+            logger.debug(
+                f"Query: user={user_id} group={group_id or 'private'} "
+                f"top_k={top_k} total={len(all_results)} unique={len(unique_results)} "
+                f"returned={len(memories)}"
+            )
 
             logger.info(f"Queried {len(memories)} memories for user={user_id}, group={group_id}, query='{query_text[:30]}...'")
             return memories
@@ -121,7 +118,6 @@ class ChromaQueries:
         if storage_layer:
             where_shared["storage_layer"] = storage_layer.value
         
-        logger.debug(f"Querying GROUP_SHARED memories: where={where_shared}")
         results = self.collection.query(
             query_embeddings=[query_embedding],
             n_results=top_k,
@@ -129,7 +125,6 @@ class ChromaQueries:
             include=["embeddings", "documents", "metadatas", "distances"]
         )
         all_results.extend(self._extract_query_results(results))
-        logger.debug(f"Found {len(results['ids'][0]) if results['ids'] else 0} GROUP_SHARED memories")
 
         where_private = {"user_id": user_id, "group_id": group_id, "scope": MemoryScope.GROUP_PRIVATE.value}
         if storage_layer:
@@ -208,30 +203,12 @@ class ChromaQueries:
         return extracted
 
     def _log_query_results(self, results: List[Dict]) -> None:
-        """记录查询结果详情"""
-        if not logger.isEnabledFor(10):
-            return
-        
-        for i, result in enumerate(results[:5], 1):
-            distance = result.get('distance')
-            distance_str = f"{distance:.4f}" if distance is not None else "N/A"
-            content = result.get('content', '')
-            if len(content) > 50:
-                content_str = f"content='{content[:50]}...'"
-            else:
-                content_str = f"content='{content}'"
-            logger.debug(f"  Raw result {i}: id={result['id'][:8]}..., distance={distance_str}, {content_str}")
+        """记录查询结果详情（已合并到主查询日志）"""
+        pass
 
     def _log_final_memories(self, memories: List) -> None:
-        """记录最终Memory对象"""
-        if not logger.isEnabledFor(10) or not memories:
-            return
-        
-        logger.debug(f"Final query results ({len(memories)} memories):")
-        for i, memory in enumerate(memories, 1):
-            logger.debug(f"  [{i}] ID={memory.id[:8]}..., Type={memory.type.value}, "
-                       f"Scope={memory.scope.value}, Layer={memory.storage_layer.value}, "
-                       f"RIF={memory.rif_score:.3f}, Content='{memory.content[:40]}...'")
+        """记录最终Memory对象（已合并到主查询日志）"""
+        pass
 
     async def get_all_memories(
         self,
