@@ -13,8 +13,7 @@ from typing import Optional, TYPE_CHECKING
 if TYPE_CHECKING:
     from iris_memory.utils.member_identity_service import MemberIdentityService
 
-# 全局服务引用（由 MemoryService 初始化时注入）
-_identity_service: Optional["MemberIdentityService"] = None
+# 全局服务引用 — 通过 ServiceContainer 管理
 
 
 def set_identity_service(service: Optional["MemberIdentityService"]) -> None:
@@ -22,13 +21,14 @@ def set_identity_service(service: Optional["MemberIdentityService"]) -> None:
 
     由 MemoryService.initialize() 调用。
     """
-    global _identity_service
-    _identity_service = service
+    from iris_memory.core.service_container import ServiceContainer
+    ServiceContainer.instance().register("identity_service", service)
 
 
 def get_identity_service() -> Optional["MemberIdentityService"]:
     """获取已注册的 MemberIdentityService 实例"""
-    return _identity_service
+    from iris_memory.core.service_container import ServiceContainer
+    return ServiceContainer.instance().get("identity_service")
 
 
 def short_member_id(user_id: Optional[str], length: int = 6) -> str:
@@ -64,8 +64,9 @@ def format_member_tag(
     Returns:
         str: 格式为 ``名称#短ID`` 的标签
     """
-    if _identity_service is not None and user_id:
-        return _identity_service.resolve_tag_sync(user_id, sender_name, group_id)
+    if _svc := get_identity_service():
+        if user_id:
+            return _svc.resolve_tag_sync(user_id, sender_name, group_id)
 
     # 退回到纯函数逻辑
     short_id = short_member_id(user_id)

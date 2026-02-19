@@ -3,8 +3,10 @@
 根据companion-memory框架文档定义所有枚举和基础类型
 """
 
+from __future__ import annotations
+
 from enum import Enum
-from typing import Optional
+from typing import Optional, Any, List, Protocol, runtime_checkable
 from datetime import datetime
 
 
@@ -119,3 +121,25 @@ class TriggerType(str, Enum):
     RELATIONSHIP = "relationship"                  # 关系触发器：我们是、你对我来说
     FACT = "fact"                                  # 事实触发器：我是、我有
     BOUNDARY = "boundary"                          # 边界触发器：不要、不想
+
+
+# ── 能力接口（Protocol） ──
+
+@runtime_checkable
+class MemoryRetriever(Protocol):
+    """记忆检索能力接口
+
+    解耦 proactive → retrieval 的直接依赖，
+    允许任何实现 retrieve() 的对象充当检索引擎。
+    """
+
+    async def retrieve(
+        self,
+        query: str,
+        user_id: str,
+        group_id: Optional[str] = None,
+        top_k: int = 5,
+        emotional_state: Any = None,
+    ) -> List[Any]:
+        """检索相关记忆"""
+        ...

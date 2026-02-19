@@ -19,6 +19,13 @@ from iris_memory.core.config_registry import (
     get_registry_mapping,
 )
 from iris_memory.core.service_container import ServiceContainer
+from iris_memory.core.upgrade_evaluator import UpgradeEvaluator, UpgradeMode
+from iris_memory.core.provider_utils import (
+    normalize_provider_id,
+    extract_provider_id,
+    get_provider_by_id,
+    get_default_provider,
+)
 from iris_memory.core.detection import (
     BaseDetectionResult,
     DetectionMode,
@@ -42,6 +49,12 @@ __all__ = [
     'get_registry_default',
     'get_registry_mapping',
     'ServiceContainer',
+    'UpgradeEvaluator',
+    'UpgradeMode',
+    'normalize_provider_id',
+    'extract_provider_id',
+    'get_provider_by_id',
+    'get_default_provider',
     'BaseDetectionResult',
     'DetectionMode',
     'LLMEnhancedDetector',

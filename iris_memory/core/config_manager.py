@@ -6,14 +6,13 @@
 2. 提供简化的配置访问API
 """
 
-import threading
 from typing import Any, Dict, Optional
 from iris_memory.core.defaults import DEFAULTS, get_default
 from iris_memory.core.config_registry import CONFIG_REGISTRY, get_registry_mapping
 from iris_memory.core.activity_config import (
     ActivityAwareConfigProvider, GroupActivityTracker
 )
-from iris_memory.utils.provider_utils import normalize_provider_id
+from iris_memory.core.provider_utils import normalize_provider_id
 
 
 # CONFIG_KEY_MAPPING 由 CONFIG_REGISTRY 自动生成
@@ -191,19 +190,19 @@ class ConfigManager:
     
     @property
     def token_budget(self) -> int:
-        return DEFAULTS.llm_integration.token_budget
+        return self.get("llm_integration.token_budget", DEFAULTS.llm_integration.token_budget)
     
     @property
     def max_working_memory(self) -> int:
-        return self.get("memory.max_working_memory", 10)
+        return self.get("memory.max_working_memory", DEFAULTS.memory.max_working_memory)
     
     @property
     def chat_context_count(self) -> int:
-        return self.get("advanced.chat_context_count", 10)
+        return self.get("advanced.chat_context_count", DEFAULTS.llm_integration.chat_context_count)
     
     @property
     def rif_threshold(self) -> float:
-        return DEFAULTS.memory.rif_threshold
+        return self.get("memory.rif_threshold", DEFAULTS.memory.rif_threshold)
     
     @property
     def upgrade_mode(self) -> str:
@@ -216,7 +215,7 @@ class ConfigManager:
     
     @property
     def proactive_reply_max_daily(self) -> int:
-        return DEFAULTS.proactive_reply.max_daily_replies
+        return self.get("proactive_reply.max_daily_replies", DEFAULTS.proactive_reply.max_daily_replies)
     
     @property
     def proactive_reply_group_whitelist_mode(self) -> bool:
@@ -233,19 +232,19 @@ class ConfigManager:
     
     @property
     def image_analysis_max_images(self) -> int:
-        return DEFAULTS.image_analysis.max_images_per_message
+        return self.get("image_analysis.max_images_per_message", DEFAULTS.image_analysis.max_images_per_message)
     
     @property
     def image_analysis_daily_budget(self) -> int:
-        return self.get("image_analysis.daily_budget", 100)
+        return self.get("image_analysis.daily_budget", DEFAULTS.image_analysis.daily_analysis_budget)
     
     @property
     def image_analysis_session_budget(self) -> int:
-        return DEFAULTS.image_analysis.session_analysis_budget
+        return self.get("image_analysis.session_analysis_budget", DEFAULTS.image_analysis.session_analysis_budget)
     
     @property
     def image_analysis_require_context(self) -> bool:
-        return DEFAULTS.image_analysis.require_context_relevance
+        return self.get("image_analysis.require_context_relevance", DEFAULTS.image_analysis.require_context_relevance)
     
     @property
     def image_analysis_provider_id(self) -> str:
@@ -263,41 +262,41 @@ class ConfigManager:
     # 批量处理配置
     @property
     def batch_threshold_count(self) -> int:
-        return DEFAULTS.message_processing.batch_threshold_count
+        return self.get("message_processing.batch_threshold_count", DEFAULTS.message_processing.batch_threshold_count)
     
     @property
     def short_message_threshold(self) -> int:
-        return DEFAULTS.message_processing.short_message_threshold
+        return self.get("message_processing.short_message_threshold", DEFAULTS.message_processing.short_message_threshold)
     
     @property
     def merge_time_window(self) -> int:
-        return DEFAULTS.message_processing.merge_time_window
+        return self.get("message_processing.merge_time_window", DEFAULTS.message_processing.merge_time_window)
     
     @property
     def max_merge_count(self) -> int:
-        return DEFAULTS.message_processing.max_merge_count
+        return self.get("message_processing.max_merge_count", DEFAULTS.message_processing.max_merge_count)
     
     # 会话管理
     @property
     def session_timeout(self) -> int:
-        return DEFAULTS.session.session_timeout
+        return self.get("session.session_timeout", DEFAULTS.session.session_timeout)
     
     # 嵌入配置
     @property
     def embedding_strategy(self) -> str:
-        return DEFAULTS.embedding.embedding_strategy
+        return self.get("embedding.embedding_strategy", DEFAULTS.embedding.embedding_strategy)
     
     @property
     def embedding_model(self) -> str:
-        return DEFAULTS.embedding.embedding_model
+        return self.get("embedding.embedding_model", DEFAULTS.embedding.embedding_model)
     
     @property
     def embedding_models(self) -> list:
-        return DEFAULTS.embedding.embedding_models
+        return self.get("embedding.embedding_models", DEFAULTS.embedding.embedding_models)
     
     @property
     def embedding_dimension(self) -> int:
-        return DEFAULTS.embedding.embedding_dimension
+        return self.get("embedding.embedding_dimension", DEFAULTS.embedding.embedding_dimension)
     
     @property
     def enable_local_provider(self) -> bool:
@@ -307,19 +306,19 @@ class ConfigManager:
     # 画像配置
     @property
     def persona_auto_update(self) -> bool:
-        return DEFAULTS.persona.enable_auto_update
+        return self.get("persona.enable_auto_update", DEFAULTS.persona.enable_auto_update)
     
     @property
     def persona_injection_enabled(self) -> bool:
-        return DEFAULTS.persona.enable_persona_injection
+        return self.get("persona.enable_persona_injection", DEFAULTS.persona.enable_persona_injection)
     
     @property
     def persona_max_change_log(self) -> int:
-        return DEFAULTS.persona.max_change_log
+        return self.get("persona.max_change_log", DEFAULTS.persona.max_change_log)
     
     @property
     def persona_snapshot_interval(self) -> int:
-        return DEFAULTS.persona.snapshot_interval
+        return self.get("persona.snapshot_interval", DEFAULTS.persona.snapshot_interval)
 
     @property
     def persona_extraction_mode(self) -> str:
@@ -406,7 +405,7 @@ class ConfigManager:
     def get_batch_threshold_interval(self, group_id: Optional[str] = None) -> int:
         """获取批量处理间隔（群级自适应）"""
         val = self.get_group_config(group_id, "batch_threshold_interval")
-        return val if val is not None else DEFAULTS.message_processing.batch_threshold_interval
+        return val if val is not None else self.get("message_processing.batch_threshold_interval", DEFAULTS.message_processing.batch_threshold_interval)
     
     def get_chat_context_count(self, group_id: Optional[str] = None) -> int:
         """获取聊天上下文数量（群级自适应）"""
@@ -416,37 +415,36 @@ class ConfigManager:
     def get_cooldown_seconds(self, group_id: Optional[str] = None) -> int:
         """获取主动回复冷却时间（群级自适应）"""
         val = self.get_group_config(group_id, "cooldown_seconds")
-        return val if val is not None else DEFAULTS.proactive_reply.cooldown_seconds
+        return val if val is not None else self.get("proactive_reply.cooldown_seconds", DEFAULTS.proactive_reply.cooldown_seconds)
     
     def get_max_daily_replies(self, group_id: Optional[str] = None) -> int:
         """获取每日最大回复次数（群级自适应）"""
         val = self.get_group_config(group_id, "max_daily_replies")
-        return val if val is not None else DEFAULTS.proactive_reply.max_daily_replies
+        return val if val is not None else self.proactive_reply_max_daily
     
     def get_daily_analysis_budget(self, group_id: Optional[str] = None) -> int:
         """获取每日分析预算（群级自适应）"""
         val = self.get_group_config(group_id, "daily_analysis_budget")
-        return val if val is not None else DEFAULTS.image_analysis.daily_analysis_budget
+        return val if val is not None else self.image_analysis_daily_budget
     
     def get_reply_temperature(self, group_id: Optional[str] = None) -> float:
         """获取回复温度（群级自适应）"""
         val = self.get_group_config(group_id, "reply_temperature")
-        return val if val is not None else DEFAULTS.proactive_reply.reply_temperature
+        return val if val is not None else self.get("proactive_reply.reply_temperature", DEFAULTS.proactive_reply.reply_temperature)
 
 
-# 全局配置管理器实例
-_config_manager: Optional[ConfigManager] = None
-_config_manager_lock = threading.Lock()
-
+# 全局配置管理器 — 通过 ServiceContainer 管理
+# 保留原有公共 API (get_config_manager / init_config_manager / reset_config_manager)
 
 def get_config_manager() -> ConfigManager:
     """获取全局配置管理器（线程安全）"""
-    global _config_manager
-    if _config_manager is None:
-        with _config_manager_lock:
-            if _config_manager is None:
-                _config_manager = ConfigManager()
-    return _config_manager
+    from iris_memory.core.service_container import ServiceContainer
+    container = ServiceContainer.instance()
+    mgr = container.get("config_manager")
+    if mgr is None:
+        mgr = ConfigManager()
+        container.register("config_manager", mgr)
+    return mgr
 
 
 def init_config_manager(user_config: Any) -> ConfigManager:
@@ -458,14 +456,15 @@ def init_config_manager(user_config: Any) -> ConfigManager:
     Returns:
         配置管理器实例
     """
-    global _config_manager
-    with _config_manager_lock:
-        _config_manager = ConfigManager(user_config)
-    return _config_manager
+    from iris_memory.core.service_container import ServiceContainer
+    container = ServiceContainer.instance()
+    mgr = ConfigManager(user_config)
+    container.register("config_manager", mgr)
+    return mgr
 
 
 def reset_config_manager():
     """重置配置管理器（主要用于测试）"""
-    global _config_manager
-    with _config_manager_lock:
-        _config_manager = None
+    from iris_memory.core.service_container import ServiceContainer
+    container = ServiceContainer.instance()
+    container.unregister("config_manager")

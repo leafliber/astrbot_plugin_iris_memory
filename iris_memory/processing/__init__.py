@@ -16,7 +16,8 @@ from .llm_processor import (
     LLMSummaryResult
 )
 
-from .upgrade_evaluator import (
+# Re-exported from core for backward compatibility
+from iris_memory.core.upgrade_evaluator import (
     UpgradeEvaluator,
     UpgradeMode
 )

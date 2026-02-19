@@ -17,7 +17,7 @@ from typing import Any, Dict, Generic, List, Optional, Tuple, TypeVar
 
 from iris_memory.core.detection.base_result import BaseDetectionResult
 from iris_memory.utils.logger import get_logger
-from iris_memory.utils.provider_utils import (
+from iris_memory.core.provider_utils import (
     extract_provider_id,
     get_default_provider,
     get_provider_by_id,

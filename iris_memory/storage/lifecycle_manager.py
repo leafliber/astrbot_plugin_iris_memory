@@ -10,7 +10,7 @@ from typing import Optional, Dict, Any, List
 
 from iris_memory.utils.logger import get_logger
 from iris_memory.core.types import StorageLayer
-from iris_memory.processing.upgrade_evaluator import UpgradeEvaluator, UpgradeMode
+from iris_memory.core.upgrade_evaluator import UpgradeEvaluator, UpgradeMode
 
 # 模块logger
 logger = get_logger("lifecycle_manager")

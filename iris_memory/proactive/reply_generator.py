@@ -7,7 +7,7 @@ from typing import Dict, Any, Optional, List
 from dataclasses import dataclass
 
 from iris_memory.utils.logger import get_logger
-from iris_memory.retrieval.retrieval_engine import MemoryRetrievalEngine
+from iris_memory.core.types import MemoryRetriever
 from iris_memory.models.emotion_state import EmotionalState
 
 logger = get_logger("reply_generator")
@@ -29,7 +29,7 @@ class ProactiveReplyGenerator:
     def __init__(
         self,
         astrbot_context=None,
-        retrieval_engine: Optional[MemoryRetrievalEngine] = None,
+        retrieval_engine: Optional[MemoryRetriever] = None,
         config: Optional[Dict] = None
     ):
         self.astrbot_context = astrbot_context

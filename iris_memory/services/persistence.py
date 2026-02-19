@@ -39,56 +39,56 @@ class PersistenceOperations:
 
     async def _load_session_data(self, get_kv_data) -> None:
         """加载会话数据"""
-        if not self._session_manager:
+        if not self.session_manager:
             return
         
         from iris_memory.analysis.persona.persona_logger import persona_log
         
         sessions_data = await get_kv_data(KVStoreKeys.SESSIONS, {})
         if sessions_data:
-            await self._session_manager.deserialize_from_kv_storage(sessions_data)
+            await self.session_manager.deserialize_from_kv_storage(sessions_data)
             logger.info(LogTemplates.SESSION_LOADED.format(
-                count=self._session_manager.get_session_count()
+                count=self.session_manager.get_session_count()
             ))
 
     async def _load_lifecycle_state(self, get_kv_data) -> None:
         """加载生命周期状态"""
-        if not self._lifecycle_manager:
+        if not self.lifecycle_manager:
             return
         
         lifecycle_state = await get_kv_data(KVStoreKeys.LIFECYCLE_STATE, {})
         if lifecycle_state:
-            await self._lifecycle_manager.deserialize_state(lifecycle_state)
+            await self.lifecycle_manager.deserialize_state(lifecycle_state)
             logger.info("Loaded lifecycle state")
 
     async def _load_batch_queues(self, get_kv_data) -> None:
         """加载批量处理器队列"""
-        if not self._batch_processor:
+        if not self.batch_processor:
             return
         
         batch_queues = await get_kv_data(KVStoreKeys.BATCH_QUEUES, {})
         if batch_queues:
-            await self._batch_processor.deserialize_queues(batch_queues)
+            await self.batch_processor.deserialize_queues(batch_queues)
             logger.info("Loaded batch processor queues")
 
     async def _load_chat_history(self, get_kv_data) -> None:
         """加载聊天记录缓冲区"""
-        if not self._chat_history_buffer:
+        if not self.chat_history_buffer:
             return
         
         chat_history = await get_kv_data(KVStoreKeys.CHAT_HISTORY, {})
         if chat_history:
-            await self._chat_history_buffer.deserialize(chat_history)
+            await self.chat_history_buffer.deserialize(chat_history)
             logger.info("Loaded chat history buffer")
 
     async def _load_proactive_whitelist(self, get_kv_data) -> None:
         """加载主动回复白名单"""
-        if not self._proactive_manager:
+        if not self.proactive_manager:
             return
         
         whitelist_data = await get_kv_data(KVStoreKeys.PROACTIVE_REPLY_WHITELIST, [])
         if whitelist_data:
-            self._proactive_manager.deserialize_whitelist(whitelist_data)
+            self.proactive_manager.deserialize_whitelist(whitelist_data)
             logger.info("Loaded proactive reply whitelist")
 
     async def _load_member_identity(self, get_kv_data) -> None:
@@ -148,39 +148,39 @@ class PersistenceOperations:
 
     async def _save_session_data(self, put_kv_data) -> None:
         """保存会话数据"""
-        if not self._session_manager:
+        if not self.session_manager:
             return
         
-        sessions_data = await self._session_manager.serialize_for_kv_storage()
+        sessions_data = await self.session_manager.serialize_for_kv_storage()
         await put_kv_data(KVStoreKeys.SESSIONS, sessions_data)
         logger.info(LogTemplates.SESSION_SAVED.format(
-            count=self._session_manager.get_session_count()
+            count=self.session_manager.get_session_count()
         ))
 
     async def _save_batch_queues(self, put_kv_data) -> None:
         """保存批量处理器队列"""
-        if not self._batch_processor:
+        if not self.batch_processor:
             return
         
-        batch_queues = await self._batch_processor.serialize_queues()
+        batch_queues = await self.batch_processor.serialize_queues()
         await put_kv_data(KVStoreKeys.BATCH_QUEUES, batch_queues)
         logger.info("Saved batch processor queues")
 
     async def _save_chat_history(self, put_kv_data) -> None:
         """保存聊天记录缓冲区"""
-        if not self._chat_history_buffer:
+        if not self.chat_history_buffer:
             return
         
-        chat_history = await self._chat_history_buffer.serialize()
+        chat_history = await self.chat_history_buffer.serialize()
         await put_kv_data(KVStoreKeys.CHAT_HISTORY, chat_history)
         logger.info("Saved chat history buffer")
 
     async def _save_proactive_whitelist(self, put_kv_data) -> None:
         """保存主动回复白名单"""
-        if not self._proactive_manager:
+        if not self.proactive_manager:
             return
         
-        whitelist_data = self._proactive_manager.serialize_whitelist()
+        whitelist_data = self.proactive_manager.serialize_whitelist()
         await put_kv_data(KVStoreKeys.PROACTIVE_REPLY_WHITELIST, whitelist_data)
         logger.info("Saved proactive reply whitelist")
 
@@ -239,11 +239,10 @@ class PersistenceOperations:
         self._is_initialized = False
         
         try:
-            await self._stop_batch_processor()
-            await self._stop_proactive_manager()
-            await self._stop_lifecycle_manager()
+            await self.capture.stop()
+            await self.proactive.stop()
+            await self.storage.stop()
             self._clear_global_state()
-            await self._close_chroma_manager()
             
             self._log_final_stats()
             
@@ -254,33 +253,33 @@ class PersistenceOperations:
 
     async def _stop_batch_processor(self) -> None:
         """停止批量处理器"""
-        if not self._batch_processor:
+        if not self.batch_processor:
             return
         
         try:
-            await self._batch_processor.stop()
+            await self.batch_processor.stop()
             logger.debug("[Hot-Reload] Batch processor stopped")
         except Exception as e:
             logger.warning(f"[Hot-Reload] Error stopping batch processor: {e}")
 
     async def _stop_proactive_manager(self) -> None:
         """停止主动回复管理器"""
-        if not self._proactive_manager:
+        if not self.proactive_manager:
             return
         
         try:
-            await self._proactive_manager.stop()
+            await self.proactive_manager.stop()
             logger.debug("[Hot-Reload] Proactive manager stopped")
         except Exception as e:
             logger.warning(f"[Hot-Reload] Error stopping proactive manager: {e}")
 
     async def _stop_lifecycle_manager(self) -> None:
         """停止生命周期管理器"""
-        if not self._lifecycle_manager:
+        if not self.lifecycle_manager:
             return
         
         try:
-            await self._lifecycle_manager.stop()
+            await self.lifecycle_manager.stop()
             logger.debug("[Hot-Reload] Lifecycle manager stopped")
         except Exception as e:
             logger.warning(f"[Hot-Reload] Error stopping lifecycle manager: {e}")
@@ -288,15 +287,18 @@ class PersistenceOperations:
     def _clear_global_state(self) -> None:
         """清理全局状态引用"""
         set_identity_service(None)
-        logger.debug("[Hot-Reload] Global identity service cleared")
+        
+        from iris_memory.core.service_container import ServiceContainer
+        ServiceContainer.instance().clear()
+        logger.debug("[Hot-Reload] ServiceContainer and global state cleared")
 
     async def _close_chroma_manager(self) -> None:
         """关闭 Chroma 管理器"""
-        if not self._chroma_manager:
+        if not self.chroma_manager:
             return
         
         try:
-            await self._chroma_manager.close()
+            await self.chroma_manager.close()
             logger.debug("[Hot-Reload] Chroma manager closed")
         except Exception as e:
             logger.warning(f"[Hot-Reload] Error closing Chroma manager: {e}")
@@ -306,10 +308,10 @@ class PersistenceOperations:
         logger.info(LogTemplates.FINAL_STATS_HEADER)
         
         components = [
-            ("Message Classifier", self._message_classifier),
-            ("Batch Processor", self._batch_processor),
-            ("LLM Processor", self._llm_processor),
-            ("Proactive Manager", self._proactive_manager),
+            ("Message Classifier", self.message_classifier),
+            ("Batch Processor", self.batch_processor),
+            ("LLM Processor", self.llm_enhanced.llm_processor if hasattr(self, 'llm_enhanced') else None),
+            ("Proactive Manager", self.proactive_manager),
             ("Image Analyzer", self._image_analyzer),
         ]
         

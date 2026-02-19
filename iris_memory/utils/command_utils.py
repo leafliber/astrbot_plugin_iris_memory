@@ -1,10 +1,13 @@
 """
 指令解析工具模块 - 统一处理指令解析逻辑
 """
-from typing import Optional, Set, List
+from __future__ import annotations
+
+from typing import Optional, Set, List, TYPE_CHECKING
 from dataclasses import dataclass
 
-from iris_memory.core.constants import DeleteMainScope
+if TYPE_CHECKING:
+    from iris_memory.core.constants import DeleteMainScope
 
 
 @dataclass(frozen=True)
@@ -161,6 +164,8 @@ class UnifiedDeleteScopeParser:
         Returns:
             UnifiedDeleteResult: 解析结果
         """
+        from iris_memory.core.constants import DeleteMainScope  # lazy import
+
         if not args:
             # 默认删除当前会话
             return UnifiedDeleteResult(
