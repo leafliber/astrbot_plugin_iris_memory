@@ -64,6 +64,16 @@ class AstrBotProvider(EmbeddingProvider):
                         self._model = self.embedding_provider.model_name
                     elif hasattr(self.embedding_provider, 'model'):
                         self._model = self.embedding_provider.model
+                    
+                    # 通过实际嵌入调用检测真实维度（解决热重启后维度不匹配问题）
+                    actual_dimension = await self._detect_actual_dimension()
+                    if actual_dimension and actual_dimension != self._dimension:
+                        logger.info(
+                            f"Detected actual embedding dimension: {actual_dimension} "
+                            f"(was {self._dimension})"
+                        )
+                        self._dimension = actual_dimension
+                    
                     logger.info(f"AstrBot embedding provider initialized: {self._model}, dimension={self._dimension}")
                     return True
                 else:
@@ -75,6 +85,19 @@ class AstrBotProvider(EmbeddingProvider):
         except Exception as e:
             logger.warning(f"Failed to initialize AstrBot embedding provider: {e}")
             return False
+    
+    async def _detect_actual_dimension(self) -> Optional[int]:
+        """通过实际嵌入调用检测真实的嵌入维度
+        
+        Returns:
+            Optional[int]: 检测到的维度，失败返回 None
+        """
+        try:
+            test_embedding = await self.embed(EmbeddingRequest(text="__dimension_test__"))
+            return test_embedding.dimension
+        except Exception as e:
+            logger.debug(f"Failed to detect actual dimension via test embed: {e}")
+            return None
 
     async def embed(self, request: EmbeddingRequest) -> EmbeddingResponse:
         """生成嵌入向量
