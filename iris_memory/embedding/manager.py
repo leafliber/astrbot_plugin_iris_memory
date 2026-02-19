@@ -8,12 +8,14 @@ from collections import OrderedDict
 from dataclasses import dataclass
 from functools import lru_cache
 import hashlib
+import time
 
 from .base import EmbeddingProvider, EmbeddingRequest, EmbeddingResponse
 from .astrbot_provider import AstrBotProvider
 from .local_provider import LocalProvider
 from .fallback_provider import FallbackProvider
 from iris_memory.utils.logger import get_logger
+from iris_memory.core.constants import CacheDefaults
 
 # 模块logger
 logger = get_logger("embedding_manager")
@@ -76,10 +78,12 @@ class EmbeddingManager:
             "provider_usage": {}
         }
         
-        # Embedding 缓存（文本哈希 -> 向量），使用 OrderedDict 实现真正的 LRU
-        self._embedding_cache: OrderedDict[str, List[float]] = OrderedDict()
-        self._cache_max_size = 1000  # 最大缓存条目数
+        # Embedding 缓存（文本哈希 -> (向量, 过期时间))，使用 OrderedDict 实现真正的 LRU
+        self._embedding_cache: OrderedDict[str, tuple[list[float], float]] = OrderedDict()
+        self._cache_max_size = CacheDefaults.EMBEDDING_CACHE_MAX_SIZE
+        self._cache_ttl: float = CacheDefaults.EMBEDDING_CACHE_TTL
         self._cache_enabled = True   # 是否启用缓存
+        self._cache_model_key: str = ""  # 缓存对应的模型标识，模型切换时自动清空
         
         # 插件上下文（用于 AstrBot API）
         self.plugin_context = None
@@ -109,7 +113,7 @@ class EmbeddingManager:
         return hashlib.sha256(key_str.encode('utf-8')).hexdigest()
     
     def _get_from_cache(self, cache_key: str) -> Optional[List[float]]:
-        """从缓存获取 embedding（命中时移至末尾以实现 LRU）
+        """从缓存获取 embedding（命中时移至末尾以实现 LRU，并检查 TTL）
         
         Args:
             cache_key: 缓存键
@@ -119,11 +123,17 @@ class EmbeddingManager:
         """
         if not self._cache_enabled:
             return None
-        value = self._embedding_cache.get(cache_key)
-        if value is not None:
+        entry = self._embedding_cache.get(cache_key)
+        if entry is not None:
+            embedding, expire_at = entry
+            if time.monotonic() > expire_at:
+                # TTL 过期，移除
+                del self._embedding_cache[cache_key]
+                return None
             # 移至末尾表示最近使用
             self._embedding_cache.move_to_end(cache_key)
-        return value
+            return embedding
+        return None
     
     def _add_to_cache(self, cache_key: str, embedding: List[float]):
         """添加 embedding 到缓存
@@ -135,10 +145,12 @@ class EmbeddingManager:
         if not self._cache_enabled:
             return
         
+        expire_at = time.monotonic() + self._cache_ttl
+        
         # 如果 key 已存在，更新并移至末尾
         if cache_key in self._embedding_cache:
             self._embedding_cache.move_to_end(cache_key)
-            self._embedding_cache[cache_key] = embedding
+            self._embedding_cache[cache_key] = (embedding, expire_at)
             return
         
         # LRU 淘汰：超出容量时移除最旧（最前面）的条目
@@ -146,7 +158,7 @@ class EmbeddingManager:
             evicted_key, _ = self._embedding_cache.popitem(last=False)
             logger.debug(f"Cache eviction: removed oldest entry {evicted_key[:16]}...")
         
-        self._embedding_cache[cache_key] = embedding
+        self._embedding_cache[cache_key] = (embedding, expire_at)
     
     def clear_cache(self):
         """清空缓存"""
@@ -308,6 +320,16 @@ class EmbeddingManager:
             List[float]: 嵌入向量
         """
         self.stats["total_requests"] += 1
+        
+        # 检查模型是否变更，变更时清空缓存
+        current_model = self.get_model()
+        if self._cache_model_key and self._cache_model_key != current_model:
+            logger.info(
+                f"Embedding model changed from '{self._cache_model_key}' to '{current_model}', "
+                f"clearing cache ({len(self._embedding_cache)} entries)"
+            )
+            self.clear_cache()
+        self._cache_model_key = current_model
         
         # 1. 检查缓存
         cache_key = self._get_cache_key(text, dimension)

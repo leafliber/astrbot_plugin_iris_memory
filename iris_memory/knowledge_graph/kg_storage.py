@@ -27,6 +27,7 @@ from iris_memory.knowledge_graph.kg_models import (
     KGRelationType,
 )
 from iris_memory.utils.logger import get_logger
+from iris_memory.core.constants import CacheDefaults
 
 logger = get_logger("kg_storage")
 
@@ -34,7 +35,7 @@ logger = get_logger("kg_storage")
 _SCHEMA_VERSION = 1
 _DEFAULT_DB_NAME = "knowledge_graph.db"
 _NODE_CACHE_TTL = 300  # 5 分钟缓存 TTL
-_NODE_CACHE_MAX_SIZE = 1000  # 最大缓存条目数
+_NODE_CACHE_MAX_SIZE = CacheDefaults.KG_NODE_CACHE_MAX_SIZE
 
 # 中文字符范围正则
 _CN_CHAR_RE = re.compile(r'[\u4e00-\u9fff]')

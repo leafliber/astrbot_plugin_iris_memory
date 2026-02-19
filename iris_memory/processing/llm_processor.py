@@ -19,7 +19,8 @@ from iris_memory.core.provider_utils import (
     extract_provider_id,
     normalize_provider_id,
 )
-from iris_memory.core.constants import LLMRetryConfig, CircuitBreakerConfig
+from iris_memory.core.constants import LLMRetryConfig, CircuitBreakerConfig, LLMRateLimitConfig
+from iris_memory.utils.rate_limiter import DailyCallLimiter
 
 logger = get_logger("llm_processor")
 
@@ -99,6 +100,11 @@ class LLMMessageProcessor:
         self._init_retry_count = 0
         self._max_init_retries = 3
         
+        # 速率限制
+        self._rate_limiter = DailyCallLimiter(
+            daily_limit=LLMRateLimitConfig.DAILY_CALL_LIMIT
+        )
+        
         # 统计信息
         self.stats = {
             "classification_calls": 0,
@@ -106,6 +112,7 @@ class LLMMessageProcessor:
             "failed_calls": 0,
             "total_tokens_used": 0,
             "circuit_breaker_rejections": 0,
+            "rate_limit_rejections": 0,
         }
         
         # 熔断器状态
@@ -337,6 +344,16 @@ class LLMMessageProcessor:
         if not await self._try_init_provider():
             return None
         
+        # 速率限制检查
+        if not self._rate_limiter.is_within_limit():
+            self.stats["rate_limit_rejections"] += 1
+            remaining = self._rate_limiter.remaining
+            logger.warning(
+                f"LLM daily rate limit reached "
+                f"(limit={LLMRateLimitConfig.DAILY_CALL_LIMIT}, remaining={remaining})"
+            )
+            return None
+        
         # 熔断器检查
         if not self._circuit_breaker_allow():
             self.stats["circuit_breaker_rejections"] += 1
@@ -432,6 +449,7 @@ class LLMMessageProcessor:
             )
         if result.success:
             self.stats["total_tokens_used"] += result.tokens_used
+            self._rate_limiter.increment()
             return result.content
         return None
     

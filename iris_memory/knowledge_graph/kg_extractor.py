@@ -75,53 +75,73 @@ _TRIPLE_EXTRACTION_PROMPT = """从以下文本中提取实体关系三元组。
 
 # ── 规则模式匹配 ──
 
-# 中文关系模式
-_CN_RELATION_PATTERNS: List[Tuple[str, KGRelationType, str]] = [
+# 文本长度阈值：超过此长度跳过规则提取（避免大量正则遍历长文本）
+RULE_TEXT_MAX_LENGTH: int = 2000
+
+# 快速关键词预过滤集合：只有包含这些关键词的文本才进入精细正则匹配
+_QUICK_FILTER_KEYWORDS: frozenset[str] = frozenset([
     # 人际关系
-    (r"(?P<s>[\u4e00-\u9fa5A-Za-z]+)(?:是|为)(?P<o>[\u4e00-\u9fa5A-Za-z]+)的(?:上司|领导|老板)", KGRelationType.BOSS_OF, "是...的上司"),
-    (r"(?P<s>[\u4e00-\u9fa5A-Za-z]+)(?:是|为)(?P<o>[\u4e00-\u9fa5A-Za-z]+)的(?:下属|手下)", KGRelationType.SUBORDINATE_OF, "是...的下属"),
-    (r"(?P<s>[\u4e00-\u9fa5A-Za-z]+)(?:和|与|跟)(?P<o>[\u4e00-\u9fa5A-Za-z]+)(?:是)?(?:朋友|好友|闺蜜|哥们)", KGRelationType.FRIEND_OF, "是朋友"),
-    (r"(?P<s>[\u4e00-\u9fa5A-Za-z]+)(?:和|与|跟)(?P<o>[\u4e00-\u9fa5A-Za-z]+)(?:是)?(?:同事|同学)", KGRelationType.COLLEAGUE_OF, "是同事"),
-    (r"(?P<s>[\u4e00-\u9fa5A-Za-z]+)(?:和|与|跟)(?P<o>[\u4e00-\u9fa5A-Za-z]+)(?:是)?(?:一家人|家人|亲戚|父母|兄弟|姐妹|夫妻|爸爸|妈妈|儿子|女儿)", KGRelationType.FAMILY_OF, "是家人"),
-    (r"(?P<s>[\u4e00-\u9fa5A-Za-z]+)认识(?P<o>[\u4e00-\u9fa5A-Za-z]+)", KGRelationType.KNOWS, "认识"),
+    "朋友", "好友", "闺蜜", "哥们", "同事", "同学", "家人", "亲戚", "夫妻",
+    "上司", "领导", "老板", "下属", "手下", "认识",
+    "父亲", "母亲", "父母", "兄弟", "姐妹",
+    "爵父", "妈妈", "儿子", "女儿", "老公", "老婆", "丈夫", "妻子",
+    "导师", "老师", "师父", "师傅", "教练", "学生", "徒弟", "弟子",
+    "室友", "邻居", "搭档",
+    "谈恋爱", "交往", "恋爱", "约会",
+    # 属性
+    "住在", "居住在", "家在", "工作", "上班", "就职", "上学", "读书", "学习", "就读",
+    # 喜好
+    "喜欢", "爱", "热爱", "钟爱", "迷恋", "讨厌", "不喜欢", "厌恶", "反感",
+    "有", "拥有", "养了", "想要", "想买", "想学", "想去",
+    # 身份
+    "是一",
+    # 英文
+    "friend", "buddy", "boss", "manager", "supervisor",
+    "works", "worked", "lives", "lived",
+    "likes", "loves", "hates", "dislikes",
+])
+
+# 中文关系模式（预编译）
+_CN_RELATION_PATTERNS: List[Tuple[re.Pattern, KGRelationType, str]] = [
+    # 人际关系
+    (re.compile(r"(?P<s>[\u4e00-\u9fa5A-Za-z]+)(?:是|为)(?P<o>[\u4e00-\u9fa5A-Za-z]+)的(?:上司|领导|老板)"), KGRelationType.BOSS_OF, "是...的上司"),
+    (re.compile(r"(?P<s>[\u4e00-\u9fa5A-Za-z]+)(?:是|为)(?P<o>[\u4e00-\u9fa5A-Za-z]+)的(?:下属|手下)"), KGRelationType.SUBORDINATE_OF, "是...的下属"),
+    (re.compile(r"(?P<s>[\u4e00-\u9fa5A-Za-z]+)(?:和|与|跟)(?P<o>[\u4e00-\u9fa5A-Za-z]+)(?:是)?(?:朋友|好友|闺蜜|哥们)"), KGRelationType.FRIEND_OF, "是朋友"),
+    (re.compile(r"(?P<s>[\u4e00-\u9fa5A-Za-z]+)(?:和|与|跟)(?P<o>[\u4e00-\u9fa5A-Za-z]+)(?:是)?(?:同事|同学)"), KGRelationType.COLLEAGUE_OF, "是同事"),
+    (re.compile(r"(?P<s>[\u4e00-\u9fa5A-Za-z]+)(?:和|与|跟)(?P<o>[\u4e00-\u9fa5A-Za-z]+)(?:是)?(?:一家人|家人|亲戚|父母|兄弟|姐妹|夫妻|爸爸|妈妈|儿子|女儿)"), KGRelationType.FAMILY_OF, "是家人"),
+    (re.compile(r"(?P<s>[\u4e00-\u9fa5A-Za-z]+)认识(?P<o>[\u4e00-\u9fa5A-Za-z]+)"), KGRelationType.KNOWS, "认识"),
 
     # 补充人际关系模式
-    # "XXX是我的朋友" / "XXX是YYY的朋友"
-    (r"(?P<o>[\u4e00-\u9fa5A-Za-z]+)是(?P<s>[\u4e00-\u9fa5A-Za-z]+)的(?:朋友|好友|闺蜜|哥们|兄弟)", KGRelationType.FRIEND_OF, "是...的朋友"),
-    # "XXX和YYY谈恋爱/交往"
-    (r"(?P<s>[\u4e00-\u9fa5A-Za-z]+)(?:和|与|跟)(?P<o>[\u4e00-\u9fa5A-Za-z]+)(?:在)?(?:谈恋爱|交往|恋爱|约会)", KGRelationType.RELATED_TO, "谈恋爱"),
-    # "XXX是YYY的导师/老师/师父"
-    (r"(?P<s>[\u4e00-\u9fa5A-Za-z]+)是(?P<o>[\u4e00-\u9fa5A-Za-z]+)的(?:导师|老师|师父|师傅|教练)", KGRelationType.RELATED_TO, "是...的导师"),
-    # "XXX是YYY的学生/徒弟"
-    (r"(?P<s>[\u4e00-\u9fa5A-Za-z]+)是(?P<o>[\u4e00-\u9fa5A-Za-z]+)的(?:学生|徒弟|弟子)", KGRelationType.RELATED_TO, "是...的学生"),
-    # "XXX是YYY的家人" (补充 "是...的" 句式)
-    (r"(?P<o>[\u4e00-\u9fa5A-Za-z]+)是(?P<s>[\u4e00-\u9fa5A-Za-z]+)的(?:家人|亲戚|父亲|母亲|哥哥|姐姐|弟弟|妹妹|老公|老婆|丈夫|妻子|爸爸|妈妈|儿子|女儿)", KGRelationType.FAMILY_OF, "是...的家人"),
-    # "XXX是YYY的同事/同学" (补充 "是...的" 句式)
-    (r"(?P<o>[\u4e00-\u9fa5A-Za-z]+)是(?P<s>[\u4e00-\u9fa5A-Za-z]+)的(?:同事|同学|室友|邻居|搭档)", KGRelationType.COLLEAGUE_OF, "是...的同事"),
+    (re.compile(r"(?P<o>[\u4e00-\u9fa5A-Za-z]+)是(?P<s>[\u4e00-\u9fa5A-Za-z]+)的(?:朋友|好友|闺蜜|哥们|兄弟)"), KGRelationType.FRIEND_OF, "是...的朋友"),
+    (re.compile(r"(?P<s>[\u4e00-\u9fa5A-Za-z]+)(?:和|与|跟)(?P<o>[\u4e00-\u9fa5A-Za-z]+)(?:在)?(?:谈恋爱|交往|恋爱|约会)"), KGRelationType.RELATED_TO, "谈恋爱"),
+    (re.compile(r"(?P<s>[\u4e00-\u9fa5A-Za-z]+)是(?P<o>[\u4e00-\u9fa5A-Za-z]+)的(?:导师|老师|师父|师傅|教练)"), KGRelationType.RELATED_TO, "是...的导师"),
+    (re.compile(r"(?P<s>[\u4e00-\u9fa5A-Za-z]+)是(?P<o>[\u4e00-\u9fa5A-Za-z]+)的(?:学生|徒弟|弟子)"), KGRelationType.RELATED_TO, "是...的学生"),
+    (re.compile(r"(?P<o>[\u4e00-\u9fa5A-Za-z]+)是(?P<s>[\u4e00-\u9fa5A-Za-z]+)的(?:家人|亲戚|父亲|母亲|哥哥|姐姐|弟弟|妹妹|老公|老婆|丈夫|妻子|爸爸|妈妈|儿子|女儿)"), KGRelationType.FAMILY_OF, "是...的家人"),
+    (re.compile(r"(?P<o>[\u4e00-\u9fa5A-Za-z]+)是(?P<s>[\u4e00-\u9fa5A-Za-z]+)的(?:同事|同学|室友|邻居|搭档)"), KGRelationType.COLLEAGUE_OF, "是...的同事"),
 
     # 属性关系
-    (r"(?P<s>[\u4e00-\u9fa5A-Za-z]+)(?:住在|居住在|家在)(?P<o>[\u4e00-\u9fa5A-Za-z]+)", KGRelationType.LIVES_IN, "住在"),
-    (r"(?P<s>[\u4e00-\u9fa5A-Za-z]+)(?:在|就职于)(?P<o>[\u4e00-\u9fa5A-Za-z]+)(?:工作|上班|就职)", KGRelationType.WORKS_AT, "在...工作"),
-    (r"(?P<s>[\u4e00-\u9fa5A-Za-z]+)(?:在|就读于)(?P<o>[\u4e00-\u9fa5A-Za-z]+)(?:上学|读书|学习|就读)", KGRelationType.STUDIES_AT, "在...上学"),
+    (re.compile(r"(?P<s>[\u4e00-\u9fa5A-Za-z]+)(?:住在|居住在|家在)(?P<o>[\u4e00-\u9fa5A-Za-z]+)"), KGRelationType.LIVES_IN, "住在"),
+    (re.compile(r"(?P<s>[\u4e00-\u9fa5A-Za-z]+)(?:在|就职于)(?P<o>[\u4e00-\u9fa5A-Za-z]+)(?:工作|上班|就职)"), KGRelationType.WORKS_AT, "在...工作"),
+    (re.compile(r"(?P<s>[\u4e00-\u9fa5A-Za-z]+)(?:在|就读于)(?P<o>[\u4e00-\u9fa5A-Za-z]+)(?:上学|读书|学习|就读)"), KGRelationType.STUDIES_AT, "在...上学"),
 
     # 喜好
-    (r"(?P<s>[\u4e00-\u9fa5A-Za-z]+)(?:喜欢|爱|热爱|钟爱|迷恋)(?P<o>[\u4e00-\u9fa5A-Za-z]+)", KGRelationType.LIKES, "喜欢"),
-    (r"(?P<s>[\u4e00-\u9fa5A-Za-z]+)(?:讨厌|不喜欢|厌恶|反感)(?P<o>[\u4e00-\u9fa5A-Za-z]+)", KGRelationType.DISLIKES, "讨厌"),
-    (r"(?P<s>[\u4e00-\u9fa5A-Za-z]+)(?:有|拥有|养了)(?:一只|一个|一条)?(?P<o>[\u4e00-\u9fa5A-Za-z]+)", KGRelationType.HAS, "有"),
-    (r"(?P<s>[\u4e00-\u9fa5A-Za-z]+)(?:想要|想买|想学|想去)(?P<o>[\u4e00-\u9fa5A-Za-z]+)", KGRelationType.WANTS, "想要"),
+    (re.compile(r"(?P<s>[\u4e00-\u9fa5A-Za-z]+)(?:喜欢|爱|热爱|钟爱|迷恋)(?P<o>[\u4e00-\u9fa5A-Za-z]+)"), KGRelationType.LIKES, "喜欢"),
+    (re.compile(r"(?P<s>[\u4e00-\u9fa5A-Za-z]+)(?:讨厌|不喜欢|厌恶|反感)(?P<o>[\u4e00-\u9fa5A-Za-z]+)"), KGRelationType.DISLIKES, "讨厌"),
+    (re.compile(r"(?P<s>[\u4e00-\u9fa5A-Za-z]+)(?:有|拥有|养了)(?:一只|一个|一条)?(?P<o>[\u4e00-\u9fa5A-Za-z]+)"), KGRelationType.HAS, "有"),
+    (re.compile(r"(?P<s>[\u4e00-\u9fa5A-Za-z]+)(?:想要|想买|想学|想去)(?P<o>[\u4e00-\u9fa5A-Za-z]+)"), KGRelationType.WANTS, "想要"),
 
     # 身份
-    (r"(?P<s>[\u4e00-\u9fa5A-Za-z]+)是(?:一[名个位])?(?P<o>[\u4e00-\u9fa5A-Za-z]+(?:师|员|家|生|手|者))", KGRelationType.IS, "是"),
+    (re.compile(r"(?P<s>[\u4e00-\u9fa5A-Za-z]+)是(?:一[名个位])?(?P<o>[\u4e00-\u9fa5A-Za-z]+(?:师|员|家|生|手|者))"), KGRelationType.IS, "是"),
 ]
 
-# 英文关系模式
-_EN_RELATION_PATTERNS: List[Tuple[str, KGRelationType, str]] = [
-    (r"(?P<s>[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?) (?:is|was) (?:a )?(?:friend|buddy) of (?P<o>[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)", KGRelationType.FRIEND_OF, "friend of"),
-    (r"(?P<s>[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?) (?:is|was) (?:the )?(?:boss|manager|supervisor) of (?P<o>[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)", KGRelationType.BOSS_OF, "boss of"),
-    (r"(?P<s>[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?) (?:works|worked) at (?P<o>[A-Z][\w\s]+)", KGRelationType.WORKS_AT, "works at"),
-    (r"(?P<s>[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?) (?:lives|lived) in (?P<o>[A-Z][\w\s]+)", KGRelationType.LIVES_IN, "lives in"),
-    (r"(?P<s>[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?) (?:likes?|loves?) (?P<o>[\w\s]+)", KGRelationType.LIKES, "likes"),
-    (r"(?P<s>[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?) (?:hates?|dislikes?) (?P<o>[\w\s]+)", KGRelationType.DISLIKES, "dislikes"),
+# 英文关系模式（预编译）
+_EN_RELATION_PATTERNS: List[Tuple[re.Pattern, KGRelationType, str]] = [
+    (re.compile(r"(?P<s>[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?) (?:is|was) (?:a )?(?:friend|buddy) of (?P<o>[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)"), KGRelationType.FRIEND_OF, "friend of"),
+    (re.compile(r"(?P<s>[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?) (?:is|was) (?:the )?(?:boss|manager|supervisor) of (?P<o>[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)"), KGRelationType.BOSS_OF, "boss of"),
+    (re.compile(r"(?P<s>[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?) (?:works|worked) at (?P<o>[A-Z][\w\s]+)"), KGRelationType.WORKS_AT, "works at"),
+    (re.compile(r"(?P<s>[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?) (?:lives|lived) in (?P<o>[A-Z][\w\s]+)"), KGRelationType.LIVES_IN, "lives in"),
+    (re.compile(r"(?P<s>[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?) (?:likes?|loves?) (?P<o>[\w\s]+)"), KGRelationType.LIKES, "likes"),
+    (re.compile(r"(?P<s>[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?) (?:hates?|dislikes?) (?P<o>[\w\s]+)"), KGRelationType.DISLIKES, "dislikes"),
 ]
 
 # 实体类型猜测规则
@@ -319,14 +339,32 @@ class KGExtractor:
         text: str,
         sender_name: Optional[str] = None,
     ) -> List[KGTriple]:
-        """基于正则模式提取三元组"""
+        """基于预编译正则模式提取三元组
+        
+        优化策略：
+        1. 文本长度阈值：超长文本跳过规则提取
+        2. 关键词预过滤：快速检测文本是否可能包含关系表述
+        3. 预编译正则：避免重复编译开销
+        """
+        # 超长文本跳过规则提取（交给 LLM 处理）
+        if len(text) > RULE_TEXT_MAX_LENGTH:
+            logger.debug(
+                f"Text too long ({len(text)} chars > {RULE_TEXT_MAX_LENGTH}), "
+                f"skipping rule extraction"
+            )
+            return []
+        
+        # 快速关键词预过滤
+        if not any(kw in text for kw in _QUICK_FILTER_KEYWORDS):
+            return []
+        
         triples: List[KGTriple] = []
         seen: set = set()
 
         all_patterns = _CN_RELATION_PATTERNS + _EN_RELATION_PATTERNS
 
-        for pattern_str, relation_type, label in all_patterns:
-            for m in re.finditer(pattern_str, text, re.IGNORECASE):
+        for compiled_pattern, relation_type, label in all_patterns:
+            for m in compiled_pattern.finditer(text):
                 subject = m.group("s").strip()
                 obj = m.group("o").strip()
 

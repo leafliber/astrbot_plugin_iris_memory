@@ -126,28 +126,17 @@ uv sync
 
 #### 管理员指令
 
-##### 5. 删除私聊记忆
+##### 5. 统一删除记忆
 ```
-/memory_delete_private
+/memory_delete              # 删除当前会话记忆
+/memory_delete current      # 删除当前会话记忆
+/memory_delete private      # 删除我的私聊记忆
+/memory_delete group [shared|private|all]  # 删除群聊记忆（管理员，群聊场景）
+/memory_delete all confirm  # 删除所有记忆（超管，需确认）
 ```
-删除当前用户在私聊场景下的所有记忆。仅限私聊使用。
+按不同范围删除记忆，支持精细控制。
 
-##### 6. 删除群聊记忆（群管理员）
-```
-/memory_delete_group [shared|private|all]
-```
-删除当前群聊的记忆（仅群管理员可用）：
-- `shared`：仅删除群组共享记忆
-- `private`：仅删除个人在群聊的记忆
-- `all`：删除群组所有记忆（默认）
-
-##### 7. 删除所有记忆（超级管理员）
-```
-/memory_delete_all confirm
-```
-删除数据库中的所有记忆（危险操作，必须添加 `confirm` 参数确认）。
-
-##### 8. 主动回复控制（管理员）
+##### 6. 主动回复控制（管理员）
 ```
 /proactive_reply on      # 开启当前群的主动回复
 /proactive_reply off     # 关闭当前群的主动回复
@@ -176,34 +165,89 @@ uv sync
 iris_memory/
 ├── core/                    # 核心模块
 │   ├── types.py            # 数据类型定义
-│   └── constants.py        # 常量定义
+│   ├── constants.py        # 常量定义
+│   ├── config_manager.py   # 配置管理器
+│   ├── config_registry.py  # 配置注册表
+│   ├── defaults.py         # 默认配置
+│   ├── activity_config.py  # 场景自适应配置
+│   ├── memory_scope.py     # 记忆可见性范围
+│   ├── provider_utils.py   # LLM 提供者工具
+│   └── service_container.py # 服务容器
 ├── models/                  # 数据模型
 │   ├── memory.py           # Memory数据模型
 │   ├── user_persona.py     # 用户画像模型
 │   └── emotion_state.py    # 情感状态模型
 ├── storage/                 # 存储模块
 │   ├── chroma_manager.py   # Chroma向量数据库管理
+│   ├── chroma_operations.py # Chroma CRUD 操作
+│   ├── chroma_queries.py   # Chroma 查询操作
 │   ├── session_manager.py  # 会话隔离管理
-│   └── cache.py            # 工作记忆缓存
+│   ├── cache.py            # 工作记忆缓存
+│   ├── chat_history_buffer.py # 聊天记录缓冲区
+│   └── lifecycle_manager.py # 记忆生命周期管理
 ├── capture/                 # 捕获模块
 │   ├── capture_engine.py   # 记忆捕获引擎
-│   ├── trigger_detector.py # 触发器检测器
-│   └── sensitivity_detector.py # 敏感度检测器
+│   ├── batch_processor.py  # 批量消息处理器
+│   ├── message_classifier.py # 消息分类器
+│   ├── message_merger.py   # 消息合并器
+│   ├── capture_logger.py   # 捕获日志工具
+│   ├── detector/           # 检测器
+│   │   ├── trigger_detector.py       # 触发器检测
+│   │   ├── sensitivity_detector.py   # 敏感度检测
+│   │   ├── llm_trigger_detector.py   # LLM触发器检测
+│   │   └── llm_sensitivity_detector.py # LLM敏感度检测
+│   └── conflict/           # 冲突处理
 ├── retrieval/               # 检索模块
 │   ├── retrieval_engine.py # 记忆检索引擎
 │   ├── retrieval_router.py # 检索路由器
-│   └── reranker.py         # 结果重排序器
+│   ├── llm_retrieval_router.py # LLM检索路由
+│   ├── reranker.py         # 结果重排序器
+│   └── retrieval_logger.py # 检索日志工具
 ├── analysis/                # 分析模块
-│   ├── emotion_analyzer.py # 情感分析器
 │   ├── rif_scorer.py       # RIF评分器
-│   └── entity_extractor.py # 实体提取器
+│   ├── emotion/            # 情感分析
+│   │   ├── emotion_analyzer.py     # 情感分析器
+│   │   └── llm_emotion_analyzer.py # LLM情感分析器
+│   ├── entity/             # 实体提取
+│   │   └── entity_extractor.py     # 实体提取器
+│   └── persona/            # 用户画像分析
 ├── embedding/               # 嵌入向量模块
+│   ├── manager.py          # 嵌入管理器（策略模式+降级）
+│   ├── base.py             # 嵌入提供者基类
+│   ├── astrbot_provider.py # AstrBot 嵌入提供者
+│   ├── local_provider.py   # 本地模型提供者
+│   └── fallback_provider.py # 降级提供者
+├── knowledge_graph/         # 知识图谱模块
+│   ├── kg_extractor.py     # 三元组提取（规则+LLM）
+│   ├── kg_storage.py       # SQLite+FTS5 存储
+│   ├── kg_models.py        # 图谱数据模型
+│   ├── kg_reasoning.py     # 图谱推理
+│   └── kg_context.py       # 图谱上下文构建
+├── multimodal/              # 多模态模块
+│   ├── image_analyzer.py   # 图片分析器
+│   └── image_cache.py      # 图片缓存
 ├── proactive/               # 主动回复模块
 │   ├── proactive_manager.py # 主动回复管理器
-│   └── reply_generator.py   # 回复生成器
+│   ├── proactive_reply_detector.py # 回复检测器
+│   ├── llm_proactive_reply_detector.py # LLM回复检测
+│   └── proactive_event.py  # 主动回复事件
+├── processing/              # LLM 处理模块
+│   └── llm_processor.py    # LLM 分类/摘要（含熔断器）
 ├── services/                # 服务层
-│   └── memory_service.py   # 记忆服务封装
+│   ├── memory_service.py   # 记忆服务封装
+│   ├── business_operations.py # 业务操作
+│   ├── initializers.py     # 初始化编排
+│   ├── persistence.py      # 持久化操作
+│   └── modules/            # 功能模块
 └── utils/                   # 工具函数
+    ├── command_utils.py    # 指令解析
+    ├── event_utils.py      # 事件工具
+    ├── llm_helper.py       # 统一 LLM 调用
+    ├── token_manager.py    # Token 预算管理
+    ├── rate_limiter.py     # 速率限制器
+    ├── bounded_dict.py     # 有界字典（防内存泄露）
+    ├── logger.py           # 日志工具
+    └── member_identity_service.py # 成员身份管理
 ```
 
 ### 数据流

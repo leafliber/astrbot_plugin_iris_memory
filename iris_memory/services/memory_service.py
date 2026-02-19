@@ -25,6 +25,7 @@ from astrbot.api import AstrBotConfig
 from iris_memory.models.user_persona import UserPersona
 from iris_memory.models.emotion_state import EmotionalState
 from iris_memory.utils.logger import get_logger
+from iris_memory.utils.bounded_dict import BoundedDict
 from iris_memory.core.config_manager import init_config_manager
 from iris_memory.core.constants import LogTemplates
 from iris_memory.utils.member_utils import set_identity_service
@@ -64,6 +65,7 @@ class MemoryService(
 
         self._is_initialized: bool = False
         self._init_lock: asyncio.Lock = asyncio.Lock()
+        self._module_init_status: Dict[str, bool] = {}  # 各模块初始化状态
 
         # ── Feature Modules ──
         self.storage = StorageModule()
@@ -74,10 +76,10 @@ class MemoryService(
         self.proactive = ProactiveModule()
         self.kg = KnowledgeGraphModule()
 
-        # ── 共享状态 ──
-        self._user_emotional_states: Dict[str, EmotionalState] = {}
-        self._user_personas: Dict[str, UserPersona] = {}
-        self._recently_injected: Dict[str, List[str]] = {}
+        # ── 共享状态（有界，防止内存无限增长）──
+        self._user_emotional_states: BoundedDict[str, EmotionalState] = BoundedDict(max_size=500)
+        self._user_personas: BoundedDict[str, UserPersona] = BoundedDict(max_size=500)
+        self._recently_injected: BoundedDict[str, List[str]] = BoundedDict(max_size=500)
         self._max_recent_track: int = 20
 
         # ── 独立组件（不适合归入 Module 的辅助组件） ──
@@ -186,27 +188,136 @@ class MemoryService(
         """检查 embedding 系统是否就绪"""
         return self.storage.is_embedding_ready()
 
+    def health_check(self) -> Dict[str, Any]:
+        """统一健康检查
+
+        返回各模块和关键组件的运行状态，便于运维排查。
+
+        Returns:
+            Dict 包含:
+              - status: "healthy" | "degraded" | "unhealthy"
+              - initialized: bool
+              - modules: Dict[str, bool]  各模块初始化状态
+              - components: Dict[str, str]  关键组件可用性
+        """
+        components: Dict[str, str] = {}
+
+        # 存储层
+        components["chroma_manager"] = (
+            "available" if self.chroma_manager else "unavailable"
+        )
+        components["session_manager"] = (
+            "available" if self.session_manager else "unavailable"
+        )
+        components["embedding"] = (
+            "ready" if self.is_embedding_ready() else "not_ready"
+        )
+
+        # 捕获 / 检索
+        components["capture_engine"] = (
+            "available" if self.capture_engine else "unavailable"
+        )
+        components["retrieval_engine"] = (
+            "available" if self.retrieval_engine else "unavailable"
+        )
+        components["batch_processor"] = (
+            "running" if self.batch_processor else "unavailable"
+        )
+
+        # 增强模块
+        components["knowledge_graph"] = (
+            "enabled" if (self.kg and self.kg.enabled) else "disabled"
+        )
+        components["proactive_manager"] = (
+            "enabled" if self.proactive_manager else "disabled"
+        )
+        components["image_analyzer"] = (
+            "enabled" if self.image_analyzer else "disabled"
+        )
+
+        # 综合状态判定
+        failed_modules = [
+            k for k, v in self._module_init_status.items() if not v
+        ]
+        if not self._is_initialized:
+            status = "unhealthy"
+        elif failed_modules:
+            status = "degraded"
+        else:
+            status = "healthy"
+
+        return {
+            "status": status,
+            "initialized": self._is_initialized,
+            "modules": dict(self._module_init_status),
+            "components": components,
+            "failed_modules": failed_modules,
+        }
+
     async def initialize(self) -> None:
-        """异步初始化所有组件"""
+        """异步初始化所有组件
+        
+        采用分阶段初始化策略：
+        - 核心组件（storage/capture/retrieval）失败则整体失败
+        - 增强组件（KG/proactive/image）失败则降级运行
+        """
         async with self._init_lock:
             try:
                 self._is_initialized = False
+                self._module_init_status.clear()
                 self.plugin_data_path.mkdir(parents=True, exist_ok=True)
                 self.logger.info(LogTemplates.PLUGIN_INIT_START)
 
+                # ── 阶段1: 核心组件（失败则整体失败） ──
                 await self._init_llm_enhanced()
+                self._module_init_status["llm_enhanced"] = True
+
                 await self._init_core_components()
-                await self._init_knowledge_graph()
-                await self._init_activity_adaptive()
-                await self._init_message_processing()
-                await self._init_persona_extractor()
-                await self._init_proactive_reply()
-                await self._init_image_analyzer()
+                self._module_init_status["core"] = True
+
+                # ── 阶段2: 增强组件（失败则降级运行） ──
+                for name, init_fn in [
+                    ("knowledge_graph", self._init_knowledge_graph),
+                    ("activity_adaptive", self._init_activity_adaptive),
+                    ("message_processing", self._init_message_processing),
+                    ("persona_extractor", self._init_persona_extractor),
+                    ("proactive_reply", self._init_proactive_reply),
+                    ("image_analyzer", self._init_image_analyzer),
+                ]:
+                    try:
+                        await init_fn()
+                        self._module_init_status[name] = True
+                    except Exception as e:
+                        self._module_init_status[name] = False
+                        self.logger.warning(
+                            f"Module '{name}' initialization failed, running in degraded mode: {e}",
+                            exc_info=True,
+                        )
+
                 await self._apply_config()
-                await self._init_batch_processor()
+                self._module_init_status["config"] = True
+
+                # 批量处理器依赖其他组件，单独处理
+                try:
+                    await self._init_batch_processor()
+                    self._module_init_status["batch_processor"] = True
+                except Exception as e:
+                    self._module_init_status["batch_processor"] = False
+                    self.logger.warning(
+                        f"Batch processor initialization failed: {e}",
+                        exc_info=True,
+                    )
 
                 self._is_initialized = True
-                self.logger.info(LogTemplates.PLUGIN_INIT_SUCCESS)
+
+                failed = [k for k, v in self._module_init_status.items() if not v]
+                if failed:
+                    self.logger.warning(
+                        f"{LogTemplates.PLUGIN_INIT_SUCCESS} "
+                        f"(degraded mode, failed modules: {', '.join(failed)})"
+                    )
+                else:
+                    self.logger.info(LogTemplates.PLUGIN_INIT_SUCCESS)
 
             except Exception as e:
                 self._is_initialized = False

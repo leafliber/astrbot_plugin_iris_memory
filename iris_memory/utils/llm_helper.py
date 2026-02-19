@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass, field
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Protocol, runtime_checkable
 
 from iris_memory.utils.logger import get_logger
 from iris_memory.core.provider_utils import (
@@ -22,6 +22,20 @@ from iris_memory.core.provider_utils import (
 )
 
 logger = get_logger("llm_helper")
+
+
+# ── Provider / Context 协议 ────────────────────────────────
+
+@runtime_checkable
+class LLMProvider(Protocol):
+    """LLM 提供者协议"""
+    async def text_chat(self, *, prompt: str, context: list[Any]) -> Any: ...
+
+
+@runtime_checkable
+class AstrBotContext(Protocol):
+    """AstrBot 上下文协议（仅 LLM 相关部分）"""
+    async def llm_generate(self, *, chat_provider_id: str, prompt: str) -> Any: ...
 
 # 延迟加载 token 估算（避免循环导入）
 _token_estimator = None
@@ -106,11 +120,11 @@ def parse_llm_json(response: Optional[str]) -> Optional[Dict[str, Any]]:
 # ── Provider 解析 ────────────────────────────────────────
 
 def resolve_llm_provider(
-    context: Any,
+    context: Optional[AstrBotContext],
     provider_id: str = "",
     *,
     label: str = "LLM",
-) -> tuple[Optional[Any], Optional[str]]:
+) -> tuple[Optional[LLMProvider], Optional[str]]:
     """解析 LLM 提供者。
 
     Args:
@@ -147,8 +161,8 @@ def resolve_llm_provider(
 
 
 async def call_llm(
-    context: Any,
-    provider: Any,
+    context: Optional[AstrBotContext],
+    provider: Optional[LLMProvider],
     provider_id: Optional[str],
     prompt: str,
     *,

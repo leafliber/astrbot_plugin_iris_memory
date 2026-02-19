@@ -22,6 +22,9 @@ from iris_memory.capture.conflict.conflict_resolver import ConflictResolver
 from iris_memory.analysis.rif_scorer import RIFScorer
 from iris_memory.core.defaults import DEFAULTS
 from iris_memory.capture.capture_logger import capture_log
+from iris_memory.utils.logger import get_logger
+
+logger = get_logger("capture_engine")
 
 
 class MemoryCaptureEngine:
@@ -250,7 +253,13 @@ class MemoryCaptureEngine:
             
             return memory
             
+        except (ValueError, TypeError) as e:
+            # 数据格式/类型错误：可恢复，仅记录
+            capture_log.capture_error(user_id, e)
+            return None
         except Exception as e:
+            # 未预期异常：记录完整堆栈以便排查
+            logger.error(f"Unexpected capture error for user={user_id}", exc_info=True)
             capture_log.capture_error(user_id, e)
             return None
     

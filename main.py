@@ -36,6 +36,7 @@ from iris_memory.core.constants import (
     CommandPrefix, ErrorMessages, SuccessMessages,
     NumericDefaults, LogTemplates,
     ErrorFriendlyMessages, ConfigKeys, DeleteMainScope,
+    InputValidationConfig,
     PROACTIVE_EXTRA_KEY, PROACTIVE_CONTEXT_KEY
 )
 
@@ -128,6 +129,13 @@ class IrisMemoryPlugin(Star):
             yield event.plain_result(ErrorMessages.EMPTY_CONTENT)
             return
         
+        # 输入长度校验
+        if len(parsed.content) > InputValidationConfig.MAX_SAVE_CONTENT_LENGTH:
+            yield event.plain_result(
+                f"内容过长（最大 {InputValidationConfig.MAX_SAVE_CONTENT_LENGTH} 字符）"
+            )
+            return
+        
         # 获取上下文信息
         user_id = event.get_sender_id()
         group_id = get_group_id(event)
@@ -168,6 +176,13 @@ class IrisMemoryPlugin(Star):
         
         if not parsed.has_content:
             yield event.plain_result(ErrorMessages.EMPTY_QUERY)
+            return
+        
+        # 输入长度校验
+        if len(parsed.content) > InputValidationConfig.MAX_QUERY_LENGTH:
+            yield event.plain_result(
+                f"查询内容过长（最大 {InputValidationConfig.MAX_QUERY_LENGTH} 字符）"
+            )
             return
         
         # 获取上下文信息
@@ -750,6 +765,10 @@ class IrisMemoryPlugin(Star):
         # 过滤指令消息
         if MessageFilter.is_command(message):
             return
+        
+        # 输入长度保护：超长消息截断（仅用于记忆处理，不影响原始消息传递）
+        if len(message) > InputValidationConfig.MAX_MESSAGE_LENGTH:
+            message = message[:InputValidationConfig.MAX_MESSAGE_LENGTH]
         
         # 更新成员身份信息（名称追踪、活跃度、群归属）
         if self._service.member_identity:
