@@ -80,16 +80,18 @@ class SensitivityDetector:
         
         # CRITICAL（极度敏感）— 不再包含身份证/银行卡的宽泛正则
         self.critical_patterns = [
-            # 密码相关
-            r'密码[:：是]\S+', r'password[:：]\S+',
+            # 密码相关（支持多种格式：冒号、等号、空格分隔）
+            r'密码[\s]*[:：=是][\s]*\S+',
+            r'(?:password|passwd|pwd|pass)[\s]*[:：=][\s]*\S+',
             # 手机号（11位）
             r'(?<![0-9])1[3-9]\d{9}(?![0-9])',
             # 邮箱
             r'[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}',
-            # API 密钥 / Token 格式（常见前缀 + 长随机串）
-            r'(?:sk|pk|api[_-]?key|token|secret)[_-]?[:\s=]+\S{16,}',
+            # API 密钥 / Token 格式（常见前缀 + 长随机串，不区分大小写）
+            r'(?i)(?:sk|pk|api[_-]?key|token|secret|access[_-]?key|private[_-]?key)[_-]?[:\s=]+\S{16,}',
             r'(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9_]{36,}',  # GitHub token
             r'(?:Bearer|Basic)\s+[A-Za-z0-9+/=_-]{20,}',    # Auth header
+            r'(?i)(?:aws|azure|gcp)[_-]?(?:key|secret|token)[_-]?[:\s=]+\S{16,}',  # 云服务密钥
             # 社保号 / SSN 格式（美式，可选）
             r'\b\d{3}-\d{2}-\d{4}\b',
         ]

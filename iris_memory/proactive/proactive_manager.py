@@ -168,13 +168,9 @@ class ProactiveReplyManager:
         if not self.enabled or not messages:
             return
         
-        # 检查冷却时间
         session_key = SessionKeyBuilder.build(user_id, group_id)
-        if self._is_in_cooldown(session_key, group_id):
-            logger.debug(f"Proactive reply in cooldown for {session_key}")
-            return
         
-        # 检查每日限制
+        # 检查每日限制（硬限制，不受紧急度影响）
         if self._is_daily_limit_reached(user_id, group_id):
             logger.debug(f"Daily proactive reply limit reached for {user_id}")
             return
@@ -198,6 +194,15 @@ class ProactiveReplyManager:
             )
             
             if decision.should_reply:
+                # 基于紧急度的动态冷却检查
+                if self._is_in_cooldown(session_key, group_id,
+                                        urgency=decision.urgency.value):
+                    logger.debug(
+                        f"Proactive reply in cooldown for {session_key} "
+                        f"(urgency={decision.urgency.value})"
+                    )
+                    return
+                
                 # 创建任务
                 task = ProactiveReplyTask(
                     messages=messages,
@@ -379,13 +384,34 @@ class ProactiveReplyManager:
         
         return prompt
     
-    def _is_in_cooldown(self, session_key: str, group_id: Optional[str] = None) -> bool:
-        """检查是否在冷却中"""
+    def _is_in_cooldown(self, session_key: str, group_id: Optional[str] = None,
+                        urgency: Optional[str] = None) -> bool:
+        """检查是否在冷却中
+        
+        支持基于 urgency 的动态冷却：
+        - critical: 冷却时间 × 0.25（紧急事件几乎不受冷却限制）
+        - high: 冷却时间 × 0.5
+        - medium: 冷却时间 × 1.0（默认）
+        - low: 冷却时间 × 1.5
+        """
         if session_key not in self.last_reply_time:
             return False
         
         elapsed = asyncio.get_running_loop().time() - self.last_reply_time[session_key]
-        return elapsed < self._get_cooldown_seconds(group_id)
+        base_cooldown = self._get_cooldown_seconds(group_id)
+        
+        # 根据紧急度调整冷却时间
+        from iris_memory.core.constants import UrgencyCooldownMultiplier
+        urgency_multiplier = {
+            "critical": UrgencyCooldownMultiplier.CRITICAL,
+            "high": UrgencyCooldownMultiplier.HIGH,
+            "medium": UrgencyCooldownMultiplier.MEDIUM,
+            "low": UrgencyCooldownMultiplier.LOW,
+        }
+        multiplier = urgency_multiplier.get(urgency, 1.0)
+        effective_cooldown = base_cooldown * multiplier
+        
+        return elapsed < effective_cooldown
     
     def _is_daily_limit_reached(self, user_id: str, group_id: Optional[str] = None) -> bool:
         """检查是否达到每日限制"""

@@ -29,11 +29,10 @@ class RetrievalLogger:
         group_id: Optional[str] = None,
         top_k: int = 10
     ) -> None:
-        query_preview = _trunc(query, 50)
         _logger.debug(
             f"RETRIEVAL.START user={user_id} "
             f"group={group_id or 'private'} "
-            f"top_k={top_k} query='{query_preview}'"
+            f"top_k={top_k} query_len={len(query)}"
         )
 
     def emotional_state(
@@ -115,7 +114,7 @@ class RetrievalLogger:
 
     def no_memories_found(self, user_id: str, query: str) -> None:
         _logger.debug(
-            f"RETRIEVAL.EMPTY user={user_id} query='{_trunc(query, 30)}'"
+            f"RETRIEVAL.EMPTY user={user_id} query_len={len(query)}"
         )
 
     def retrieve_ok(
@@ -137,7 +136,7 @@ class RetrievalLogger:
     def graph_fallback(self, user_id: str, query: str) -> None:
         _logger.warning(
             f"RETRIEVAL.GRAPH_FALLBACK user={user_id} "
-            f"query='{_trunc(query, 30)}' "
+            f"query_len={len(query)} "
             f"reason=not_implemented"
         )
 

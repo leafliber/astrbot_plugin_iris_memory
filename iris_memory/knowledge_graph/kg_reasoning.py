@@ -105,6 +105,37 @@ class KGReasoning:
         self.max_nodes_per_hop = max_nodes_per_hop
         self.min_confidence = min_confidence
 
+    def estimate_query_depth(self, query: str) -> int:
+        """根据查询复杂度动态估算推理深度
+        
+        规则：
+        - 包含多跳关键词（"之间的关系"、"有什么联系"）→ max_depth + 1
+        - 包含比较/链式关键词（"通过谁认识"、"间接"）→ max_depth + 2
+        - 查询中提及 2+ 实体 → max_depth + 1
+        - 简单单实体查询 → max_depth
+        
+        上限为 5，下限为 1。
+        
+        Args:
+            query: 查询文本
+            
+        Returns:
+            int: 建议推理深度
+        """
+        depth = self.max_depth
+        
+        # 多跳关系查询
+        multi_hop_keywords = ["之间", "联系", "关系", "关联", "连接", "有关"]
+        if any(kw in query for kw in multi_hop_keywords):
+            depth += 1
+        
+        # 间接/链式推理查询
+        chain_keywords = ["通过", "间接", "经过", "中间", "怎么认识"]
+        if any(kw in query for kw in chain_keywords):
+            depth += 2
+        
+        return max(1, min(depth, 5))
+
     async def reason(
         self,
         query: str,
@@ -125,7 +156,7 @@ class KGReasoning:
         Returns:
             ReasoningResult: 推理结果
         """
-        depth = max_depth or self.max_depth
+        depth = max_depth or self.estimate_query_depth(query)
         result = ReasoningResult()
 
         # ── Step 1: 提取种子实体 ──

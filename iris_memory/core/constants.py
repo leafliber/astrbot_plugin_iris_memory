@@ -211,7 +211,7 @@ class LLMRetryConfig:
 class CircuitBreakerConfig:
     """熔断器配置"""
     FAILURE_THRESHOLD: Final[int] = 5          # 连续失败次数阈值
-    RECOVERY_TIMEOUT: Final[int] = 60          # 熔断恢复超时（秒）
+    RECOVERY_TIMEOUT: Final[int] = 30          # 熔断恢复超时（秒）
     HALF_OPEN_MAX: Final[int] = 1              # 半开状态最多允许通过的请求数
 
 
@@ -228,11 +228,62 @@ class InputValidationConfig:
     MAX_QUERY_LENGTH: Final[int] = 500         # 搜索查询最大长度
     MAX_SAVE_CONTENT_LENGTH: Final[int] = 1000 # 手动保存内容最大长度
 
+    # 危险内容检测模式（HTML标签、脚本注入等）
+    _DANGEROUS_PATTERNS: Final[tuple] = (
+        r'<\s*script[^>]*>',        # <script> 标签
+        r'javascript\s*:',          # javascript: 协议
+        r'on\w+\s*=\s*["\']',       # 事件处理器 (onclick= 等)
+        r'<\s*iframe[^>]*>',        # <iframe> 标签
+        r'<\s*object[^>]*>',        # <object> 标签
+        r'<\s*embed[^>]*>',         # <embed> 标签
+    )
+
+    @staticmethod
+    def sanitize_input(text: str) -> str:
+        """对用户输入进行基本的安全清理
+        
+        移除 HTML 标签和脚本代码，保留纯文本内容。
+        
+        Args:
+            text: 原始输入文本
+            
+        Returns:
+            str: 清理后的文本
+        """
+        import re
+        # 移除 HTML 标签
+        cleaned = re.sub(r'<[^>]+>', '', text)
+        # 移除零宽字符和控制字符（保留换行和制表符）
+        cleaned = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', '', cleaned)
+        return cleaned.strip()
+
+    @staticmethod
+    def has_dangerous_content(text: str) -> bool:
+        """检查文本是否包含危险内容
+        
+        Args:
+            text: 输入文本
+            
+        Returns:
+            bool: 是否包含危险内容
+        """
+        import re
+        for pattern in InputValidationConfig._DANGEROUS_PATTERNS:
+            if re.search(pattern, text, re.IGNORECASE):
+                return True
+        return False
+
 
 class RetrievalDefaults:
     """检索引擎默认值"""
     TOKEN_BUDGET: Final[int] = 512             # Token 预算
     MAX_SUMMARY_LENGTH: Final[int] = 100       # 摘要最大长度
+    DEFAULT_TOP_K: Final[int] = 10             # 默认 Top-K 检索数量
+    SHORT_QUERY_THRESHOLD: Final[int] = 20     # 短查询长度阈值
+    EMOTION_FILTER_THRESHOLD: Final[float] = 0.7  # 情感过滤权重阈值
+    LLM_ROUTING_CONFIDENCE: Final[float] = 0.6    # LLM 路由置信度阈值
+    KG_IMPORTANCE_BOOST: Final[float] = 0.3    # KG 重要性分数提升
+    KG_RIF_BOOST: Final[float] = 0.2           # KG RIF 分数提升
 
 
 class CacheDefaults:
@@ -245,4 +296,42 @@ class CacheDefaults:
 class BatchSessionConfig:
     """批量处理器会话管理配置"""
     MAX_TRACKED_SESSIONS: Final[int] = 500     # 最大跟踪会话数
-    SESSION_EXPIRY_SECONDS: Final[int] = 7200  # 无活动会话过期时间（2小时）
+    SESSION_EXPIRY_SECONDS: Final[int] = 14400 # 无活动会话过期时间（4小时）
+
+
+class CaptureQualityThresholds:
+    """记忆捕获质量评估阈值"""
+    CONFIRMED: Final[float] = 0.9              # 已确认质量
+    HIGH: Final[float] = 0.75                  # 高质量
+    MODERATE: Final[float] = 0.5               # 中等质量
+    LOW: Final[float] = 0.3                    # 低质量
+    EMOTION_TRIGGER_INTENSITY: Final[float] = 0.6   # 情感触发强度阈值
+    EMOTION_NOTRIGGER_INTENSITY: Final[float] = 0.7 # 无触发时情感强度阈值
+    EPISODIC_EMOTION_WEIGHT: Final[float] = 0.6     # 情景记忆情感权重阈值
+    EPISODIC_CONFIDENCE: Final[float] = 0.5          # 情景记忆置信度阈值
+    USER_REQUESTED_IMPORTANCE: Final[float] = 0.8    # 用户主动请求的最低重要性
+
+
+class LLMCallDefaults:
+    """LLM 调用默认参数"""
+    DEFAULT_MAX_TOKENS: Final[int] = 200       # 默认最大 token 数
+    CLASSIFICATION_MAX_TOKENS: Final[int] = 150 # 分类调用最大 token 数
+    BATCH_MAX_TOKENS: Final[int] = 100         # 批量处理最大 token 数
+    DEFAULT_TEMPERATURE: Final[float] = 0.3    # 默认温度
+    RESPONSE_TRUNCATION: Final[int] = 500      # 响应截断长度
+
+
+class TextTruncation:
+    """文本截断长度常量"""
+    CONTEXT_MESSAGE: Final[int] = 200          # 上下文消息截断
+    DIRECTIVE_MESSAGE: Final[int] = 100        # 指令消息截断
+    SUMMARY: Final[int] = 100                  # 摘要截断
+    LOCAL_SUMMARY: Final[int] = 50             # 本地摘要截断
+
+
+class UrgencyCooldownMultiplier:
+    """紧急度冷却时间乘数"""
+    CRITICAL: Final[float] = 0.25
+    HIGH: Final[float] = 0.5
+    MEDIUM: Final[float] = 1.0
+    LOW: Final[float] = 1.5

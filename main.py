@@ -136,6 +136,12 @@ class IrisMemoryPlugin(Star):
             )
             return
         
+        # 输入安全清理
+        content = InputValidationConfig.sanitize_input(parsed.content)
+        if not content:
+            yield event.plain_result(ErrorMessages.EMPTY_CONTENT)
+            return
+        
         # 获取上下文信息
         user_id = event.get_sender_id()
         group_id = get_group_id(event)
@@ -143,7 +149,7 @@ class IrisMemoryPlugin(Star):
         
         # 执行业务逻辑
         memory = await self._service.capture_and_store_memory(
-            message=parsed.content,
+            message=content,
             user_id=user_id,
             group_id=group_id,
             is_user_requested=True,
