@@ -232,7 +232,7 @@ class MessageClassifier:
             return await self._classify_hybrid(message, ctx)
             
         except Exception as e:
-            logger.warning(f"Classification failed, falling back to local: {e}")
+            logger.debug(f"Classification failed, falling back to local: {e}")
             return await self._classify_local(message, ctx)
     
     async def _classify_local(

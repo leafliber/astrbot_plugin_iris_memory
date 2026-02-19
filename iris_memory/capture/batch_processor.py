@@ -28,6 +28,7 @@ from iris_memory.models.memory import Memory
 from iris_memory.processing.llm_processor import LLMMessageProcessor, LLMSummaryResult
 from iris_memory.core.constants import BatchProcessingMode
 from iris_memory.core.defaults import DEFAULTS
+from iris_memory.core.constants import BatchSessionConfig
 
 if TYPE_CHECKING:
     from iris_memory.proactive.proactive_manager import ProactiveReplyManager
@@ -49,6 +50,8 @@ class MessageBatchProcessor:
     DEFAULT_THRESHOLD_COUNT: Final[int] = DEFAULTS.message_processing.batch_threshold_count
     DEFAULT_LLM_COOLDOWN: Final[int] = 60
     DEFAULT_SUMMARY_INTERVAL: Final[int] = 300
+    MAX_TRACKED_SESSIONS: Final[int] = BatchSessionConfig.MAX_TRACKED_SESSIONS
+    SESSION_EXPIRY_SECONDS: Final[int] = BatchSessionConfig.SESSION_EXPIRY_SECONDS
     
     def __init__(
         self,
@@ -178,6 +181,12 @@ class MessageBatchProcessor:
         session_key = SessionKeyBuilder.build(user_id, group_id)
         
         if session_key not in self.message_queues:
+            # 新会话加入前，检查是否超出会话限额，主动清理过期会话
+            if len(self.last_process_time) >= self.MAX_TRACKED_SESSIONS:
+                self._evict_expired_sessions()
+            # 清理后仍超限则强制淘汰最旧会话
+            if len(self.last_process_time) >= self.MAX_TRACKED_SESSIONS:
+                self._evict_oldest_sessions()
             self.message_queues[session_key] = []
             self.last_process_time[session_key] = time.time()
         
@@ -245,25 +254,75 @@ class MessageBatchProcessor:
         return False
     
     async def _cleanup_loop(self):
-        """清理循环"""
-        check_interval = max(1, min(60, self.threshold_interval / 2))
+        """清理循环：处理超时队列 + 清理过期会话"""
+        # 清理间隔上限 30 秒，避免 threshold_interval 太大时清理不及时
+        check_interval = max(1, min(30, self.threshold_interval / 2))
         
         while self.is_running:
             try:
                 await asyncio.sleep(check_interval)
                 
                 current_time = time.time()
+                stale_keys: List[str] = []
+                
                 for session_key in list(self.message_queues.keys()):
                     interval = self._get_threshold_interval(session_key)
                     last_time = self.last_process_time.get(session_key, 0)
+                    
                     if current_time - last_time >= interval:
                         if self.message_queues[session_key]:
                             await self._process_queue(session_key)
+                    
+                    # 标记过期会话（队列为空且超过过期时间）
+                    if (not self.message_queues.get(session_key)
+                            and current_time - last_time >= self.SESSION_EXPIRY_SECONDS):
+                        stale_keys.append(session_key)
+                
+                # 清理过期会话
+                if stale_keys:
+                    for key in stale_keys:
+                        self.message_queues.pop(key, None)
+                        self.last_process_time.pop(key, None)
+                    logger.debug(f"Evicted {len(stale_keys)} stale session(s)")
+                
+                # 如果会话数仍超过上限，清理最旧的空队列
+                if len(self.last_process_time) > self.MAX_TRACKED_SESSIONS:
+                    self._evict_oldest_sessions()
                             
             except asyncio.CancelledError:
                 break
             except Exception as e:
                 logger.error(f"Cleanup loop error: {e}")
+    
+    def _evict_expired_sessions(self) -> None:
+        """清理过期的空队列会话（无需等待 cleanup_loop 的定期扫描）"""
+        current_time = time.time()
+        expired_keys = [
+            key for key, ts in self.last_process_time.items()
+            if (current_time - ts >= self.SESSION_EXPIRY_SECONDS
+                and not self.message_queues.get(key))
+        ]
+        for key in expired_keys:
+            self.message_queues.pop(key, None)
+            self.last_process_time.pop(key, None)
+        if expired_keys:
+            logger.debug(f"Proactively evicted {len(expired_keys)} expired session(s)")
+
+    def _evict_oldest_sessions(self) -> None:
+        """当跟踪的会话数超过上限时，清理最旧的空队列会话"""
+        # 按最后处理时间排序，优先移除最旧的空队列
+        entries = sorted(self.last_process_time.items(), key=lambda x: x[1])
+        evict_count = len(self.last_process_time) - self.MAX_TRACKED_SESSIONS
+        evicted = 0
+        for key, _ in entries:
+            if evicted >= evict_count:
+                break
+            if not self.message_queues.get(key):
+                self.message_queues.pop(key, None)
+                self.last_process_time.pop(key, None)
+                evicted += 1
+        if evicted > 0:
+            logger.info(f"Evicted {evicted} oldest idle session(s) (cap={self.MAX_TRACKED_SESSIONS})")
     
     async def _process_queue(self, session_key: str):
         """处理指定队列"""

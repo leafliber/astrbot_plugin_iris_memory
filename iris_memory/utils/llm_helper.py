@@ -23,6 +23,26 @@ from iris_memory.core.provider_utils import (
 
 logger = get_logger("llm_helper")
 
+# 延迟加载 token 估算（避免循环导入）
+_token_estimator = None
+
+
+def _estimate_tokens(text: str) -> int:
+    """使用 token_manager 的精确估算（tiktoken 优先，加权启发式兜底）"""
+    global _token_estimator
+    if _token_estimator is None:
+        try:
+            from iris_memory.utils.token_manager import TokenBudget
+            _token_estimator = TokenBudget()
+        except Exception:
+            _token_estimator = "fallback"
+    if _token_estimator == "fallback":
+        # 简单加权估算：中文 ~1.5 char/token, 英文 ~4 char/token
+        chinese = sum(1 for c in text if '\u4e00' <= c <= '\u9fff')
+        other = len(text) - chinese
+        return int(chinese / 1.5 + other / 4) or 1
+    return _token_estimator.estimate_tokens(text)
+
 
 # ── 数据类型 ────────────────────────────────────────────
 
@@ -125,8 +145,6 @@ def resolve_llm_provider(
 
 # ── 单次 LLM 调用 ────────────────────────────────────────
 
-_TOKEN_ESTIMATE_DIVISOR = 4  # 粗略 token 估算：字符数 / 4
-
 
 async def call_llm(
     context: Any,
@@ -157,7 +175,7 @@ async def call_llm(
             )
             if resp and hasattr(resp, "completion_text"):
                 text = (resp.completion_text or "").strip()
-                tokens = (len(prompt) + len(text)) // _TOKEN_ESTIMATE_DIVISOR
+                tokens = _estimate_tokens(prompt + text)
                 return LLMCallResult(
                     success=True,
                     content=text,
@@ -172,7 +190,7 @@ async def call_llm(
         try:
             resp = await provider.text_chat(prompt=prompt, context=[])
             text = _extract_text(resp)
-            tokens = (len(prompt) + len(text)) // _TOKEN_ESTIMATE_DIVISOR
+            tokens = _estimate_tokens(prompt + text)
             return LLMCallResult(
                 success=True,
                 content=text,
@@ -180,7 +198,7 @@ async def call_llm(
                 tokens_used=tokens,
             )
         except Exception as e:
-            logger.debug(f"text_chat failed: {e}")
+            logger.warning(f"text_chat failed: {e}")
 
     return LLMCallResult(success=False, error="No suitable LLM method found")
 

@@ -5,13 +5,13 @@ TokenManager测试
 
 import pytest
 from typing import Optional, Tuple, List
+from unittest.mock import Mock, patch
 from iris_memory.utils.token_manager import (
     TokenBudget,
     TokenType,
     MemoryCompressor,
     DynamicMemorySelector
 )
-from unittest.mock import Mock
 
 
 class TestTokenTypeEnum:
@@ -36,8 +36,8 @@ class TestTokenBudgetInit:
         assert budget.preamble_cost == 20
         assert budget.postamble_cost == 10
         assert budget.used_budget == 20  # 初始使用preamble_cost
-        assert budget.chars_per_token == 1.5
-        assert budget.words_per_token == 0.75
+        assert budget.chars_per_token_cn == 1.5
+        assert budget.chars_per_token_en == 4.0
     
     def test_init_custom_values(self):
         """测试自定义值初始化"""
@@ -62,14 +62,15 @@ class TestTokenBudgetInit:
 class TestTokenBudgetEstimateTokens:
     """测试Token估算功能"""
     
+    @patch('iris_memory.utils.token_manager._tiktoken_encoding', None)
     def test_estimate_tokens_chinese(self):
-        """测试中文文本Token估算"""
+        """测试中文文本Token估算（启发式）"""
         budget = TokenBudget()
         chinese_text = "这是一段中文文本"
         
         tokens = budget.estimate_tokens(chinese_text)
         
-        # 8个字符 / 1.5 ≈ 5 tokens
+        # 8个中文字符 / 1.5 ≈ 5 tokens
         assert 4 <= tokens <= 6
     
     def test_estimate_tokens_english(self):
@@ -100,8 +101,9 @@ class TestTokenBudgetEstimateTokens:
         
         assert tokens == 0
     
+    @patch('iris_memory.utils.token_manager._tiktoken_encoding', None)
     def test_estimate_tokens_long_chinese(self):
-        """测试长中文文本"""
+        """测试长中文文本（启发式）"""
         budget = TokenBudget()
         long_text = "中" * 300  # 300个中文字符
         
@@ -110,15 +112,16 @@ class TestTokenBudgetEstimateTokens:
         # 300 / 1.5 = 200 tokens
         assert 190 <= tokens <= 210
     
+    @patch('iris_memory.utils.token_manager._tiktoken_encoding', None)
     def test_estimate_tokens_long_english(self):
-        """测试长英文文本"""
+        """测试长英文文本（启发式）"""
         budget = TokenBudget()
         words = "word " * 100  # 100个词
         
         tokens = budget.estimate_tokens(words.strip())
         
-        # 100 / 0.75 ≈ 133 tokens
-        assert 125 <= tokens <= 140
+        # 499字符 / 4.0 ≈ 125 tokens
+        assert 120 <= tokens <= 130
 
 
 class TestTokenBudgetCanAddMemory:
@@ -217,7 +220,7 @@ class TestTokenBudgetGetRemainingBudget:
     def test_get_remaining_zero(self):
         """测试剩余预算为0"""
         budget = TokenBudget(total_budget=100, preamble_cost=20)
-        budget.add_memory("测试" * 100)
+        budget.add_memory("测试" * 100, as_summary=False)
         
         remaining = budget.get_remaining_budget()
         

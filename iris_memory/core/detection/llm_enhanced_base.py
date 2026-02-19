@@ -137,7 +137,7 @@ class LLMEnhancedBase(ABC):
                     return result
             except Exception as e:
                 last_error = e
-                logger.debug(f"LLM call failed (attempt {attempt + 1}/{MAX_RETRIES}): {e}")
+                logger.warning(f"LLM call failed (attempt {attempt + 1}/{MAX_RETRIES}): {e}")
                 if attempt < MAX_RETRIES - 1:
                     await asyncio.sleep(backoff)
                     backoff = min(backoff * BACKOFF_MULTIPLIER, MAX_BACKOFF)

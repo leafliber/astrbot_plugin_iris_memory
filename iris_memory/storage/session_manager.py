@@ -86,8 +86,8 @@ class SessionManager:
         """
         return SessionKeyBuilder.build(user_id, group_id)
     
-    def create_session(self, user_id: str, group_id: Optional[str] = None, initial_data: Optional[Dict[str, Any]] = None) -> str:
-        """创建新会话
+    def _create_session_unlocked(self, user_id: str, group_id: Optional[str] = None, initial_data: Optional[Dict[str, Any]] = None) -> str:
+        """创建新会话（内部方法，无锁保护，调用方须持有 self._lock 或确保线程安全）
 
         Args:
             user_id: 用户ID
@@ -120,6 +120,22 @@ class SessionManager:
             logger.debug(f"Session created: {session_key}")
 
         return session_key
+
+    def create_session(self, user_id: str, group_id: Optional[str] = None, initial_data: Optional[Dict[str, Any]] = None) -> str:
+        """创建新会话
+
+        注意: 该方法修改共享状态。若需在异步并发场景下调用，
+        应通过 async with self._lock 保护，或使用 add_working_memory 等已加锁的方法。
+
+        Args:
+            user_id: 用户ID
+            group_id: 群组ID（可选）
+            initial_data: 初始会话数据（可选）
+
+        Returns:
+            str: 会话标识符
+        """
+        return self._create_session_unlocked(user_id, group_id, initial_data)
 
     def get_session(self, session_key: str) -> Optional[Dict[str, Any]]:
         """获取会话信息
@@ -158,9 +174,9 @@ class SessionManager:
         async with self._lock:
             session_key = self.get_session_key(memory.user_id, memory.group_id)
             
-            # 确保会话存在
+            # 确保会话存在（使用内部无锁版本，避免重复获取锁）
             if session_key not in self.working_memory_cache:
-                self.create_session(memory.user_id, memory.group_id)
+                self._create_session_unlocked(memory.user_id, memory.group_id)
             
             # 添加到工作记忆
             self.working_memory_cache[session_key].append(memory)
@@ -198,6 +214,18 @@ class SessionManager:
 
             return memories
     
+    def _clear_working_memory_unlocked(self, user_id: str, group_id: Optional[str] = None):
+        """清除工作记忆（内部无锁版本）
+        
+        Args:
+            user_id: 用户ID
+            group_id: 群组ID（可选）
+        """
+        session_key = self.get_session_key(user_id, group_id)
+        if session_key in self.working_memory_cache:
+            self.working_memory_cache[session_key] = []
+            logger.debug(f"Working memory cleared for session: {session_key}")
+
     async def clear_working_memory(self, user_id: str, group_id: Optional[str] = None):
         """清除工作记忆（线程安全）
         
@@ -206,10 +234,7 @@ class SessionManager:
             group_id: 群组ID（可选）
         """
         async with self._lock:
-            session_key = self.get_session_key(user_id, group_id)
-            if session_key in self.working_memory_cache:
-                self.working_memory_cache[session_key] = []
-                logger.debug(f"Working memory cleared for session: {session_key}")
+            self._clear_working_memory_unlocked(user_id, group_id)
     
     def delete_session(self, session_key: str) -> bool:
         """删除会话
@@ -464,10 +489,11 @@ class SessionManager:
         Returns:
             bool: 是否添加成功
         """
+        # 直接委托给 add_working_memory（已持有锁），不再重复加锁
+        await self.add_working_memory(memory)
         async with self._lock:
-            await self.add_working_memory(memory)
             self._stats["memories_added"] += 1
-            return True
+        return True
     
     async def get_recent_memories(
         self,
@@ -517,7 +543,7 @@ class SessionManager:
             bool: 是否成功
         """
         async with self._lock:
-            self.clear_working_memory(user_id, group_id)
+            self._clear_working_memory_unlocked(user_id, group_id)
             return True
     
     def get_stats(self) -> Dict[str, Any]:

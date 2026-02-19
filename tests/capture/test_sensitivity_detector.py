@@ -30,8 +30,9 @@ class TestSensitivityDetector:
     # ========== CRITICAL级别测试 ==========
 
     def test_detect_id_card(self, detector):
-        """测试检测身份证号"""
-        text = "我的身份证号是123456789012345678"
+        """测试检测身份证号（校验位合法）"""
+        # 110101199003074557 通过 GB 11643-1999 校验位验证
+        text = "我的身份证号是110101199003074557"
         level, entities = detector.detect_sensitivity(text)
 
         assert level == SensitivityLevel.CRITICAL
@@ -39,15 +40,17 @@ class TestSensitivityDetector:
         assert any("CRITICAL" in e for e in entities)
 
     def test_detect_id_card_with_x(self, detector):
-        """测试检测带X的身份证号"""
-        text = "身份证号12345678901234567X"
+        """测试检测带X的身份证号（校验位合法）"""
+        # 11010119900307002X 通过 GB 11643-1999 校验位验证
+        text = "身份证号11010119900307002X"
         level, entities = detector.detect_sensitivity(text)
 
         assert level == SensitivityLevel.CRITICAL
 
     def test_detect_bank_card(self, detector):
-        """测试检测银行卡号"""
-        text = "我的银行卡号是1234567890123456"
+        """测试检测银行卡号（Luhn 校验合法）"""
+        # 4111111111111111 通过 Luhn 算法验证
+        text = "我的银行卡号是4111111111111111"
         level, entities = detector.detect_sensitivity(text)
 
         assert level == SensitivityLevel.CRITICAL
@@ -368,7 +371,8 @@ class TestSensitivityDetector:
 
     def test_very_long_text(self, detector):
         """测试超长文本"""
-        text = "我的身份证号是123456789012345678 " * 100
+        # 使用校验位合法的身份证号
+        text = "我的身份证号是110101199003074557 " * 100
         level, entities = detector.detect_sensitivity(text)
 
         # 应该仍然能检测到CRITICAL
@@ -394,12 +398,12 @@ class TestSensitivityDetector:
 
     def test_phone_number_wrong_length(self, detector):
         """测试错误长度的手机号"""
-        text = "我的手机号是1234567890123456"  # 16位，不是手机号，可能是银行卡
+        text = "我的手机号是1234567890123456"  # 16位，不是手机号，也不通过 Luhn 校验
         level, entities = detector.detect_sensitivity(text)
 
         # 不应该被识别为11位手机号
-        # 可能被识别为银行卡号
-        assert level == SensitivityLevel.CRITICAL
+        # 16位数字未通过 Luhn 校验，不应被识别为银行卡
+        assert level != SensitivityLevel.CRITICAL
 
     def test_id_card_invalid_length(self, detector):
         """测试错误长度的身份证号"""

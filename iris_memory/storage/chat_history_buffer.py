@@ -257,7 +257,8 @@ class ChatHistoryBuffer:
                 for msg_data in msgs:
                     try:
                         buf.append(ChatMessage.from_dict(msg_data))
-                    except Exception:
+                    except Exception as e:
+                        logger.warning(f"Skipping malformed chat message during deserialization: {e}")
                         continue
                 self._buffers[key] = buf
             logger.info(

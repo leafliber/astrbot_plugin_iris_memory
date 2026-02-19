@@ -106,7 +106,7 @@ class ProactiveReplyManager:
             if self.astrbot_context and hasattr(self.astrbot_context, '_event_queue'):
                 self.event_queue = self.astrbot_context._event_queue
             if not self.event_queue:
-                logger.warning("Event queue not available, proactive reply disabled")
+                logger.info("Event queue not available, proactive reply disabled")
                 self.enabled = False
                 return
         
@@ -252,7 +252,7 @@ class ProactiveReplyManager:
             
             # 检查事件队列和 context
             if not self.event_queue or not self.astrbot_context:
-                logger.warning("Event queue or context not available, skip proactive reply")
+                logger.info("Event queue or context not available, skip proactive reply")
                 self.stats["replies_failed"] += 1
                 return
             
@@ -310,7 +310,14 @@ class ProactiveReplyManager:
             )
             
             # 注入事件队列
-            self.event_queue.put_nowait(proactive_event)
+            try:
+                self.event_queue.put_nowait(proactive_event)
+            except asyncio.QueueFull:
+                logger.warning(
+                    f"Event queue full, proactive reply for {task.user_id} dropped"
+                )
+                self.stats["replies_failed"] += 1
+                return
             
             self.stats["replies_sent"] += 1
             

@@ -4,6 +4,7 @@
 
 from enum import Enum
 from typing import List, Dict, Any, Optional, Type
+from collections import OrderedDict
 from dataclasses import dataclass
 from functools import lru_cache
 import hashlib
@@ -75,8 +76,8 @@ class EmbeddingManager:
             "provider_usage": {}
         }
         
-        # Embedding 缓存（文本哈希 -> 向量）
-        self._embedding_cache: Dict[str, List[float]] = {}
+        # Embedding 缓存（文本哈希 -> 向量），使用 OrderedDict 实现真正的 LRU
+        self._embedding_cache: OrderedDict[str, List[float]] = OrderedDict()
         self._cache_max_size = 1000  # 最大缓存条目数
         self._cache_enabled = True   # 是否启用缓存
         
@@ -102,13 +103,13 @@ class EmbeddingManager:
             dimension: 目标维度
             
         Returns:
-            str: 缓存键（MD5哈希）
+            str: 缓存键（SHA256哈希）
         """
         key_str = f"{text}:{dimension or self.get_dimension()}"
-        return hashlib.md5(key_str.encode('utf-8')).hexdigest()
+        return hashlib.sha256(key_str.encode('utf-8')).hexdigest()
     
     def _get_from_cache(self, cache_key: str) -> Optional[List[float]]:
-        """从缓存获取 embedding
+        """从缓存获取 embedding（命中时移至末尾以实现 LRU）
         
         Args:
             cache_key: 缓存键
@@ -118,7 +119,11 @@ class EmbeddingManager:
         """
         if not self._cache_enabled:
             return None
-        return self._embedding_cache.get(cache_key)
+        value = self._embedding_cache.get(cache_key)
+        if value is not None:
+            # 移至末尾表示最近使用
+            self._embedding_cache.move_to_end(cache_key)
+        return value
     
     def _add_to_cache(self, cache_key: str, embedding: List[float]):
         """添加 embedding 到缓存
@@ -130,13 +135,16 @@ class EmbeddingManager:
         if not self._cache_enabled:
             return
         
-        # LRU 淘汰策略：如果缓存已满，清除最旧的条目（简化实现）
-        if len(self._embedding_cache) >= self._cache_max_size:
-            # 清除 20% 的缓存
-            keys_to_remove = list(self._embedding_cache.keys())[:int(self._cache_max_size * 0.2)]
-            for key in keys_to_remove:
-                del self._embedding_cache[key]
-            logger.debug(f"Cache cleanup: removed {len(keys_to_remove)} entries")
+        # 如果 key 已存在，更新并移至末尾
+        if cache_key in self._embedding_cache:
+            self._embedding_cache.move_to_end(cache_key)
+            self._embedding_cache[cache_key] = embedding
+            return
+        
+        # LRU 淘汰：超出容量时移除最旧（最前面）的条目
+        while len(self._embedding_cache) >= self._cache_max_size:
+            evicted_key, _ = self._embedding_cache.popitem(last=False)
+            logger.debug(f"Cache eviction: removed oldest entry {evicted_key[:16]}...")
         
         self._embedding_cache[cache_key] = embedding
     
@@ -380,7 +388,7 @@ class EmbeddingManager:
                 return response.to_list()
                 
             except Exception as e:
-                logger.debug(f"Provider {provider_name} failed: {e}")
+                logger.warning(f"Provider {provider_name} failed: {e}")
                 continue
         
         # 如果所有都失败，使用降级提供者（必须存在）

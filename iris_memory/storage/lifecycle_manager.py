@@ -107,7 +107,7 @@ class SessionLifecycleManager:
     async def start(self):
         """启动生命周期管理器"""
         if self.is_running:
-            logger.warning("SessionLifecycleManager is already running")
+            logger.info("SessionLifecycleManager is already running")
             return
         
         self.is_running = True

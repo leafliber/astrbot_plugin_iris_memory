@@ -149,7 +149,8 @@ class LLMProactiveReplyDetector(LLMEnhancedDetector[LLMReplyDecision]):
             decision = await self._rule_detector.analyze(
                 messages, user_id, group_id, context
             )
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Async rule detection failed, falling back to sync: {e}")
             decision = self._sync_rule_detect(messages, user_id, group_id, context)
         
         return LLMReplyDecision(

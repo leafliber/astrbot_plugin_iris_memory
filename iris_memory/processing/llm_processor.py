@@ -5,6 +5,7 @@ LLM消息处理器
 import asyncio
 import json
 import re
+import time
 from typing import Dict, Any, Optional, List
 from dataclasses import dataclass
 
@@ -18,15 +19,21 @@ from iris_memory.core.provider_utils import (
     extract_provider_id,
     normalize_provider_id,
 )
+from iris_memory.core.constants import LLMRetryConfig, CircuitBreakerConfig
 
 logger = get_logger("llm_processor")
 
 
-# 重试配置
-MAX_RETRIES = 3
-INITIAL_BACKOFF = 1.0  # 初始退避时间（秒）
-MAX_BACKOFF = 30.0  # 最大退避时间（秒）
-BACKOFF_MULTIPLIER = 2.0  # 退避乘数
+# 从统一常量获取
+MAX_RETRIES = LLMRetryConfig.MAX_RETRIES
+INITIAL_BACKOFF = LLMRetryConfig.INITIAL_BACKOFF
+MAX_BACKOFF = LLMRetryConfig.MAX_BACKOFF
+BACKOFF_MULTIPLIER = LLMRetryConfig.BACKOFF_MULTIPLIER
+LLM_CALL_TIMEOUT = LLMRetryConfig.CALL_TIMEOUT
+
+CIRCUIT_BREAKER_FAILURE_THRESHOLD = CircuitBreakerConfig.FAILURE_THRESHOLD
+CIRCUIT_BREAKER_RECOVERY_TIMEOUT = CircuitBreakerConfig.RECOVERY_TIMEOUT
+CIRCUIT_BREAKER_HALF_OPEN_MAX = CircuitBreakerConfig.HALF_OPEN_MAX
 
 
 @dataclass
@@ -97,8 +104,14 @@ class LLMMessageProcessor:
             "classification_calls": 0,
             "summary_calls": 0,
             "failed_calls": 0,
-            "total_tokens_used": 0
+            "total_tokens_used": 0,
+            "circuit_breaker_rejections": 0,
         }
+        
+        # 熔断器状态
+        self._cb_failure_count = 0
+        self._cb_last_failure_time = 0.0
+        self._cb_state = "closed"  # "closed" | "open" | "half_open"
     
     async def initialize(self) -> bool:
         """初始化LLM API（延迟初始化策略）
@@ -110,7 +123,7 @@ class LLMMessageProcessor:
             bool: 始终返回 True（处理器已准备好，provider 将在使用时按需获取）
         """
         if not self.astrbot_context:
-            logger.warning("AstrBot context not available, LLM features disabled")
+            logger.info("AstrBot context not available, LLM features disabled")
             return False
         
         logger.info("LLM processor initialized (provider will be loaded on first use)")
@@ -155,7 +168,7 @@ class LLMMessageProcessor:
             )
             return False
         except Exception as e:
-            logger.debug(
+            logger.warning(
                 f"Failed to load LLM provider "
                 f"(attempt {self._init_retry_count}/{self._max_init_retries}): {e}"
             )
@@ -305,7 +318,12 @@ class LLMMessageProcessor:
         max_tokens: int = 200,
         temperature: float = 0.3
     ) -> Optional[str]:
-        """调用LLM API（带指数退避重试机制）
+        """调用LLM API（带指数退避重试 + 熔断器机制）
+
+        熔断器状态流转：
+        - closed: 正常工作，失败计数 >= 阈值时进入 open
+        - open: 拒绝所有请求，超过恢复超时后进入 half_open
+        - half_open: 允许少量请求试探，成功则 closed，失败则 open
 
         Args:
             prompt: 提示词
@@ -313,10 +331,16 @@ class LLMMessageProcessor:
             temperature: 温度参数
 
         Returns:
-            Optional[str]: LLM响应文本，失败则返回None
+            Optional[str]: LLM响应文本，失败或熔断器拒绝则返回None
         """
         # 尝试按需初始化 provider
         if not await self._try_init_provider():
+            return None
+        
+        # 熔断器检查
+        if not self._circuit_breaker_allow():
+            self.stats["circuit_breaker_rejections"] += 1
+            logger.warning("LLM circuit breaker OPEN — request rejected")
             return None
         
         backoff = INITIAL_BACKOFF
@@ -326,6 +350,7 @@ class LLMMessageProcessor:
             try:
                 result = await self._call_llm_once(prompt, max_tokens, temperature)
                 if result is not None:
+                    self._circuit_breaker_on_success()
                     return result
                     
             except Exception as e:
@@ -333,14 +358,59 @@ class LLMMessageProcessor:
                 logger.warning(f"LLM API call failed (attempt {attempt + 1}/{MAX_RETRIES}): {e}")
                 
                 if attempt < MAX_RETRIES - 1:
-                    # 等待退避时间后重试
                     await asyncio.sleep(backoff)
                     backoff = min(backoff * BACKOFF_MULTIPLIER, MAX_BACKOFF)
         
         # 所有重试都失败
+        self._circuit_breaker_on_failure()
         logger.error(f"LLM API call failed after {MAX_RETRIES} attempts: {last_error}")
         self.stats["failed_calls"] += 1
         return None
+    
+    def _circuit_breaker_allow(self) -> bool:
+        """检查熔断器是否允许请求通过"""
+        if self._cb_state == "closed":
+            return True
+        
+        if self._cb_state == "open":
+            elapsed = time.time() - self._cb_last_failure_time
+            if elapsed >= CIRCUIT_BREAKER_RECOVERY_TIMEOUT:
+                self._cb_state = "half_open"
+                logger.info(
+                    f"LLM circuit breaker transitioning to HALF_OPEN "
+                    f"after {elapsed:.0f}s recovery timeout"
+                )
+                return True
+            return False
+        
+        # half_open: 允许通过
+        return True
+    
+    def _circuit_breaker_on_success(self) -> None:
+        """请求成功时重置熔断器"""
+        if self._cb_state != "closed":
+            logger.info(
+                f"LLM circuit breaker CLOSED (recovered from {self._cb_state})"
+            )
+        self._cb_failure_count = 0
+        self._cb_state = "closed"
+    
+    def _circuit_breaker_on_failure(self) -> None:
+        """请求失败时更新熔断器"""
+        self._cb_failure_count += 1
+        self._cb_last_failure_time = time.time()
+        
+        if self._cb_state == "half_open":
+            self._cb_state = "open"
+            logger.warning(
+                "LLM circuit breaker OPEN (half_open probe failed)"
+            )
+        elif self._cb_failure_count >= CIRCUIT_BREAKER_FAILURE_THRESHOLD:
+            self._cb_state = "open"
+            logger.warning(
+                f"LLM circuit breaker OPEN after {self._cb_failure_count} "
+                f"consecutive failures"
+            )
     
     async def _call_llm_once(
         self,
@@ -348,13 +418,18 @@ class LLMMessageProcessor:
         max_tokens: int,
         temperature: float
     ) -> Optional[str]:
-        """单次调用LLM API（委托给 llm_helper.call_llm）"""
-        result = await call_llm(
-            self.astrbot_context,
-            self.llm_api,
-            self.default_provider_id,
-            prompt,
-        )
+        """单次调用LLM API（委托给 llm_helper.call_llm，带超时保护）
+        
+        Raises:
+            asyncio.TimeoutError: 超过 LLM_CALL_TIMEOUT 秒未响应
+        """
+        async with asyncio.timeout(LLM_CALL_TIMEOUT):
+            result = await call_llm(
+                self.astrbot_context,
+                self.llm_api,
+                self.default_provider_id,
+                prompt,
+            )
         if result.success:
             self.stats["total_tokens_used"] += result.tokens_used
             return result.content

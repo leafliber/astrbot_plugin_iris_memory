@@ -4,6 +4,10 @@
 
 from typing import Optional
 
+from iris_memory.utils.logger import get_logger
+
+logger = get_logger("event_utils")
+
 
 def get_group_id(event) -> Optional[str]:
     """安全地获取群组ID
@@ -32,7 +36,8 @@ def get_group_id(event) -> Optional[str]:
             if group_id:
                 return str(group_id)
         return None
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Failed to get group_id from event: {e}")
         return None
 
 
@@ -96,7 +101,8 @@ def get_sender_name(event) -> Optional[str]:
             if name and str(name).strip():
                 return str(name).strip()
         return None
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Failed to get sender_name from event: {e}")
         return None
 
 

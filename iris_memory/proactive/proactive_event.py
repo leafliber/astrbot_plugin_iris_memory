@@ -67,7 +67,8 @@ class ProactiveMessageEvent(AstrMessageEvent):
         # 从 UMO 解析 session
         try:
             session = MessageSession.from_str(umo)
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Failed to parse UMO '{umo}', constructing session manually: {e}")
             # 手动构造 session
             if group_id:
                 session = MessageSession(

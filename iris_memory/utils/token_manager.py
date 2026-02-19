@@ -12,6 +12,17 @@ from iris_memory.utils.member_utils import format_member_tag
 # 模块logger
 logger = get_logger("token_manager")
 
+# 尝试加载 tiktoken 以获得精确的 token 估算
+_tiktoken_encoding = None
+try:
+    import tiktoken
+    _tiktoken_encoding = tiktoken.get_encoding("cl100k_base")
+    logger.debug("tiktoken loaded — using cl100k_base encoding for token estimation")
+except ImportError:
+    logger.debug("tiktoken not available — using heuristic token estimation")
+except Exception as e:
+    logger.debug(f"tiktoken failed to initialize: {e} — using heuristic estimation")
+
 
 class TokenType(str, Enum):
     """Token类型"""
@@ -42,12 +53,14 @@ class TokenBudget:
         self.postamble_cost = postamble_cost
         self.used_budget = preamble_cost  # 已使用预算（包含前导）
         
-        # Token估算（中文按字符数估算，英文按词数估算）
-        self.chars_per_token = 1.5  # 中文：约1.5字符/token
-        self.words_per_token = 0.75  # 英文：约0.75词/token
+        # 启发式估算参数（仅在 tiktoken 不可用时使用）
+        self.chars_per_token_cn = 1.5    # 中文：约1.5字符/token
+        self.chars_per_token_en = 4.0    # 英文：约4字符/token
     
     def estimate_tokens(self, text: str) -> int:
         """估算文本的token数量
+        
+        优先使用 tiktoken（精确），不可用时使用加权启发式估算。
         
         Args:
             text: 输入文本
@@ -55,19 +68,22 @@ class TokenBudget:
         Returns:
             int: 估算的token数量
         """
-        # 检测文本类型（中文/英文/混合）
+        if not text:
+            return 0
+        
+        # 优先使用 tiktoken 精确计数
+        if _tiktoken_encoding is not None:
+            return len(_tiktoken_encoding.encode(text))
+        
+        # 启发式：按中英文字符比例加权估算
         chinese_chars = sum(1 for c in text if '\u4e00' <= c <= '\u9fff')
         total_chars = len(text)
-        chinese_ratio = chinese_chars / total_chars if total_chars > 0 else 0
+        non_chinese_chars = total_chars - chinese_chars
         
-        # 混合估算
-        if chinese_ratio > 0.5:
-            # 主要中文：按字符估算
-            return int(total_chars / self.chars_per_token)
-        else:
-            # 主要英文：按词估算
-            words = len(text.split())
-            return int(words / self.words_per_token)
+        cn_tokens = chinese_chars / self.chars_per_token_cn
+        en_tokens = non_chinese_chars / self.chars_per_token_en
+        
+        return max(1, int(cn_tokens + en_tokens))
     
     def can_add_memory(
         self,
@@ -351,7 +367,8 @@ class DynamicMemorySelector:
             elif memory.scope == MemoryScope.USER_PRIVATE:
                 return "私聊"
             return ""
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Failed to get scope label: {e}")
             return ""
     
     def _format_natural(

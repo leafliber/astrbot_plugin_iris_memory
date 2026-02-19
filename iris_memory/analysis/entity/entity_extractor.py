@@ -10,6 +10,10 @@ from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional, Tuple
 from enum import Enum
 
+from iris_memory.utils.logger import get_logger
+
+logger = get_logger("entity_extractor")
+
 
 class EntityType(str, Enum):
     """实体类型枚举"""
@@ -296,7 +300,8 @@ class EntityExtractor:
                 else:
                     return datetime(base_date.year, base_date.month, base_date.day, 10, 0)
         
-        except Exception:
+        except (ValueError, TypeError, OverflowError) as e:
+            logger.debug(f"Failed to normalize time '{text}': {e}")
             return None
     
     def _normalize_date(self, text: str) -> Optional[datetime]:
@@ -338,7 +343,8 @@ class EntityExtractor:
             
             return None
         
-        except Exception:
+        except (ValueError, TypeError, OverflowError) as e:
+            logger.debug(f"Failed to normalize date '{text}': {e}")
             return None
     
     def _normalize_money(self, text: str) -> Optional[float]:
@@ -380,7 +386,8 @@ class EntityExtractor:
             
             return None
         
-        except Exception:
+        except (ValueError, TypeError) as e:
+            logger.debug(f"Failed to normalize money '{text}': {e}")
             return None
     
     def _normalize_quantity(self, text: str) -> Optional[Dict[str, Any]]:
@@ -400,7 +407,8 @@ class EntityExtractor:
                     'unit': match.group(2).lower()
                 }
             return None
-        except Exception:
+        except (ValueError, TypeError) as e:
+            logger.debug(f"Failed to normalize quantity '{text}': {e}")
             return None
     
     def _normalize_phone(self, text: str) -> Optional[str]:

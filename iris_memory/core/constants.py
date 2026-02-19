@@ -195,3 +195,29 @@ class ErrorFriendlyMessages:
     NETWORK_ERROR_MSG: Final[str] = "网络好像不太稳定呢，稍后再试试？"
     RATE_LIMIT_MSG: Final[str] = "我需要休息一下，请稍后再来找我~"
     BAD_REQUEST_MSG: Final[str] = "请求出了点问题，稍后再试试吧~"
+
+
+# ── LLM 重试与熔断器常量 ──
+
+class LLMRetryConfig:
+    """LLM 调用重试配置"""
+    MAX_RETRIES: Final[int] = 3
+    INITIAL_BACKOFF: Final[float] = 1.0        # 初始退避时间（秒）
+    MAX_BACKOFF: Final[float] = 30.0           # 最大退避时间（秒）
+    BACKOFF_MULTIPLIER: Final[float] = 2.0     # 退避乘数
+    CALL_TIMEOUT: Final[int] = 60              # 单次调用超时（秒）
+
+
+class CircuitBreakerConfig:
+    """熔断器配置"""
+    FAILURE_THRESHOLD: Final[int] = 5          # 连续失败次数阈值
+    RECOVERY_TIMEOUT: Final[int] = 60          # 熔断恢复超时（秒）
+    HALF_OPEN_MAX: Final[int] = 1              # 半开状态最多允许通过的请求数
+
+
+# ── 批量处理会话管理常量 ──
+
+class BatchSessionConfig:
+    """批量处理器会话管理配置"""
+    MAX_TRACKED_SESSIONS: Final[int] = 500     # 最大跟踪会话数
+    SESSION_EXPIRY_SECONDS: Final[int] = 7200  # 无活动会话过期时间（2小时）

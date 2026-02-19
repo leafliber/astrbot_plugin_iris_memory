@@ -157,8 +157,8 @@ class TestMemoryCaptureEngine:
     @pytest.mark.asyncio
     async def test_capture_critical_sensitivity(self, engine):
         """测试CRITICAL敏感度过滤"""
-        # 使用直接的身份证号(不带"身份证号是"前缀,避免regex边界问题)
-        message = "123456789012345678"
+        # 使用校验位合法的身份证号
+        message = "110101199003074557"
         user_id = "user123"
 
         memory = await engine.capture_memory(message, user_id)

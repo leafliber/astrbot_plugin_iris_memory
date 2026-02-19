@@ -6,7 +6,9 @@
 2. 提供简化的配置访问API
 """
 
-from typing import Any, Dict, Optional
+import threading
+import time
+from typing import Any, Dict, Optional, Tuple
 from iris_memory.core.defaults import DEFAULTS, get_default
 from iris_memory.core.config_registry import CONFIG_REGISTRY, get_registry_mapping
 from iris_memory.core.activity_config import (
@@ -26,24 +28,44 @@ class ConfigManager:
     """配置管理器
     
     统一管理用户配置和默认配置的访问。
+    线程安全：对 _cache 和 _user_config 的读写均通过锁保护。
     """
     
+    # 配置缓存 TTL（秒），缓存过期后自动重新从用户配置对象读取
+    _CACHE_TTL: float = 30.0
+
     def __init__(self, user_config: Any = None):
         """初始化配置管理器
         
         Args:
             user_config: AstrBot用户配置对象
         """
+        self._lock = threading.Lock()
         self._user_config = user_config
-        self._cache: Dict[str, Any] = {}
+        self._cache: Dict[str, Tuple[Any, float]] = {}  # key -> (value, expire_time)
         
         # 场景自适应组件（延迟初始化）
         self._activity_provider: Optional[ActivityAwareConfigProvider] = None
         
     def set_user_config(self, config: Any):
-        """设置用户配置"""
-        self._user_config = config
-        self._cache.clear()
+        """设置用户配置（线程安全）"""
+        with self._lock:
+            self._user_config = config
+            self._cache.clear()
+    
+    def invalidate_cache(self, key: Optional[str] = None):
+        """主动失效配置缓存
+        
+        当外部直接修改了配置对象的属性时调用此方法。
+        
+        Args:
+            key: 特定的配置键，为 None 则清除所有缓存
+        """
+        with self._lock:
+            if key is None:
+                self._cache.clear()
+            else:
+                self._cache.pop(key, None)
     
     # ========== 场景自适应配置 ==========
     
@@ -107,7 +129,9 @@ class ConfigManager:
         return self.get("activity_adaptive.enable", True)
         
     def get(self, key: str, default: Any = None) -> Any:
-        """获取配置值
+        """获取配置值（线程安全，带 TTL 缓存）
+        
+        缓存条目在 _CACHE_TTL 秒后自动过期，确保外部修改能被感知。
         
         Args:
             key: 配置键，格式如 "basic.enable_memory"
@@ -116,13 +140,19 @@ class ConfigManager:
         Returns:
             配置值
         """
-        # 检查缓存
-        if key in self._cache:
-            return self._cache[key]
-            
-        value = self._get_value(key, default)
-        self._cache[key] = value
-        return value
+        now = time.monotonic()
+        with self._lock:
+            # 检查缓存（含 TTL 检查）
+            if key in self._cache:
+                cached_value, expire_at = self._cache[key]
+                if now < expire_at:
+                    return cached_value
+                # 缓存过期，移除并重新获取
+                del self._cache[key]
+                
+            value = self._get_value(key, default)
+            self._cache[key] = (value, now + self._CACHE_TTL)
+            return value
     
     def _get_value(self, key: str, default: Any = None) -> Any:
         """内部获取配置值"""

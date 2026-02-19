@@ -184,6 +184,13 @@ class ChromaManager(ChromaQueries, ChromaOperations):
 
         当嵌入模型更换导致维度不匹配时，先尝试备份旧集合再删除。
         如果备份也失败，仍会删除旧集合（但会输出 ERROR 级别日志）。
+
+        Args:
+            existing_collection: 现有的 ChromaDB 集合实例，为 None 时直接返回
+            detected_dimension: 从现有集合检测到的嵌入维度，为 None 时直接返回
+
+        Raises:
+            不会抛出异常，失败时通过日志记录
         """
         if not existing_collection or not detected_dimension:
             return
@@ -193,35 +200,57 @@ class ChromaManager(ChromaQueries, ChromaOperations):
             return
         
         old_count = existing_collection.count()
-        logger.warning(
-            f"Embedding dimension conflict detected! "
+        logger.error(
+            f"⚠️ CRITICAL: Embedding dimension conflict detected! "
             f"Collection has {detected_dimension}-dim vectors but provider outputs {actual_dimension}-dim. "
             f"Old memories count: {old_count}. "
-            f"This usually happens when the embedding model/provider changes."
+            f"This usually happens when the embedding model/provider changes. "
+            f"The old collection will be backed up and then deleted."
         )
 
         # 尝试将旧集合备份为带时间戳的副本
+        backup_ok = False
         if old_count > 0:
-            self._backup_collection_before_delete(existing_collection, old_count)
+            backup_ok = self._backup_collection_before_delete(existing_collection, old_count)
+        
+        if old_count > 0 and not backup_ok:
+            logger.error(
+                f"⚠️ DATA LOSS WARNING: Backup FAILED for {old_count} memories in "
+                f"collection '{self.collection_name}'. Proceeding with deletion will "
+                f"cause permanent data loss!"
+            )
 
         self.client.delete_collection(name=self.collection_name)
-        logger.warning(
-            f"Old collection '{self.collection_name}' deleted after dimension conflict. "
-            f"{old_count} memories were lost. Check backup collection if available."
-        )
+        if backup_ok:
+            logger.warning(
+                f"Old collection '{self.collection_name}' deleted after dimension conflict. "
+                f"{old_count} memories were backed up. Check backup collection for recovery."
+            )
+        else:
+            logger.error(
+                f"Old collection '{self.collection_name}' deleted after dimension conflict. "
+                f"{old_count} memories were PERMANENTLY LOST (backup failed)."
+            )
 
-    def _backup_collection_before_delete(self, existing_collection, old_count: int) -> None:
-        """在删除集合前尝试备份数据到新集合"""
+    def _backup_collection_before_delete(self, existing_collection, old_count: int) -> bool:
+        """在删除集合前尝试备份数据到新集合，并额外导出 JSON 文件
+
+        Returns:
+            bool: 至少一种备份方式成功返回 True，全部失败返回 False
+        """
         import time
+        import json
         backup_name = f"{self.collection_name}_backup_{int(time.time())}"
+        chroma_backup_ok = False
+        json_backup_ok = False
         try:
             all_data = existing_collection.get(include=["documents", "metadatas", "embeddings"])
             if not all_data or not all_data.get("ids"):
                 logger.info("No data in old collection to backup.")
-                return
+                return True  # 没有数据，无需备份
 
+            # 1. ChromaDB 集合级备份
             backup_col = self.client.create_collection(name=backup_name)
-            # ChromaDB add 的批量大小限制，分批写入
             batch_size = 500
             ids = all_data["ids"]
             for i in range(0, len(ids), batch_size):
@@ -239,12 +268,42 @@ class ChromaManager(ChromaQueries, ChromaOperations):
                 f"Backed up {old_count} memories to collection '{backup_name}' "
                 f"before dimension migration. You can manually inspect or delete it later."
             )
+            chroma_backup_ok = True
         except Exception as e:
             logger.error(
-                f"Failed to backup collection before deletion: {e}. "
-                f"Proceeding with deletion — {old_count} memories will be permanently lost.",
+                f"Failed to backup collection to ChromaDB: {e}.",
                 exc_info=True,
             )
+
+        # 2. JSON 文件级备份（作为最后保障）
+        try:
+            if not chroma_backup_ok:
+                # 如果 ChromaDB 备份失败，重新读取数据
+                all_data = existing_collection.get(include=["documents", "metadatas"])
+            json_backup_path = self.data_path / "backup" / f"{backup_name}.json"
+            json_backup_path.parent.mkdir(parents=True, exist_ok=True)
+            export_data = {
+                "ids": all_data.get("ids", []),
+                "documents": all_data.get("documents", []),
+                "metadatas": all_data.get("metadatas", []),
+                "backup_time": time.time(),
+                "original_collection": self.collection_name,
+                "memory_count": old_count,
+            }
+            json_backup_path.write_text(json.dumps(export_data, ensure_ascii=False, indent=2), encoding="utf-8")
+            logger.warning(
+                f"JSON backup saved to {json_backup_path} ({old_count} memories). "
+                f"This can be used for manual recovery."
+            )
+            json_backup_ok = True
+        except Exception as e:
+            logger.error(
+                f"Failed to save JSON backup: {e}. "
+                f"{'ChromaDB backup exists.' if chroma_backup_ok else f'{old_count} memories will be permanently lost.'}",
+                exc_info=True,
+            )
+
+        return chroma_backup_ok or json_backup_ok
 
     def _create_or_use_collection(self, existing_collection) -> None:
         """创建或使用现有集合"""
@@ -408,7 +467,7 @@ class ChromaManager(ChromaQueries, ChromaOperations):
                 if hasattr(self.embedding_manager, 'close'):
                     await self.embedding_manager.close()
             except Exception as e:
-                logger.debug(f"Error closing embedding manager: {e}")
+                logger.warning(f"Error closing embedding manager: {e}")
         
         self.collection = None
         self.client = None

@@ -2,6 +2,10 @@
 
 from typing import Any, Optional, Tuple
 
+from iris_memory.utils.logger import get_logger
+
+logger = get_logger("provider_utils")
+
 
 def normalize_provider_id(provider_value: Any) -> str:
     """将 provider 配置值规范化为字符串 ID。"""
@@ -39,8 +43,8 @@ def extract_provider_id(provider: Any) -> Optional[str]:
         )
         if meta_id:
             return meta_id
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"Failed to extract provider_id via meta(): {e}")
 
     return None
 
@@ -61,10 +65,10 @@ def get_provider_by_id(context: Any, provider_id: Any) -> Tuple[Optional[Any], O
             provider = context.get_provider_by_id(pid)
             if provider is not None:
                 return provider, (extract_provider_id(provider) or pid)
-        except Exception:
-            pass
-    except Exception:
-        pass
+        except Exception as e:
+            logger.debug(f"get_provider_by_id(positional) failed for '{pid}': {e}")
+    except Exception as e:
+        logger.debug(f"get_provider_by_id(keyword) failed for '{pid}': {e}")
 
     try:
         providers = context.get_all_providers() if hasattr(context, "get_all_providers") else []
@@ -74,8 +78,8 @@ def get_provider_by_id(context: Any, provider_id: Any) -> Tuple[Optional[Any], O
                 return provider, candidate
             if candidate and candidate.lower() == pid.lower():
                 return provider, candidate
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"get_all_providers() fallback failed for '{pid}': {e}")
 
     return None, None
 
@@ -91,9 +95,11 @@ def get_default_provider(context: Any, umo: str = "") -> Tuple[Optional[Any], Op
     except TypeError:
         try:
             provider = context.get_using_provider()
-        except Exception:
+        except Exception as e:
+            logger.debug(f"get_using_provider() no-arg fallback failed: {e}")
             provider = None
-    except Exception:
+    except Exception as e:
+        logger.debug(f"get_using_provider(umo=...) failed: {e}")
         provider = None
 
     if provider is not None:
@@ -104,7 +110,7 @@ def get_default_provider(context: Any, umo: str = "") -> Tuple[Optional[Any], Op
         if providers:
             provider = providers[0]
             return provider, extract_provider_id(provider)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"get_all_providers() fallback for default provider failed: {e}")
 
     return None, None

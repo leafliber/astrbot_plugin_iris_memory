@@ -276,5 +276,5 @@ class PersistenceOperations:
                 try:
                     stats = component.get_stats()
                     logger.info(f"{name}: {stats}")
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"Failed to get stats from {name}: {e}")

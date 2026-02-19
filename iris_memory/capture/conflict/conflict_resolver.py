@@ -106,7 +106,7 @@ class ConflictResolver:
             return None
             
         except Exception as e:
-            logger.warning(f"Vector-based duplicate check failed: {e}, falling back to text-based")
+            logger.debug(f"Vector-based duplicate check failed: {e}, falling back to text-based")
             return None
 
     async def check_conflicts_by_vector(

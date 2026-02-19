@@ -6,6 +6,7 @@
 
 import hashlib
 import json
+import re
 from abc import ABC, abstractmethod
 from collections import OrderedDict
 from dataclasses import dataclass, field
@@ -668,10 +669,35 @@ class CacheContentCompressor:
     """缓存内容压缩器
     
     功能：
-    1. 提取记忆摘要，压缩内容
-    2. 保留关键实体和情感信息
-    3. 降低存储空间占用
+    1. 按句子重要性排序并截断，保留关键信息
+    2. 保留实体所在的句子上下文
+    3. 基于 TF-IDF 风格的关键词提取
     """
+    
+    # 句子结束符
+    _SENTENCE_DELIMITERS = re.compile(r'[。！？!?\n]+')
+    
+    # 扩展停用词
+    _STOPWORDS = frozenset({
+        '的', '了', '是', '在', '我', '有', '和', '就', '不', '人', '都',
+        '一', '一个', '上', '也', '很', '到', '说', '要', '去', '你', '会',
+        '着', '没有', '看', '好', '自己', '这', '那', '他', '她', '它',
+        '吗', '呢', '吧', '啊', '哦', '嗯', '对', '呀', '什么', '怎么',
+        '可以', '因为', '所以', '但是', '如果', '虽然', '还是', '或者',
+        'the', 'and', 'is', 'to', 'of', 'a', 'in', 'that', 'it', 'for',
+        'on', 'with', 'as', 'this', 'was', 'at', 'be', 'by', 'or', 'an',
+        'not', 'but', 'from', 'are', 'have', 'has', 'had', 'will', 'would',
+        'can', 'could', 'do', 'does', 'did', 'i', 'you', 'he', 'she', 'we',
+        'they', 'my', 'your', 'his', 'her', 'its', 'our', 'their',
+    })
+    
+    # 关键信号词（出现在句子中提高重要性）
+    _IMPORTANCE_SIGNALS = re.compile(
+        r'喜欢|讨厌|记住|重要|计划|打算|目标|生日|地址|电话|'
+        r'偏好|习惯|爱好|工作|学校|家|需要|必须|一定|'
+        r'like|dislike|important|remember|plan|goal|prefer|love|hate',
+        re.IGNORECASE,
+    )
     
     def __init__(self, max_length: int = 200):
         """初始化记忆压缩器
@@ -684,6 +710,11 @@ class CacheContentCompressor:
     def compress_memory(self, content: str, entities: Optional[List[Any]] = None) -> str:
         """压缩记忆内容
         
+        策略：
+        1. 按句子拆分
+        2. 对每个句子打分（实体上下文、关键信号词、位置权重）
+        3. 按分数排序，保留最重要的句子直到超过长度限制
+        
         Args:
             content: 原始内容
             entities: 实体列表（可选）
@@ -691,22 +722,68 @@ class CacheContentCompressor:
         Returns:
             压缩后的内容
         """
-        # 如果内容已经很短，直接返回
         if len(content) <= self.max_length:
             return content
         
-        # 简单压缩策略：保留前N个字符
-        compressed = content[:self.max_length - 3] + "..."
+        # 拆分句子
+        sentences = [s.strip() for s in self._SENTENCE_DELIMITERS.split(content) if s.strip()]
+        if not sentences:
+            return content[:self.max_length - 3] + "..."
         
-        # TODO: 更智能的压缩策略
-        # 1. 保留关键句子
-        # 2. 保留实体上下文
-        # 3. 使用NLP生成摘要
+        # 收集实体文本（用于上下文保留）
+        entity_texts = set()
+        if entities:
+            for ent in entities:
+                text = getattr(ent, 'text', None) or (ent if isinstance(ent, str) else '')
+                if text:
+                    entity_texts.add(text.lower())
         
-        return compressed
+        # 对每个句子打分
+        scored: List[Tuple[int, float, str]] = []
+        for idx, sent in enumerate(sentences):
+            score = 0.0
+            # 位置权重：首尾句子更重要
+            if idx == 0:
+                score += 2.0
+            elif idx == len(sentences) - 1:
+                score += 1.0
+            # 实体上下文加分
+            sent_lower = sent.lower()
+            for et in entity_texts:
+                if et in sent_lower:
+                    score += 3.0
+                    break
+            # 关键信号词加分
+            if self._IMPORTANCE_SIGNALS.search(sent):
+                score += 2.0
+            # 长度适中的句子更有信息量
+            if 10 <= len(sent) <= 100:
+                score += 0.5
+            scored.append((idx, score, sent))
+        
+        # 按分数降序，同分保持原始顺序
+        scored.sort(key=lambda x: (-x[1], x[0]))
+        
+        # 贪心选取句子
+        selected_indices: List[int] = []
+        total_len = 0
+        for idx, _score, sent in scored:
+            needed = len(sent) + (1 if total_len > 0 else 0)  # +1 for separator
+            if total_len + needed <= self.max_length:
+                selected_indices.append(idx)
+                total_len += needed
+        
+        # 按原始顺序拼接
+        selected_indices.sort()
+        result = "。".join(sentences[i] for i in selected_indices)
+        
+        if len(result) > self.max_length:
+            result = result[:self.max_length - 3] + "..."
+        
+        return result
     
     def extract_keywords(self, content: str, top_k: int = 5) -> List[str]:
-        """提取关键词
+        """提取关键词（基于 TF 加权 + 停用词过滤 + 位置加权）
         
         Args:
             content: 内容文本
@@ -715,22 +792,32 @@ class CacheContentCompressor:
         Returns:
             关键词列表
         """
-        # TODO: 实现更智能的关键词提取
-        # 当前使用简单的词频统计
+        if not content:
+            return []
         
-        import re
-        from collections import Counter
+        # 分词：中文按字符/常见词，英文按空格
+        # 使用 \w+ 匹配连续字母/数字/下划线
+        words = re.findall(r'[\u4e00-\u9fff]{2,}|[a-zA-Z]{2,}', content.lower())
         
-        # 分词（简单实现）
-        words = re.findall(r'\w+', content.lower())
-        word_freq = Counter(words)
+        if not words:
+            return []
         
-        # 过滤停用词（简化版）
-        stopwords = {'的', '了', '是', '在', '我', '有', '和', '就', '不', '人', '都', '一', '一个', '上', '也', '很', '到', '说', '要', '去', '你', '会', '着', '没有', '看', '好', '自己', '这', 'the', 'and', 'is', 'to', 'of', 'a', 'in', 'that', 'it', 'for', 'on', 'with', 'as', 'this', 'was', 'at'}
+        # 过滤停用词
+        filtered = [w for w in words if w not in self._STOPWORDS and len(w) > 1]
         
-        keywords = [word for word, freq in word_freq.most_common(top_k * 2) if len(word) > 1 and word not in stopwords]
+        if not filtered:
+            return []
         
-        return keywords[:top_k]
+        # 词频统计 + 位置加权（更早出现的词权重更高）
+        word_score: Dict[str, float] = {}
+        for i, word in enumerate(filtered):
+            position_weight = 1.0 + max(0, (len(filtered) - i) / len(filtered))
+            word_score[word] = word_score.get(word, 0) + position_weight
+        
+        # 按加权分数排序
+        sorted_words = sorted(word_score.items(), key=lambda x: -x[1])
+        
+        return [word for word, _ in sorted_words[:top_k]]
 
 
 class CacheManager:

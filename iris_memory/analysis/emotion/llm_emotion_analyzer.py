@@ -146,7 +146,8 @@ class LLMEmotionAnalyzer(LLMEnhancedDetector[EmotionAnalysisResult]):
         """
         try:
             result = await self._rule_analyzer.analyze_emotion(text, context)
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Rule emotion analysis failed, using defaults: {e}")
             result = {
                 "primary": EmotionType.NEUTRAL,
                 "secondary": [],
