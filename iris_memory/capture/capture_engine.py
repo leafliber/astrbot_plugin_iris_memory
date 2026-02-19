@@ -136,13 +136,13 @@ class MemoryCaptureEngine:
                 capture_log.negative_sample(user_id)
                 return None
             
-            triggers = await self._detect_triggers(message)
+            triggers = await self._detect_triggers(message, user_id)
             capture_log.trigger_detected(user_id, triggers)
             if not triggers and not is_user_requested and not self.auto_capture:
                 capture_log.capture_skip(user_id, "no_trigger_auto_disabled")
                 return None
             
-            sensitivity_level, detected_entities = await self._detect_sensitivity(message, context)
+            sensitivity_level, detected_entities = await self._detect_sensitivity(message, context, user_id)
             capture_log.sensitivity_detected(
                 user_id, 
                 sensitivity_level.name if hasattr(sensitivity_level, 'name') else str(sensitivity_level),
@@ -590,11 +590,12 @@ class MemoryCaptureEngine:
         self.enable_conflict_check = config.get("enable_conflict_check", DEFAULTS.memory.enable_conflict_check)
         self.enable_entity_extraction = config.get("enable_entity_extraction", DEFAULTS.memory.enable_entity_extraction)
     
-    async def _detect_triggers(self, message: str) -> List[TriggerMatch]:
+    async def _detect_triggers(self, message: str, user_id: str = "") -> List[TriggerMatch]:
         """检测触发器（支持LLM增强）
         
         Args:
             message: 消息文本
+            user_id: 用户ID（用于日志）
             
         Returns:
             触发器列表
@@ -612,29 +613,31 @@ class MemoryCaptureEngine:
                 elif not result.should_remember and result.confidence >= 0.7:
                     return []
             except Exception as e:
-                capture_log.llm_trigger_detection_failed("", str(e))
+                capture_log.llm_trigger_detection_failed(user_id, str(e))
         
         return self.trigger_detector.detect_triggers(message)
     
     async def _detect_sensitivity(
         self,
         message: str,
-        context: Optional[Dict[str, Any]] = None
+        context: Optional[Dict[str, Any]] = None,
+        user_id: str = ""
     ) -> tuple:
         """检测敏感度（支持LLM增强）
         
         Args:
             message: 消息文本
             context: 上下文
+            user_id: 用户ID（用于日志）
             
         Returns:
             (敏感度等级, 检测到的实体列表)
         """
         if self._llm_sensitivity_detector:
             try:
-                result = await self._llm_sensitivity_detector.detect(message, context)
+                result = await self._llm_sensitivity_detector.detect(message, context=context)
                 return (result.level, result.entities)
             except Exception as e:
-                capture_log.llm_sensitivity_detection_failed("", str(e))
+                capture_log.llm_sensitivity_detection_failed(user_id, str(e))
         
         return self.sensitivity_detector.detect_sensitivity(message, context)

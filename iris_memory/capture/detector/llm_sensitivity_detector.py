@@ -168,7 +168,7 @@ class LLMSensitivityDetector(LLMEnhancedDetector[SensitivityDetectionResult]):
         
         # 敏感或私人级别 → LLM确认
         if rule_result.level.value >= SensitivityLevel.PRIVATE.value:
-            llm_result = await self._llm_detect(text, context)
+            llm_result = await self._llm_detect(text, context=context)
             if llm_result.confidence >= self._confidence_threshold:
                 llm_result.source = "hybrid"
                 return llm_result

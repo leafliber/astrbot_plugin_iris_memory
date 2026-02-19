@@ -163,7 +163,7 @@ class MemoryRetrievalEngine:
             strategy = RetrievalStrategy.HYBRID
             if self.enable_routing:
                 context = {'emotional_state': emotional_state}
-                strategy = await self._route_query(query, context)
+                strategy = await self._route_query(query, context, user_id)
                 retrieval_log.strategy_selected(user_id, strategy.value if hasattr(strategy, 'value') else str(strategy))
             else:
                 retrieval_log.strategy_selected(user_id, "HYBRID", "default")
@@ -207,23 +207,24 @@ class MemoryRetrievalEngine:
         
         return filtered
     
-    async def _route_query(self, query: str, context: Optional[Dict] = None) -> RetrievalStrategy:
+    async def _route_query(self, query: str, context: Optional[Dict] = None, user_id: str = "") -> RetrievalStrategy:
         """路由查询（支持LLM增强）
         
         Args:
             query: 查询文本
             context: 上下文
+            user_id: 用户ID（用于日志）
             
         Returns:
             RetrievalStrategy: 检索策略
         """
         if self._llm_router:
             try:
-                result = await self._llm_router.detect(query, context)
+                result = await self._llm_router.detect(query, context=context)
                 if result.confidence >= 0.6:
                     return result.strategy
             except Exception as e:
-                retrieval_log.routing_failed("", str(e))
+                retrieval_log.routing_failed(user_id, str(e))
         
         return self.router.route(query, context)
     

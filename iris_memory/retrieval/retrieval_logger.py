@@ -60,7 +60,7 @@ class RetrievalLogger:
     def routing_failed(self, user_id: str, error: str) -> None:
         _logger.debug(
             f"RETRIEVAL.ROUTING.FALLBACK user={user_id} "
-            f"error={_trunc(error, 30)}"
+            f"error={_trunc(error, 100)}"
         )
 
     def vector_query(

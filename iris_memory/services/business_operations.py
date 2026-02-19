@@ -4,6 +4,7 @@ MemoryService 业务操作模块
 将业务逻辑从 MemoryService 中拆分出来，提高代码可维护性。
 """
 
+import asyncio
 from typing import Optional, List, Dict, Any, Tuple
 from datetime import datetime
 
@@ -41,7 +42,11 @@ class BusinessOperations:
         context: Optional[Dict[str, Any]] = None,
         sender_name: Optional[str] = None
     ) -> Optional[Any]:
-        """捕获并存储记忆"""
+        """捕获并存储记忆
+
+        画像提取和知识图谱处理作为后台任务异步执行，
+        不阻塞主回答流程。
+        """
         if not self.capture_engine:
             return None
         
@@ -59,20 +64,32 @@ class BusinessOperations:
                 return None
             
             await self._store_memory_by_layer(memory)
-            await self._update_persona_from_memory(memory, user_id)
 
-            # 知识图谱：提取三元组
-            if hasattr(self, 'kg') and self.kg and self.kg.enabled:
-                try:
-                    await self.kg.process_memory(memory)
-                except Exception as kg_err:
-                    logger.debug(f"KG processing skipped: {kg_err}")
+            # 画像提取 + KG 处理作为后台任务，不阻塞主流程
+            asyncio.create_task(
+                self._post_capture_background(memory, user_id)
+            )
             
             return memory
             
         except Exception as e:
             logger.error(f"Failed to capture memory: {e}", exc_info=True)
             return None
+
+    async def _post_capture_background(self, memory, user_id: str) -> None:
+        """后台执行画像更新和知识图谱提取（不阻塞主回答）"""
+        # 画像更新
+        try:
+            await self._update_persona_from_memory(memory, user_id)
+        except Exception as e:
+            logger.warning(f"Background persona update failed: {e}")
+
+        # 知识图谱处理
+        if hasattr(self, 'kg') and self.kg and self.kg.enabled:
+            try:
+                await self.kg.process_memory(memory)
+            except Exception as e:
+                logger.debug(f"Background KG processing failed: {e}")
 
     async def _store_memory_by_layer(self, memory) -> None:
         """根据层级存储记忆"""

@@ -340,13 +340,10 @@ class EmbeddingManager:
         
         self.stats["cache_misses"] += 1
         
-        logger.debug(f"Generating embedding: text_len={len(text)}, dimension={dimension}")
-        
         # 2. 如果有当前提供者，尝试使用
         embedding_result = None
         if self.current_provider:
             provider_name = self.current_provider.__class__.__name__.replace("Provider", "").lower()
-            logger.debug(f"Using current provider: {provider_name}")
             try:
                 request = EmbeddingRequest(
                     text=text,
@@ -359,15 +356,12 @@ class EmbeddingManager:
                 self.stats["successful_requests"] += 1
                 self.stats["provider_usage"][provider_name] = self.stats["provider_usage"].get(provider_name, 0) + 1
                 
-                logger.debug(f"Embedding generated successfully: provider={provider_name}, dimension={len(embedding_result)}")
-                
             except Exception as e:
                 logger.warning(f"Current provider {provider_name} failed: {e}, trying fallback")
                 self.stats["failed_requests"] += 1
         
         # 3. 如果当前提供者失败，尝试降级
         if embedding_result is None:
-            logger.debug("Current provider failed, attempting fallback...")
             embedding_result = await self._embed_with_fallback(text, dimension)
         
         # 4. 添加到缓存

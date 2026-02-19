@@ -145,7 +145,6 @@ class EmotionAnalyzer:
         """
         # 处理 None 或空文本
         if text is None:
-            logger.debug("None text, returning neutral")
             return {
                 "primary": EmotionType.NEUTRAL,
                 "secondary": [],
@@ -154,11 +153,7 @@ class EmotionAnalyzer:
                 "contextual_correction": False
             }
         
-        text_preview = text[:40] + "..." if len(text) > 40 else text
-        logger.debug(f"Analyzing emotion for text: '{text_preview}'")
-        
         if not self.enable_emotion:
-            logger.debug("Emotion analysis disabled, returning neutral")
             return {
                 "primary": EmotionType.NEUTRAL,
                 "secondary": [],
@@ -169,19 +164,13 @@ class EmotionAnalyzer:
         
         
         # 1. 情感词典分析（30%权重）
-        logger.debug("Step 1: Dictionary-based analysis...")
         dict_result = self._analyze_by_dict(text)
-        logger.debug(f"Dictionary result: primary={dict_result['primary'].value}, intensity={dict_result['intensity']:.2f}")
         
         # 2. 规则系统分析（30%权重）
-        logger.debug("Step 2: Rule-based analysis...")
         rule_result = self._analyze_by_rules(text)
-        logger.debug(f"Rule result: primary={rule_result['primary'].value}, intensity={rule_result['intensity']:.2f}")
         
         # 3. 上下文修正（可选）
-        logger.debug("Step 3: Contextual correction...")
         contextual_correction = self._detect_contextual_correction(text, context)
-        logger.debug(f"Contextual correction: {contextual_correction}")
         
         # 综合分析结果
         primary, secondary, intensity, confidence = self._combine_results(
@@ -198,7 +187,7 @@ class EmotionAnalyzer:
             "contextual_correction": contextual_correction
         }
         
-        logger.debug(f"Emotion analysis complete: primary={primary.value}, intensity={intensity:.2f}, confidence={confidence:.2f}")
+        logger.debug(f"Emotion: {primary.value} i={intensity:.2f} c={confidence:.2f}")
         return result
     
     def _analyze_by_dict(self, text: str) -> Dict[str, Any]:

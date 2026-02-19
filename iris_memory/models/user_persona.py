@@ -175,6 +175,20 @@ class UserPersona:
         return cls(**filtered)
 
     # ------------------------------------------------------------------
+    # Dict 兼容接口 — 让 UserPersona 可用于 .get() 等字典访问模式
+    # ------------------------------------------------------------------
+    def get(self, key: str, default: Any = None) -> Any:
+        """Dict-compatible get: 委托到 to_injection_view()。
+
+        这使得下游代码无需关心收到的是 UserPersona 对象还是字典，
+        ``user_persona.get("preferences", {})`` 总是有效。
+        """
+        return self.to_injection_view().get(key, default)
+
+    def __contains__(self, key: str) -> bool:
+        return key in self.to_injection_view()
+
+    # ------------------------------------------------------------------
     # 注入视图 — 用于传给 LLM 上下文 / PersonaCoordinator
     # ------------------------------------------------------------------
     def to_injection_view(self) -> Dict[str, Any]:

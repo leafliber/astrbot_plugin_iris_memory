@@ -196,14 +196,14 @@ class LLMTriggerDetector(LLMEnhancedDetector[TriggerDetectionResult]):
         # 高置信度无触发 → 检查隐藏价值后返回
         if not rule_result.should_remember and rule_result.confidence >= 0.8:
             if self._might_have_hidden_value(text):
-                llm_result = await self._llm_detect(text, context)
+                llm_result = await self._llm_detect(text, context=context)
                 if llm_result.should_remember:
                     llm_result.source = "hybrid"
                     return llm_result
             return rule_result
         
         # 不确定区间 → LLM确认
-        llm_result = await self._llm_detect(text, context)
+        llm_result = await self._llm_detect(text, context=context)
         if llm_result.confidence >= 0.6:
             llm_result.source = "hybrid"
             return llm_result

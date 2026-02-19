@@ -171,14 +171,14 @@ class LLMRetrievalRouter(LLMEnhancedDetector[RoutingDetectionResult]):
         # VECTOR_ONLY 且可能复杂 → LLM确认
         if rule_result.strategy == RetrievalStrategy.VECTOR_ONLY:
             if len(query) > 20 or self._might_be_complex(query):
-                llm_result = await self._llm_detect(query, context)
+                llm_result = await self._llm_detect(query, context=context)
                 if llm_result.confidence >= 0.6:
                     llm_result.source = "hybrid"
                     return llm_result
         
         # HYBRID策略 → LLM确认
         if rule_result.strategy == RetrievalStrategy.HYBRID:
-            llm_result = await self._llm_detect(query, context)
+            llm_result = await self._llm_detect(query, context=context)
             if llm_result.confidence >= 0.6:
                 llm_result.source = "hybrid"
                 return llm_result
