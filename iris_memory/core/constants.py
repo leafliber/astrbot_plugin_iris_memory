@@ -215,7 +215,32 @@ class CircuitBreakerConfig:
     HALF_OPEN_MAX: Final[int] = 1              # 半开状态最多允许通过的请求数
 
 
+class LLMRateLimitConfig:
+    """LLM 调用速率限制配置"""
+    DAILY_CALL_LIMIT: Final[int] = 500         # 每日最大 LLM 调用次数
+
+
 # ── 批量处理会话管理常量 ──
+
+class InputValidationConfig:
+    """输入验证配置"""
+    MAX_MESSAGE_LENGTH: Final[int] = 2000      # 单条消息最大长度
+    MAX_QUERY_LENGTH: Final[int] = 500         # 搜索查询最大长度
+    MAX_SAVE_CONTENT_LENGTH: Final[int] = 1000 # 手动保存内容最大长度
+
+
+class RetrievalDefaults:
+    """检索引擎默认值"""
+    TOKEN_BUDGET: Final[int] = 512             # Token 预算
+    MAX_SUMMARY_LENGTH: Final[int] = 100       # 摘要最大长度
+
+
+class CacheDefaults:
+    """缓存默认值"""
+    EMBEDDING_CACHE_MAX_SIZE: Final[int] = 1000  # 嵌入缓存最大条目数
+    EMBEDDING_CACHE_TTL: Final[float] = 3600.0   # 嵌入缓存 TTL（秒）
+    KG_NODE_CACHE_MAX_SIZE: Final[int] = 1000    # KG 节点缓存最大条目数
+
 
 class BatchSessionConfig:
     """批量处理器会话管理配置"""

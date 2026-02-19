@@ -215,22 +215,22 @@ class ChromaManager(ChromaQueries, ChromaOperations):
         
         if old_count > 0 and not backup_ok:
             logger.error(
-                f"⚠️ DATA LOSS WARNING: Backup FAILED for {old_count} memories in "
-                f"collection '{self.collection_name}'. Proceeding with deletion will "
-                f"cause permanent data loss!"
+                f"⚠️ DATA LOSS BLOCKED: Backup FAILED for {old_count} memories in "
+                f"collection '{self.collection_name}'. Refusing to delete the old "
+                f"collection to prevent permanent data loss. "
+                f"Please manually export the data or fix the backup target, "
+                f"then restart the plugin."
+            )
+            raise RuntimeError(
+                f"Dimension conflict detected but backup failed for {old_count} memories. "
+                f"Aborting to prevent data loss. Please manually resolve the conflict."
             )
 
         self.client.delete_collection(name=self.collection_name)
-        if backup_ok:
-            logger.warning(
-                f"Old collection '{self.collection_name}' deleted after dimension conflict. "
-                f"{old_count} memories were backed up. Check backup collection for recovery."
-            )
-        else:
-            logger.error(
-                f"Old collection '{self.collection_name}' deleted after dimension conflict. "
-                f"{old_count} memories were PERMANENTLY LOST (backup failed)."
-            )
+        logger.warning(
+            f"Old collection '{self.collection_name}' deleted after dimension conflict. "
+            f"{old_count} memories were backed up. Check backup collection for recovery."
+        )
 
     def _backup_collection_before_delete(self, existing_collection, old_count: int) -> bool:
         """在删除集合前尝试备份数据到新集合，并额外导出 JSON 文件

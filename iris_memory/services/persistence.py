@@ -35,7 +35,7 @@ class PersistenceOperations:
             await self._load_user_personas(get_kv_data)
             
         except Exception as e:
-            logger.warning(f"Failed to load from KV: {e}")
+            logger.error(f"Failed to load from KV: {e}", exc_info=True)
 
     async def _load_session_data(self, get_kv_data) -> None:
         """加载会话数据"""
@@ -144,7 +144,7 @@ class PersistenceOperations:
             await self._save_user_personas(put_kv_data)
             
         except Exception as e:
-            logger.warning(f"Failed to save to KV: {e}")
+            logger.error(f"Failed to save to KV: {e}", exc_info=True)
 
     async def _save_session_data(self, put_kv_data) -> None:
         """保存会话数据"""

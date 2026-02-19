@@ -18,6 +18,10 @@ from iris_memory.utils.member_utils import format_member_tag
 from iris_memory.retrieval.reranker import Reranker
 from iris_memory.retrieval.retrieval_router import RetrievalRouter
 from iris_memory.retrieval.retrieval_logger import retrieval_log
+from iris_memory.utils.logger import get_logger
+from iris_memory.core.constants import RetrievalDefaults
+
+logger = get_logger("retrieval_engine")
 
 
 class MemoryRetrievalEngine:
@@ -102,8 +106,8 @@ class MemoryRetrievalEngine:
         self.enable_working_memory_merge = True
 
         # Token管理器
-        self.token_budget = TokenBudget(total_budget=512)
-        self.memory_compressor = MemoryCompressor(max_summary_length=100)
+        self.token_budget = TokenBudget(total_budget=RetrievalDefaults.TOKEN_BUDGET)
+        self.memory_compressor = MemoryCompressor(max_summary_length=RetrievalDefaults.MAX_SUMMARY_LENGTH)
         self.memory_selector = DynamicMemorySelector(
             token_budget=self.token_budget,
             compressor=self.memory_compressor
@@ -171,7 +175,13 @@ class MemoryRetrievalEngine:
             retrieval_log.retrieve_ok(user_id, len(result), strategy.value if hasattr(strategy, 'value') else str(strategy))
             return result
             
+        except (ValueError, TypeError) as e:
+            # 数据格式/类型错误：可恢复
+            retrieval_log.retrieve_error(user_id, e)
+            return []
         except Exception as e:
+            # 未预期异常：记录完整堆栈
+            logger.error(f"Unexpected retrieval error for user={user_id}", exc_info=True)
             retrieval_log.retrieve_error(user_id, e)
             return []
     

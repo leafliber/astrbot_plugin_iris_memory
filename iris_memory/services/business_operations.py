@@ -71,7 +71,7 @@ class BusinessOperations:
             return memory
             
         except Exception as e:
-            logger.warning(f"Failed to capture memory: {e}")
+            logger.error(f"Failed to capture memory: {e}", exc_info=True)
             return None
 
     async def _store_memory_by_layer(self, memory) -> None:
@@ -262,7 +262,7 @@ class BusinessOperations:
             return success, count
             
         except Exception as e:
-            logger.warning(f"Failed to delete all memories: {e}")
+            logger.error(f"Failed to delete all memories: {e}", exc_info=True)
             return False, 0
 
     async def get_memory_stats(

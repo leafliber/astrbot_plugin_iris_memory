@@ -31,18 +31,20 @@ class ConfigManager:
     线程安全：对 _cache 和 _user_config 的读写均通过锁保护。
     """
     
-    # 配置缓存 TTL（秒），缓存过期后自动重新从用户配置对象读取
-    _CACHE_TTL: float = 30.0
+    # 默认配置缓存 TTL（秒），可通过构造参数覆盖
+    DEFAULT_CACHE_TTL: float = 30.0
 
-    def __init__(self, user_config: Any = None):
+    def __init__(self, user_config: Any = None, *, cache_ttl: Optional[float] = None):
         """初始化配置管理器
         
         Args:
             user_config: AstrBot用户配置对象
+            cache_ttl: 配置缓存 TTL（秒），None 使用默认值
         """
         self._lock = threading.Lock()
         self._user_config = user_config
         self._cache: Dict[str, Tuple[Any, float]] = {}  # key -> (value, expire_time)
+        self._cache_ttl: float = cache_ttl if cache_ttl is not None else self.DEFAULT_CACHE_TTL
         
         # 场景自适应组件（延迟初始化）
         self._activity_provider: Optional[ActivityAwareConfigProvider] = None
@@ -151,7 +153,7 @@ class ConfigManager:
                 del self._cache[key]
                 
             value = self._get_value(key, default)
-            self._cache[key] = (value, now + self._CACHE_TTL)
+            self._cache[key] = (value, now + self._cache_ttl)
             return value
     
     def _get_value(self, key: str, default: Any = None) -> Any:

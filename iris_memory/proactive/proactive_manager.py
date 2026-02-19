@@ -14,6 +14,7 @@ from dataclasses import dataclass
 
 from iris_memory.utils.logger import get_logger
 from iris_memory.utils.command_utils import SessionKeyBuilder
+from iris_memory.utils.bounded_dict import BoundedDict
 from iris_memory.proactive.proactive_reply_detector import (
     ProactiveReplyDetector, ProactiveReplyDecision
 )
@@ -80,9 +81,9 @@ class ProactiveReplyManager:
             dynamic_whitelist = []
         self._dynamic_whitelist: set = set(str(group_id) for group_id in dynamic_whitelist if group_id)
         
-        # 状态跟踪
-        self.last_reply_time: Dict[str, float] = {}
-        self.daily_reply_count: Dict[str, int] = {}
+        # 状态跟踪（有界，防止内存无限增长）
+        self.last_reply_time: BoundedDict[str, float] = BoundedDict(max_size=2000)
+        self.daily_reply_count: BoundedDict[str, int] = BoundedDict(max_size=2000)
         self.pending_tasks: asyncio.Queue = asyncio.Queue()
         self.processing_task: Optional[asyncio.Task] = None
         self.is_running = False

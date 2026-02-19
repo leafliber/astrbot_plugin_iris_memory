@@ -12,6 +12,22 @@ from iris_memory.utils.logger import get_logger
 logger = get_logger("sensitivity_detector")
 
 
+def _mask_sensitive(value: str) -> str:
+    """对敏感信息进行脱敏处理
+    
+    规则：
+    - 长度 <= 4: 全部替换为 *
+    - 长度 <= 8: 保留首尾各1字符
+    - 长度 > 8: 保留首尾各4字符
+    """
+    length = len(value)
+    if length <= 4:
+        return "*" * length
+    if length <= 8:
+        return value[0] + "*" * (length - 2) + value[-1]
+    return value[:4] + "*" * (length - 8) + value[-4:]
+
+
 def _validate_china_id(digits: str) -> bool:
     """验证中国身份证号校验位（GB 11643-1999）"""
     if len(digits) != 18:
@@ -139,14 +155,14 @@ class SensitivityDetector:
         validated_creds = self._detect_validated_credentials(text)
         if validated_creds:
             for cred in validated_creds:
-                detected_entities.append(f"CRITICAL: {cred}")
+                detected_entities.append(f"CRITICAL: {_mask_sensitive(cred)}")
             max_level = SensitivityLevel.CRITICAL
         
         # 检测其他 CRITICAL 级别模式
         critical_matches = self._detect_patterns(text, self.critical_patterns)
         if critical_matches:
             for match in critical_matches:
-                detected_entities.append(f"CRITICAL: {match}")
+                detected_entities.append(f"CRITICAL: {_mask_sensitive(match)}")
             max_level = SensitivityLevel.CRITICAL
         sensitive_matches = self._detect_patterns(text, self.sensitive_patterns)
         if sensitive_matches:
