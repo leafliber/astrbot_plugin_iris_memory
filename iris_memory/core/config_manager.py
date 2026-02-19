@@ -426,6 +426,11 @@ class ConfigManager:
             self.retrieval_mode,
         ]
         return any(mode in ("llm", "hybrid") for mode in modes)
+
+    # 知识图谱配置
+    @property
+    def knowledge_graph_provider_id(self) -> str:
+        return normalize_provider_id(self.get("knowledge_graph.provider_id", ""))
     
     # ========== 批量处理动态配置 ==========
     

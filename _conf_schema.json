@@ -240,6 +240,13 @@
         "options": ["rule", "llm", "hybrid"],
         "hint": "rule-规则匹配（默认），llm-LLM智能提取（更准确但消耗token），hybrid-混合"
       },
+      "provider_id": {
+        "description": "知识图谱LLM提供者",
+        "type": "string",
+        "_special": "select_provider",
+        "default": "",
+        "hint": "留空使用默认提供者，仅在 llm/hybrid 提取模式下生效"
+      },
       "max_depth": {
         "description": "最大推理跳数",
         "type": "int",

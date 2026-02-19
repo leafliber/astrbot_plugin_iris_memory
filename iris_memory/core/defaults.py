@@ -323,6 +323,7 @@ class KnowledgeGraphDefaults:
     """知识图谱默认配置"""
     enabled: bool = True                   # 是否启用知识图谱
     extraction_mode: str = "rule"           # 提取模式: rule / llm / hybrid
+    provider_id: str = ""                  # 知识图谱 LLM provider ID，空字符串表示使用默认
     max_depth: int = 3                     # BFS 最大跳数
     max_nodes_per_hop: int = 10            # 每跳最大节点数
     max_facts: int = 8                     # 注入LLM的最大事实数

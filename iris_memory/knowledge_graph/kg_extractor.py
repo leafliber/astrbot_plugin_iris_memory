@@ -270,6 +270,7 @@ class KGExtractor:
         self._astrbot_context = astrbot_context
         self._provider_id = provider_id
         self._provider = None
+        self._resolved_provider_id: Optional[str] = None
         self._provider_initialized = False
 
     # ================================================================
@@ -457,16 +458,17 @@ class KGExtractor:
 
             from iris_memory.utils.llm_helper import call_llm, parse_llm_json
             result = await call_llm(
-                provider=self._provider,
-                prompt=prompt,
-                max_tokens=500,
-                temperature=0.3,
+                self._astrbot_context,
+                self._provider,
+                self._resolved_provider_id,
+                prompt,
+                parse_json=True,
             )
 
             if not result.success or not result.content:
                 return []
 
-            data = parse_llm_json(result.content)
+            data = result.parsed_json or parse_llm_json(result.content)
             if not data or "triples" not in data:
                 return []
 
@@ -523,13 +525,14 @@ class KGExtractor:
         self._provider_initialized = True
         try:
             from iris_memory.utils.llm_helper import resolve_llm_provider
-            provider, _ = resolve_llm_provider(
+            provider, resolved_provider_id = resolve_llm_provider(
                 self._astrbot_context,
                 self._provider_id or "",
                 label="KGExtractor",
             )
             if provider:
                 self._provider = provider
+                self._resolved_provider_id = resolved_provider_id
                 return True
         except Exception as e:
             logger.warning(f"Failed to resolve LLM provider for KGExtractor: {e}")

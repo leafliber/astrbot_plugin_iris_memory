@@ -94,6 +94,7 @@ def _configure_logger(logger: logging.Logger, name: str) -> None:
     """配置单个logger"""
     logger.handlers = []
     logger.setLevel(getattr(logging, _LOG_CONFIG["level"]))
+    logger.propagate = False
     
     formatter = logging.Formatter(
         _LOG_CONFIG["format"],

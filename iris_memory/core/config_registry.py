@@ -389,6 +389,14 @@ def _build_registry() -> Dict[str, ConfigDefinition]:
             value_type=str,
         ),
         ConfigDefinition(
+            key="knowledge_graph.provider_id",
+            section="knowledge_graph",
+            attr="provider_id",
+            default="",
+            description="知识图谱LLM提供者ID",
+            value_type=str,
+        ),
+        ConfigDefinition(
             key="knowledge_graph.max_depth",
             section="knowledge_graph",
             attr="max_depth",

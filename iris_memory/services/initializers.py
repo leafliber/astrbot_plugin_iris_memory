@@ -87,7 +87,7 @@ class ServiceInitializer:
         await self.kg.initialize(
             plugin_data_path=self.plugin_data_path,
             astrbot_context=self.context,
-            provider_id=None,
+            provider_id=self.cfg.knowledge_graph_provider_id,
             kg_mode=kg_mode,
             max_depth=kg_max_depth,
             max_nodes_per_hop=kg_max_nodes,
