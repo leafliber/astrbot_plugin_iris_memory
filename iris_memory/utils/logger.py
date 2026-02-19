@@ -37,6 +37,25 @@ _LOG_CONFIG = {
 _loggers: Dict[str, logging.Logger] = {}
 
 
+def _to_flat_logger_name(name: str) -> str:
+    """将模块名扁平化为单层 logger 名，避免形成父子 logger 层级。"""
+    normalized = name.strip().replace(" ", "_")
+    while ".." in normalized:
+        normalized = normalized.replace("..", ".")
+    normalized = normalized.strip(".")
+    flat = normalized.replace(".", "_")
+    return f"iris_memory__{flat}" if flat else "iris_memory"
+
+
+def _extract_module_name(logger_name: str) -> str:
+    """从 logger 名中提取用于展示的模块名。"""
+    if logger_name.startswith("iris_memory__"):
+        return logger_name[len("iris_memory__"):]
+    if logger_name.startswith("iris_memory."):
+        return logger_name[len("iris_memory."):].replace(".", "_")
+    return logger_name.replace(".", "_")
+
+
 class AstrBotLogHandler(logging.Handler):
     """将日志转发到 AstrBot 控制台"""
 
@@ -44,8 +63,7 @@ class AstrBotLogHandler(logging.Handler):
         if not _ASTRBOT_LOGGER_AVAILABLE or astrbot_logger is None:
             return
 
-        # 获取实际模块名（去掉 iris_memory. 前缀）
-        module_name = record.name.replace("iris_memory.", "")
+        module_name = _extract_module_name(record.name)
 
         # 构建消息：模块名: 消息内容
         msg = f"[{module_name}] {record.getMessage()}"
@@ -94,7 +112,6 @@ def _configure_logger(logger: logging.Logger, name: str) -> None:
     """配置单个logger"""
     logger.handlers = []
     logger.setLevel(getattr(logging, _LOG_CONFIG["level"]))
-    logger.propagate = False
     
     formatter = logging.Formatter(
         _LOG_CONFIG["format"],
@@ -133,7 +150,7 @@ def get_logger(name: str) -> logging.Logger:
     if name in _loggers:
         return _loggers[name]
     
-    logger = logging.getLogger(f"iris_memory.{name}")
+    logger = logging.getLogger(_to_flat_logger_name(name))
     _configure_logger(logger, name)
     _loggers[name] = logger
     
