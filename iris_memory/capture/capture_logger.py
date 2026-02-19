@@ -42,7 +42,7 @@ class CaptureLogger:
     def trigger_detected(
         self,
         user_id: str,
-        triggers: List[Dict[str, Any]]
+        triggers: list
     ) -> None:
         if not triggers:
             _logger.debug(f"CAPTURE.TRIGGER.NONE user={user_id}")
@@ -50,9 +50,9 @@ class CaptureLogger:
         for t in triggers:
             _logger.debug(
                 f"CAPTURE.TRIGGER.DETECT user={user_id} "
-                f"type={t.get('type', '?')} "
-                f"conf={t.get('confidence', 0):.2f} "
-                f"pattern={_trunc(str(t.get('pattern', '')), 20)}"
+                f"type={getattr(t, 'type', '?')} "
+                f"conf={getattr(t, 'confidence', 0):.2f} "
+                f"pattern={_trunc(str(getattr(t, 'pattern', '')), 20)}"
             )
 
     def sensitivity_detected(

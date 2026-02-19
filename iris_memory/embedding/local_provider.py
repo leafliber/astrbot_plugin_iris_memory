@@ -5,13 +5,11 @@
 支持后台异步加载模型，避免阻塞插件启动。
 """
 
+import asyncio
 import os
-# 在导入 transformers 之前设置环境变量以抑制输出
-os.environ["TRANSFORMERS_VERBOSITY"] = "error"
-os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"
-
 import threading
 from typing import List, Dict, Any, Optional
+
 import numpy as np
 
 from .base import EmbeddingProvider, EmbeddingRequest, EmbeddingResponse
@@ -71,6 +69,9 @@ class LocalProvider(EmbeddingProvider):
             
             # 检查依赖
             try:
+                # 在导入前设置环境变量以抑制 transformers 输出
+                os.environ.setdefault("TRANSFORMERS_VERBOSITY", "error")
+                os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
                 # 禁用 transformers 进度条
                 from transformers.utils import logging as transformers_logging
                 transformers_logging.disable_progress_bar()
@@ -160,7 +161,7 @@ class LocalProvider(EmbeddingProvider):
     async def embed(self, request: EmbeddingRequest) -> EmbeddingResponse:
         """生成嵌入向量
         
-        如果模型尚未加载完成，会阻塞等待（带超时）。
+        如果模型尚未加载完成，会在线程池中等待（不阻塞事件循环）。
         
         Args:
             request: 嵌入请求对象
@@ -168,15 +169,16 @@ class LocalProvider(EmbeddingProvider):
         Returns:
             EmbeddingResponse: 嵌入响应对象
         """
-        # 等待模型加载完成
-        self._wait_for_model()
+        # 在线程池中等待模型加载完成，避免阻塞事件循环
+        await asyncio.to_thread(self._wait_for_model)
         
         try:
-            # 生成嵌入
-            embedding = self._model_instance.encode(
+            # CPU 密集型编码放到线程池执行
+            embedding = await asyncio.to_thread(
+                self._model_instance.encode,
                 request.text,
                 convert_to_numpy=True,
-                normalize_embeddings=True  # 标准化向量
+                normalize_embeddings=True,  # 标准化向量
             )
             
             # 维度适配（如果需要）
@@ -206,18 +208,19 @@ class LocalProvider(EmbeddingProvider):
         Returns:
             List[EmbeddingResponse]: 嵌入响应列表
         """
-        # 等待模型加载完成
-        self._wait_for_model()
+        # 在线程池中等待模型加载完成
+        await asyncio.to_thread(self._wait_for_model)
         
         try:
             texts = [req.text for req in requests]
             
-            # 批量生成嵌入（更高效）
-            embeddings = self._model_instance.encode(
+            # CPU 密集型批量编码放到线程池执行
+            embeddings = await asyncio.to_thread(
+                self._model_instance.encode,
                 texts,
                 convert_to_numpy=True,
                 normalize_embeddings=True,
-                show_progress_bar=False
+                show_progress_bar=False,
             )
             
             responses = []

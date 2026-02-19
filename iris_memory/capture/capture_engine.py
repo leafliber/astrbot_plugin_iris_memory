@@ -11,7 +11,7 @@ from datetime import datetime
 from iris_memory.models.memory import Memory
 from iris_memory.core.types import (
     MemoryType, ModalityType, QualityLevel, SensitivityLevel,
-    StorageLayer, VerificationMethod, TriggerType
+    StorageLayer, VerificationMethod, TriggerType, TriggerMatch
 )
 from iris_memory.analysis.emotion.emotion_analyzer import EmotionAnalyzer
 from iris_memory.analysis.entity.entity_extractor import EntityExtractor
@@ -258,7 +258,7 @@ class MemoryCaptureEngine:
         self,
         message: str,
         group_id: Optional[str],
-        triggers: List[Dict[str, Any]]
+        triggers: List[TriggerMatch]
     ) -> 'MemoryScope':
         """确定记忆的可见性范围
         
@@ -323,7 +323,7 @@ class MemoryCaptureEngine:
 
     def _determine_memory_type(
         self,
-        triggers: List[Dict[str, Any]],
+        triggers: List[TriggerMatch],
         emotion_result: Dict[str, Any]
     ) -> MemoryType:
         """确定记忆类型
@@ -335,7 +335,7 @@ class MemoryCaptureEngine:
         Returns:
             MemoryType: 记忆类型
         """
-        trigger_types = [t["type"] for t in triggers]
+        trigger_types = [t.type for t in triggers]
         
         # 根据触发器类型确定记忆类型
         if TriggerType.EMOTION in trigger_types:
@@ -364,7 +364,7 @@ class MemoryCaptureEngine:
     def _generate_summary(
         self,
         message: str,
-        triggers: List[Dict[str, Any]]
+        triggers: List[TriggerMatch]
     ) -> Optional[str]:
         """生成记忆摘要
         
@@ -383,7 +383,7 @@ class MemoryCaptureEngine:
     def _assess_quality(
         self,
         memory: Memory,
-        triggers: List[Dict[str, Any]],
+        triggers: List[TriggerMatch],
         emotion_result: Dict[str, Any]
     ):
         """评估记忆质量
@@ -398,7 +398,7 @@ class MemoryCaptureEngine:
         
         # 1. 触发器置信度（权重 40%）
         if triggers:
-            max_trigger_confidence = max(t["confidence"] for t in triggers)
+            max_trigger_confidence = max(t.confidence for t in triggers)
             # 多触发器加成：多信号一致表示更高置信度
             trigger_bonus = min(0.15, len(triggers) * 0.05)
             trigger_conf = min(1.0, max_trigger_confidence + trigger_bonus)
@@ -430,7 +430,7 @@ class MemoryCaptureEngine:
         # 5. 设置验证方法
         if memory.is_user_requested:
             memory.verification_method = VerificationMethod.USER_EXPLICIT
-        elif any(t["type"] == TriggerType.EXPLICIT for t in triggers):
+        elif any(t.type == TriggerType.EXPLICIT for t in triggers):
             memory.verification_method = VerificationMethod.USER_EXPLICIT
         elif len(triggers) > 1:
             memory.verification_method = VerificationMethod.MULTIPLE_MENTIONS
@@ -441,7 +441,7 @@ class MemoryCaptureEngine:
         # 用于 RIF 评分的 Frequency 维度差异化
         if triggers:
             # 触发器置信度作为基础重要性
-            max_trigger_conf = max(t["confidence"] for t in triggers)
+            max_trigger_conf = max(t.confidence for t in triggers)
             trigger_importance = max_trigger_conf
         else:
             trigger_importance = 0.3  # 无触发器的默认重要性
@@ -460,11 +460,11 @@ class MemoryCaptureEngine:
             trigger_consistency = min(1.0, len(triggers) * 0.2 + 0.4)
             
             # 显式触发器（如"记住"、"重要"）表示高一致性
-            if any(t["type"] == TriggerType.EXPLICIT for t in triggers):
+            if any(t.type == TriggerType.EXPLICIT for t in triggers):
                 trigger_consistency = min(1.0, trigger_consistency + 0.2)
             
             # 偏好/事实触发器表示信息明确
-            if any(t["type"] in [TriggerType.PREFERENCE, TriggerType.FACT] for t in triggers):
+            if any(t.type in [TriggerType.PREFERENCE, TriggerType.FACT] for t in triggers):
                 trigger_consistency = min(1.0, trigger_consistency + 0.1)
         else:
             trigger_consistency = 0.3  # 无触发器的默认一致性
@@ -474,7 +474,7 @@ class MemoryCaptureEngine:
     def _calculate_consistency_score(
         self,
         memory: Memory,
-        triggers: List[Dict[str, Any]],
+        triggers: List[TriggerMatch],
         emotion_result: Dict[str, Any]
     ) -> float:
         """计算上下文一致性评分
@@ -496,13 +496,13 @@ class MemoryCaptureEngine:
         
         # 1. 触发器类型多样性加成
         if triggers:
-            trigger_types = set(t["type"] for t in triggers)
+            trigger_types = set(t.type for t in triggers)
             # 多种类型触发器表示信息更可靠
             diversity_bonus = min(0.2, len(trigger_types) * 0.08)
             score += diversity_bonus
             
             # 显式触发器（如"记住"、"重要"）加成
-            if any(t["type"] == TriggerType.EXPLICIT for t in triggers):
+            if any(t.type == TriggerType.EXPLICIT for t in triggers):
                 score += 0.15
         
         # 2. 情感强度与记忆类型匹配
@@ -581,7 +581,7 @@ class MemoryCaptureEngine:
         self.enable_conflict_check = config.get("enable_conflict_check", DEFAULTS.memory.enable_conflict_check)
         self.enable_entity_extraction = config.get("enable_entity_extraction", DEFAULTS.memory.enable_entity_extraction)
     
-    async def _detect_triggers(self, message: str) -> List[Dict[str, Any]]:
+    async def _detect_triggers(self, message: str) -> List[TriggerMatch]:
         """检测触发器（支持LLM增强）
         
         Args:
@@ -594,12 +594,12 @@ class MemoryCaptureEngine:
             try:
                 result = await self._llm_trigger_detector.detect(message)
                 if result.should_remember and result.trigger_type:
-                    return [{
-                        "type": result.trigger_type,
-                        "pattern": "llm_detected",
-                        "confidence": result.confidence,
-                        "position": 0
-                    }]
+                    return [TriggerMatch(
+                        type=result.trigger_type,
+                        pattern="llm_detected",
+                        confidence=result.confidence,
+                        position=0,
+                    )]
                 elif not result.should_remember and result.confidence >= 0.7:
                     return []
             except Exception as e:

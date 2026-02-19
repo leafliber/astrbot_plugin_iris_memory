@@ -9,7 +9,7 @@ from datetime import datetime
 
 from iris_memory.utils.logger import get_logger
 from iris_memory.core.constants import (
-    SessionScope, PersonaStyle, NumericDefaults, LogTemplates
+    SessionScope, PersonaStyle, NumericDefaults, LogTemplates, UNLIMITED_BUDGET
 )
 from iris_memory.core.types import StorageLayer
 from iris_memory.utils.command_utils import SessionKeyBuilder
@@ -487,7 +487,7 @@ class BusinessOperations:
         
         try:
             daily_budget = self.cfg.get_daily_analysis_budget(group_id)
-            effective_daily_budget = daily_budget if daily_budget > 0 else 999999
+            effective_daily_budget = daily_budget if daily_budget > 0 else UNLIMITED_BUDGET
 
             image_results = await self._image_analyzer.analyze_message_images(
                 message_chain=message_chain,

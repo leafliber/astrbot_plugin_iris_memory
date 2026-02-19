@@ -397,40 +397,56 @@ class ConfigManager:
     
     # ========== 批量处理动态配置 ==========
     
+    def _with_group_override(self, group_id: Optional[str], key: str, fallback_key: str, default: Any) -> Any:
+        """通用群级自适应配置查询。
+
+        优先返回群级配置 ``get_group_config(group_id, key)``，
+        不存在时回退到全局 ``self.get(fallback_key, default)``。
+        """
+        val = self.get_group_config(group_id, key)
+        return val if val is not None else self.get(fallback_key, default)
+    
     def get_batch_threshold_count(self, group_id: Optional[str] = None) -> int:
         """获取批量处理阈值（群级自适应）"""
-        val = self.get_group_config(group_id, "batch_threshold_count")
-        return val if val is not None else self.batch_threshold_count
+        return self._with_group_override(group_id, "batch_threshold_count",
+                                         "message_processing.batch_threshold_count",
+                                         DEFAULTS.message_processing.batch_threshold_count)
     
     def get_batch_threshold_interval(self, group_id: Optional[str] = None) -> int:
         """获取批量处理间隔（群级自适应）"""
-        val = self.get_group_config(group_id, "batch_threshold_interval")
-        return val if val is not None else self.get("message_processing.batch_threshold_interval", DEFAULTS.message_processing.batch_threshold_interval)
+        return self._with_group_override(group_id, "batch_threshold_interval",
+                                         "message_processing.batch_threshold_interval",
+                                         DEFAULTS.message_processing.batch_threshold_interval)
     
     def get_chat_context_count(self, group_id: Optional[str] = None) -> int:
         """获取聊天上下文数量（群级自适应）"""
-        val = self.get_group_config(group_id, "chat_context_count")
-        return val if val is not None else self.chat_context_count
+        return self._with_group_override(group_id, "chat_context_count",
+                                         "advanced.chat_context_count",
+                                         DEFAULTS.llm_integration.chat_context_count)
     
     def get_cooldown_seconds(self, group_id: Optional[str] = None) -> int:
         """获取主动回复冷却时间（群级自适应）"""
-        val = self.get_group_config(group_id, "cooldown_seconds")
-        return val if val is not None else self.get("proactive_reply.cooldown_seconds", DEFAULTS.proactive_reply.cooldown_seconds)
+        return self._with_group_override(group_id, "cooldown_seconds",
+                                         "proactive_reply.cooldown_seconds",
+                                         DEFAULTS.proactive_reply.cooldown_seconds)
     
     def get_max_daily_replies(self, group_id: Optional[str] = None) -> int:
         """获取每日最大回复次数（群级自适应）"""
-        val = self.get_group_config(group_id, "max_daily_replies")
-        return val if val is not None else self.proactive_reply_max_daily
+        return self._with_group_override(group_id, "max_daily_replies",
+                                         "proactive_reply.max_daily_replies",
+                                         DEFAULTS.proactive_reply.max_daily_replies)
     
     def get_daily_analysis_budget(self, group_id: Optional[str] = None) -> int:
         """获取每日分析预算（群级自适应）"""
-        val = self.get_group_config(group_id, "daily_analysis_budget")
-        return val if val is not None else self.image_analysis_daily_budget
+        return self._with_group_override(group_id, "daily_analysis_budget",
+                                         "image_analysis.daily_analysis_budget",
+                                         DEFAULTS.image_analysis.daily_analysis_budget)
     
     def get_reply_temperature(self, group_id: Optional[str] = None) -> float:
         """获取回复温度（群级自适应）"""
-        val = self.get_group_config(group_id, "reply_temperature")
-        return val if val is not None else self.get("proactive_reply.reply_temperature", DEFAULTS.proactive_reply.reply_temperature)
+        return self._with_group_override(group_id, "reply_temperature",
+                                         "proactive_reply.reply_temperature",
+                                         DEFAULTS.proactive_reply.reply_temperature)
 
 
 # 全局配置管理器 — 通过 ServiceContainer 管理

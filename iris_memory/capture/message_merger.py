@@ -10,6 +10,7 @@ from typing import List, Dict, Any, Optional, Set
 from dataclasses import dataclass, field
 
 from iris_memory.utils.logger import get_logger
+from iris_memory.utils.fingerprint import compute_message_fingerprint
 
 logger = get_logger("message_merger")
 
@@ -86,15 +87,14 @@ class MessageMerger:
         Returns:
             str: 指纹字符串
         """
-        simplified = ''.join(c.lower() for c in content if c.isalnum())
-        simplified = simplified[:80]
-        return hashlib.md5(simplified.encode()).hexdigest()[:12]
+        return compute_message_fingerprint(content, max_length=80, hash_length=12)
     
-    def is_duplicate_message(self, content: str) -> bool:
+    def is_duplicate_message(self, content: str, *, register: bool = True) -> bool:
         """检查消息是否重复
         
         Args:
             content: 消息内容
+            register: 若为 False，仅查询不注册（纯查询模式）
             
         Returns:
             bool: 是否重复
@@ -104,14 +104,19 @@ class MessageMerger:
         if fingerprint in self._processed_fingerprints:
             return True
         
+        if register:
+            self.register_fingerprint(fingerprint)
+        
+        return False
+    
+    def register_fingerprint(self, fingerprint: str) -> None:
+        """将指纹注册为已处理"""
         self._processed_fingerprints.add(fingerprint)
         
         if len(self._processed_fingerprints) > self.fingerprint_cache_size:
             self._processed_fingerprints = set(
                 list(self._processed_fingerprints)[self.fingerprint_trim_size:]
             )
-        
-        return False
     
     def deduplicate_messages(self, queue: List[QueuedMessage]) -> List[QueuedMessage]:
         """消息去重

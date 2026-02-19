@@ -2,7 +2,42 @@
 常量定义模块 - 集中管理所有硬编码常量和Prompt模板
 """
 from enum import Enum
-from typing import Final, Set
+from typing import Final, FrozenSet, Set
+
+from iris_memory.core.types import EmotionType
+
+
+# ── 共享情感常量 ──
+
+NEGATIVE_EMOTIONS_ALL: Final[FrozenSet[EmotionType]] = frozenset([
+    EmotionType.SADNESS, EmotionType.ANGER, EmotionType.FEAR,
+    EmotionType.DISGUST, EmotionType.ANXIETY,
+])
+"""完整负面情绪集（5 种）"""
+
+NEGATIVE_EMOTIONS_CORE: Final[FrozenSet[EmotionType]] = frozenset([
+    EmotionType.SADNESS, EmotionType.ANGER, EmotionType.ANXIETY,
+])
+"""核心负面情绪子集（3 种，常用于检测触发）"""
+
+NEGATIVE_EMOTION_STRINGS: Final[FrozenSet[str]] = frozenset([
+    "sadness", "anger", "fear", "disgust", "anxiety",
+])
+"""负面情绪字符串集（用于 dict-keyed 上下文）"""
+
+DEFAULT_EMOTION: Final[str] = "neutral"
+"""默认情绪状态（== EmotionType.NEUTRAL.value）"""
+
+
+# ── 主动回复 extras key ──
+
+PROACTIVE_EXTRA_KEY: Final[str] = "iris_proactive"
+PROACTIVE_CONTEXT_KEY: Final[str] = "iris_proactive_context"
+
+
+# ── 无限预算哨兵值 ──
+
+UNLIMITED_BUDGET: Final[int] = 999999
 
 
 class CommandPrefix:
@@ -14,14 +49,6 @@ class CommandPrefix:
     MEMORY_STATS: Final[Set[str]] = frozenset(["/memory_stats", "memory_stats"])
     MEMORY_DELETE: Final[Set[str]] = frozenset(["/memory_delete", "memory_delete"])
     PROACTIVE_REPLY: Final[Set[str]] = frozenset(["/proactive_reply", "proactive_reply"])
-
-
-class KnownCommands:
-    """已知指令列表"""
-    ALL_COMMANDS: Final[Set[str]] = frozenset([
-        "memory_save", "memory_search", "memory_clear", "memory_stats",
-        "memory_delete", "proactive_reply", "activity_status"
-    ])
 
 
 class DeleteMainScope(Enum):
@@ -63,18 +90,6 @@ class SessionScope:
     PRIVATE: Final[str] = "private"
     GROUP_SHARED: Final[str] = "group_shared"
     GROUP_PRIVATE: Final[str] = "group_private"
-
-
-class DeleteScope:
-    """删除范围"""
-    SHARED: Final[str] = "shared"
-    PRIVATE: Final[str] = "private"
-    ALL: Final[str] = "all"
-
-
-class MessageTypeIndicators:
-    """消息类型指示器"""
-    WORKING_LAYER: Final[str] = "working"
 
 
 class KVStoreKeys:
@@ -165,13 +180,6 @@ class NumericDefaults:
     CONFIRM_VALUE: Final[str] = "confirm"
     SESSION_TIMEOUT_HOURS: Final[int] = 24
     SECONDS_PER_HOUR: Final[int] = 3600
-
-
-# 分隔符
-class Separators:
-    """分隔符"""
-    SESSION_KEY: Final[str] = ":"
-    KV_KEY: Final[str] = "_"
 
 
 class ErrorFriendlyMessages:

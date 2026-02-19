@@ -10,6 +10,7 @@ from typing import List, Dict, Any, Optional
 
 from iris_memory.utils.logger import get_logger
 from iris_memory.analysis.persona.persona_logger import persona_log
+from iris_memory.core.constants import DEFAULT_EMOTION
 
 # 模块logger
 logger = get_logger("persona_coordinator")
@@ -454,9 +455,9 @@ class PersonaCoordinator:
         # 情感状态
         emotional = user_persona.get("emotional", {})
         if emotional:
-            baseline = emotional.get("baseline", "neutral")
+            baseline = emotional.get("baseline", DEFAULT_EMOTION)
             trajectory = emotional.get("trajectory")
-            if baseline != "neutral" or trajectory:
+            if baseline != DEFAULT_EMOTION or trajectory:
                 desc = f"情感基线: {baseline}"
                 if trajectory:
                     desc += f", 趋势: {trajectory}"

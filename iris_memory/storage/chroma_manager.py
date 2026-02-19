@@ -180,7 +180,11 @@ class ChromaManager(ChromaQueries, ChromaOperations):
         return detected_dimension
 
     def _handle_dimension_conflict(self, existing_collection, detected_dimension: Optional[int]) -> None:
-        """处理维度冲突"""
+        """处理维度冲突
+
+        当嵌入模型更换导致维度不匹配时，先尝试备份旧集合再删除。
+        如果备份也失败，仍会删除旧集合（但会输出 ERROR 级别日志）。
+        """
         if not existing_collection or not detected_dimension:
             return
         
@@ -192,10 +196,55 @@ class ChromaManager(ChromaQueries, ChromaOperations):
         logger.warning(
             f"Embedding dimension conflict detected! "
             f"Collection has {detected_dimension}-dim vectors but provider outputs {actual_dimension}-dim. "
-            f"Recreating collection (old memories count: {old_count} will be lost). "
+            f"Old memories count: {old_count}. "
             f"This usually happens when the embedding model/provider changes."
         )
+
+        # 尝试将旧集合备份为带时间戳的副本
+        if old_count > 0:
+            self._backup_collection_before_delete(existing_collection, old_count)
+
         self.client.delete_collection(name=self.collection_name)
+        logger.warning(
+            f"Old collection '{self.collection_name}' deleted after dimension conflict. "
+            f"{old_count} memories were lost. Check backup collection if available."
+        )
+
+    def _backup_collection_before_delete(self, existing_collection, old_count: int) -> None:
+        """在删除集合前尝试备份数据到新集合"""
+        import time
+        backup_name = f"{self.collection_name}_backup_{int(time.time())}"
+        try:
+            all_data = existing_collection.get(include=["documents", "metadatas", "embeddings"])
+            if not all_data or not all_data.get("ids"):
+                logger.info("No data in old collection to backup.")
+                return
+
+            backup_col = self.client.create_collection(name=backup_name)
+            # ChromaDB add 的批量大小限制，分批写入
+            batch_size = 500
+            ids = all_data["ids"]
+            for i in range(0, len(ids), batch_size):
+                end = min(i + batch_size, len(ids))
+                batch_kwargs = {"ids": ids[i:end]}
+                if all_data.get("documents"):
+                    batch_kwargs["documents"] = all_data["documents"][i:end]
+                if all_data.get("metadatas"):
+                    batch_kwargs["metadatas"] = all_data["metadatas"][i:end]
+                if all_data.get("embeddings"):
+                    batch_kwargs["embeddings"] = all_data["embeddings"][i:end]
+                backup_col.add(**batch_kwargs)
+
+            logger.warning(
+                f"Backed up {old_count} memories to collection '{backup_name}' "
+                f"before dimension migration. You can manually inspect or delete it later."
+            )
+        except Exception as e:
+            logger.error(
+                f"Failed to backup collection before deletion: {e}. "
+                f"Proceeding with deletion — {old_count} memories will be permanently lost.",
+                exc_info=True,
+            )
 
     def _create_or_use_collection(self, existing_collection) -> None:
         """创建或使用现有集合"""

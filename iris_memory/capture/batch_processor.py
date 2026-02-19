@@ -20,6 +20,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 
 from iris_memory.utils.logger import get_logger
+from iris_memory.utils.command_utils import SessionKeyBuilder
+from iris_memory.utils.rate_limiter import CooldownTracker
 from iris_memory.capture.capture_engine import MemoryCaptureEngine
 from iris_memory.capture.message_merger import QueuedMessage, MessageMerger
 from iris_memory.models.memory import Memory
@@ -86,8 +88,8 @@ class MessageBatchProcessor:
         
         self.message_queues: Dict[str, List[QueuedMessage]] = {}
         self.last_process_time: Dict[str, float] = {}
-        self._last_llm_call: Dict[str, float] = {}
-        self._last_summary_time: Dict[str, float] = {}
+        self._llm_cooldown = CooldownTracker(self.llm_cooldown_seconds)
+        self._summary_cooldown = CooldownTracker(self.summary_interval_seconds)
         
         self.cleanup_task: Optional[asyncio.Task] = None
         self.auto_save_task: Optional[asyncio.Task] = None
@@ -148,24 +150,20 @@ class MessageBatchProcessor:
     
     def _check_llm_cooldown(self, session_key: str) -> bool:
         """检查LLM冷却时间"""
-        current_time = time.time()
-        last_call = self._last_llm_call.get(session_key, 0)
-        return current_time - last_call >= self.llm_cooldown_seconds
+        return self._llm_cooldown.is_ready(session_key)
     
     def _record_llm_call(self, session_key: str):
         """记录LLM调用时间"""
-        self._last_llm_call[session_key] = time.time()
+        self._llm_cooldown.record(session_key)
         self.stats["llm_calls"] += 1
     
     def _check_summary_cooldown(self, session_key: str) -> bool:
         """检查摘要生成冷却时间"""
-        current_time = time.time()
-        last_time = self._last_summary_time.get(session_key, 0)
-        return current_time - last_time >= self.summary_interval_seconds
+        return self._summary_cooldown.is_ready(session_key)
     
     def _record_summary(self, session_key: str):
         """记录摘要生成时间"""
-        self._last_summary_time[session_key] = time.time()
+        self._summary_cooldown.record(session_key)
     
     async def add_message(
         self,
@@ -177,7 +175,7 @@ class MessageBatchProcessor:
         umo: str = ""
     ) -> bool:
         """添加消息到队列"""
-        session_key = f"{user_id}:{group_id or 'private'}"
+        session_key = SessionKeyBuilder.build(user_id, group_id)
         
         if session_key not in self.message_queues:
             self.message_queues[session_key] = []
@@ -512,14 +510,17 @@ class MessageBatchProcessor:
             "user_persona": first_msg.context.get("user_persona", {}),
         }
         
-        return await self.llm_processor.summarize_messages(
+        return await self.llm_processor.generate_summary(
             messages=messages,
-            context=context,
-            custom_prompt=self.summary_prompt
+            user_id=first_msg.user_id,
+            context=context
         )
     
     def _generate_local_summary(self, messages: List[str]) -> str:
         """生成本地摘要"""
+        if not messages:
+            return ""
+        
         if len(messages) == 1:
             return messages[0]
         

@@ -119,23 +119,8 @@ class ChromaOperations:
             else:
                 embedding = memory.embedding.tolist()
             
-            metadata = {
-                "user_id": memory.user_id,
-                "scope": memory.scope.value,
-                "type": memory.type.value,
-                "modality": memory.modality.value,
-                "quality_level": memory.quality_level.value,
-                "sensitivity_level": memory.sensitivity_level.value,
-                "storage_layer": memory.storage_layer.value,
-                "last_access_time": memory.last_access_time.isoformat(),
-                "access_count": memory.access_count,
-                "rif_score": memory.rif_score,
-                "importance_score": memory.importance_score,
-            }
-
-            if memory.group_id:
-                metadata["group_id"] = memory.group_id
-            
+            # 复用 _build_memory_metadata 以保证字段一致性
+            metadata = self._build_memory_metadata(memory)
             metadata.update(memory.metadata)
             
             self.collection.update(

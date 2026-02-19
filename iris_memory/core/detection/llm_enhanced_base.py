@@ -7,22 +7,20 @@ LLM增强基类
 - LLMEnhancedDetector: 上层模板方法模式（统一 detect/rule/llm/hybrid 流程）
 """
 import asyncio
-import json
-import re
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
-from datetime import date
 from enum import Enum
 from typing import Any, Dict, Generic, List, Optional, Tuple, TypeVar
 
 from iris_memory.core.detection.base_result import BaseDetectionResult
 from iris_memory.utils.logger import get_logger
-from iris_memory.core.provider_utils import (
-    extract_provider_id,
-    get_default_provider,
-    get_provider_by_id,
-    normalize_provider_id,
+from iris_memory.utils.llm_helper import (
+    LLMCallResult,
+    resolve_llm_provider,
+    call_llm,
+    parse_llm_json,
 )
+from iris_memory.utils.rate_limiter import DailyCallLimiter
+from iris_memory.core.provider_utils import normalize_provider_id
 
 logger = get_logger("llm_enhanced_base")
 
@@ -40,16 +38,6 @@ class DetectionMode(str, Enum):
     RULE = "rule"
     LLM = "llm"
     HYBRID = "hybrid"
-
-
-@dataclass
-class LLMCallResult:
-    """LLM调用结果"""
-    success: bool
-    content: Optional[str] = None
-    parsed_json: Optional[Dict[str, Any]] = None
-    error: Optional[str] = None
-    tokens_used: int = 0
 
 
 class LLMEnhancedBase(ABC):
@@ -83,8 +71,7 @@ class LLMEnhancedBase(ABC):
         self._resolved_provider_id: Optional[str] = None
         self._provider_initialized = False
         
-        self._call_date: Optional[date] = None
-        self._call_count: int = 0
+        self._limiter = DailyCallLimiter(daily_limit)
         
         self._stats = {
             "total_calls": 0,
@@ -105,59 +92,29 @@ class LLMEnhancedBase(ABC):
     def is_llm_enabled(self) -> bool:
         return self._mode in (DetectionMode.LLM, DetectionMode.HYBRID)
     
-    def _reset_daily_counter(self) -> None:
-        today = date.today()
-        if self._call_date != today:
-            self._call_date = today
-            self._call_count = 0
-    
     def _is_within_limit(self) -> bool:
-        if self._daily_limit <= 0:
-            return True
-        self._reset_daily_counter()
-        return self._call_count < self._daily_limit
+        return self._limiter.is_within_limit()
     
     @property
     def remaining_daily_calls(self) -> int:
-        self._reset_daily_counter()
-        if self._daily_limit <= 0:
-            return -1
-        return max(0, self._daily_limit - self._call_count)
+        return self._limiter.remaining
     
     async def _resolve_provider(self) -> bool:
+        """LLM 提供者解析（委托给 llm_helper）"""
         if self._provider_initialized:
             return self._resolved_provider is not None
         
         self._provider_initialized = True
         
-        if not self._astrbot_context:
-            logger.debug("No AstrBot context available")
-            return False
-        
-        try:
-            if self._configured_provider_id and self._configured_provider_id not in ("", "default"):
-                provider, resolved_id = get_provider_by_id(
-                    self._astrbot_context, self._configured_provider_id
-                )
-                if provider:
-                    self._resolved_provider = provider
-                    self._resolved_provider_id = resolved_id
-                    logger.info(f"LLM Enhanced provider resolved: {resolved_id}")
-                    return True
-                logger.warning(
-                    f"Provider '{self._configured_provider_id}' not found, "
-                    f"falling back to default"
-                )
-            
-            provider, provider_id = get_default_provider(self._astrbot_context)
-            if provider:
-                self._resolved_provider = provider
-                self._resolved_provider_id = provider_id or extract_provider_id(provider)
-                logger.info(f"LLM Enhanced provider (default): {self._resolved_provider_id}")
-                return True
-        except Exception as e:
-            logger.debug(f"Failed to resolve provider: {e}")
-        
+        provider, resolved_id = resolve_llm_provider(
+            self._astrbot_context,
+            self._configured_provider_id or "",
+            label=f"LLMEnhanced({self.__class__.__name__})",
+        )
+        if provider:
+            self._resolved_provider = provider
+            self._resolved_provider_id = resolved_id
+            return True
         return False
     
     async def _call_llm(self, prompt: str) -> LLMCallResult:
@@ -174,7 +131,7 @@ class LLMEnhancedBase(ABC):
             try:
                 result = await self._call_llm_once(prompt)
                 if result.success:
-                    self._call_count += 1
+                    self._limiter.increment()
                     self._stats["successful_calls"] += 1
                     self._stats["total_tokens"] += result.tokens_used
                     return result
@@ -189,73 +146,20 @@ class LLMEnhancedBase(ABC):
         return LLMCallResult(success=False, error=str(last_error))
     
     async def _call_llm_once(self, prompt: str) -> LLMCallResult:
+        """LLM 单次调用（委托给 llm_helper）"""
         self._stats["total_calls"] += 1
-        
-        ctx = self._astrbot_context
-        pid = self._resolved_provider_id
-        
-        if ctx and hasattr(ctx, "llm_generate") and pid:
-            try:
-                resp = await ctx.llm_generate(
-                    chat_provider_id=pid,
-                    prompt=prompt,
-                )
-                if resp and hasattr(resp, "completion_text"):
-                    text = (resp.completion_text or "").strip()
-                    tokens = len(prompt) // 4 + len(text) // 4
-                    return LLMCallResult(
-                        success=True,
-                        content=text,
-                        parsed_json=self._parse_json_response(text),
-                        tokens_used=tokens
-                    )
-            except Exception as e:
-                logger.debug(f"llm_generate failed: {e}")
-        
-        provider = self._resolved_provider
-        if provider and hasattr(provider, "text_chat"):
-            try:
-                resp = await provider.text_chat(prompt=prompt, context=[])
-                if hasattr(resp, "completion_text"):
-                    text = (resp.completion_text or "").strip()
-                elif isinstance(resp, dict):
-                    text = (resp.get("text", "") or resp.get("content", "")).strip()
-                else:
-                    text = str(resp).strip() if resp else ""
-                
-                tokens = len(prompt) // 4 + len(text) // 4
-                return LLMCallResult(
-                    success=True,
-                    content=text,
-                    parsed_json=self._parse_json_response(text),
-                    tokens_used=tokens
-                )
-            except Exception as e:
-                logger.debug(f"text_chat failed: {e}")
-        
-        return LLMCallResult(success=False, error="No suitable LLM method found")
+        result = await call_llm(
+            self._astrbot_context,
+            self._resolved_provider,
+            self._resolved_provider_id,
+            prompt,
+            parse_json=True,
+        )
+        return result
     
     def _parse_json_response(self, response: str) -> Optional[Dict[str, Any]]:
-        if not response:
-            return None
-        
-        try:
-            return json.loads(response)
-        except json.JSONDecodeError:
-            pass
-        
-        try:
-            json_match = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", response)
-            if json_match:
-                return json.loads(json_match.group(1))
-            
-            json_match = re.search(r"(\{[\s\S]*?\})", response)
-            if json_match:
-                return json.loads(json_match.group(1))
-        except json.JSONDecodeError:
-            pass
-        
-        return None
+        """JSON 解析（委托给 llm_helper）"""
+        return parse_llm_json(response)
     
     def get_stats(self) -> Dict[str, Any]:
         return {

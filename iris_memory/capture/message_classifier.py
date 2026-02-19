@@ -14,6 +14,8 @@ import time
 import hashlib
 
 from iris_memory.utils.logger import get_logger
+from iris_memory.utils.rate_limiter import CooldownTracker
+from iris_memory.utils.fingerprint import compute_message_fingerprint
 from iris_memory.capture.detector.trigger_detector import TriggerDetector
 from iris_memory.analysis.emotion.emotion_analyzer import EmotionAnalyzer
 from iris_memory.processing.llm_processor import (
@@ -105,7 +107,7 @@ class MessageClassifier:
         )
         
         # 缓存机制
-        self._last_llm_call: Dict[str, float] = {}
+        self._llm_cooldown = CooldownTracker(self.llm_cooldown_seconds)
         self._fingerprint_cache: Dict[str, tuple[ClassificationResult, float]] = {}
         
         # 统计
@@ -136,11 +138,7 @@ class MessageClassifier:
         
         使用简化后的消息内容计算哈希，忽略标点、空格、大小写
         """
-        # 简化消息：移除非字母数字字符，转小写
-        simplified = ''.join(c.lower() for c in message if c.isalnum())
-        # 限制长度，避免超长消息
-        simplified = simplified[:100]
-        return hashlib.md5(simplified.encode()).hexdigest()[:16]
+        return compute_message_fingerprint(message, max_length=100, hash_length=16)
     
     def _check_fingerprint_cache(self, message: str) -> Optional[ClassificationResult]:
         """
@@ -194,19 +192,15 @@ class MessageClassifier:
         Returns:
             bool: True if can call LLM, False if in cooldown
         """
-        current_time = time.time()
-        last_call = self._last_llm_call.get(context_key, 0)
-        
-        if current_time - last_call < self.llm_cooldown_seconds:
+        if not self._llm_cooldown.is_ready(context_key):
             self.stats["llm_skipped_cooldown"] += 1
             logger.debug(f"LLM cooldown active for {context_key}, skipping")
             return False
-        
         return True
     
     def _record_llm_call(self, context_key: str):
         """记录LLM调用时间"""
-        self._last_llm_call[context_key] = time.time()
+        self._llm_cooldown.record(context_key)
     
     async def classify(
         self,
@@ -285,7 +279,7 @@ class MessageClassifier:
             
             # 4. 决策逻辑
             if triggers:
-                max_confidence = max(t.get("confidence", 0) for t in triggers)
+                max_confidence = max(t.confidence for t in triggers)
                 if max_confidence >= self.immediate_trigger_confidence:
                     return ClassificationResult(
                         layer=ProcessingLayer.IMMEDIATE,

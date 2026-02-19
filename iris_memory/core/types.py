@@ -5,9 +5,14 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from enum import Enum
-from typing import Optional, Any, List, Protocol, runtime_checkable
+from typing import Optional, Any, List, Protocol, runtime_checkable, TYPE_CHECKING
 from datetime import datetime
+
+if TYPE_CHECKING:
+    from iris_memory.models.emotion_state import EmotionalState
+    from iris_memory.models.user_persona import UserPersona
 
 
 class MemoryType(str, Enum):
@@ -121,6 +126,74 @@ class TriggerType(str, Enum):
     RELATIONSHIP = "relationship"                  # 关系触发器：我们是、你对我来说
     FACT = "fact"                                  # 事实触发器：我是、我有
     BOUNDARY = "boundary"                          # 边界触发器：不要、不想
+
+
+@dataclass(frozen=True, slots=True)
+class TriggerMatch:
+    """捕获触发器匹配结果
+
+    替代原先散布在 capture 层的 ``Dict[str, Any]``，
+    提供类型安全的触发器信息。
+    """
+    type: TriggerType
+    pattern: str
+    confidence: float
+    position: int = 0
+
+
+# ── 类型化上下文对象（TypedDict） ──
+
+try:
+    from typing import TypedDict
+except ImportError:
+    from typing_extensions import TypedDict
+
+
+class MessageContext(TypedDict, total=False):
+    """消息捕获/处理管道上下文。
+
+    从 main.py ``_build_message_context()`` 构建，
+    贯穿 capture → classification → processing 流程。
+    """
+    session_key: str
+    session_message_count: int
+    user_persona: "UserPersona"
+    emotional_state: "EmotionalState"
+    sender_name: str
+    has_image: bool
+    image_description: str
+    user_id: str
+    group_id: str
+    last_topic: str
+    # batch/summary 扩展
+    summary: bool
+    summary_source: str
+    classification: dict
+    source: str
+
+
+class RerankContext(TypedDict, total=False):
+    """检索重排上下文。
+
+    在 ``retrieval_engine._rerank_memories()`` 构建，
+    传递给 ``Reranker.rerank()`` 方法使用。
+    """
+    emotional_state: "EmotionalState"
+    current_user_id: str
+    member_identity_service: Any
+
+
+class ReplyContext(TypedDict, total=False):
+    """主动回复决策上下文。
+
+    在 ``ProactiveReplyDetector._compile_decision()`` 构建，
+    附加到 ``ProactiveReplyDecision.reply_context``。
+    """
+    signals: dict
+    emotion: dict
+    reply_score: float
+    message_count: int
+    time_span: float
 
 
 # ── 能力接口（Protocol） ──

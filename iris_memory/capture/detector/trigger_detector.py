@@ -6,7 +6,7 @@
 import re
 from typing import List, Dict, Any, Optional
 
-from iris_memory.core.types import TriggerType
+from iris_memory.core.types import TriggerType, TriggerMatch
 
 
 class TriggerDetector:
@@ -90,20 +90,14 @@ class TriggerDetector:
             r"^你了解.*[吗?？]$",  # 了解查询
         ]
     
-    def detect_triggers(self, text: str) -> List[Dict[str, Any]]:
+    def detect_triggers(self, text: str) -> List[TriggerMatch]:
         """检测文本中的触发器
         
         Args:
             text: 输入文本
             
         Returns:
-            List[Dict[str, Any]]: 检测到的触发器列表
-            [{
-                "type": TriggerType,
-                "pattern": str,
-                "confidence": float,
-                "position": int
-            }]
+            List[TriggerMatch]: 检测到的触发器列表
         """
         if not text:
             return []
@@ -119,12 +113,12 @@ class TriggerDetector:
                 # 查找所有匹配
                 matches = re.finditer(pattern, text, re.IGNORECASE)
                 for match in matches:
-                    triggers.append({
-                        "type": trigger_type,
-                        "pattern": pattern,
-                        "confidence": self._calculate_confidence(text, pattern, trigger_type),
-                        "position": match.start()
-                    })
+                    triggers.append(TriggerMatch(
+                        type=trigger_type,
+                        pattern=pattern,
+                        confidence=self._calculate_confidence(text, pattern, trigger_type),
+                        position=match.start(),
+                    ))
         
         return triggers
     
@@ -198,16 +192,16 @@ class TriggerDetector:
             List[TriggerType]: 触发器类型列表（去重）
         """
         triggers = self.detect_triggers(text)
-        return list(set([t["type"] for t in triggers]))
+        return list(set([t.type for t in triggers]))
     
-    def get_highest_confidence_trigger(self, text: str) -> Optional[Dict[str, Any]]:
+    def get_highest_confidence_trigger(self, text: str) -> Optional[TriggerMatch]:
         """获取置信度最高的触发器
         
         Args:
             text: 输入文本
             
         Returns:
-            Optional[Dict[str, Any]]: 置信度最高的触发器，如果没有则返回None
+            Optional[TriggerMatch]: 置信度最高的触发器，如果没有则返回None
         """
         triggers = self.detect_triggers(text)
         
@@ -215,7 +209,7 @@ class TriggerDetector:
             return None
         
         # 按置信度排序
-        triggers.sort(key=lambda x: x["confidence"], reverse=True)
+        triggers.sort(key=lambda x: x.confidence, reverse=True)
         
         return triggers[0]
     

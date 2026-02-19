@@ -113,59 +113,6 @@ class RetrievalLogger:
             f"id={memory_id[:8]}... reason={reason}"
         )
 
-    def rerank_start(
-        self,
-        user_id: str,
-        memory_count: int
-    ) -> None:
-        _logger.debug(
-            f"RETRIEVAL.RERANK.START user={user_id} count={memory_count}"
-        )
-
-    def rerank_score(
-        self,
-        user_id: str,
-        memory_id: str,
-        final_score: float,
-        quality_score: float = 0,
-        rif_score: float = 0,
-        time_score: float = 0,
-        vector_score: float = 0
-    ) -> None:
-        _logger.debug(
-            f"RETRIEVAL.RERANK.SCORE user={user_id} "
-            f"id={memory_id[:8]}... "
-            f"final={final_score:.3f} "
-            f"quality={quality_score:.2f} "
-            f"rif={rif_score:.2f} "
-            f"time={time_score:.2f} "
-            f"vector={vector_score:.2f}"
-        )
-
-    def rerank_ok(
-        self,
-        user_id: str,
-        input_count: int,
-        output_count: int
-    ) -> None:
-        _logger.debug(
-            f"RETRIEVAL.RERANK.OK user={user_id} "
-            f"in={input_count} out={output_count}"
-        )
-
-    def time_score_calculated(
-        self,
-        user_id: str,
-        memory_id: str,
-        days_ago: float,
-        time_score: float
-    ) -> None:
-        _logger.debug(
-            f"RETRIEVAL.TIME_SCORE user={user_id} "
-            f"id={memory_id[:8]}... "
-            f"days_ago={days_ago:.1f} score={time_score:.2f}"
-        )
-
     def no_memories_found(self, user_id: str, query: str) -> None:
         _logger.debug(
             f"RETRIEVAL.EMPTY user={user_id} query='{_trunc(query, 30)}'"
@@ -185,53 +132,6 @@ class RetrievalLogger:
     def retrieve_error(self, user_id: str, error: Exception) -> None:
         _logger.error(
             f"RETRIEVAL.ERROR user={user_id} error={error}"
-        )
-
-    def token_budget_applied(
-        self,
-        user_id: str,
-        total_tokens: int,
-        budget: int,
-        selected_count: int
-    ) -> None:
-        _logger.debug(
-            f"RETRIEVAL.TOKEN_BUDGET user={user_id} "
-            f"used={total_tokens} budget={budget} "
-            f"selected={selected_count}"
-        )
-
-    def memory_compressed(
-        self,
-        user_id: str,
-        memory_id: str,
-        original_len: int,
-        compressed_len: int
-    ) -> None:
-        _logger.debug(
-            f"RETRIEVAL.COMPRESS user={user_id} "
-            f"id={memory_id[:8]}... "
-            f"orig={original_len} compressed={compressed_len}"
-        )
-
-    def format_style(
-        self,
-        user_id: str,
-        style: str,
-        memory_count: int
-    ) -> None:
-        _logger.debug(
-            f"RETRIEVAL.FORMAT user={user_id} "
-            f"style={style} count={memory_count}"
-        )
-
-    def persona_applied(
-        self,
-        user_id: str,
-        persona_keys: List[str]
-    ) -> None:
-        _logger.debug(
-            f"RETRIEVAL.PERSONA user={user_id} "
-            f"keys={persona_keys[:5]}"
         )
 
     def graph_fallback(self, user_id: str, query: str) -> None:

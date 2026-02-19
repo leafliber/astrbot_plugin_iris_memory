@@ -10,6 +10,8 @@ from enum import Enum
 
 from iris_memory.utils.logger import get_logger
 from iris_memory.analysis.emotion.emotion_analyzer import EmotionAnalyzer
+from iris_memory.core.constants import DEFAULT_EMOTION
+from iris_memory.core.types import ReplyContext
 
 logger = get_logger("proactive_reply")
 
@@ -30,7 +32,7 @@ class ProactiveReplyDecision:
     urgency: ReplyUrgency
     reason: str
     suggested_delay: int
-    reply_context: Dict[str, Any]
+    reply_context: ReplyContext
 
 
 class ProactiveReplyDetector:
@@ -224,13 +226,13 @@ class ProactiveReplyDetector:
             reasons.append(f"topic({signals['chat_topics']:.2f})")
         
         emotion_intensity = emotion.get("intensity", 0)
-        emotion_type = emotion.get("primary", "neutral")
+        emotion_type = emotion.get("primary", DEFAULT_EMOTION)
         
         # 降低情感阈值，让更多情感能被触发
         if emotion_intensity > self.high_emotion_threshold:
             reply_score += 0.2
             reasons.append(f"high_emotion({emotion_intensity:.2f})")
-        elif emotion_intensity > 0.4 and emotion_type != "neutral":
+        elif emotion_intensity > 0.4 and emotion_type != DEFAULT_EMOTION:
             # 非中性情感且有一定强度
             reply_score += 0.1
             reasons.append(f"emotion({emotion_type},{emotion_intensity:.2f})")

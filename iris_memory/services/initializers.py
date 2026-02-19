@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 
 from iris_memory.utils.logger import get_logger
 from iris_memory.core.defaults import DEFAULTS
-from iris_memory.core.constants import LogTemplates
+from iris_memory.core.constants import LogTemplates, UNLIMITED_BUDGET
 
 if TYPE_CHECKING:
     from astrbot.api.star import Context
@@ -174,8 +174,8 @@ class ServiceInitializer:
                 "analysis_cooldown": DEFAULTS.image_analysis.analysis_cooldown,
                 "cache_ttl": DEFAULTS.image_analysis.cache_ttl,
                 "max_cache_size": DEFAULTS.image_analysis.max_cache_size,
-                "daily_analysis_budget": daily_budget if daily_budget > 0 else 999999,
-                "session_analysis_budget": session_budget if session_budget > 0 else 999999,
+                "daily_analysis_budget": daily_budget if daily_budget > 0 else UNLIMITED_BUDGET,
+                "session_analysis_budget": session_budget if session_budget > 0 else UNLIMITED_BUDGET,
                 "similar_image_window": DEFAULTS.image_analysis.similar_image_window,
                 "recent_image_limit": DEFAULTS.image_analysis.recent_image_limit,
                 "require_context_relevance": self.cfg.image_analysis_require_context,

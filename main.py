@@ -34,8 +34,9 @@ from iris_memory.utils.command_utils import (
 )
 from iris_memory.core.constants import (
     CommandPrefix, ErrorMessages, SuccessMessages,
-    DeleteScope, NumericDefaults, LogTemplates,
-    ErrorFriendlyMessages, ConfigKeys, DeleteMainScope
+    NumericDefaults, LogTemplates,
+    ErrorFriendlyMessages, ConfigKeys, DeleteMainScope,
+    PROACTIVE_EXTRA_KEY, PROACTIVE_CONTEXT_KEY
 )
 
 
@@ -589,7 +590,7 @@ class IrisMemoryPlugin(Star):
         query = event.message_str
         sender_name = get_sender_name(event)
         
-        is_proactive = event.get_extra("iris_proactive", False)
+        is_proactive = event.get_extra(PROACTIVE_EXTRA_KEY, False)
         
         # 确保成员身份信息最新（LLM请求时也更新一次）
         if self._service.member_identity and not is_proactive:
@@ -635,7 +636,7 @@ class IrisMemoryPlugin(Star):
         
         # 主动回复场景：附加特殊系统指令
         if is_proactive:
-            proactive_ctx = event.get_extra("iris_proactive_context", {})
+            proactive_ctx = event.get_extra(PROACTIVE_CONTEXT_KEY, {})
             proactive_directive = self._build_proactive_directive(proactive_ctx)
             req.system_prompt += f"\n\n{proactive_directive}\n"
             self._service.logger.info(
@@ -666,7 +667,7 @@ class IrisMemoryPlugin(Star):
         message = event.message_str
         sender_name = get_sender_name(event)
         
-        is_proactive = event.get_extra("iris_proactive", False)
+        is_proactive = event.get_extra(PROACTIVE_EXTRA_KEY, False)
         
         # 记录Bot回复到聊天缓冲区（主动回复也要记录Bot的回复）
         bot_reply = ""
@@ -733,7 +734,7 @@ class IrisMemoryPlugin(Star):
         
         # ========== 主动回复事件处理 ==========
         # 检测合成事件标记，转入完整 LLM 流程
-        if event.get_extra("iris_proactive", False):
+        if event.get_extra(PROACTIVE_EXTRA_KEY, False):
             self._service.logger.info(
                 f"Proactive reply event detected for user={user_id}, "
                 f"group={group_id}"

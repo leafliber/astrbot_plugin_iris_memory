@@ -16,6 +16,8 @@ import time
 import uuid
 from typing import Any, Dict, List, Optional
 
+from iris_memory.core.constants import PROACTIVE_EXTRA_KEY, PROACTIVE_CONTEXT_KEY
+
 from astrbot.core.message.components import Plain
 from astrbot.core.message.message_event_result import MessageChain
 from astrbot.core.platform.astr_message_event import AstrMessageEvent
@@ -121,11 +123,11 @@ class ProactiveMessageEvent(AstrMessageEvent):
         self.context_obj = context
 
         # 标记为主动回复事件（防循环核心）
-        self._extras["iris_proactive"] = True
+        self._extras[PROACTIVE_EXTRA_KEY] = True
 
         # 存储主动回复上下文
         if proactive_context:
-            self._extras["iris_proactive_context"] = proactive_context
+            self._extras[PROACTIVE_CONTEXT_KEY] = proactive_context
 
         # 设置唤醒标记（确保通过 WakingCheckStage 后 handler 能激活）
         # 注意：is_wake 和 is_at_or_wake_command 会被 WakingCheckStage 重新计算，

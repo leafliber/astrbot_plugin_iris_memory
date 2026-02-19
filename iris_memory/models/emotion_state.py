@@ -10,6 +10,9 @@ from typing import List, Dict, Any, Optional, Deque
 from enum import Enum
 
 from iris_memory.core.types import EmotionType
+from iris_memory.core.constants import (
+    NEGATIVE_EMOTIONS_ALL, NEGATIVE_EMOTIONS_CORE, NEGATIVE_EMOTION_STRINGS,
+)
 
 
 class TrendType(str, Enum):
@@ -138,7 +141,7 @@ class EmotionalState:
         
         # 计算情感变化
         positive_count = sum(1 for e in recent_emotions if e.primary in [EmotionType.JOY, EmotionType.EXCITEMENT, EmotionType.CALM])
-        negative_count = sum(1 for e in recent_emotions if e.primary in [EmotionType.SADNESS, EmotionType.ANGER, EmotionType.ANXIETY, EmotionType.FEAR, EmotionType.DISGUST])
+        negative_count = sum(1 for e in recent_emotions if e.primary in NEGATIVE_EMOTIONS_ALL)
         
         # 计算波动性
         intensity_values = [e.intensity for e in recent_emotions]
@@ -151,7 +154,7 @@ class EmotionalState:
             prev_positive = sum(1 for e in history_list[-self.config.window_size*2:-self.config.window_size] 
                               if e.primary in [EmotionType.JOY, EmotionType.EXCITEMENT])
             prev_negative = sum(1 for e in history_list[-self.config.window_size*2:-self.config.window_size] 
-                              if e.primary in [EmotionType.SADNESS, EmotionType.ANGER, EmotionType.ANXIETY])
+                              if e.primary in NEGATIVE_EMOTIONS_CORE)
             
             if positive_count > prev_positive and negative_count < prev_negative:
                 self.trajectory.trend = TrendType.IMPROVING
@@ -210,10 +213,8 @@ class EmotionalState:
         if total == 0:
             return 0.0
         
-        negative_emotions = [EmotionType.SADNESS, EmotionType.ANGER, EmotionType.ANXIETY, 
-                            EmotionType.FEAR, EmotionType.DISGUST]
         negative_count = sum(count for emotion, count in self.patterns.items() 
-                            if emotion in [e.value for e in negative_emotions])
+                            if emotion in NEGATIVE_EMOTION_STRINGS)
         
         return negative_count / total
     
@@ -222,8 +223,7 @@ class EmotionalState:
         
         当用户心情不好时，避免检索高强度正面记忆
         """
-        negative_emotions = [EmotionType.SADNESS, EmotionType.ANGER, EmotionType.ANXIETY]
-        return (self.current.primary in negative_emotions and 
+        return (self.current.primary in NEGATIVE_EMOTIONS_CORE and 
                 self.current.intensity > 0.6)
     
     def to_dict(self) -> Dict[str, Any]:

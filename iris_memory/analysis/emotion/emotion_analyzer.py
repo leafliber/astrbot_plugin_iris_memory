@@ -10,6 +10,7 @@ from datetime import datetime
 from iris_memory.utils.logger import get_logger
 
 from iris_memory.core.types import EmotionType
+from iris_memory.core.constants import NEGATIVE_EMOTIONS_CORE
 from iris_memory.models.emotion_state import EmotionalState
 
 # 模块logger
@@ -320,7 +321,7 @@ class EmotionAnalyzer:
             recent_emotions = [e.get("primary") for e in context["history"][-3:]]
             negative_count = sum(
                 1 for e in recent_emotions
-                if e in [EmotionType.SADNESS, EmotionType.ANGER, EmotionType.ANXIETY]
+                if e in NEGATIVE_EMOTIONS_CORE
             )
             if negative_count >= 2 and any(
                 kw in text for kw in ["好", "棒", "赞", "优秀"]

@@ -8,6 +8,7 @@ from datetime import datetime
 from typing import List, Dict, Any, Optional, TYPE_CHECKING
 
 from iris_memory.core.types import DecayRate, MemoryType
+from iris_memory.core.constants import DEFAULT_EMOTION, NEGATIVE_EMOTION_STRINGS
 
 if TYPE_CHECKING:
     from iris_memory.analysis.persona.keyword_maps import ExtractionResult
@@ -87,7 +88,7 @@ class UserPersona:
     life_preferences: Dict[str, Any] = field(default_factory=dict)
 
     # ========== 情感维度 ==========
-    emotional_baseline: str = "neutral"
+    emotional_baseline: str = DEFAULT_EMOTION
     emotional_volatility: float = 0.5
     emotional_triggers: List[str] = field(default_factory=list)
     emotional_soothers: Dict[str, Any] = field(default_factory=dict)
@@ -181,7 +182,7 @@ class UserPersona:
         view: Dict[str, Any] = {}
 
         # 情感摘要
-        if self.emotional_baseline != "neutral" or self.emotional_trajectory:
+        if self.emotional_baseline != DEFAULT_EMOTION or self.emotional_trajectory:
             view["emotional"] = {
                 "baseline": self.emotional_baseline,
                 "trajectory": self.emotional_trajectory,
@@ -547,8 +548,7 @@ class UserPersona:
 
         # 重新计算负面占比
         total = sum(self.emotional_patterns.values()) or 1
-        neg_keys = {"sadness", "anger", "fear", "disgust", "anxiety"}
-        neg_count = sum(self.emotional_patterns.get(k, 0) for k in neg_keys)
+        neg_count = sum(self.emotional_patterns.get(k, 0) for k in NEGATIVE_EMOTION_STRINGS)
         new_ratio = round(neg_count / total, 3)
         rec = self.apply_change(
             "negative_ratio", new_ratio,
@@ -580,8 +580,7 @@ class UserPersona:
         total = sum(self.emotional_patterns.values())
         if total < 3:
             return None
-        neg_keys = {"sadness", "anger", "fear", "disgust", "anxiety"}
-        neg_count = sum(self.emotional_patterns.get(k, 0) for k in neg_keys)
+        neg_count = sum(self.emotional_patterns.get(k, 0) for k in NEGATIVE_EMOTION_STRINGS)
         ratio = neg_count / total
         if ratio > 0.6:
             return "deteriorating"

@@ -133,7 +133,7 @@ class TestHandleBatch:
     @pytest.mark.asyncio
     async def test_daily_limit_enforced(self, manager):
         manager._default_max_daily = 1
-        manager.daily_reply_count["u1"] = 1
+        manager.daily_reply_count["u1:private"] = 1
         await manager.handle_batch(messages=["为什么"], user_id="u1")
         assert manager.pending_tasks.qsize() == 0
 
@@ -157,7 +157,7 @@ class TestTaskDispatch:
             dispatched = await asyncio.wait_for(manager.event_queue.get(), timeout=1)
             assert dispatched is event_obj
             assert manager.stats["replies_sent"] == 1
-            assert manager.daily_reply_count["u1"] == 1
+            assert manager.daily_reply_count["u1:g1"] == 1
 
     @pytest.mark.asyncio
     async def test_stop_processes_pending_without_delay(

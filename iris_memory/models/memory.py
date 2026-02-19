@@ -118,6 +118,9 @@ class Memory:
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'Memory':
         """从字典创建Memory对象"""
+        # 防御性拷贝，避免修改调用方原始字典
+        data = data.copy()
+        
         # 处理特殊字段
         if 'embedding' in data and data['embedding'] is not None:
             data['embedding'] = np.array(data['embedding'])
@@ -231,6 +234,33 @@ class Memory:
             return 0.8
         else:
             return 0.6
+
+    def calculate_time_score(self, use_created_time: bool = False) -> float:
+        """计算归一化的时间得分（0~1）
+
+        统一的时间评分算法，同时服务于检索引擎和重排序器。
+        基于指数衰减：越新的记忆得分越高。
+
+        Args:
+            use_created_time: True 使用创建时间（适用于按新旧排序），
+                              False 使用最后访问时间（适用于重排序）
+
+        Returns:
+            float: 时间得分 (0-1)
+        """
+        ref_time = self.created_time if use_created_time else self.last_access_time
+        days_ago = (datetime.now() - ref_time).total_seconds() / 86400
+
+        if days_ago < 7:
+            return 1.0 - (days_ago / 7) * 0.05       # 7天内: 0.95-1.0
+        elif days_ago < 30:
+            return 0.95 - ((days_ago - 7) / 23) * 0.1  # 7-30天: 0.85-0.95
+        elif days_ago < 90:
+            return 0.85 - ((days_ago - 30) / 60) * 0.2  # 30-90天: 0.65-0.85
+        elif days_ago < 365:
+            return 0.65 - ((days_ago - 90) / 275) * 0.3  # 90-365天: 0.35-0.65
+        else:
+            return max(0.0, 0.35 - ((days_ago - 365) / 365) * 0.35)  # >365天: 0-0.35
     
     def add_conflict(self, other_memory_id: str):
         """添加冲突记忆"""
