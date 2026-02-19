@@ -8,7 +8,7 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime
 
 from iris_memory.models.memory import Memory
-from iris_memory.core.types import StorageLayer, RetrievalStrategy, EmotionType, MemoryType
+from iris_memory.core.types import StorageLayer, RetrievalStrategy, EmotionType, MemoryType, RerankContext
 from iris_memory.analysis.rif_scorer import RIFScorer
 from iris_memory.analysis.emotion.emotion_analyzer import EmotionAnalyzer
 from iris_memory.models.emotion_state import EmotionalState
@@ -233,7 +233,7 @@ class MemoryRetrievalEngine:
             List[Memory]: 排序后的记忆列表
         """
         # 构建上下文
-        context = {}
+        context: RerankContext = {}
         if emotional_state:
             context['emotional_state'] = emotional_state
         if user_id:
@@ -338,9 +338,6 @@ class MemoryRetrievalEngine:
                 user_id, before_count, len(candidate_memories), "negative_state"
             )
         
-        for memory in candidate_memories:
-            memory.update_access()
-        
         ranked_memories = self._rerank_memories(
             candidate_memories,
             query,
@@ -349,6 +346,10 @@ class MemoryRetrievalEngine:
         )
         
         result = ranked_memories[:top_k]
+        
+        # 仅对最终返回的记忆更新访问统计
+        for memory in result:
+            memory.update_access()
         
         return result
     
@@ -368,7 +369,6 @@ class MemoryRetrievalEngine:
             top_k=top_k,
             storage_layer=storage_layer
         )
-        # 更新访问统计
         for memory in memories:
             memory.update_access()
         return memories
@@ -390,20 +390,20 @@ class MemoryRetrievalEngine:
             storage_layer=storage_layer
         )
         
-        # 更新访问统计
-        for memory in memories:
-            memory.update_access()
-        
         # 按时间得分重新排序
         scored = [(m, self._calculate_time_score(m)) for m in memories]
         scored.sort(key=lambda x: x[1], reverse=True)
 
-        return [m for m, s in scored[:top_k]]
+        result = [m for m, s in scored[:top_k]]
+        # 仅对最终返回的记忆更新访问统计
+        for memory in result:
+            memory.update_access()
+        return result
 
     def _calculate_time_score(self, memory: Memory) -> float:
         """计算时间得分
 
-        基于记忆的新旧程度计算得分，越新的记忆得分越高
+        委托给 Memory.calculate_time_score()，基于创建时间排序。
 
         Args:
             memory: 记忆对象
@@ -411,24 +411,7 @@ class MemoryRetrievalEngine:
         Returns:
             时间得分 (0-1)
         """
-        from datetime import datetime, timedelta
-
-        now = datetime.now()
-        days_ago = (now - memory.created_time).total_seconds() / 86400  # 转换为天数
-
-        # 使用指数衰减：越新的记忆得分越高
-        # 30天内：得分0.9-1.0
-        # 30-90天：得分0.7-0.9
-        # 90-365天：得分0.4-0.7
-        # 365天以上：得分0-0.4
-        if days_ago < 30:
-            return 1.0 - (days_ago / 30) * 0.1
-        elif days_ago < 90:
-            return 0.9 - ((days_ago - 30) / 60) * 0.2
-        elif days_ago < 365:
-            return 0.7 - ((days_ago - 90) / 275) * 0.3
-        else:
-            return max(0, 0.4 - ((days_ago - 365) / 365) * 0.4)
+        return memory.calculate_time_score(use_created_time=True)
     
     async def _emotion_aware_retrieval(
         self,
@@ -448,14 +431,14 @@ class MemoryRetrievalEngine:
             storage_layer=storage_layer
         )
         
-        # 更新访问统计
-        for memory in memories:
-            memory.update_access()
-        
         if emotional_state:
             memories = self._apply_emotion_filter(memories, emotional_state, user_id)
         
-        return memories[:top_k]
+        result = memories[:top_k]
+        # 仅对最终返回的记忆更新访问统计
+        for memory in result:
+            memory.update_access()
+        return result
     
     async def _get_relevant_working_memories(
         self,

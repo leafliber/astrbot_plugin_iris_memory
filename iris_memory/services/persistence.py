@@ -251,39 +251,6 @@ class PersistenceOperations:
         except Exception as e:
             logger.error(LogTemplates.PLUGIN_TERMINATE_ERROR.format(error=e), exc_info=True)
 
-    async def _stop_batch_processor(self) -> None:
-        """停止批量处理器"""
-        if not self.batch_processor:
-            return
-        
-        try:
-            await self.batch_processor.stop()
-            logger.debug("[Hot-Reload] Batch processor stopped")
-        except Exception as e:
-            logger.warning(f"[Hot-Reload] Error stopping batch processor: {e}")
-
-    async def _stop_proactive_manager(self) -> None:
-        """停止主动回复管理器"""
-        if not self.proactive_manager:
-            return
-        
-        try:
-            await self.proactive_manager.stop()
-            logger.debug("[Hot-Reload] Proactive manager stopped")
-        except Exception as e:
-            logger.warning(f"[Hot-Reload] Error stopping proactive manager: {e}")
-
-    async def _stop_lifecycle_manager(self) -> None:
-        """停止生命周期管理器"""
-        if not self.lifecycle_manager:
-            return
-        
-        try:
-            await self.lifecycle_manager.stop()
-            logger.debug("[Hot-Reload] Lifecycle manager stopped")
-        except Exception as e:
-            logger.warning(f"[Hot-Reload] Error stopping lifecycle manager: {e}")
-
     def _clear_global_state(self) -> None:
         """清理全局状态引用"""
         set_identity_service(None)
@@ -291,17 +258,6 @@ class PersistenceOperations:
         from iris_memory.core.service_container import ServiceContainer
         ServiceContainer.instance().clear()
         logger.debug("[Hot-Reload] ServiceContainer and global state cleared")
-
-    async def _close_chroma_manager(self) -> None:
-        """关闭 Chroma 管理器"""
-        if not self.chroma_manager:
-            return
-        
-        try:
-            await self.chroma_manager.close()
-            logger.debug("[Hot-Reload] Chroma manager closed")
-        except Exception as e:
-            logger.warning(f"[Hot-Reload] Error closing Chroma manager: {e}")
 
     def _log_final_stats(self) -> None:
         """输出最终统计"""

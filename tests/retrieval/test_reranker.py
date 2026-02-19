@@ -162,19 +162,18 @@ class TestReranker:
         """测试时间得分计算"""
         now = datetime.now()
 
-        # 测试新记忆（1天内）
+        # 测试新记忆（1天内）— calculate_time_score 返回 1.0
         new_mem = Mock()
         new_mem.last_access_time = now
+        new_mem.calculate_time_score = Mock(return_value=1.0)
         score = reranker._calculate_time_score(new_mem)
         assert score == 1.0
 
         # 测试旧记忆（100天前）
         old_mem = Mock()
         old_mem.last_access_time = now - timedelta(days=100)
-        # Mock的calculate_time_weight方法
-        old_mem.calculate_time_weight = Mock(return_value=0.6)
+        old_mem.calculate_time_score = Mock(return_value=0.5)
         score = reranker._calculate_time_score(old_mem)
-        # 0.6 / 1.2 = 0.5
         assert abs(score - 0.5) < 0.01
 
     def test_emotion_score_no_context(self, reranker, sample_memories):

@@ -34,6 +34,7 @@ def plugin_stub():
     plugin = IrisMemoryPlugin.__new__(IrisMemoryPlugin)
     plugin._service = SimpleNamespace(
         cfg=SimpleNamespace(enable_inject=True, enable_memory=True),
+        is_initialized=True,
         is_embedding_ready=Mock(return_value=True),
         member_identity=SimpleNamespace(resolve_tag=AsyncMock()),
         activate_session=AsyncMock(),

@@ -8,6 +8,8 @@ from typing import Optional, Dict, Any, List
 from datetime import datetime
 import asyncio
 
+from iris_memory.utils.command_utils import SessionKeyBuilder
+
 from iris_memory.utils.logger import get_logger
 
 from iris_memory.models.memory import Memory
@@ -82,10 +84,7 @@ class SessionManager:
         Returns:
             str: 会话标识符（格式：user_id:group_id 或 user_id:private）
         """
-        if group_id:
-            return f"{user_id}:{group_id}"
-        else:
-            return f"{user_id}:private"
+        return SessionKeyBuilder.build(user_id, group_id)
     
     def create_session(self, user_id: str, group_id: Optional[str] = None, initial_data: Optional[Dict[str, Any]] = None) -> str:
         """创建新会话

@@ -13,6 +13,7 @@ from typing import Dict, Any, Optional, List, TYPE_CHECKING
 from dataclasses import dataclass
 
 from iris_memory.utils.logger import get_logger
+from iris_memory.utils.command_utils import SessionKeyBuilder
 from iris_memory.proactive.proactive_reply_detector import (
     ProactiveReplyDetector, ProactiveReplyDecision
 )
@@ -46,14 +47,12 @@ class ProactiveReplyManager:
         self,
         astrbot_context=None,
         reply_detector: Optional[ProactiveReplyDetector] = None,
-        reply_generator=None,
         event_queue: Optional[asyncio.Queue] = None,
         config: Optional[Dict] = None,
         config_manager: Optional['ConfigManager'] = None
     ):
         self.config = config or {}
         self.reply_detector = reply_detector
-        self.reply_generator = reply_generator
         self.astrbot_context = astrbot_context
         self.event_queue = event_queue
         self._config_manager = config_manager
@@ -169,7 +168,7 @@ class ProactiveReplyManager:
             return
         
         # 检查冷却时间
-        session_key = f"{user_id}:{group_id or 'private'}"
+        session_key = SessionKeyBuilder.build(user_id, group_id)
         if self._is_in_cooldown(session_key, group_id):
             logger.debug(f"Proactive reply in cooldown for {session_key}")
             return
@@ -211,8 +210,9 @@ class ProactiveReplyManager:
                 # 加入队列
                 await self.pending_tasks.put(task)
                 
-                # 更新冷却时间
-                self.last_reply_time[session_key] = asyncio.get_event_loop().time()
+                # 立即记录冷却时间，防止同一会话重复排队
+                # _process_task 成功后会再次刷新时间戳
+                self.last_reply_time[session_key] = asyncio.get_running_loop().time()
                 
                 logger.info(f"Proactive reply queued for {session_key}, "
                            f"urgency: {decision.urgency.value}")
@@ -314,8 +314,12 @@ class ProactiveReplyManager:
             
             self.stats["replies_sent"] += 1
             
+            # 注入成功后才更新冷却时间
+            session_key = SessionKeyBuilder.build(task.user_id, task.group_id)
+            self.last_reply_time[session_key] = asyncio.get_running_loop().time()
+            
             # 更新每日计数
-            count_key = f"{task.user_id}:{task.group_id or 'private'}"
+            count_key = SessionKeyBuilder.build(task.user_id, task.group_id)
             self.daily_reply_count[count_key] = \
                 self.daily_reply_count.get(count_key, 0) + 1
             
@@ -377,7 +381,7 @@ class ProactiveReplyManager:
     
     def _is_daily_limit_reached(self, user_id: str, group_id: Optional[str] = None) -> bool:
         """检查是否达到每日限制"""
-        count_key = f"{user_id}:{group_id or 'private'}"
+        count_key = SessionKeyBuilder.build(user_id, group_id)
         count = self.daily_reply_count.get(count_key, 0)
         return count >= self._get_max_daily_replies(group_id)
     

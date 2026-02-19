@@ -38,16 +38,16 @@ class TestTriggerDetector:
         triggers = detector.detect_triggers(text)
 
         assert len(triggers) > 0
-        assert any(t["type"] == TriggerType.EXPLICIT for t in triggers)
-        assert any("记住" in t["pattern"] for t in triggers)
+        assert any(t.type == TriggerType.EXPLICIT for t in triggers)
+        assert any("记住" in t.pattern for t in triggers)
 
     def test_detect_explicit_trigger_important(self, detector):
         """测试检测'重要'触发器"""
         text = "这个信息很重要，要记住"
         triggers = detector.detect_triggers(text)
 
-        assert any(t["type"] == TriggerType.EXPLICIT for t in triggers)
-        assert any("重要" in t["pattern"] for t in triggers)
+        assert any(t.type == TriggerType.EXPLICIT for t in triggers)
+        assert any("重要" in t.pattern for t in triggers)
 
     def test_detect_explicit_trigger_english(self, detector):
         """测试检测英文显式触发器"""
@@ -55,7 +55,7 @@ class TestTriggerDetector:
         triggers = detector.detect_triggers(text)
 
         assert len(triggers) > 0
-        assert any(t["type"] == TriggerType.EXPLICIT for t in triggers)
+        assert any(t.type == TriggerType.EXPLICIT for t in triggers)
 
     # ========== 偏好触发器测试 ==========
 
@@ -64,22 +64,22 @@ class TestTriggerDetector:
         text = "我喜欢吃苹果"
         triggers = detector.detect_triggers(text)
 
-        assert any(t["type"] == TriggerType.PREFERENCE for t in triggers)
-        assert any("喜欢" in t["pattern"] for t in triggers)
+        assert any(t.type == TriggerType.PREFERENCE for t in triggers)
+        assert any("喜欢" in t.pattern for t in triggers)
 
     def test_detect_preference_hate(self, detector):
         """测试检测'讨厌'触发器"""
         text = "我讨厌下雨天"
         triggers = detector.detect_triggers(text)
 
-        assert any(t["type"] == TriggerType.PREFERENCE for t in triggers)
+        assert any(t.type == TriggerType.PREFERENCE for t in triggers)
 
     def test_detect_preference_english(self, detector):
         """测试检测英文偏好触发器"""
         text = "I love reading books"
         triggers = detector.detect_triggers(text)
 
-        assert any(t["type"] == TriggerType.PREFERENCE for t in triggers)
+        assert any(t.type == TriggerType.PREFERENCE for t in triggers)
 
     # ========== 情感触发器测试 ==========
 
@@ -88,22 +88,22 @@ class TestTriggerDetector:
         text = "我觉得今天心情不错"
         triggers = detector.detect_triggers(text)
 
-        assert any(t["type"] == TriggerType.EMOTION for t in triggers)
-        assert any("觉得" in t["pattern"] for t in triggers)
+        assert any(t.type == TriggerType.EMOTION for t in triggers)
+        assert any("觉得" in t.pattern for t in triggers)
 
     def test_detect_emotion_mood(self, detector):
         """测试检测'心情'触发器"""
         text = "我现在心情很好"
         triggers = detector.detect_triggers(text)
 
-        assert any(t["type"] == TriggerType.EMOTION for t in triggers)
+        assert any(t.type == TriggerType.EMOTION for t in triggers)
 
     def test_detect_emotion_english(self, detector):
         """测试检测英文情感触发器"""
         text = "I feel very happy today"
         triggers = detector.detect_triggers(text)
 
-        assert any(t["type"] == TriggerType.EMOTION for t in triggers)
+        assert any(t.type == TriggerType.EMOTION for t in triggers)
 
     # ========== 关系触发器测试 ==========
 
@@ -112,14 +112,14 @@ class TestTriggerDetector:
         text = "我们是很好的朋友"
         triggers = detector.detect_triggers(text)
 
-        assert any(t["type"] == TriggerType.RELATIONSHIP for t in triggers)
+        assert any(t.type == TriggerType.RELATIONSHIP for t in triggers)
 
     def test_detect_relationship_english(self, detector):
         """测试检测英文关系触发器"""
         text = "You're like a brother to me"
         triggers = detector.detect_triggers(text)
 
-        assert any(t["type"] == TriggerType.RELATIONSHIP for t in triggers)
+        assert any(t.type == TriggerType.RELATIONSHIP for t in triggers)
 
     # ========== 事实触发器测试 ==========
 
@@ -128,22 +128,22 @@ class TestTriggerDetector:
         text = "我是软件工程师"
         triggers = detector.detect_triggers(text)
 
-        assert any(t["type"] == TriggerType.FACT for t in triggers)
-        assert any("我是" in t["pattern"] for t in triggers)
+        assert any(t.type == TriggerType.FACT for t in triggers)
+        assert any("我是" in t.pattern for t in triggers)
 
     def test_detect_fact_i_have(self, detector):
         """测试检测'我有'触发器"""
         text = "我有两只猫"
         triggers = detector.detect_triggers(text)
 
-        assert any(t["type"] == TriggerType.FACT for t in triggers)
+        assert any(t.type == TriggerType.FACT for t in triggers)
 
     def test_detect_fact_english(self, detector):
         """测试检测英文事实触发器"""
         text = "I work as a teacher"
         triggers = detector.detect_triggers(text)
 
-        assert any(t["type"] == TriggerType.FACT for t in triggers)
+        assert any(t.type == TriggerType.FACT for t in triggers)
 
     # ========== 边界触发器测试 ==========
 
@@ -152,22 +152,22 @@ class TestTriggerDetector:
         text = "不要问我的年龄"
         triggers = detector.detect_triggers(text)
 
-        assert any(t["type"] == TriggerType.BOUNDARY for t in triggers)
-        assert any("不要" in t["pattern"] for t in triggers)
+        assert any(t.type == TriggerType.BOUNDARY for t in triggers)
+        assert any("不要" in t.pattern for t in triggers)
 
     def test_detect_boundary_private(self, detector):
         """测试检测'隐私'触发器"""
         text = "这是我的隐私，别问"
         triggers = detector.detect_triggers(text)
 
-        assert any(t["type"] == TriggerType.BOUNDARY for t in triggers)
+        assert any(t.type == TriggerType.BOUNDARY for t in triggers)
 
     def test_detect_boundary_english(self, detector):
         """测试检测英文边界触发器"""
         text = "This is private, don't ask"
         triggers = detector.detect_triggers(text)
 
-        assert any(t["type"] == TriggerType.BOUNDARY for t in triggers)
+        assert any(t.type == TriggerType.BOUNDARY for t in triggers)
 
     # ========== 负样本测试 ==========
 
@@ -222,7 +222,7 @@ class TestTriggerDetector:
 
         # 应该检测到EXPLICIT和PREFERENCE两个触发器
         assert len(triggers) >= 2
-        trigger_types = [t["type"] for t in triggers]
+        trigger_types = [t.type for t in triggers]
         assert TriggerType.EXPLICIT in trigger_types
         assert TriggerType.PREFERENCE in trigger_types
 
@@ -232,7 +232,7 @@ class TestTriggerDetector:
         triggers = detector.detect_triggers(text)
 
         # 应该检测到多个PREFERENCE触发器
-        preference_triggers = [t for t in triggers if t["type"] == TriggerType.PREFERENCE]
+        preference_triggers = [t for t in triggers if t.type == TriggerType.PREFERENCE]
         assert len(preference_triggers) >= 1
 
     # ========== 置信度测试 ==========
@@ -242,40 +242,40 @@ class TestTriggerDetector:
         text = "记住这个信息"
         triggers = detector.detect_triggers(text)
 
-        explicit_triggers = [t for t in triggers if t["type"] == TriggerType.EXPLICIT]
+        explicit_triggers = [t for t in triggers if t.type == TriggerType.EXPLICIT]
         assert len(explicit_triggers) > 0
         # 显式触发器置信度应该是0.95
-        assert abs(explicit_triggers[0]["confidence"] - 0.95) < 0.01
+        assert abs(explicit_triggers[0].confidence - 0.95) < 0.01
 
     def test_boundary_confidence(self, detector):
         """测试边界触发器置信度"""
         text = "不要问这个问题"
         triggers = detector.detect_triggers(text)
 
-        boundary_triggers = [t for t in triggers if t["type"] == TriggerType.BOUNDARY]
+        boundary_triggers = [t for t in triggers if t.type == TriggerType.BOUNDARY]
         assert len(boundary_triggers) > 0
         # 边界触发器置信度应该是0.9
-        assert abs(boundary_triggers[0]["confidence"] - 0.9) < 0.01
+        assert abs(boundary_triggers[0].confidence - 0.9) < 0.01
 
     def test_fact_confidence(self, detector):
         """测试事实触发器置信度"""
         text = "我是程序员"
         triggers = detector.detect_triggers(text)
 
-        fact_triggers = [t for t in triggers if t["type"] == TriggerType.FACT]
+        fact_triggers = [t for t in triggers if t.type == TriggerType.FACT]
         assert len(fact_triggers) > 0
         # 事实触发器置信度应该是0.8
-        assert abs(fact_triggers[0]["confidence"] - 0.8) < 0.01
+        assert abs(fact_triggers[0].confidence - 0.8) < 0.01
 
     def test_emotion_confidence(self, detector):
         """测试情感触发器置信度"""
         text = "我感到很开心"
         triggers = detector.detect_triggers(text)
 
-        emotion_triggers = [t for t in triggers if t["type"] == TriggerType.EMOTION]
+        emotion_triggers = [t for t in triggers if t.type == TriggerType.EMOTION]
         assert len(emotion_triggers) > 0
         # 情感触发器置信度应该是0.7
-        assert abs(emotion_triggers[0]["confidence"] - 0.7) < 0.01
+        assert abs(emotion_triggers[0].confidence - 0.7) < 0.01
 
     # ========== 位置信息测试 ==========
 
@@ -285,11 +285,11 @@ class TestTriggerDetector:
         triggers = detector.detect_triggers(text)
 
         # 找到"记住"触发器的位置
-        remember_triggers = [t for t in triggers if "记住" in t["pattern"]]
+        remember_triggers = [t for t in triggers if "记住" in t.pattern]
         if remember_triggers:
             # 应该在文本开头
-            assert remember_triggers[0]["position"] >= 0
-            assert remember_triggers[0]["position"] < len(text)
+            assert remember_triggers[0].position >= 0
+            assert remember_triggers[0].position < len(text)
 
     # ========== 辅助方法测试 ==========
 
@@ -330,7 +330,7 @@ class TestTriggerDetector:
 
         assert highest is not None
         # 显式触发器置信度最高
-        assert highest["type"] == TriggerType.EXPLICIT
+        assert highest.type == TriggerType.EXPLICIT
 
     def test_get_highest_confidence_trigger_none(self, detector):
         """测试获取最高置信度触发器 - 无触发器"""
@@ -392,7 +392,7 @@ class TestTriggerDetector:
         triggers = detector.detect_triggers(text)
 
         # 应该检测到FACT触发器
-        assert any(t["type"] == TriggerType.FACT for t in triggers)
+        assert any(t.type == TriggerType.FACT for t in triggers)
 
     def test_text_with_special_chars(self, detector):
         """测试带特殊字符的文本"""

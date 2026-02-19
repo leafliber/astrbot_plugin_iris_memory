@@ -7,7 +7,8 @@ from typing import List, Optional
 from datetime import datetime, timedelta
 
 from iris_memory.models.memory import Memory
-from iris_memory.core.types import StorageLayer, QualityLevel, EmotionType
+from iris_memory.core.types import StorageLayer, QualityLevel, EmotionType, RerankContext
+from iris_memory.core.constants import NEGATIVE_EMOTIONS_CORE
 
 
 class Reranker:
@@ -57,7 +58,7 @@ class Reranker:
         self,
         memories: List[Memory],
         query: Optional[str] = None,
-        context: Optional[dict] = None
+        context: Optional[RerankContext] = None
     ) -> List[Memory]:
         """重排序记忆列表
         
@@ -88,7 +89,7 @@ class Reranker:
         self,
         memory: Memory,
         query: Optional[str],
-        context: Optional[dict]
+        context: Optional[RerankContext]
     ) -> float:
         """计算重排序得分
 
@@ -158,7 +159,7 @@ class Reranker:
     def _calculate_sender_score(
         self,
         memory: Memory,
-        context: Optional[dict]
+        context: Optional[RerankContext]
     ) -> float:
         """计算发送者匹配得分
 
@@ -213,11 +214,7 @@ class Reranker:
     def _calculate_time_score(self, memory: Memory) -> float:
         """计算时间得分
 
-        使用Memory对象的calculate_time_weight()方法，该方法根据framework文档：
-        - 新记忆（7天内）：时间权重×1.2
-        - 中期记忆（7-30天）：时间权重×1.0
-        - 旧记忆（30-90天）：时间权重×0.8
-        - 远期记忆（>90天）：时间权重×0.6
+        委托给 Memory.calculate_time_score()，基于最后访问时间排序。
 
         Args:
             memory: 记忆对象
@@ -225,29 +222,12 @@ class Reranker:
         Returns:
             float: 时间得分（0-1）
         """
-        try:
-            # 使用Memory对象的内置方法
-            return memory.calculate_time_weight() / 1.2  # 归一化到0-1
-        except Exception:
-            # 如果Memory对象没有该方法，使用备用计算方式
-            days = (datetime.now() - memory.last_access_time).days
-
-            # 时间衰减函数（备用）
-            if days < 1:
-                return 1.0
-            elif days < 7:
-                return 0.9
-            elif days < 30:
-                return 0.7
-            elif days < 90:
-                return 0.5
-            else:
-                return 0.3
+        return memory.calculate_time_score(use_created_time=False)
     
     def _calculate_emotion_score(
         self,
         memory: Memory,
-        context: Optional[dict]
+        context: Optional[RerankContext]
     ) -> float:
         """计算情感一致性得分
 
@@ -279,7 +259,7 @@ class Reranker:
         memory_emotion = memory.subtype
 
         # 特殊规则：如果当前情感是负面，避免高强度正面记忆
-        if current_emotion in [EmotionType.SADNESS, EmotionType.ANGER, EmotionType.ANXIETY]:
+        if current_emotion in NEGATIVE_EMOTIONS_CORE:
             if memory.emotional_weight > 0.8:
                 if memory_emotion in ["joy", "excitement"]:
                     return 0.0  # 负面情感时，高强度正面记忆相关性为0

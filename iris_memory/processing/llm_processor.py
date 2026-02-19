@@ -9,10 +9,13 @@ from typing import Dict, Any, Optional, List
 from dataclasses import dataclass
 
 from iris_memory.utils.logger import get_logger
-from iris_memory.utils.provider_utils import (
+from iris_memory.utils.llm_helper import (
+    resolve_llm_provider,
+    call_llm,
+    parse_llm_json,
+)
+from iris_memory.core.provider_utils import (
     extract_provider_id,
-    get_default_provider,
-    get_provider_by_id,
     normalize_provider_id,
 )
 
@@ -159,29 +162,12 @@ class LLMMessageProcessor:
             return False
     
     async def _resolve_provider(self):
-        """解析 LLM 提供者
-        
-        Returns:
-            Provider 对象或 None
-        """
-        if not self.astrbot_context:
-            return None
-        
-        provider_id = normalize_provider_id(self._configured_provider_id)
-        
-        # 指定了具体 provider_id → 尝试匹配
-        if provider_id and provider_id not in ("", "default"):
-            try:
-                provider, resolved_id = get_provider_by_id(self.astrbot_context, provider_id)
-                if provider:
-                    logger.debug(f"Using configured provider: {resolved_id or provider_id}")
-                    return provider
-                logger.warning(f"Provider not found: {provider_id}, falling back to default")
-            except Exception as e:
-                logger.warning(f"Failed to get provider list: {e}")
-        
-        # 使用默认 provider
-        provider, _ = get_default_provider(self.astrbot_context)
+        """解析 LLM 提供者（委托给 llm_helper）"""
+        provider, _ = resolve_llm_provider(
+            self.astrbot_context,
+            self._configured_provider_id,
+            label="LLMProcessor",
+        )
         return provider
     
     async def classify_message(
@@ -362,73 +348,21 @@ class LLMMessageProcessor:
         max_tokens: int,
         temperature: float
     ) -> Optional[str]:
-        """单次调用LLM API（不带重试）
-        
-        Args:
-            prompt: 提示词
-            max_tokens: 最大返回token数
-            temperature: 温度参数
-            
-        Returns:
-            Optional[str]: LLM响应文本
-            
-        Raises:
-            Exception: API调用异常
-        """
-        # 使用 AstrBot API - llm_generate
-        if self.astrbot_context and hasattr(self.astrbot_context, 'llm_generate') and self.default_provider_id:
-            llm_resp = await self.astrbot_context.llm_generate(
-                chat_provider_id=self.default_provider_id,
-                prompt=prompt
-            )
-            if llm_resp and hasattr(llm_resp, 'completion_text'):
-                text = llm_resp.completion_text or ""
-                self.stats["total_tokens_used"] += len(prompt) // 4 + len(text) // 4
-                return text.strip()
-        
-        # 回退: 使用 Provider.text_chat()
-        if self.llm_api and hasattr(self.llm_api, 'text_chat'):
-            response = await self.llm_api.text_chat(
-                prompt=prompt,
-                context=[]
-            )
-            
-            if hasattr(response, 'completion_text'):
-                text = response.completion_text or ""
-            elif isinstance(response, dict):
-                text = response.get("text", "") or response.get("content", "")
-            else:
-                text = str(response) if response else ""
-            
-            self.stats["total_tokens_used"] += len(prompt) // 4 + len(text) // 4
-            return text.strip()
-        
-        logger.warning("No suitable LLM method found")
+        """单次调用LLM API（委托给 llm_helper.call_llm）"""
+        result = await call_llm(
+            self.astrbot_context,
+            self.llm_api,
+            self.default_provider_id,
+            prompt,
+        )
+        if result.success:
+            self.stats["total_tokens_used"] += result.tokens_used
+            return result.content
         return None
     
     def _parse_json_response(self, response: str) -> Optional[Dict]:
-        """解析JSON响应"""
-        if not response:
-            return None
-        
-        try:
-            return json.loads(response)
-        except json.JSONDecodeError:
-            pass
-        
-        try:
-            json_match = re.search(r'```(?:json)?\s*([\s\S]*?)\s*```', response)
-            if json_match:
-                return json.loads(json_match.group(1))
-            
-            json_match = re.search(r'(\{[\s\S]*?\})', response)
-            if json_match:
-                return json.loads(json_match.group(1))
-                
-        except json.JSONDecodeError:
-            pass
-        
-        return None
+        """解析JSON响应（委托给 llm_helper.parse_llm_json）"""
+        return parse_llm_json(response)
     
     def get_stats(self) -> Dict[str, Any]:
         """获取统计信息"""

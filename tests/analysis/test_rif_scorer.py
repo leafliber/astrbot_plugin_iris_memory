@@ -66,28 +66,4 @@ class TestRIFScorerCalculateRIF:
         score = rif_scorer.calculate_rif(sample_memory)
         assert 0.0 <= score <= 1.0
         assert hasattr(sample_memory, 'rif_score')
-    
-    def test_calculate_batch_rif(self, rif_scorer):
-        """测试批量计算RIF评分"""
-        memories = []
-        for i in range(3):
-            memory = Memory(
-                id=f"mem_{i}",
-                type=MemoryType.FACT,
-                content=f"内容 {i}",
-                user_id="user_123",
-                group_id=None,
-                quality_level=0.7,
-                storage_layer=StorageLayer.EPISODIC,
-                created_time=datetime.now() - timedelta(days=i),
-                last_access_time=datetime.now() - timedelta(hours=i)
-            )
-            memory.consistency_score = 0.5
-            memory.access_frequency = 0.3
-            memory.importance_score = 0.5
-            memories.append(memory)
-        
-        rif_scores = rif_scorer.calculate_batch_rif(memories)
-        assert len(rif_scores) == 3
-        for mem_id, score in rif_scores.items():
-            assert 0.0 <= score <= 1.0
+

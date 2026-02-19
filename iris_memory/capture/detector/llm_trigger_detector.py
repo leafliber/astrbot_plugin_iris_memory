@@ -148,9 +148,9 @@ class LLMTriggerDetector(LLMEnhancedDetector[TriggerDetectionResult]):
         if highest:
             return TriggerDetectionResult(
                 should_remember=True,
-                trigger_type=highest["type"],
-                confidence=highest["confidence"],
-                reason=f"规则匹配: {highest['pattern']}",
+                trigger_type=highest.type,
+                confidence=highest.confidence,
+                reason=f"规则匹配: {highest.pattern}",
                 memory_value="medium",
                 source="rule",
             )

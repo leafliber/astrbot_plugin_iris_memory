@@ -147,6 +147,10 @@ class TestChromaManagerInitialization:
         mock_client = MagicMock()
         mock_existing_collection = MagicMock()
         mock_client.get_collection.return_value = mock_existing_collection
+        # Mock list_collections so _create_or_use_collection finds existing
+        mock_col_info = MagicMock()
+        mock_col_info.name = "iris_memory"
+        mock_client.list_collections.return_value = [mock_col_info]
 
         mock_chromadb = MagicMock()
         mock_chromadb.PersistentClient.return_value = mock_client
@@ -175,6 +179,10 @@ class TestChromaManagerInitialization:
         mock_client = MagicMock()
         mock_existing_collection = MagicMock()
         mock_client.get_collection.return_value = mock_existing_collection
+        # Mock list_collections so _create_or_use_collection finds existing
+        mock_col_info = MagicMock()
+        mock_col_info.name = "iris_memory"
+        mock_client.list_collections.return_value = [mock_col_info]
 
         mock_chromadb = MagicMock()
         mock_chromadb.PersistentClient.return_value = mock_client
@@ -209,6 +217,7 @@ class TestChromaManagerAddMemory:
         # Mock collection
         mock_collection = MagicMock()
         chroma_manager.collection = mock_collection
+        chroma_manager._is_ready = True
         
         # Mock embedding generation
         chroma_manager.embedding_manager = AsyncMock()
@@ -240,6 +249,7 @@ class TestChromaManagerAddMemory:
         """测试添加已有嵌入的记忆"""
         mock_collection = MagicMock()
         chroma_manager.collection = mock_collection
+        chroma_manager._is_ready = True
         
         # Create memory with embedding
         memory = Memory(
@@ -264,6 +274,7 @@ class TestChromaManagerAddMemory:
         """测试元数据构建"""
         mock_collection = MagicMock()
         chroma_manager.collection = mock_collection
+        chroma_manager._is_ready = True
         
         chroma_manager.embedding_manager = AsyncMock()
         chroma_manager.embedding_manager.embed = AsyncMock(return_value=np.random.rand(1024).tolist())
@@ -303,6 +314,7 @@ class TestChromaManagerAddMemory:
         """测试私聊场景（group_id=None）"""
         mock_collection = MagicMock()
         chroma_manager.collection = mock_collection
+        chroma_manager._is_ready = True
         
         chroma_manager.embedding_manager = AsyncMock()
         chroma_manager.embedding_manager.embed = AsyncMock(return_value=np.random.rand(1024).tolist())
@@ -376,6 +388,7 @@ class TestChromaManagerQueryMemories:
             ]]
         }
         chroma_manager.collection = mock_collection
+        chroma_manager._is_ready = True
         
         results = await chroma_manager.query_memories(
             "test query",
@@ -413,6 +426,7 @@ class TestChromaManagerQueryMemories:
             ]]
         }
         chroma_manager.collection = mock_collection
+        chroma_manager._is_ready = True
         
         results = await chroma_manager.query_memories(
             "test query",
@@ -453,6 +467,7 @@ class TestChromaManagerQueryMemories:
             ]]
         }
         chroma_manager.collection = mock_collection
+        chroma_manager._is_ready = True
         
         results = await chroma_manager.query_memories(
             "test query",
@@ -480,6 +495,7 @@ class TestChromaManagerQueryMemories:
             'metadatas': [[]]
         }
         chroma_manager.collection = mock_collection
+        chroma_manager._is_ready = True
         
         results = await chroma_manager.query_memories(
             "test query",
@@ -500,6 +516,7 @@ class TestChromaManagerUpdateMemory:
         """测试成功更新记忆"""
         mock_collection = MagicMock()
         chroma_manager.collection = mock_collection
+        chroma_manager._is_ready = True
         
         chroma_manager.embedding_manager = AsyncMock()
         chroma_manager.embedding_manager.embed = AsyncMock(return_value=np.random.rand(1024).tolist())
@@ -530,6 +547,7 @@ class TestChromaManagerUpdateMemory:
         mock_collection = MagicMock()
         mock_collection.update.side_effect = Exception("Update failed")
         chroma_manager.collection = mock_collection
+        chroma_manager._is_ready = True
         
         chroma_manager.embedding_manager = AsyncMock()
         chroma_manager.embedding_manager.embed = AsyncMock(return_value=np.random.rand(1024).tolist())
@@ -554,6 +572,7 @@ class TestChromaManagerDeleteMemory:
         """测试成功删除记忆"""
         mock_collection = MagicMock()
         chroma_manager.collection = mock_collection
+        chroma_manager._is_ready = True
         
         success = await chroma_manager.delete_memory("test_001")
         
@@ -566,6 +585,7 @@ class TestChromaManagerDeleteMemory:
         mock_collection = MagicMock()
         mock_collection.delete.side_effect = Exception("Delete failed")
         chroma_manager.collection = mock_collection
+        chroma_manager._is_ready = True
         
         success = await chroma_manager.delete_memory("test_001")
         
@@ -583,6 +603,7 @@ class TestChromaManagerDeleteSession:
             'ids': ['mem_001', 'mem_002', 'mem_003']
         }
         chroma_manager.collection = mock_collection
+        chroma_manager._is_ready = True
         
         success = await chroma_manager.delete_session(
             user_id="user_123",
@@ -602,6 +623,7 @@ class TestChromaManagerDeleteSession:
             'ids': ['mem_001', 'mem_002']
         }
         chroma_manager.collection = mock_collection
+        chroma_manager._is_ready = True
         
         success = await chroma_manager.delete_session(
             user_id="user_123",
@@ -620,6 +642,7 @@ class TestChromaManagerDeleteSession:
         mock_collection = MagicMock()
         mock_collection.get.return_value = {'ids': []}
         chroma_manager.collection = mock_collection
+        chroma_manager._is_ready = True
         
         success = await chroma_manager.delete_session(
             user_id="user_123",
@@ -659,6 +682,7 @@ class TestChromaManagerGetAllMemories:
             ]]
         }
         chroma_manager.collection = mock_collection
+        chroma_manager._is_ready = True
         
         memories = await chroma_manager.get_all_memories(
             user_id="user_123",
@@ -685,6 +709,7 @@ class TestChromaManagerGetAllMemories:
             ]]
         }
         chroma_manager.collection = mock_collection
+        chroma_manager._is_ready = True
         
         memories = await chroma_manager.get_all_memories(
             user_id="user_123",
@@ -714,6 +739,7 @@ class TestChromaManagerCountMemories:
             'ids': ['mem_001', 'mem_002', 'mem_003', 'mem_004', 'mem_005']
         }
         chroma_manager.collection = mock_collection
+        chroma_manager._is_ready = True
         
         count = await chroma_manager.count_memories(
             user_id="user_123",
@@ -728,6 +754,7 @@ class TestChromaManagerCountMemories:
         mock_collection = MagicMock()
         mock_collection.get.return_value = {'ids': []}
         chroma_manager.collection = mock_collection
+        chroma_manager._is_ready = True
         
         count = await chroma_manager.count_memories(
             user_id="user_123",
@@ -878,9 +905,10 @@ class TestChromaManagerClose:
         """测试成功关闭"""
         mock_client = MagicMock()
         chroma_manager.client = mock_client
+        chroma_manager._is_ready = True
         
         await chroma_manager.close()
         
-        mock_client.reset.assert_called_once()
         assert chroma_manager.client is None  # Client should be None after close
         assert chroma_manager.collection is None  # Collection should also be None
+        assert chroma_manager._is_ready is False

@@ -14,6 +14,8 @@ from typing import Any, Dict, List, Optional, Tuple
 from enum import Enum
 import asyncio
 
+from iris_memory.utils.command_utils import SessionKeyBuilder
+
 
 class CacheStrategy(str, Enum):
     """缓存策略"""
@@ -520,7 +522,7 @@ class WorkingMemoryCache:
         Returns:
             会话键
         """
-        return f"{user_id}:{group_id if group_id else 'private'}"
+        return SessionKeyBuilder.build(user_id, group_id)
     
     async def add_memory(self, user_id: str, group_id: Optional[str], memory_id: str, memory: Any) -> bool:
         """添加记忆到工作记忆缓存

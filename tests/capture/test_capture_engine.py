@@ -12,7 +12,8 @@ from iris_memory.capture.capture_engine import MemoryCaptureEngine
 from iris_memory.models.memory import Memory
 from iris_memory.core.types import (
     MemoryType, ModalityType, QualityLevel, SensitivityLevel,
-    StorageLayer, VerificationMethod, TriggerType, EmotionType
+    StorageLayer, VerificationMethod, TriggerType, EmotionType,
+    TriggerMatch
 )
 from iris_memory.analysis.emotion.emotion_analyzer import EmotionAnalyzer
 from iris_memory.analysis.rif_scorer import RIFScorer
@@ -393,7 +394,7 @@ class TestMemoryCaptureEngine:
             group_id=group_id
         )
 
-        duplicate = engine.conflict_resolver.check_duplicate(
+        duplicate = engine.conflict_resolver.find_duplicate_from_results(
             Memory(
                 id="new_001",
                 content=message,
@@ -424,7 +425,7 @@ class TestMemoryCaptureEngine:
             group_id="group456"
         )
 
-        duplicate = engine.conflict_resolver.check_duplicate(
+        duplicate = engine.conflict_resolver.find_duplicate_from_results(
             new_memory,
             [existing_memory],
             similarity_threshold=0.9
@@ -468,7 +469,7 @@ class TestMemoryCaptureEngine:
             type=MemoryType.FACT
         )
 
-        conflicts = engine.conflict_resolver.check_conflicts(new_memory, [existing_memory])
+        conflicts = engine.conflict_resolver.find_conflicts_from_results(new_memory, [existing_memory])
 
         assert len(conflicts) > 0
         assert conflicts[0].id == "existing_001"
@@ -493,7 +494,7 @@ class TestMemoryCaptureEngine:
             type=MemoryType.FACT
         )
 
-        conflicts = engine.conflict_resolver.check_conflicts(new_memory, [existing_memory])
+        conflicts = engine.conflict_resolver.find_conflicts_from_results(new_memory, [existing_memory])
 
         assert len(conflicts) == 0
 
@@ -538,7 +539,7 @@ class TestMemoryCaptureEngine:
 
     def test_determine_memory_type_emotion_trigger(self, engine):
         """测试EMOTION触发器判定"""
-        triggers = [{"type": TriggerType.EMOTION, "confidence": 0.7}]
+        triggers = [TriggerMatch(type=TriggerType.EMOTION, pattern="test", confidence=0.7)]
         emotion_result = {"intensity": 0.8, "primary": EmotionType.JOY}
 
         memory_type = engine._determine_memory_type(triggers, emotion_result)
@@ -547,7 +548,7 @@ class TestMemoryCaptureEngine:
 
     def test_determine_memory_type_preference_trigger(self, engine):
         """测试PREFERENCE触发器判定"""
-        triggers = [{"type": TriggerType.PREFERENCE, "confidence": 0.8}]
+        triggers = [TriggerMatch(type=TriggerType.PREFERENCE, pattern="test", confidence=0.8)]
         emotion_result = {"intensity": 0.5, "primary": EmotionType.NEUTRAL}
 
         memory_type = engine._determine_memory_type(triggers, emotion_result)
@@ -556,7 +557,7 @@ class TestMemoryCaptureEngine:
 
     def test_determine_memory_type_relationship_trigger(self, engine):
         """测试RELATIONSHIP触发器判定"""
-        triggers = [{"type": TriggerType.RELATIONSHIP, "confidence": 0.7}]
+        triggers = [TriggerMatch(type=TriggerType.RELATIONSHIP, pattern="test", confidence=0.7)]
         emotion_result = {"intensity": 0.5, "primary": EmotionType.NEUTRAL}
 
         memory_type = engine._determine_memory_type(triggers, emotion_result)
@@ -565,7 +566,7 @@ class TestMemoryCaptureEngine:
 
     def test_determine_memory_type_fact_trigger(self, engine):
         """测试FACT触发器判定"""
-        triggers = [{"type": TriggerType.FACT, "confidence": 0.8}]
+        triggers = [TriggerMatch(type=TriggerType.FACT, pattern="test", confidence=0.8)]
         emotion_result = {"intensity": 0.5, "primary": EmotionType.NEUTRAL}
 
         memory_type = engine._determine_memory_type(triggers, emotion_result)
