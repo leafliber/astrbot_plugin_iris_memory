@@ -30,9 +30,18 @@ class ChatMessage:
     timestamp: datetime = field(default_factory=datetime.now)
     group_id: Optional[str] = None
     is_bot: bool = False  # 是否为Bot自己的回复
+    # 引用消息相关字段
+    reply_sender_name: Optional[str] = None    # 被引用消息的发送者昵称
+    reply_sender_id: Optional[str] = None      # 被引用消息的发送者ID
+    reply_content: Optional[str] = None        # 被引用消息的内容摘要
+
+    @property
+    def has_reply(self) -> bool:
+        """是否包含引用消息"""
+        return self.reply_content is not None or self.reply_sender_name is not None
 
     def to_dict(self) -> Dict[str, Any]:
-        return {
+        d = {
             "sender_id": self.sender_id,
             "sender_name": self.sender_name,
             "content": self.content,
@@ -40,6 +49,14 @@ class ChatMessage:
             "group_id": self.group_id,
             "is_bot": self.is_bot,
         }
+        # 仅在有引用时写入，保持向后兼容
+        if self.reply_sender_name is not None:
+            d["reply_sender_name"] = self.reply_sender_name
+        if self.reply_sender_id is not None:
+            d["reply_sender_id"] = self.reply_sender_id
+        if self.reply_content is not None:
+            d["reply_content"] = self.reply_content
+        return d
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "ChatMessage":
@@ -55,6 +72,9 @@ class ChatMessage:
             timestamp=ts,
             group_id=data.get("group_id"),
             is_bot=data.get("is_bot", False),
+            reply_sender_name=data.get("reply_sender_name"),
+            reply_sender_id=data.get("reply_sender_id"),
+            reply_content=data.get("reply_content"),
         )
 
 
@@ -99,6 +119,9 @@ class ChatHistoryBuffer:
         group_id: Optional[str] = None,
         is_bot: bool = False,
         session_user_id: Optional[str] = None,
+        reply_sender_name: Optional[str] = None,
+        reply_sender_id: Optional[str] = None,
+        reply_content: Optional[str] = None,
     ) -> None:
         """添加一条消息到缓冲区
 
@@ -110,6 +133,9 @@ class ChatHistoryBuffer:
             is_bot: 是否为Bot的回复
             session_user_id: 用于定位缓冲区的用户ID（私聊时Bot的回复
                 需要归入对话用户的缓冲区，传入对话用户的ID）
+            reply_sender_name: 被引用消息的发送者昵称
+            reply_sender_id: 被引用消息的发送者ID
+            reply_content: 被引用消息的内容摘要
         """
         if not content or not content.strip():
             return
@@ -123,6 +149,9 @@ class ChatHistoryBuffer:
             content=content.strip(),
             group_id=group_id,
             is_bot=is_bot,
+            reply_sender_name=reply_sender_name,
+            reply_sender_id=reply_sender_id,
+            reply_content=reply_content,
         )
 
         async with self._lock:
@@ -200,7 +229,19 @@ class ChatHistoryBuffer:
             if len(content) > 200:
                 content = content[:200] + "..."
 
-            lines.append(f"[{time_str}] {sender}: {content}")
+            # 如果有引用消息，添加引用标记
+            reply_tag = ""
+            if msg.has_reply:
+                ref_sender = msg.reply_sender_name or msg.reply_sender_id or "某人"
+                ref_content = msg.reply_content or ""
+                if len(ref_content) > 80:
+                    ref_content = ref_content[:80] + "..."
+                if ref_content:
+                    reply_tag = f" ↩️回复{ref_sender}「{ref_content}」"
+                else:
+                    reply_tag = f" ↩️回复{ref_sender}的消息"
+
+            lines.append(f"[{time_str}] {sender}:{reply_tag} {content}")
 
         return "\n".join(lines)
 
