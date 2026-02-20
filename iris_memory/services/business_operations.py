@@ -331,9 +331,19 @@ class BusinessOperations:
         user_id: str,
         group_id: Optional[str],
         image_context: str = "",
-        sender_name: Optional[str] = None
+        sender_name: Optional[str] = None,
+        reply_context: Optional[str] = None,
     ) -> str:
-        """准备LLM上下文（包含聊天记录+记忆+图片）"""
+        """准备LLM上下文（包含聊天记录+记忆+图片+引用消息）
+
+        Args:
+            query: 用户查询文本
+            user_id: 用户ID
+            group_id: 群组ID
+            image_context: 图片分析上下文
+            sender_name: 发送者名称
+            reply_context: 引用消息上下文（已格式化的描述文本）
+        """
         if not self.retrieval_engine:
             return ""
         
@@ -415,6 +425,11 @@ class BusinessOperations:
             if image_context:
                 context_parts.append(image_context)
                 logger.debug("Injected image context into LLM prompt")
+            
+            # 引用消息上下文
+            if reply_context:
+                context_parts.append(reply_context)
+                logger.debug("Injected reply context into LLM prompt")
             
             behavior_directives = self._build_behavior_directives(
                 group_id,
@@ -654,9 +669,24 @@ class BusinessOperations:
         content: str,
         group_id: Optional[str] = None,
         is_bot: bool = False,
-        session_user_id: Optional[str] = None
+        session_user_id: Optional[str] = None,
+        reply_sender_name: Optional[str] = None,
+        reply_sender_id: Optional[str] = None,
+        reply_content: Optional[str] = None,
     ) -> None:
-        """记录一条聊天消息到缓冲区"""
+        """记录一条聊天消息到缓冲区
+
+        Args:
+            sender_id: 发送者ID
+            sender_name: 发送者昵称
+            content: 消息内容
+            group_id: 群组ID
+            is_bot: 是否为Bot回复
+            session_user_id: 会话ID（私聊Bot回复归属）
+            reply_sender_name: 被引用消息的发送者昵称
+            reply_sender_id: 被引用消息的发送者ID
+            reply_content: 被引用消息的内容摘要
+        """
         if self.chat_history_buffer:
             await self.chat_history_buffer.add_message(
                 sender_id=sender_id,
@@ -664,7 +694,10 @@ class BusinessOperations:
                 content=content,
                 group_id=group_id,
                 is_bot=is_bot,
-                session_user_id=session_user_id
+                session_user_id=session_user_id,
+                reply_sender_name=reply_sender_name,
+                reply_sender_id=reply_sender_id,
+                reply_content=reply_content,
             )
 
     async def _build_chat_history_context(

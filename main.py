@@ -26,7 +26,7 @@ from astrbot.api import AstrBotConfig
 from astrbot.core.utils.astrbot_path import get_astrbot_data_path
 
 from iris_memory.services.memory_service import MemoryService
-from iris_memory.utils.event_utils import get_group_id, get_sender_name
+from iris_memory.utils.event_utils import get_group_id, get_sender_name, extract_reply_info
 from iris_memory.utils.logger import init_logging_from_config
 from iris_memory.utils.command_utils import (
     CommandParser, DeleteScopeParser, StatsFormatter,
@@ -39,7 +39,7 @@ from iris_memory.core.constants import (
     InputValidationConfig,
     PROACTIVE_EXTRA_KEY, PROACTIVE_CONTEXT_KEY
 )
-
+# adasdasdadasd
 
 @register("iris_memory", "YourName", "基于companion-memory框架的三层记忆插件", "1.6.0")
 class IrisMemoryPlugin(Star):
@@ -641,14 +641,31 @@ class IrisMemoryPlugin(Star):
             except Exception as e:
                 self._service.logger.warning(f"Image analysis in LLM hook failed: {e}")
         
-        # 准备LLM上下文（聊天记录 + 记忆 + 图片 + 行为指导）
+        # 提取引用消息上下文（主动回复时跳过）
+        reply_context = ""
+        if not is_proactive:
+            reply_info = extract_reply_info(event)
+            if reply_info:
+                reply_context = (
+                    "【引用消息上下文】\n"
+                    "用户在回复/引用另一条消息，请结合被引用内容理解用户意图：\n"
+                    f"{reply_info.format_for_prompt()}\n"
+                    f"用户的新消息: {query}"
+                )
+                self._service.logger.debug(
+                    f"Reply context extracted: sender={reply_info.sender_nickname}, "
+                    f"content_len={len(reply_info.content or '')}"
+                )
+        
+        # 准备LLM上下文（聊天记录 + 记忆 + 图片 + 引用消息 + 行为指导）
         # 主动回复时：使用触发提示作为 query 检索记忆
         context = await self._service.prepare_llm_context(
             query=query,
             user_id=user_id,
             group_id=group_id,
             image_context=image_context,
-            sender_name=sender_name
+            sender_name=sender_name,
+            reply_context=reply_context
         )
         
         # 注入上下文
@@ -722,8 +739,14 @@ class IrisMemoryPlugin(Star):
             return
         
         # 捕获记忆（仅正常消息流程）
+        # 如果用户引用了另一条消息，将引用内容追加到待捕获文本中
+        capture_message = message
+        reply_info = extract_reply_info(event)
+        if reply_info and reply_info.content:
+            capture_message = f"{message}\n{reply_info.format_for_buffer()}"
+        
         memory = await self._service.capture_and_store_memory(
-            message=message,
+            message=capture_message,
             user_id=user_id,
             group_id=group_id,
             sender_name=sender_name
@@ -783,12 +806,22 @@ class IrisMemoryPlugin(Star):
             )
         
         # 记录消息到聊天缓冲区（无论批量处理器是否就绪都记录）
+        # 提取引用消息信息
+        reply_info = extract_reply_info(event)
+        reply_kw = {}
+        if reply_info:
+            reply_kw = {
+                "reply_sender_name": reply_info.sender_nickname,
+                "reply_sender_id": reply_info.sender_id,
+                "reply_content": reply_info.content,
+            }
         await self._service.record_chat_message(
             sender_id=user_id,
             sender_name=sender_name,
             content=message,
             group_id=group_id,
-            is_bot=False
+            is_bot=False,
+            **reply_kw
         )
         
         # 以下为记忆捕获流程，需要批量处理器
@@ -818,9 +851,14 @@ class IrisMemoryPlugin(Star):
         context = await self._build_message_context(user_id, group_id)
         context["sender_name"] = sender_name  # 传递发送者名称
         
+        # 如果有引用消息，将引用内容追加到待处理文本，帮助记忆捕获
+        enriched_message = message
+        if reply_info and reply_info.content:
+            enriched_message = f"{message}\n{reply_info.format_for_buffer()}"
+        
         # 处理消息批次
         await self._service.process_message_batch(
-            message=message,
+            message=enriched_message,
             user_id=user_id,
             group_id=group_id,
             context=context,
