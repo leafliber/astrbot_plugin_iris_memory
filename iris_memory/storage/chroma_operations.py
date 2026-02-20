@@ -62,18 +62,23 @@ class ChromaOperations:
             logger.error(f"Failed to add memory to Chroma: id={memory.id}, error={e}", exc_info=True)
             raise
 
+    @staticmethod
+    def _safe_enum_value(value) -> Any:
+        """安全获取枚举值，兼容字符串和枚举类型"""
+        return value.value if hasattr(value, 'value') and not isinstance(value, str) else value
+
     def _build_memory_metadata(self, memory) -> Dict[str, Any]:
         """构建记忆元数据"""
         return {
             "user_id": memory.user_id,
             "sender_name": memory.sender_name if memory.sender_name else "",
             "group_id": memory.group_id if memory.group_id else "",
-            "scope": memory.scope.value,
-            "type": memory.type.value,
-            "modality": memory.modality.value,
-            "quality_level": memory.quality_level.value,
-            "sensitivity_level": memory.sensitivity_level.value,
-            "storage_layer": memory.storage_layer.value,
+            "scope": self._safe_enum_value(memory.scope),
+            "type": self._safe_enum_value(memory.type),
+            "modality": self._safe_enum_value(memory.modality),
+            "quality_level": self._safe_enum_value(memory.quality_level),
+            "sensitivity_level": self._safe_enum_value(memory.sensitivity_level),
+            "storage_layer": self._safe_enum_value(memory.storage_layer),
             "created_time": memory.created_time.isoformat(),
             "last_access_time": memory.last_access_time.isoformat(),
             "access_count": memory.access_count,
@@ -90,9 +95,9 @@ class ChromaOperations:
         content_preview = memory.content[:60] + "..." if len(memory.content) > 60 else memory.content
         logger.debug(
             f"Memory detail: id={memory.id[:8]}... user={memory.user_id} "
-            f"type={memory.type.value} scope={memory.scope.value} "
-            f"layer={memory.storage_layer.value} rif={memory.rif_score:.3f} "
-            f"quality={memory.quality_level.value} content='{content_preview}'"
+            f"type={self._safe_enum_value(memory.type)} scope={self._safe_enum_value(memory.scope)} "
+            f"layer={self._safe_enum_value(memory.storage_layer)} rif={memory.rif_score:.3f} "
+            f"quality={self._safe_enum_value(memory.quality_level)} content='{content_preview}'"
         )
 
     async def update_memory(self, memory) -> bool:

@@ -185,9 +185,18 @@ class ProactiveReplyDetector:
         emotion: Dict[str, Any],
         message_count: int,
         time_span: float,
-        user_persona: Dict
+        user_persona: Any
     ) -> ProactiveReplyDecision:
         """做出回复决策"""
+        # 防御性处理：兼容 UserPersona 对象和字典
+        if not isinstance(user_persona, dict):
+            try:
+                user_persona = user_persona.to_injection_view()
+            except (AttributeError, TypeError):
+                try:
+                    user_persona = user_persona.get("__self__", {})
+                except Exception:
+                    user_persona = {}
         
         if signals.get("ignore", 0) > 0.5:
             return ProactiveReplyDecision(

@@ -137,6 +137,7 @@ class Memory:
         
         # 转换字符串为Enum
         enum_mappings = {
+            'scope': MemoryScope,
             'type': MemoryType,
             'modality': ModalityType,
             'quality_level': QualityLevel,

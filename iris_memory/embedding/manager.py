@@ -508,10 +508,10 @@ class EmbeddingManager:
             Optional[int]: 嵌入维度，如果无法检测则返回 None
         """
         try:
-            # 获取一个样本记录
-            results = collection.get(limit=1)
+            # 获取一个样本记录（必须显式请求 embeddings）
+            results = collection.get(limit=1, include=["embeddings"])
             
-            if results['embeddings'] and results['embeddings'][0]:
+            if results.get('embeddings') and results['embeddings'][0]:
                 dimension = len(results['embeddings'][0])
                 logger.info(f"Detected existing collection dimension: {dimension}")
                 return dimension

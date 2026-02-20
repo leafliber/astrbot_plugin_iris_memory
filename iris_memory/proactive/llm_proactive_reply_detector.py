@@ -5,7 +5,7 @@ LLM增强主动回复检测器
 基于 LLMEnhancedDetector 模板方法模式
 修复了 sync/async 阻抗不匹配问题
 """
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 from iris_memory.proactive.proactive_reply_detector import (
@@ -83,6 +83,7 @@ class LLMReplyDecision(BaseDetectionResult):
     urgency: ReplyUrgency = ReplyUrgency.IGNORE
     reply_type: str = "null"
     suggested_delay: int = 0
+    reply_context: Dict[str, Any] = field(default_factory=dict)
 
 
 class LLMProactiveReplyDetector(LLMEnhancedDetector[LLMReplyDecision]):
@@ -161,6 +162,7 @@ class LLMProactiveReplyDetector(LLMEnhancedDetector[LLMReplyDecision]):
             reply_type="chat",
             suggested_delay=decision.suggested_delay,
             source="rule",
+            reply_context=decision.reply_context if isinstance(decision.reply_context, dict) else {},
         )
     
     def _rule_detect(
@@ -180,6 +182,7 @@ class LLMProactiveReplyDetector(LLMEnhancedDetector[LLMReplyDecision]):
             reply_type="chat",
             suggested_delay=decision.suggested_delay,
             source="rule",
+            reply_context=decision.reply_context if isinstance(decision.reply_context, dict) else {},
         )
     
     def _sync_rule_detect(
@@ -297,6 +300,7 @@ class LLMProactiveReplyDetector(LLMEnhancedDetector[LLMReplyDecision]):
             reply_type=data.get("reply_type", "chat"),
             suggested_delay=suggested_delay,
             source="llm",
+            reply_context=data.get("reply_context", {}),
         )
     
     async def _hybrid_detect(
