@@ -19,12 +19,14 @@ from iris_memory.core.config_manager import init_config_manager, reset_config_ma
 
 class MockConfig:
     """模拟配置对象"""
-    def __init__(self, embedding_strategy="auto", enable_local_provider=True):
+    def __init__(self, source="auto", enable_local_provider=True):
         self._data = {
             "embedding": {
-                "embedding_strategy": embedding_strategy,
-                "embedding_model": "BAAI/bge-small-zh-v1.5",
-                "embedding_dimension": 512,
+                "source": source,
+                "astrbot_provider_id": "",
+                "fallback_to_local": True,
+                "local_model": "BAAI/bge-small-zh-v1.5",
+                "local_dimension": 512,
                 "auto_detect_dimension": True,
                 "enable_local_provider": enable_local_provider,
             }
@@ -315,14 +317,22 @@ class TestEmbeddingManagerIsReady:
     async def test_initialization_logs_loading_status(self):
         """初始化日志应正确显示 loading 状态"""
         init_config_manager(MockConfig(enable_local_provider=False))
-        manager = EmbeddingManager(MockConfig(embedding_strategy="fallback", enable_local_provider=False))
+        manager = EmbeddingManager(MockConfig(source="local", enable_local_provider=False))
 
         with patch('iris_memory.embedding.manager.logger') as mock_logger:
             await manager.initialize()
 
-            # 检查日志包含提供者信息
-            log_calls = [str(call) for call in mock_logger.info.call_args_list]
-            assert any("Selected" in str(call) or "Initialized" in str(call) for call in log_calls)
+            # 检查日志包含提供者信息（local 被禁用时会降级到 fallback）
+            all_calls = (
+                [str(call) for call in mock_logger.info.call_args_list] +
+                [str(call) for call in mock_logger.warning.call_args_list]
+            )
+            assert any(
+                "Fallback" in call or "fallback" in call or
+                "Selected" in call or "Initialized" in call or
+                "disabled" in call
+                for call in all_calls
+            )
 
     @pytest.mark.asyncio
     async def test_embed_fallback_when_local_load_failed(self):

@@ -181,6 +181,46 @@ def _build_registry() -> Dict[str, ConfigDefinition]:
 
         # ── 嵌入向量 ──
         ConfigDefinition(
+            key="embedding.source",
+            section="embedding",
+            attr="source",
+            default="auto",
+            description="嵌入源选择 (auto/astrbot/local)",
+            value_type=str,
+        ),
+        ConfigDefinition(
+            key="embedding.astrbot_provider_id",
+            section="embedding",
+            attr="astrbot_provider_id",
+            default="",
+            description="AstrBot embedding provider ID（空字符串使用第一个可用的）",
+            value_type=str,
+        ),
+        ConfigDefinition(
+            key="embedding.fallback_to_local",
+            section="embedding",
+            attr="fallback_to_local",
+            default=True,
+            description="AstrBot provider 不可用时是否降级到本地模型",
+            value_type=bool,
+        ),
+        ConfigDefinition(
+            key="embedding.local_model",
+            section="embedding",
+            attr="local_model",
+            default="BAAI/bge-small-zh-v1.5",
+            description="本地嵌入模型名称",
+            value_type=str,
+        ),
+        ConfigDefinition(
+            key="embedding.local_dimension",
+            section="embedding",
+            attr="local_dimension",
+            default=512,
+            description="本地嵌入模型维度",
+            value_type=int,
+        ),
+        ConfigDefinition(
             key="embedding.enable_local_provider",
             section="embedding",
             attr="enable_local_provider",

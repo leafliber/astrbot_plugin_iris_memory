@@ -195,6 +195,38 @@
     "description": "嵌入向量设置",
     "type": "object",
     "items": {
+      "source": {
+        "description": "嵌入源选择",
+        "type": "string",
+        "default": "auto",
+        "options": ["auto", "astrbot", "local"],
+        "hint": "auto-自动选择（推荐），astrbot-使用AstrBot提供的embedding服务，local-使用本地模型"
+      },
+      "astrbot_provider_id": {
+        "description": "AstrBot Embedding提供者",
+        "type": "string",
+        "_special": "select_embedding_provider",
+        "default": "",
+        "hint": "留空使用第一个可用provider，可指定特定提供者"
+      },
+      "fallback_to_local": {
+        "description": "AstrBot不可用时降级到本地模型",
+        "type": "bool",
+        "default": true,
+        "hint": "开启后，当AstrBot embedding服务不可用时自动使用本地模型（注意维度需匹配）"
+      },
+      "local_model": {
+        "description": "本地嵌入模型",
+        "type": "string",
+        "default": "BAAI/bge-small-zh-v1.5",
+        "hint": "本地sentence-transformers模型名称，首次使用会自动下载"
+      },
+      "local_dimension": {
+        "description": "本地模型嵌入维度",
+        "type": "int",
+        "default": 512,
+        "hint": "本地模型的向量维度，留空自动检测。常见值：512（bge-small）, 768（bge-base）, 1024（bge-large/m3）"
+      },
       "enable_local_provider": {
         "description": "启用本地嵌入模型",
         "type": "bool",

@@ -315,25 +315,34 @@ class ConfigManager:
     
     # 嵌入配置
     @property
-    def embedding_strategy(self) -> str:
-        return self.get("embedding.embedding_strategy", DEFAULTS.embedding.embedding_strategy)
+    def embedding_source(self) -> str:
+        """嵌入源选择：auto / astrbot / local"""
+        return self.get("embedding.source", DEFAULTS.embedding.source)
     
     @property
-    def embedding_model(self) -> str:
-        return self.get("embedding.embedding_model", DEFAULTS.embedding.embedding_model)
+    def embedding_astrbot_provider_id(self) -> str:
+        """指定的 AstrBot embedding provider ID"""
+        return normalize_provider_id(self.get("embedding.astrbot_provider_id", DEFAULTS.embedding.astrbot_provider_id))
     
     @property
-    def embedding_models(self) -> list:
-        return self.get("embedding.embedding_models", DEFAULTS.embedding.embedding_models)
+    def embedding_fallback_to_local(self) -> bool:
+        """是否在 AstrBot provider 不可用时降级到本地模型"""
+        return self.get("embedding.fallback_to_local", DEFAULTS.embedding.fallback_to_local)
     
     @property
-    def embedding_dimension(self) -> int:
-        return self.get("embedding.embedding_dimension", DEFAULTS.embedding.embedding_dimension)
+    def embedding_local_model(self) -> str:
+        """本地嵌入模型名称"""
+        return self.get("embedding.local_model", DEFAULTS.embedding.local_model)
+    
+    @property
+    def embedding_local_dimension(self) -> int:
+        """本地嵌入模型维度"""
+        return self.get("embedding.local_dimension", DEFAULTS.embedding.local_dimension)
     
     @property
     def enable_local_provider(self) -> bool:
         """是否启用本地 embedding 提供者"""
-        return self.get("embedding.enable_local_provider", True)
+        return self.get("embedding.enable_local_provider", DEFAULTS.embedding.enable_local_provider)
     
     # 画像配置
     @property

@@ -7,7 +7,7 @@ from .base import EmbeddingProvider, EmbeddingRequest, EmbeddingResponse
 from .astrbot_provider import AstrBotProvider
 from .local_provider import LocalProvider
 from .fallback_provider import FallbackProvider
-from .manager import EmbeddingManager, EmbeddingStrategy
+from .manager import EmbeddingManager, EmbeddingSource, EmbeddingStrategy
 
 __all__ = [
     'EmbeddingProvider',
@@ -17,5 +17,6 @@ __all__ = [
     'LocalProvider',
     'FallbackProvider',
     'EmbeddingManager',
-    'EmbeddingStrategy'
+    'EmbeddingSource',
+    'EmbeddingStrategy',
 ]

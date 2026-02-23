@@ -62,7 +62,7 @@ class EmbeddingProvider(ABC):
         if self._dimension is None:
             # 延迟加载期间返回配置的默认维度
             from iris_memory.core.config_manager import get_config_manager
-            return get_config_manager().embedding_dimension
+            return get_config_manager().embedding_local_dimension
         return self._dimension
 
     @property

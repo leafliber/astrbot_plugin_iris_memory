@@ -26,8 +26,8 @@ def mock_config():
     """模拟配置对象"""
     config = Mock()
     config.embedding = {
-        'embedding_model': 'BAAI/bge-m3',
-        'embedding_dimension': 1024,
+        'local_model': 'BAAI/bge-m3',
+        'local_dimension': 1024,
         'collection_name': 'test_collection'
     }
     return config

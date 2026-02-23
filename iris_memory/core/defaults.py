@@ -146,13 +146,21 @@ class CacheDefaults:
 @dataclass
 class EmbeddingDefaults:
     """嵌入向量默认配置"""
-    embedding_strategy: str = "auto"
-    embedding_model: str = "BAAI/bge-small-zh-v1.5"
-    embedding_models: list = field(default_factory=lambda: ["BAAI/bge-small-zh-v1.5"])
-    embedding_dimension: int = 512
+    # 源选择：auto / astrbot / local
+    source: str = "auto"
+    
+    # AstrBot provider 配置
+    astrbot_provider_id: str = ""  # 空字符串表示使用第一个可用的
+    fallback_to_local: bool = True  # AstrBot 不可用时是否降级到本地模型
+    
+    # 本地模型配置
+    local_model: str = "BAAI/bge-small-zh-v1.5"
+    local_dimension: int = 512  # 留空则自动检测
+    enable_local_provider: bool = True  # 是否启用本地模型
+    
+    # 集合配置
     collection_name: str = "iris_memory"
     auto_detect_dimension: bool = True
-    enable_local_provider: bool = True  # 是否启用本地 embedding 模型
 
 
 @dataclass

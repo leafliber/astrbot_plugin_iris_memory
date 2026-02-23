@@ -24,8 +24,8 @@ def setup_config():
     """设置测试配置（自动应用于所有测试）"""
     setup_test_config({
         'embedding': {
-            'embedding_model': 'BAAI/bge-m3',
-            'embedding_dimension': 1024,
+            'local_model': 'BAAI/bge-m3',
+            'local_dimension': 1024,
             'collection_name': 'test_collection',
             'auto_detect_dimension': True
         }
@@ -40,8 +40,8 @@ def mock_config():
     class MockConfig:
         def __init__(self):
             self.embedding = {
-                'embedding_model': 'BAAI/bge-m3',
-                'embedding_dimension': 1024,
+                'local_model': 'BAAI/bge-m3',
+                'local_dimension': 1024,
                 'collection_name': 'test_collection',
                 'auto_detect_dimension': True
             }
@@ -92,8 +92,8 @@ class TestChromaManagerInit:
         """测试配置值来自配置管理器"""
         from iris_memory.core.config_manager import get_config_manager
         cfg = get_config_manager()
-        assert chroma_manager.embedding_model_name == cfg.embedding_model
-        assert chroma_manager.embedding_dimension == cfg.embedding_dimension
+        assert chroma_manager.embedding_model_name == cfg.embedding_local_model
+        assert chroma_manager.embedding_dimension == cfg.embedding_local_dimension
 
 
 class TestChromaManagerInitialization:
