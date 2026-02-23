@@ -3,6 +3,30 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.6.1] - 2026-02-23
+
+### Added
+- **Web dashboard & API for Iris Memory** (`iris_memory/web/api_routes.py`, `iris_memory/web/web_service.py`, `iris_memory/web/static/index.html`)
+  - 新增前端单页仪表盘与管理界面，重写 `index.html`，提供记忆列表、知识图谱可视化、导入/导出与用户画像视图。
+  - 记忆编辑功能：支持打开编辑模态框，修改内容、类型、存储层、置信度、重要度、摘要并保存。
+  - 知识图谱边管理：边列表、筛选、删除与批量操作功能。
+  - 导入预览：导入前预览文件内容与验证统计（支持 JSON/CSV），展示有效/无效条目并允许确认导入。
+  - 用户画像（Personas）视图：展示用户画像卡片与详情（大五人格、沟通偏好、情绪状态）。
+  - 情绪状态终端：新增获取与展示情绪态的后端接口与前端展示。
+  - 交互改进：画布缩放、节点详情弹窗、刷新按钮、加载状态、搜索高亮、页大小选择、键盘快捷键等体验优化。
+- **审计日志**：Web 模块关键操作（导入/导出/更新/删除）增加审计日志记录（`iris_memory/web/web_service.py`）。
+
+### Changed
+- 新增若干 Web API 路由并注册到 `IrisWebAPI`（记忆详情/更新、KG 边列表、导入预览、画像列表/详情、情绪状态等）。
+- 前端 `index.html` 重写为交互式 SPA，提升可用性与无依赖实现的兼容性。
+
+### Fixed
+- 修复 JSON 导入解析器缺失问题：补充 `_parse_json_memories` 与 `_parse_json_kg`，修正导入边界条件与验证逻辑（`iris_memory/web/web_service.py`）。
+- 测试调整：更新路由注册数量断言以匹配新增路由，已验证测试通过（57 passed）。
+
+### Test
+- 相关 Web 模块单元测试通过：`tests/web/test_web_service.py` 全量通过（57 passed）。
+
 ## [v1.6.0] - 2026-02-19
 
 ### Added
