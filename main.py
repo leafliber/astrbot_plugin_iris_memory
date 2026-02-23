@@ -20,9 +20,9 @@ plugin_root = Path(__file__).parent
 if str(plugin_root) not in sys.path:
     sys.path.insert(0, str(plugin_root))
 
-from astrbot.api.star import Context, Star, register
+from astrbot.api.star import Context, Star, register, StarTools
 from astrbot.api.event import filter, AstrMessageEvent
-from astrbot.api import AstrBotConfig, logger, StarTools
+from astrbot.api import AstrBotConfig, logger
 
 from iris_memory.services.memory_service import MemoryService
 from iris_memory.utils.event_utils import get_group_id, get_sender_name, extract_reply_info
