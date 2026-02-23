@@ -281,6 +281,8 @@ class ChromaManager(ChromaQueries, ChromaOperations):
             backup_col = self.client.create_collection(name=backup_name)
             batch_size = 500
             ids = all_data["ids"]
+            embeddings_data = all_data.get("embeddings")
+            has_embeddings = embeddings_data is not None and len(embeddings_data) > 0
             for i in range(0, len(ids), batch_size):
                 end = min(i + batch_size, len(ids))
                 batch_kwargs = {"ids": ids[i:end]}
@@ -288,8 +290,8 @@ class ChromaManager(ChromaQueries, ChromaOperations):
                     batch_kwargs["documents"] = all_data["documents"][i:end]
                 if all_data.get("metadatas"):
                     batch_kwargs["metadatas"] = all_data["metadatas"][i:end]
-                if all_data.get("embeddings"):
-                    batch_kwargs["embeddings"] = all_data["embeddings"][i:end]
+                if has_embeddings:
+                    batch_kwargs["embeddings"] = embeddings_data[i:end]
                 backup_col.add(**batch_kwargs)
 
             logger.warning(
