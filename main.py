@@ -838,12 +838,12 @@ class IrisMemoryPlugin(Star):
             **reply_kw
         )
         
+        # 更新会话活动（活跃度追踪，必须在 return 之前）
+        self._service.update_session_activity(user_id, group_id)
+        
         # 以下为记忆捕获流程，需要批量处理器
         if not self._service.batch_processor:
             return
-        
-        # 更新会话活动
-        self._service.update_session_activity(user_id, group_id)
         
         # 图片分析
         image_description = ""
