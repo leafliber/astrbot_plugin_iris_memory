@@ -27,8 +27,8 @@ def setup_test_environment():
             'enable': False,
         },
         'embedding': {
-            'embedding_model': 'bge-small-zh-v1.5',
-            'embedding_dimension': 1536,
+            'local_model': 'bge-small-zh-v1.5',
+            'local_dimension': 512,
             'collection_name': 'test_iris_memory',
             'auto_detect_dimension': True,
         },
@@ -45,9 +45,9 @@ def setup_test_environment():
 def mock_embedding_config():
     """嵌入向量配置Mock"""
     return {
-        'embedding_dimension': 1024,
+        'local_dimension': 1024,
         'collection_name': 'test_collection',
-        'embedding_model': 'test-model',
+        'local_model': 'test-model',
         'auto_detect_dimension': False,
     }
 

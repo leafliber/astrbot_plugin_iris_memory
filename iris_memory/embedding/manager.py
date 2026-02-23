@@ -1,12 +1,18 @@
 """
-嵌入管理器 - 策略模式和降级管理
+嵌入管理器 - 简化的源选择与降级管理
+
+用户通过 embedding.source 选择嵌入源（auto / astrbot / local），
+管理器按用户配置为主逻辑初始化对应的提供者。
+
+降级策略：
+- auto: AstrBot → Local（需 fallback_to_local 且维度兼容）→ Fallback
+- astrbot: AstrBot → Fallback
+- local: Local → Fallback
 """
 
 from enum import Enum
-from typing import List, Dict, Any, Optional, Type
+from typing import List, Dict, Any, Optional
 from collections import OrderedDict
-from dataclasses import dataclass
-from functools import lru_cache
 import hashlib
 import time
 
@@ -21,55 +27,43 @@ from iris_memory.core.constants import CacheDefaults
 logger = get_logger("embedding_manager")
 
 
-class EmbeddingStrategy(str, Enum):
-    """嵌入策略"""
-    AUTO = "auto"  # 自动选择（按优先级降级）
-    ASTRBOT = "astrbot"  # 仅使用 AstrBot
-    LOCAL = "local"  # 仅使用本地模型
-    FALLBACK = "fallback"  # 仅使用降级
+class EmbeddingSource(str, Enum):
+    """嵌入源选择"""
+    AUTO = "auto"        # 自动选择（AstrBot 优先 → Local → Fallback）
+    ASTRBOT = "astrbot"  # 仅使用 AstrBot embedding 服务
+    LOCAL = "local"      # 仅使用本地模型
 
 
-@dataclass
-class ProviderPriority:
-    """提供者优先级配置"""
-    provider_class: Type[EmbeddingProvider]
-    priority: int
-    enabled: bool = True
+# 向后兼容别名
+EmbeddingStrategy = EmbeddingSource
 
 
 class EmbeddingManager:
     """嵌入管理器
-    
-    管理多种嵌入提供者，实现策略模式和自动降级。
-    优先级：AstrBot → Local → Fallback
-    
-    新增：Embedding 缓存机制，减少重复计算
+
+    根据用户配置的 embedding.source 选择嵌入源，
+    简化的初始化逻辑：以用户配置为主，降级为辅。
+
+    支持 Embedding 缓存，减少重复计算。
     """
 
     def __init__(self, config: Any, data_path: Optional[Any] = None):
         """初始化嵌入管理器
-        
+
         Args:
             config: 插件配置对象
             data_path: 数据目录路径
         """
         self.config = config
         self.data_path = data_path
-        
+
         # 提供者实例
         self.providers: Dict[str, EmbeddingProvider] = {}
         self.current_provider: Optional[EmbeddingProvider] = None
-        self.current_strategy: EmbeddingStrategy = EmbeddingStrategy.AUTO
-        
-        # 优先级配置
-        self.priorities = [
-            ProviderPriority(AstrBotProvider, 1),
-            ProviderPriority(LocalProvider, 2),
-            ProviderPriority(FallbackProvider, 3),
-        ]
-        
+        self.current_source: EmbeddingSource = EmbeddingSource.AUTO
+
         # 统计信息
-        self.stats = {
+        self.stats: Dict[str, Any] = {
             "total_requests": 0,
             "successful_requests": 0,
             "failed_requests": 0,
@@ -77,47 +71,49 @@ class EmbeddingManager:
             "cache_misses": 0,
             "provider_usage": {}
         }
-        
-        # Embedding 缓存（文本哈希 -> (向量, 过期时间))，使用 OrderedDict 实现真正的 LRU
+
+        # Embedding 缓存（文本哈希 -> (向量, 过期时间)），使用 OrderedDict 实现 LRU
         self._embedding_cache: OrderedDict[str, tuple[list[float], float]] = OrderedDict()
         self._cache_max_size = CacheDefaults.EMBEDDING_CACHE_MAX_SIZE
         self._cache_ttl: float = CacheDefaults.EMBEDDING_CACHE_TTL
-        self._cache_enabled = True   # 是否启用缓存
-        self._cache_model_key: str = ""  # 缓存对应的模型标识，模型切换时自动清空
-        
+        self._cache_enabled = True
+        self._cache_model_key: str = ""
+
         # 插件上下文（用于 AstrBot API）
         self.plugin_context = None
-    
+
     @property
     def is_ready(self) -> bool:
-        """检查当前嵌入提供者是否已就绪（模型已加载完成）
-        
+        """检查当前嵌入提供者是否已就绪
+
         Returns:
             bool: 提供者是否可用
         """
         if self.current_provider is None:
             return False
         return self.current_provider.is_ready
-    
+
+    # ========== 缓存管理 ==========
+
     def _get_cache_key(self, text: str, dimension: Optional[int] = None) -> str:
         """生成缓存键
-        
+
         Args:
             text: 文本内容
             dimension: 目标维度
-            
+
         Returns:
             str: 缓存键（SHA256哈希）
         """
         key_str = f"{text}:{dimension or self.get_dimension()}"
         return hashlib.sha256(key_str.encode('utf-8')).hexdigest()
-    
+
     def _get_from_cache(self, cache_key: str) -> Optional[List[float]]:
         """从缓存获取 embedding（命中时移至末尾以实现 LRU，并检查 TTL）
-        
+
         Args:
             cache_key: 缓存键
-            
+
         Returns:
             Optional[List[float]]: 缓存的向量或 None
         """
@@ -127,47 +123,43 @@ class EmbeddingManager:
         if entry is not None:
             embedding, expire_at = entry
             if time.monotonic() > expire_at:
-                # TTL 过期，移除
                 del self._embedding_cache[cache_key]
                 return None
-            # 移至末尾表示最近使用
             self._embedding_cache.move_to_end(cache_key)
             return embedding
         return None
-    
+
     def _add_to_cache(self, cache_key: str, embedding: List[float]):
         """添加 embedding 到缓存
-        
+
         Args:
             cache_key: 缓存键
             embedding: 嵌入向量
         """
         if not self._cache_enabled:
             return
-        
+
         expire_at = time.monotonic() + self._cache_ttl
-        
-        # 如果 key 已存在，更新并移至末尾
+
         if cache_key in self._embedding_cache:
             self._embedding_cache.move_to_end(cache_key)
             self._embedding_cache[cache_key] = (embedding, expire_at)
             return
-        
-        # LRU 淘汰：超出容量时移除最旧（最前面）的条目
+
         while len(self._embedding_cache) >= self._cache_max_size:
             evicted_key, _ = self._embedding_cache.popitem(last=False)
             logger.debug(f"Cache eviction: removed oldest entry {evicted_key[:16]}...")
-        
+
         self._embedding_cache[cache_key] = (embedding, expire_at)
-    
+
     def clear_cache(self):
         """清空缓存"""
         self._embedding_cache.clear()
         logger.info("Embedding cache cleared")
-    
+
     def get_cache_stats(self) -> Dict[str, Any]:
         """获取缓存统计
-        
+
         Returns:
             Dict[str, Any]: 缓存统计信息
         """
@@ -183,144 +175,219 @@ class EmbeddingManager:
             )
         }
 
+    # ========== 上下文管理 ==========
+
     def set_plugin_context(self, context: Any):
         """设置插件上下文
-        
+
         Args:
             context: AstrBot 插件上下文
         """
         self.plugin_context = context
-        # 传递给配置对象
         if not hasattr(self.config, '_plugin_context'):
             self.config._plugin_context = context
 
+    # ========== 初始化逻辑 ==========
+
     async def initialize(self) -> bool:
         """初始化嵌入管理器
-        
+
+        根据配置的 embedding.source 选择并初始化嵌入提供者。
+
         Returns:
             bool: 是否至少有一个提供者可用
         """
         logger.info("Initializing embedding manager...")
-        
-        # 使用配置管理器获取策略
+
         from iris_memory.core.config_manager import get_config_manager
         cfg = get_config_manager()
-        strategy_str = cfg.embedding_strategy.lower()
-        
+        source_str = cfg.embedding_source.lower()
+
         try:
-            self.current_strategy = EmbeddingStrategy(strategy_str)
+            self.current_source = EmbeddingSource(source_str)
         except ValueError:
-            logger.warning(f"Invalid strategy '{strategy_str}', using AUTO")
-            self.current_strategy = EmbeddingStrategy.AUTO
-        
-        logger.info(f"Embedding strategy: {self.current_strategy.value}")
-        
-        # 根据策略初始化提供者
-        if self.current_strategy == EmbeddingStrategy.AUTO:
-            # 自动模式：按优先级初始化所有提供者
-            logger.debug("AUTO mode: initializing providers by priority...")
-            for priority in self.priorities:
-                provider_name = priority.provider_class.__name__
-                logger.debug(f"Trying to initialize {provider_name} (priority={priority.priority})...")
-                
-                # 特殊处理 AstrBotProvider，需要传入 context
-                if priority.provider_class == AstrBotProvider:
-                    provider = AstrBotProvider(self.config, self.plugin_context)
-                else:
-                    provider = priority.provider_class(self.config)
-                    
-                success = await provider.initialize()
-                if success:
-                    short_name = provider_name.replace("Provider", "").lower()
-                    self.providers[short_name] = provider
-                    self.stats["provider_usage"][short_name] = 0
-                    logger.info(f"Initialized embedding provider: {short_name}")
-                else:
-                    logger.debug(f"Failed to initialize {provider_name}")
-            
-            # 选择当前提供者（最高优先级）
-            if self.providers:
-                best_provider_name = self._get_best_provider()
-                self.current_provider = self.providers[best_provider_name]
+            logger.warning(f"Invalid embedding source '{source_str}', using AUTO")
+            self.current_source = EmbeddingSource.AUTO
+
+        logger.info(f"Embedding source: {self.current_source.value}")
+
+        # 根据源选择初始化提供者
+        if self.current_source == EmbeddingSource.AUTO:
+            return await self._init_auto(cfg)
+        elif self.current_source == EmbeddingSource.ASTRBOT:
+            return await self._init_astrbot(cfg)
+        elif self.current_source == EmbeddingSource.LOCAL:
+            return await self._init_local(cfg)
+
+        # 不应到达此处
+        return await self._init_fallback_as_last_resort()
+
+    async def _init_auto(self, cfg: Any) -> bool:
+        """AUTO 模式：AstrBot 优先 → Local（如果 fallback_to_local）→ Fallback
+
+        Args:
+            cfg: 配置管理器
+
+        Returns:
+            bool: 是否初始化成功
+        """
+        # 1. 尝试 AstrBot
+        astrbot_ok = await self._try_init_astrbot(cfg)
+        if astrbot_ok:
+            self.current_provider = self.providers["astrbot"]
+            logger.info(
+                f"Selected embedding provider: astrbot "
+                f"(model={self.current_provider.model}, dimension={self.get_dimension()})"
+            )
+            return True
+
+        # 2. AstrBot 失败，尝试 Local（如果配置允许）
+        if cfg.embedding_fallback_to_local and cfg.enable_local_provider:
+            local_ok = await self._try_init_local(cfg)
+            if local_ok:
+                self.current_provider = self.providers["local"]
                 if self.current_provider.is_ready:
-                    logger.info(f"Selected embedding provider: {best_provider_name} (dimension={self.get_dimension()})")
+                    logger.info(
+                        f"AstrBot unavailable, using local provider "
+                        f"(model={self.current_provider.model}, dimension={self.get_dimension()})"
+                    )
                 else:
-                    logger.info(f"Selected embedding provider: {best_provider_name} (dimension=loading...)")
-                logger.debug(f"Available providers: {list(self.providers.keys())}")
+                    logger.info(
+                        f"AstrBot unavailable, using local provider "
+                        f"(model={self.current_provider.model}, dimension=loading...)"
+                    )
                 return True
-            
-        elif self.current_strategy == EmbeddingStrategy.ASTRBOT:
-            logger.debug("ASTRBOT mode: initializing AstrBot provider...")
-            provider = AstrBotProvider(self.config, self.plugin_context)
-            if await provider.initialize():
-                self.providers["astrbot"] = provider
-                self.current_provider = provider
-                self.stats["provider_usage"]["astrbot"] = 0
-                logger.info(f"Initialized AstrBot provider (dimension={self.get_dimension()})")
-                return True
-            logger.warning("Failed to initialize AstrBot provider")
-        
-        elif self.current_strategy == EmbeddingStrategy.LOCAL:
-            logger.debug("LOCAL mode: initializing Local provider...")
-            provider = LocalProvider(self.config)
-            if await provider.initialize():
-                self.providers["local"] = provider
-                self.current_provider = provider
-                self.stats["provider_usage"]["local"] = 0
-                logger.info(f"Initialized Local provider (dimension={self.get_dimension()})")
-                return True
-            logger.warning("Failed to initialize Local provider")
-        
-        elif self.current_strategy == EmbeddingStrategy.FALLBACK:
-            logger.debug("FALLBACK mode: initializing Fallback provider...")
-            provider = FallbackProvider(self.config)
-            if await provider.initialize():
-                self.providers["fallback"] = provider
-                self.current_provider = provider
-                self.stats["provider_usage"]["fallback"] = 0
-                logger.info(f"Initialized Fallback provider (dimension={self.get_dimension()})")
-                return True
-            logger.warning("Failed to initialize Fallback provider")
-        
-        # 如果没有提供者可用，至少初始化降级提供者
-        logger.warning("No embedding provider available, initializing fallback as last resort")
+            logger.warning("Local provider initialization also failed")
+        elif not cfg.embedding_fallback_to_local:
+            logger.info("AstrBot unavailable and fallback_to_local is disabled")
+        elif not cfg.enable_local_provider:
+            logger.info("AstrBot unavailable and local provider is disabled")
+
+        # 3. 都失败，使用 Fallback
+        return await self._init_fallback_as_last_resort()
+
+    async def _init_astrbot(self, cfg: Any) -> bool:
+        """ASTRBOT 模式：仅使用 AstrBot
+
+        Args:
+            cfg: 配置管理器
+
+        Returns:
+            bool: 是否初始化成功
+        """
+        astrbot_ok = await self._try_init_astrbot(cfg)
+        if astrbot_ok:
+            self.current_provider = self.providers["astrbot"]
+            logger.info(
+                f"Selected embedding provider: astrbot "
+                f"(model={self.current_provider.model}, dimension={self.get_dimension()})"
+            )
+            return True
+
+        logger.warning("AstrBot embedding provider unavailable, using fallback")
+        return await self._init_fallback_as_last_resort()
+
+    async def _init_local(self, cfg: Any) -> bool:
+        """LOCAL 模式：仅使用本地模型
+
+        Args:
+            cfg: 配置管理器
+
+        Returns:
+            bool: 是否初始化成功
+        """
+        if not cfg.enable_local_provider:
+            logger.warning("Local provider is disabled in configuration")
+            return await self._init_fallback_as_last_resort()
+
+        local_ok = await self._try_init_local(cfg)
+        if local_ok:
+            self.current_provider = self.providers["local"]
+            if self.current_provider.is_ready:
+                logger.info(
+                    f"Selected embedding provider: local "
+                    f"(model={self.current_provider.model}, dimension={self.get_dimension()})"
+                )
+            else:
+                logger.info(
+                    f"Selected embedding provider: local "
+                    f"(model={self.current_provider.model}, dimension=loading...)"
+                )
+            return True
+
+        logger.warning("Local provider initialization failed, using fallback")
+        return await self._init_fallback_as_last_resort()
+
+    async def _try_init_astrbot(self, cfg: Any) -> bool:
+        """尝试初始化 AstrBot 提供者
+
+        Args:
+            cfg: 配置管理器
+
+        Returns:
+            bool: 是否初始化成功
+        """
+        provider = AstrBotProvider(
+            self.config,
+            astrbot_context=self.plugin_context,
+            provider_id=cfg.embedding_astrbot_provider_id,
+        )
+        success = await provider.initialize()
+        if success:
+            self.providers["astrbot"] = provider
+            self.stats["provider_usage"]["astrbot"] = 0
+            return True
+        return False
+
+    async def _try_init_local(self, cfg: Any) -> bool:
+        """尝试初始化本地提供者
+
+        Args:
+            cfg: 配置管理器
+
+        Returns:
+            bool: 是否初始化成功
+        """
+        provider = LocalProvider(self.config)
+        success = await provider.initialize()
+        if success:
+            self.providers["local"] = provider
+            self.stats["provider_usage"]["local"] = 0
+            return True
+        return False
+
+    async def _init_fallback_as_last_resort(self) -> bool:
+        """初始化 Fallback 提供者作为最后手段
+
+        Returns:
+            bool: 是否初始化成功
+        """
+        logger.warning("Initializing fallback provider (pseudo-random vectors) as last resort")
         provider = FallbackProvider(self.config)
         if await provider.initialize():
             self.providers["fallback"] = provider
             self.current_provider = provider
             self.stats["provider_usage"]["fallback"] = 0
-            logger.info(f"Initialized Fallback provider as fallback (dimension={self.get_dimension()})")
+            logger.info(f"Fallback provider initialized (dimension={self.get_dimension()})")
             return True
-        
+
         logger.error("Failed to initialize any embedding provider")
         return False
 
-    def _get_best_provider(self) -> str:
-        """获取最佳提供者（最高优先级）
-        
-        Returns:
-            str: 提供者名称
-        """
-        for priority in self.priorities:
-            provider_name = priority.provider_class.__name__.replace("Provider", "").lower()
-            if provider_name in self.providers:
-                return provider_name
-        
-        # 如果没有，返回降级
-        return "fallback"
+    # ========== 嵌入生成 ==========
 
     async def embed(self, text: str, dimension: Optional[int] = None) -> List[float]:
         """生成嵌入向量（自动降级 + 缓存）
-        
+
         Args:
             text: 文本内容
             dimension: 目标维度（可选）
-            
+
         Returns:
             List[float]: 嵌入向量
         """
         self.stats["total_requests"] += 1
-        
+
         # 检查模型是否变更，变更时清空缓存
         current_model = self.get_model()
         if self._cache_model_key and self._cache_model_key != current_model:
@@ -330,113 +397,93 @@ class EmbeddingManager:
             )
             self.clear_cache()
         self._cache_model_key = current_model
-        
+
         # 1. 检查缓存
         cache_key = self._get_cache_key(text, dimension)
         cached_embedding = self._get_from_cache(cache_key)
         if cached_embedding is not None:
             self.stats["cache_hits"] += 1
             return cached_embedding
-        
+
         self.stats["cache_misses"] += 1
-        
-        # 2. 如果有当前提供者，尝试使用
+
+        # 2. 使用当前提供者生成嵌入
         embedding_result = None
         if self.current_provider:
-            provider_name = self.current_provider.__class__.__name__.replace("Provider", "").lower()
+            provider_name = self._get_provider_name(self.current_provider)
             try:
-                request = EmbeddingRequest(
-                    text=text,
-                    dimension=dimension
-                )
+                request = EmbeddingRequest(text=text, dimension=dimension)
                 response = await self.current_provider.embed(request)
                 embedding_result = response.to_list()
-                
-                # 更新统计
+
                 self.stats["successful_requests"] += 1
-                self.stats["provider_usage"][provider_name] = self.stats["provider_usage"].get(provider_name, 0) + 1
-                
+                self.stats["provider_usage"][provider_name] = \
+                    self.stats["provider_usage"].get(provider_name, 0) + 1
+
             except Exception as e:
                 logger.warning(f"Current provider {provider_name} failed: {e}, trying fallback")
                 self.stats["failed_requests"] += 1
-        
-        # 3. 如果当前提供者失败，尝试降级
+
+        # 3. 当前提供者失败，尝试降级
         if embedding_result is None:
             embedding_result = await self._embed_with_fallback(text, dimension)
-        
+
         # 4. 添加到缓存
         self._add_to_cache(cache_key, embedding_result)
-        
+
         return embedding_result
 
     async def _embed_with_fallback(self, text: str, dimension: Optional[int] = None) -> List[float]:
         """使用降级策略生成嵌入
-        
+
+        按 astrbot → local → fallback 的顺序尝试所有可用提供者。
+
         Args:
             text: 文本内容
             dimension: 目标维度
-            
+
         Returns:
             List[float]: 嵌入向量
         """
-        # 按优先级尝试所有提供者
-        for priority in self.priorities:
-            provider_name = priority.provider_class.__name__.replace("Provider", "").lower()
-            
+        provider_order = ["astrbot", "local", "fallback"]
+
+        for provider_name in provider_order:
             if provider_name not in self.providers:
                 continue
-            
+
             provider = self.providers[provider_name]
-            
+
             try:
                 request = EmbeddingRequest(text=text, dimension=dimension)
                 response = await provider.embed(request)
-                
-                # 更新当前提供者
+
+                # 切换当前提供者
                 self.current_provider = provider
                 logger.info(f"Switched to provider: {provider_name}")
-                
-                # 更新统计
+
                 self.stats["successful_requests"] += 1
-                self.stats["provider_usage"][provider_name] = self.stats["provider_usage"].get(provider_name, 0) + 1
-                
+                self.stats["provider_usage"][provider_name] = \
+                    self.stats["provider_usage"].get(provider_name, 0) + 1
+
                 return response.to_list()
-                
+
             except Exception as e:
                 logger.warning(f"Provider {provider_name} failed: {e}")
                 continue
-        
-        # 如果所有都失败，使用降级提供者（必须存在）
-        if "fallback" in self.providers:
-            try:
-                provider = self.providers["fallback"]
-                request = EmbeddingRequest(text=text, dimension=dimension)
-                response = await provider.embed(request)
-                
-                self.current_provider = provider
-                self.stats["successful_requests"] += 1
-                self.stats["provider_usage"]["fallback"] = self.stats["provider_usage"].get("fallback", 0) + 1
-                
-                logger.warning("Using fallback provider (pseudo-random vectors)")
-                return response.to_list()
-                
-            except Exception as e:
-                logger.error(f"Fallback provider failed: {e}")
-        
+
         raise RuntimeError("All embedding providers failed")
 
     async def embed_batch(self, texts: List[str], dimension: Optional[int] = None) -> List[List[float]]:
         """批量生成嵌入向量
-        
+
         Args:
             texts: 文本列表
             dimension: 目标维度
-            
+
         Returns:
             List[List[float]]: 嵌入向量列表
         """
         if not self.current_provider:
-            # 尝试降级而非直接报错
             logger.warning("No current provider for embed_batch, attempting fallback")
             results = []
             for text in texts:
@@ -453,20 +500,22 @@ class EmbeddingManager:
                 results.append(await self.embed(text, dimension))
             return results
 
+    # ========== 信息查询 ==========
+
     def get_dimension(self) -> int:
         """获取当前提供者的维度
-        
+
         Returns:
             int: 嵌入维度
         """
         if self.current_provider:
             return self.current_provider.dimension
         from iris_memory.core.config_manager import get_config_manager
-        return get_config_manager().embedding_dimension
+        return get_config_manager().embedding_local_dimension
 
     def get_model(self) -> str:
         """获取当前提供者的模型名称
-        
+
         Returns:
             str: 模型名称
         """
@@ -479,60 +528,60 @@ class EmbeddingManager:
 
     async def health_check(self) -> Dict[str, Any]:
         """健康检查
-        
+
         Returns:
             Dict[str, Any]: 健康状态信息
         """
         results = {
-            "strategy": self.current_strategy.value,
-            "current_provider": self.current_provider.__class__.__name__ if self.current_provider else "none",
+            "source": self.current_source.value,
+            "current_provider": self._get_provider_name(self.current_provider) if self.current_provider else "none",
             "providers": {},
             "stats": self.stats
         }
-        
+
         for name, provider in self.providers.items():
             try:
                 results["providers"][name] = await provider.health_check()
             except Exception as e:
                 results["providers"][name] = {"status": "error", "error": str(e)}
-        
+
         return results
 
     async def detect_existing_dimension(self, collection) -> Optional[int]:
         """检测现有集合的嵌入维度
-        
+
         Args:
             collection: Chroma 集合对象
-            
+
         Returns:
             Optional[int]: 嵌入维度，如果无法检测则返回 None
         """
         try:
-            # 获取一个样本记录（必须显式请求 embeddings）
             results = collection.get(limit=1, include=["embeddings"])
-            
+
             if results.get('embeddings') and results['embeddings'][0]:
                 dimension = len(results['embeddings'][0])
                 logger.info(f"Detected existing collection dimension: {dimension}")
                 return dimension
-            
+
             return None
-            
+
         except Exception as e:
             logger.debug(f"Failed to detect existing dimension: {e}")
             return None
 
-    async def switch_strategy(self, strategy: EmbeddingStrategy) -> bool:
-        """切换嵌入策略
-        
+    # ========== 内部工具 ==========
+
+    @staticmethod
+    def _get_provider_name(provider: Optional[EmbeddingProvider]) -> str:
+        """获取提供者的简短名称
+
         Args:
-            strategy: 目标策略
-            
+            provider: 嵌入提供者实例
+
         Returns:
-            bool: 是否切换成功
+            str: 简短名称
         """
-        logger.info(f"Switching embedding strategy to: {strategy.value}")
-        self.current_strategy = strategy
-        
-        # 重新初始化
-        return await self.initialize()
+        if provider is None:
+            return "none"
+        return provider.__class__.__name__.replace("Provider", "").lower()

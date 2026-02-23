@@ -89,14 +89,14 @@ class LocalProvider(EmbeddingProvider):
                 return False
             
             # 获取配置（修复：处理可能返回列表的情况）
-            model_name = cfg.embedding_model
+            model_name = cfg.embedding_local_model
             # 如果是列表，取第一个元素
             if isinstance(model_name, list):
                 model_name = model_name[0] if model_name else "BAAI/bge-small-zh-v1.5"
             
             self._model = model_name
             # 设置配置中的默认维度，模型加载完成后会更新为实际维度
-            self._dimension = cfg.embedding_dimension
+            self._dimension = cfg.embedding_local_dimension
             
             # 启动后台加载任务
             self._start_background_load(model_name)

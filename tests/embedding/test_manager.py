@@ -5,7 +5,7 @@
 import asyncio
 import pytest
 
-from iris_memory.embedding.manager import EmbeddingManager, EmbeddingStrategy
+from iris_memory.embedding.manager import EmbeddingManager, EmbeddingSource
 from iris_memory.embedding.base import EmbeddingRequest
 from iris_memory.core.config_manager import init_config_manager, reset_config_manager
 
@@ -15,11 +15,13 @@ class MockConfig:
     def __init__(self):
         self._data = {
             "embedding": {
-                "embedding_strategy": "auto",
-                "embedding_model": "BAAI/bge-m3",
-                "embedding_dimension": 1024,
-                "auto_detect_dimension": True,
+                "source": "auto",
+                "astrbot_provider_id": "",
+                "fallback_to_local": True,
+                "local_model": "BAAI/bge-m3",
+                "local_dimension": 1024,
                 "enable_local_provider": False,
+                "auto_detect_dimension": True,
             }
         }
 
@@ -98,7 +100,7 @@ async def test_health_check():
     
     health = await manager.health_check()
     
-    assert "strategy" in health
+    assert "source" in health
     assert "current_provider" in health
     assert "providers" in health
     assert "stats" in health

@@ -71,8 +71,8 @@ class ChromaManager(ChromaQueries, ChromaOperations):
         
         cfg = get_config_manager()
         
-        self.embedding_model_name = cfg.embedding_model
-        self.embedding_dimension = cfg.embedding_dimension
+        self.embedding_model_name = cfg.embedding_local_model
+        self.embedding_dimension = cfg.embedding_local_dimension
         self.collection_name = DEFAULTS.embedding.collection_name
         self.auto_detect_dimension = DEFAULTS.embedding.auto_detect_dimension
         
