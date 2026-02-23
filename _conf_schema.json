@@ -107,11 +107,11 @@
         "hint": "用于知识图谱三元组提取，留空使用默认提供者"
       },
       "image_analysis_provider_id": {
-        "description": "图片分析LLM提供者",
+        "description": "图片分析LLM提供者（需要视觉模型）",
         "type": "string",
         "_special": "select_provider",
         "default": "",
-        "hint": "用于图片内容分析，建议选择支持Vision的模型"
+        "hint": "用于图片内容分析，请选择支持Vision的模型"
       },
       "enhanced_provider_id": {
         "description": "智能增强LLM提供者",
