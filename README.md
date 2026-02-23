@@ -27,74 +27,26 @@
 - 注入近期聊天上下文，让AI了解当前话题
 - 情感感知记忆过滤
 
-## 安装
-
-### Docker快速测试（推荐）
-
-使用Docker进行快速测试，适合日常开发和验证：
-
-```bash
-cd docker
-./manager.sh start
-```
-
-或运行快速测试：
-
-```bash
-cd docker
-./manager.sh quick_test
-```
-
-访问 http://localhost:6185 测试插件功能。
-
-**管理命令**：
-```bash
-./manager.sh start    # 启动环境
-./manager.sh stop     # 停止环境
-./manager.sh restart  # 重启容器
-./manager.sh logs     # 查看日志
-./manager.sh test     # 运行测试
-./manager.sh status   # 查看状态
-./manager.sh shell    # 进入容器shell
-./manager.sh help     # 查看所有命令
-```
-
-详细说明请参考：[Docker测试环境](./docker/)
-
-### 本地安装
-
-#### 1. 安装依赖
-```bash
-pip install -r requirements.txt
-# 或使用 uv
-uv sync
-```
-
-#### 2. 启用插件
-将插件文件夹放入AstrBot的`plugins`目录，然后在AstrBot配置中启用。
-
-#### 3. 配置插件
-在AstrBot Web界面中配置插件参数。
-
-配置示例（`persona` 区块）：
-
-```json
-{
-   "persona": {
-      "extraction_mode": "hybrid",
-      "llm_provider": {
-         "_special": "select_provider",
-         "value": "default"
-      },
-      "llm_daily_limit": 50,
-      "fallback_to_rule": true
-   }
-}
-```
-
-说明：`llm_provider` 使用 AstrBot 的提供者选择器格式（`_special: select_provider`），未选择时会使用默认提供者。
 
 ## 使用方法
+
+### 可选功能：通过 AstrBot 控制台 安装 pip 库
+
+某些附加能力（如本地模型或额外分析库）是可选的，可直接在 AstrBot 控制台通过图形界面安装 pip 包：
+
+- 打开 AstrBot 控制台 → 选择 **更多功能** → **平台日志**。
+- 在**平台日志**界面右上角，点击 **安装 pip 库**（或类似按钮），在弹窗中输入要安装的包名或要求文件内容（例如 `sentence-transformers`），然后确认安装。
+- 安装完成后，可能需要重启 AstrBot 或重启插件以使包生效。
+
+以下是可选的pip包：
+
+```
+# 本地嵌入模型支持（可选）
+sentence-transformers>=2.2.0
+```
+
+注意：仅安装受信任的包与版本，并在生产环境中谨慎操作。
+
 
 ### 指令列表
 
@@ -352,13 +304,6 @@ iris_memory/
 ## 未来计划
 
 - [ ] 支持多模态记忆（语音）
-- [ ] 实现知识图谱支持多跳推理
-- [ ] 增加记忆可视化界面
-- [ ] 支持记忆导出和导入
-
-## License
-
-本插件基于 [companion-memory](./framework.md) 框架开发。
 
 ## 贡献
 

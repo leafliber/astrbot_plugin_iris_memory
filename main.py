@@ -22,8 +22,7 @@ if str(plugin_root) not in sys.path:
 
 from astrbot.api.star import Context, Star, register
 from astrbot.api.event import filter, AstrMessageEvent
-from astrbot.api import AstrBotConfig
-from astrbot.core.utils.astrbot_path import get_astrbot_data_path
+from astrbot.api import AstrBotConfig, logger, StarTools
 
 from iris_memory.services.memory_service import MemoryService
 from iris_memory.utils.event_utils import get_group_id, get_sender_name, extract_reply_info
@@ -69,8 +68,7 @@ class IrisMemoryPlugin(Star):
         # 插件名称
         self.name = "iris_memory"
         
-        # 插件数据目录
-        data_path = Path(get_astrbot_data_path()) / "plugin_data" / self.name
+        data_path = Path(StarTools.get_data_dir())
         
         # 初始化业务服务层
         self._service = MemoryService(context, config, data_path)
@@ -98,9 +96,7 @@ class IrisMemoryPlugin(Star):
             self._web_api = IrisWebAPI(self.context, self._service)
             self._web_api.register_all_routes()
         except Exception as e:
-            # Web 模块初始化失败不影响核心功能
-            import logging
-            logging.getLogger("iris_memory").warning(f"Web API 初始化失败（不影响核心功能）: {e}")
+            logger.warning(f"Web API 初始化失败（不影响核心功能）: {e}")
     
     def _is_admin(self, event: AstrMessageEvent) -> bool:
         """
