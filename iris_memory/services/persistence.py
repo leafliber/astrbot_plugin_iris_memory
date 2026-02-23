@@ -4,7 +4,7 @@ MemoryService 持久化模块
 将持久化逻辑从 MemoryService 中拆分出来，提高代码可维护性。
 """
 
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 from iris_memory.utils.logger import get_logger
 from iris_memory.core.constants import KVStoreKeys, LogTemplates
@@ -140,6 +140,9 @@ class PersistenceOperations:
     async def save_to_kv(self, put_kv_data) -> None:
         """保存到KV存储"""
         try:
+            # 缓存 put_kv_data 供批量处理器自动保存回调使用
+            self._cached_put_kv_data = put_kv_data
+
             await self._save_session_data(put_kv_data)
             await self._save_batch_queues(put_kv_data)
             await self._save_chat_history(put_kv_data)
@@ -162,13 +165,23 @@ class PersistenceOperations:
             count=self.session_manager.get_session_count()
         ))
 
-    async def _save_batch_queues(self, put_kv_data) -> None:
-        """保存批量处理器队列"""
+    async def _save_batch_queues(self, put_kv_data: Optional[Any] = None) -> None:
+        """保存批量处理器队列
+
+        Args:
+            put_kv_data: KV 写入函数。为 None 时尝试使用上次缓存的函数，
+                以支持批量处理器的无参回调。
+        """
         if not self.batch_processor:
+            return
+
+        put_func = put_kv_data or getattr(self, "_cached_put_kv_data", None)
+        if put_func is None:
+            logger.debug("Skip saving batch queues: put_kv_data callback is unavailable")
             return
         
         batch_queues = await self.batch_processor.serialize_queues()
-        await put_kv_data(KVStoreKeys.BATCH_QUEUES, batch_queues)
+        await put_func(KVStoreKeys.BATCH_QUEUES, batch_queues)
         logger.info("Saved batch processor queues")
 
     async def _save_chat_history(self, put_kv_data) -> None:
@@ -224,10 +237,6 @@ class PersistenceOperations:
                 persona_log.persist_error(uid, e)
         await put_kv_data(KVStoreKeys.USER_PERSONAS, personas_data)
         logger.info(f"Saved {len(personas_data)} user personas")
-
-    async def _save_batch_queues(self) -> None:
-        """保存批量队列（供回调使用）"""
-        pass
 
     async def terminate(self) -> None:
         """销毁服务
