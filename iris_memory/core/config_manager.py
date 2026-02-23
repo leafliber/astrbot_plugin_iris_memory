@@ -493,6 +493,27 @@ class ConfigManager:
         return self._with_group_override(group_id, "reply_temperature",
                                          "proactive_reply.reply_temperature",
                                          DEFAULTS.proactive_reply.reply_temperature)
+    
+    # Web UI 配置
+    @property
+    def web_ui_enabled(self) -> bool:
+        """是否启用Web管理界面"""
+        return self.get("web_ui.enable", DEFAULTS.web_ui.enable)
+    
+    @property
+    def web_ui_port(self) -> int:
+        """Web服务端口"""
+        return self.get("web_ui.port", DEFAULTS.web_ui.port)
+    
+    @property
+    def web_ui_access_key(self) -> str:
+        """Web访问密钥"""
+        return self.get("web_ui.access_key", DEFAULTS.web_ui.access_key)
+    
+    @property
+    def web_ui_host(self) -> str:
+        """Web服务监听地址"""
+        return self.get("web_ui.host", DEFAULTS.web_ui.host)
 
 
 # 全局配置管理器 — 通过 ServiceContainer 管理

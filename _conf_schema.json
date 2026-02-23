@@ -304,5 +304,35 @@
         "hint": "低于此置信度的推理路径将被过滤（0.1-0.9）"
       }
     }
+  },
+  "web_ui": {
+    "description": "Web管理界面设置",
+    "type": "object",
+    "items": {
+      "enable": {
+        "description": "启用Web管理界面",
+        "type": "bool",
+        "default": false,
+        "hint": "开启后可通过独立端口访问Web管理页面，与AstrBot认证系统解耦"
+      },
+      "port": {
+        "description": "Web服务端口",
+        "type": "int",
+        "default": 8089,
+        "hint": "Web管理界面的监听端口（1024-65535）"
+      },
+      "access_key": {
+        "description": "访问密钥",
+        "type": "string",
+        "default": "",
+        "hint": "访问Web管理界面所需的密钥，留空则无需认证（不推荐）"
+      },
+      "host": {
+        "description": "监听地址",
+        "type": "string",
+        "default": "127.0.0.1",
+        "hint": "Web服务监听地址，默认仅本机访问。设为0.0.0.0允许外部访问（需注意安全）"
+      }
+    }
   }
 }

@@ -85,18 +85,37 @@ class IrisMemoryPlugin(Star):
         await self._service.load_from_kv(self.get_kv_data)
         
         # 初始化 Web 管理界面
-        self._init_web_api()
+        await self._init_web_ui()
     
     # ========== 权限检查 ==========
     
-    def _init_web_api(self) -> None:
-        """初始化 Web 管理界面 API"""
+    async def _init_web_ui(self) -> None:
+        """初始化 Web 管理界面"""
+        from iris_memory.core.config_manager import get_config_manager
+        config_mgr = get_config_manager()
+        
+        if not config_mgr.web_ui_enabled:
+            return
+        
         try:
-            from iris_memory.web import IrisWebAPI
-            self._web_api = IrisWebAPI(self.context, self._service)
-            self._web_api.register_all_routes()
+            from iris_memory.web.standalone_server import StandaloneWebServer
+            
+            self._standalone_web = StandaloneWebServer(
+                memory_service=self._service,
+                port=config_mgr.web_ui_port,
+                host=config_mgr.web_ui_host,
+                access_key=config_mgr.web_ui_access_key,
+            )
+            
+            import asyncio
+            asyncio.create_task(self._standalone_web.start())
+            
+            key_info = "需访问密钥" if config_mgr.web_ui_access_key else "无需认证"
+            logger.info(
+                f"Web 管理界面已启动: http://{config_mgr.web_ui_host}:{config_mgr.web_ui_port} ({key_info})"
+            )
         except Exception as e:
-            logger.warning(f"Web API 初始化失败（不影响核心功能）: {e}")
+            logger.warning(f"Web 管理界面启动失败: {e}")
     
     def _is_admin(self, event: AstrMessageEvent) -> bool:
         """

@@ -338,6 +338,15 @@ class KnowledgeGraphDefaults:
     min_confidence: float = 0.2            # 最低置信度阈值
 
 
+@dataclass
+class WebUIDefaults:
+    """Web管理界面默认配置"""
+    enable: bool = False                   # 是否启用Web管理界面
+    port: int = 8088                       # Web服务端口
+    access_key: str = ""                   # 访问密钥（空表示无需认证）
+    host: str = "127.0.0.1"                # 监听地址
+
+
 @dataclass  
 class AllDefaults:
     """所有默认配置的聚合"""
@@ -354,6 +363,7 @@ class AllDefaults:
     activity_adaptive: ActivityAdaptiveDefaults = field(default_factory=ActivityAdaptiveDefaults)
     llm_enhanced: LLMEnhancedDefaults = field(default_factory=LLMEnhancedDefaults)
     knowledge_graph: KnowledgeGraphDefaults = field(default_factory=KnowledgeGraphDefaults)
+    web_ui: WebUIDefaults = field(default_factory=WebUIDefaults)
 
 
 # 全局默认配置实例
@@ -389,7 +399,7 @@ def get_defaults_dict() -> Dict[str, Dict[str, Any]]:
                          'llm_integration', 'message_processing', 
                          'proactive_reply', 'image_analysis', 'log',
                          'persona', 'activity_adaptive', 'llm_enhanced',
-                         'knowledge_graph']:
+                         'knowledge_graph', 'web_ui']:
         section_obj = getattr(DEFAULTS, section_name, None)
         if section_obj:
             result[section_name] = asdict(section_obj)

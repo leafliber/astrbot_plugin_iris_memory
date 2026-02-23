@@ -1,7 +1,7 @@
 """
 Web 模块单元测试
 
-测试 WebService 和 IrisWebAPI 的核心功能。
+测试 WebService 和 StandaloneWebServer 的核心功能。
 """
 
 from __future__ import annotations
@@ -13,7 +13,6 @@ from unittest.mock import AsyncMock, MagicMock, Mock, patch
 from typing import Any, Dict, List, Optional
 
 from iris_memory.web.web_service import WebService
-from iris_memory.web.api_routes import IrisWebAPI
 
 
 # ── Fixtures ──
@@ -575,42 +574,6 @@ class TestValidation:
             {"source_id": "a", "target_id": "b", "relation_type": "invalid"}
         )
         assert valid is False
-
-
-# ================================================================
-# API Routes Tests
-# ================================================================
-
-class TestIrisWebAPI:
-    """API路由注册测试"""
-
-    def test_register_all_routes(self, mock_service):
-        """测试路由注册"""
-        context = MagicMock()
-        api = IrisWebAPI(context, mock_service)
-        api.register_all_routes()
-
-        # 检查 register_web_api 被调用了正确的次数
-        assert context.register_web_api.call_count == 22  # 总路由数
-
-        # 验证所有路由
-        assert context.register_web_api.called
-
-    def test_register_idempotent(self, mock_service):
-        """测试重复注册幂等"""
-        context = MagicMock()
-        api = IrisWebAPI(context, mock_service)
-        api.register_all_routes()
-        api.register_all_routes()  # 第二次调用不应注册
-        assert context.register_web_api.call_count == 22
-
-    def test_register_failure_graceful(self, mock_service):
-        """测试注册失败不抛异常"""
-        context = MagicMock()
-        context.register_web_api.side_effect = Exception("注册失败")
-        api = IrisWebAPI(context, mock_service)
-        # 不应抛异常
-        api.register_all_routes()
 
 
 # ================================================================

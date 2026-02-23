@@ -6,8 +6,10 @@ Web 模块 - 提供 Iris Memory 的 Web 管理界面
 2. 记忆管理：查询检索、单条/批量删除
 3. 知识图谱：可视化展示、节点/关系管理
 4. 数据导入导出：JSON/CSV 格式支持
+
+通过独立端口和访问密钥进行认证，与 AstrBot 认证系统解耦。
 """
 
-from iris_memory.web.api_routes import IrisWebAPI
+from iris_memory.web.standalone_server import StandaloneWebServer
 
-__all__ = ["IrisWebAPI"]
+__all__ = ["StandaloneWebServer"]

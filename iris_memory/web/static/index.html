@@ -637,15 +637,85 @@ input[type="checkbox"] { width:16px; height:16px; accent-color:var(--accent); }
 <!-- Toast Container -->
 <div class="toast-container" id="toast-container"></div>
 
+<!-- Login Modal -->
+<div class="modal-overlay" id="login-modal">
+  <div class="modal" style="max-width:400px;">
+    <h3 style="margin-bottom:20px;text-align:center;">🔐 访问密钥认证</h3>
+    <div class="form-group">
+      <label>请输入访问密钥</label>
+      <input type="password" id="access-key-input" placeholder="访问密钥" onkeydown="if(event.key==='Enter')doLogin()">
+    </div>
+    <div class="modal-actions" style="margin-top:16px;">
+      <button class="btn btn-primary" onclick="doLogin()" style="width:100%;">登录</button>
+    </div>
+  </div>
+</div>
+
 <script>
 // ========== Configuration ==========
-const API_BASE = '/api/plug/iris/api';
+const API_BASE = '/api';
+let authRequired = false;
 
-function getToken() {
-  try { return localStorage.getItem('token') || ''; } catch(e) { return ''; }
+async function checkAuthRequired() {
+  try {
+    const resp = await fetch(API_BASE + '/check-auth', { method: 'GET' });
+    if (resp.ok) {
+      const data = await resp.json();
+      if (data.status === 'ok') {
+        authRequired = data.data?.auth_required || false;
+      }
+    }
+  } catch(e) {}
 }
 
-// Track last failed request for retry
+function getToken() {
+  try { return localStorage.getItem('iris_token') || ''; } catch(e) { return ''; }
+}
+
+function setToken(token) {
+  try { localStorage.setItem('iris_token', token); } catch(e) {}
+}
+
+function clearToken() {
+  try { localStorage.removeItem('iris_token'); } catch(e) {}
+}
+
+function showLoginModal() {
+  document.getElementById('login-modal').classList.add('show');
+  document.getElementById('access-key-input').focus();
+}
+
+function hideLoginModal() {
+  document.getElementById('login-modal').classList.remove('show');
+}
+
+async function doLogin() {
+  const key = document.getElementById('access-key-input').value;
+  if (!key) {
+    toast('请输入访问密钥', 'error');
+    return;
+  }
+  
+  try {
+    const resp = await fetch(API_BASE + '/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key })
+    });
+    const data = await resp.json();
+    if (data.status === 'ok' && data.data?.token) {
+      setToken(data.data.token);
+      hideLoginModal();
+      toast('登录成功', 'success');
+      loadDashboard();
+    } else {
+      toast(data.message || '登录失败', 'error');
+    }
+  } catch(e) {
+    toast(`登录失败: ${e.message}`, 'error');
+  }
+}
+
 let lastFailedRequest = null;
 
 async function api(path, options = {}) {
@@ -657,7 +727,11 @@ async function api(path, options = {}) {
   try {
     const resp = await fetch(url, { ...options, headers: { ...headers, ...options.headers } });
     if (resp.status === 401) {
-      toast('认证失败，请重新登录 AstrBot 面板', 'error');
+      if (authRequired) {
+        showLoginModal();
+      } else {
+        toast('认证失败，请重新登录', 'error');
+      }
       return null;
     }
     const ct = resp.headers.get('content-type') || '';
@@ -669,6 +743,16 @@ async function api(path, options = {}) {
     lastFailedRequest = { path, options };
     toast(`请求失败: ${e.message}`, 'error', true);
     return null;
+  }
+}
+
+// ========== Initialization ==========
+async function init() {
+  await checkAuthRequired();
+  if (authRequired && !getToken()) {
+    showLoginModal();
+  } else {
+    loadDashboard();
   }
 }
 
@@ -1871,7 +1955,7 @@ document.addEventListener('keydown', (e) => {
 
 // ========== Init ==========
 document.addEventListener('DOMContentLoaded', () => {
-  loadDashboard();
+  init();
 });
 </script>
 </body>
