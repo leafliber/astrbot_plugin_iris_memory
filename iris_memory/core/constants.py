@@ -63,7 +63,7 @@ class ConfigKeys:
     """配置键常量"""
     ENABLE_MEMORY: Final[str] = "basic.enable_memory"
     ENABLE_INJECT: Final[str] = "basic.enable_inject"
-    LOG_LEVEL: Final[str] = "basic.log_level"
+    LOG_LEVEL: Final[str] = "logging.log_level"
     
     MAX_CONTEXT_MEMORIES: Final[str] = "memory.max_context_memories"
     MAX_WORKING_MEMORY: Final[str] = "memory.max_working_memory"

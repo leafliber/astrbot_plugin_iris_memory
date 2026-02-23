@@ -65,7 +65,7 @@ def _build_registry() -> Dict[str, ConfigDefinition]:
             value_type=bool,
         ),
         ConfigDefinition(
-            key="basic.log_level",
+            key="logging.log_level",
             section="log",
             attr="level",
             default="INFO",
@@ -110,8 +110,8 @@ def _build_registry() -> Dict[str, ConfigDefinition]:
         ),
         ConfigDefinition(
             key="memory.provider_id",
-            section="llm_integration",
-            attr="provider_id",
+            section="llm_providers",
+            attr="memory_provider_id",
             default="",
             description="LLM提供者ID",
             value_type=str,
@@ -162,8 +162,8 @@ def _build_registry() -> Dict[str, ConfigDefinition]:
         ),
         ConfigDefinition(
             key="image_analysis.provider_id",
-            section="image_analysis",
-            attr="provider_id",
+            section="llm_providers",
+            attr="image_analysis_provider_id",
             default="",
             description="图片分析LLM提供者ID",
             value_type=str,
@@ -240,8 +240,8 @@ def _build_registry() -> Dict[str, ConfigDefinition]:
         ),
         ConfigDefinition(
             key="persona.llm_provider",
-            section="persona",
-            attr="llm_provider",
+            section="llm_providers",
+            attr="persona_provider_id",
             default="",
             description="画像提取LLM提供者（空字符串表示使用默认）",
             value_type=str,
@@ -293,6 +293,56 @@ def _build_registry() -> Dict[str, ConfigDefinition]:
             default=True,
             description="LLM失败时是否回退到规则",
             value_type=bool,
+        ),
+
+        # ── LLM提供者 ──
+        ConfigDefinition(
+            key="llm_providers.default_provider_id",
+            section="llm_providers",
+            attr="default_provider_id",
+            default="",
+            description="默认LLM提供者ID",
+            value_type=str,
+        ),
+        ConfigDefinition(
+            key="llm_providers.memory_provider_id",
+            section="llm_providers",
+            attr="memory_provider_id",
+            default="",
+            description="记忆功能LLM提供者ID",
+            value_type=str,
+        ),
+        ConfigDefinition(
+            key="llm_providers.persona_provider_id",
+            section="llm_providers",
+            attr="persona_provider_id",
+            default="",
+            description="用户画像LLM提供者ID",
+            value_type=str,
+        ),
+        ConfigDefinition(
+            key="llm_providers.knowledge_graph_provider_id",
+            section="llm_providers",
+            attr="knowledge_graph_provider_id",
+            default="",
+            description="知识图谱LLM提供者ID",
+            value_type=str,
+        ),
+        ConfigDefinition(
+            key="llm_providers.image_analysis_provider_id",
+            section="llm_providers",
+            attr="image_analysis_provider_id",
+            default="",
+            description="图片分析LLM提供者ID",
+            value_type=str,
+        ),
+        ConfigDefinition(
+            key="llm_providers.enhanced_provider_id",
+            section="llm_providers",
+            attr="enhanced_provider_id",
+            default="",
+            description="智能增强LLM提供者ID",
+            value_type=str,
         ),
 
         # ── 高级参数（群聊自适应覆盖） ──
@@ -356,8 +406,8 @@ def _build_registry() -> Dict[str, ConfigDefinition]:
         # ── LLM智能增强 ──
         ConfigDefinition(
             key="llm_enhanced.provider_id",
-            section="llm_enhanced",
-            attr="provider_id",
+            section="llm_providers",
+            attr="enhanced_provider_id",
             default="",
             description="LLM增强提供者ID",
             value_type=str,
@@ -430,8 +480,8 @@ def _build_registry() -> Dict[str, ConfigDefinition]:
         ),
         ConfigDefinition(
             key="knowledge_graph.provider_id",
-            section="knowledge_graph",
-            attr="provider_id",
+            section="llm_providers",
+            attr="knowledge_graph_provider_id",
             default="",
             description="知识图谱LLM提供者ID",
             value_type=str,

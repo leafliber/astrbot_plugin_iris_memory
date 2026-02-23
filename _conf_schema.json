@@ -14,180 +14,19 @@
         "type": "bool",
         "default": true,
         "hint": "对话时自动带入相关的历史记忆"
-      },
+      }
+    }
+  },
+  "logging": {
+    "description": "日志配置",
+    "type": "object",
+    "items": {
       "log_level": {
         "description": "日志级别",
         "type": "string",
         "default": "INFO",
         "options": ["DEBUG", "INFO", "WARNING", "ERROR"],
         "hint": "DEBUG显示最详细信息，推荐使用INFO"
-      }
-    }
-  },
-  "memory": {
-    "description": "记忆与LLM设置",
-    "type": "object",
-    "items": {
-      "max_context_memories": {
-        "description": "注入记忆数量",
-        "type": "int",
-        "default": 3,
-        "hint": "每次对话注入的相关记忆数量（1-10）"
-      },
-      "max_working_memory": {
-        "description": "工作记忆数量上限",
-        "type": "int",
-        "default": 10,
-        "hint": "会话内临时记忆数量上限，超过会触发升级"
-      },
-      "upgrade_mode": {
-        "description": "记忆升级模式",
-        "type": "string",
-        "default": "rule",
-        "options": ["rule", "llm", "hybrid"],
-        "hint": "rule-仅规则（省token），llm-LLM判断，hybrid-混合（推荐）"
-      },
-      "use_llm": {
-        "description": "启用LLM增强处理",
-        "type": "bool",
-        "default": false,
-        "hint": "开启后使用LLM进行消息摘要、记忆升级等（质量更高但消耗token）"
-      },
-      "provider_id": {
-        "description": "LLM提供者",
-        "type": "string",
-        "_special": "select_provider",
-        "default": "",
-        "hint": "留空使用AstrBot默认提供者，或选择其他模型用于摘要/升级等任务"
-      }
-    }
-  },
-  "llm_enhanced": {
-    "description": "LLM智能增强",
-    "type": "object",
-    "items": {
-      "provider_id": {
-        "description": "LLM增强提供者",
-        "type": "string",
-        "_special": "select_provider",
-        "default": "",
-        "hint": "留空使用默认提供者。选择后可为下方各功能启用LLM增强"
-      },
-      "sensitivity_mode": {
-        "description": "敏感度检测模式",
-        "type": "string",
-        "default": "rule",
-        "options": ["rule", "llm", "hybrid"],
-        "hint": "rule-规则匹配（默认），llm-语义理解，hybrid-混合（推荐）"
-      },
-      "trigger_mode": {
-        "description": "触发器检测模式",
-        "type": "string",
-        "default": "rule",
-        "options": ["rule", "llm", "hybrid"],
-        "hint": "rule-关键词匹配（默认），llm-意图理解，hybrid-混合（推荐）"
-      },
-      "emotion_mode": {
-        "description": "情感分析模式",
-        "type": "string",
-        "default": "rule",
-        "options": ["rule", "llm", "hybrid"],
-        "hint": "rule-词典+规则（默认），llm-深度理解，hybrid-混合（推荐）"
-      },
-      "proactive_mode": {
-        "description": "主动回复检测模式",
-        "type": "string",
-        "default": "rule",
-        "options": ["rule", "llm", "hybrid"],
-        "hint": "rule-规则判断（默认），llm-社交理解，hybrid-混合（推荐）"
-      },
-      "conflict_mode": {
-        "description": "冲突解决模式",
-        "type": "string",
-        "default": "rule",
-        "options": ["rule", "llm", "hybrid"],
-        "hint": "rule-相似度判断（默认），llm-语义判断，hybrid-混合（推荐）"
-      },
-      "retrieval_mode": {
-        "description": "检索路由模式",
-        "type": "string",
-        "default": "rule",
-        "options": ["rule", "llm", "hybrid"],
-        "hint": "rule-规则路由（默认），llm-意图理解，hybrid-混合（推荐）"
-      }
-    }
-  },
-  "proactive_reply": {
-    "description": "主动回复设置",
-    "type": "object",
-    "items": {
-      "enable": {
-        "description": "启用主动回复",
-        "type": "bool",
-        "default": false,
-        "hint": "检测到用户需要回应时主动发送消息（实验性功能）"
-      },
-      "group_whitelist_mode": {
-        "description": "群聊白名单模式",
-        "type": "bool",
-        "default": false,
-        "hint": "开启后仅在管理员通过指令启用的群聊中触发主动回复，使用 /proactive_reply on|off 控制"
-      }
-    }
-  },
-  "activity_adaptive": {
-    "description": "场景自适应设置",
-    "type": "object",
-    "items": {
-      "enable": {
-        "description": "启用场景自适应",
-        "type": "bool",
-        "default": true,
-        "hint": "根据群活跃度自动调整主动回复频率、批量处理参数等配置，实现温和型陪伴风格。使用 /activity_status 查看各群状态"
-      }
-    }
-  },
-  "image_analysis": {
-    "description": "图片分析设置",
-    "type": "object",
-    "items": {
-      "enable": {
-        "description": "启用图片分析",
-        "type": "bool",
-        "default": true,
-        "hint": "使用Vision LLM分析对话中的图片内容"
-      },
-      "mode": {
-        "description": "分析模式",
-        "type": "string",
-        "default": "auto",
-        "options": ["auto", "brief", "detailed", "skip"],
-        "hint": "auto-智能判断（推荐）, brief-简要, detailed-详细, skip-跳过"
-      },
-      "daily_budget": {
-        "description": "每日分析次数上限",
-        "type": "int",
-        "default": 100,
-        "hint": "每天最多分析的图片数量，0表示无限制"
-      },
-      "provider_id": {
-        "description": "图片分析LLM提供者",
-        "type": "string",
-        "_special": "select_provider",
-        "default": "",
-        "hint": "留空使用默认提供者，建议选择支持Vision的模型"
-      }
-    }
-  },
-  "error_friendly": {
-    "description": "错误消息友好化",
-    "type": "object",
-    "items": {
-      "enable": {
-        "description": "启用错误消息友好化",
-        "type": "bool",
-        "default": true,
-        "hint": "将框架发送的技术性错误消息替换为友好的提示语"
       }
     }
   },
@@ -235,6 +74,85 @@
       }
     }
   },
+  "llm_providers": {
+    "description": "LLM提供者配置",
+    "type": "object",
+    "items": {
+      "default_provider_id": {
+        "description": "默认LLM提供者",
+        "type": "string",
+        "_special": "select_provider",
+        "default": "",
+        "hint": "留空使用AstrBot默认提供者，或选择其他模型用于摘要/升级等任务"
+      },
+      "memory_provider_id": {
+        "description": "记忆功能LLM提供者",
+        "type": "string",
+        "_special": "select_provider",
+        "default": "",
+        "hint": "用于记忆摘要、升级等任务，留空使用默认提供者"
+      },
+      "persona_provider_id": {
+        "description": "用户画像LLM提供者",
+        "type": "string",
+        "_special": "select_provider",
+        "default": "",
+        "hint": "用于用户画像提取，留空使用默认提供者"
+      },
+      "knowledge_graph_provider_id": {
+        "description": "知识图谱LLM提供者",
+        "type": "string",
+        "_special": "select_provider",
+        "default": "",
+        "hint": "用于知识图谱三元组提取，留空使用默认提供者"
+      },
+      "image_analysis_provider_id": {
+        "description": "图片分析LLM提供者",
+        "type": "string",
+        "_special": "select_provider",
+        "default": "",
+        "hint": "用于图片内容分析，建议选择支持Vision的模型"
+      },
+      "enhanced_provider_id": {
+        "description": "智能增强LLM提供者",
+        "type": "string",
+        "_special": "select_provider",
+        "default": "",
+        "hint": "用于敏感度检测、触发器检测等智能增强功能，留空使用默认提供者"
+      }
+    }
+  },
+  "memory": {
+    "description": "记忆核心设置",
+    "type": "object",
+    "items": {
+      "max_context_memories": {
+        "description": "注入记忆数量",
+        "type": "int",
+        "default": 5,
+        "hint": "每次对话注入的相关记忆数量（1-10）"
+      },
+      "max_working_memory": {
+        "description": "工作记忆数量上限",
+        "type": "int",
+        "default": 10,
+        "hint": "会话内临时记忆数量上限，超过会触发升级"
+      },
+      "upgrade_mode": {
+        "description": "记忆升级模式",
+        "type": "string",
+        "default": "rule",
+        "options": ["rule", "llm", "hybrid"],
+        "hint": "rule-仅规则（省token），llm-LLM判断，hybrid-混合（推荐）"
+      },
+      "use_llm": {
+        "description": "启用LLM增强处理",
+        "type": "bool",
+        "default": false,
+        "hint": "开启后使用LLM进行消息摘要、记忆升级等（质量更高但消耗token）"
+      }
+    }
+  },
   "persona": {
     "description": "用户画像提取设置",
     "type": "object",
@@ -245,13 +163,6 @@
         "default": "rule",
         "options": ["rule", "llm", "hybrid"],
         "hint": "rule-纯规则匹配（默认），llm-LLM智能提取，hybrid-混合模式（推荐）"
-      },
-      "llm_provider": {
-        "description": "画像提取LLM提供者",
-        "type": "string",
-        "_special": "select_provider",
-        "default": "",
-        "hint": "留空使用AstrBot默认提供者"
       }
     }
   },
@@ -271,13 +182,6 @@
         "default": "rule",
         "options": ["rule", "llm", "hybrid"],
         "hint": "rule-规则匹配（默认），llm-LLM智能提取（更准确但消耗token），hybrid-混合"
-      },
-      "provider_id": {
-        "description": "知识图谱LLM提供者",
-        "type": "string",
-        "_special": "select_provider",
-        "default": "",
-        "hint": "留空使用默认提供者，仅在 llm/hybrid 提取模式下生效"
       },
       "max_depth": {
         "description": "最大推理跳数",
@@ -302,6 +206,121 @@
         "type": "float",
         "default": 0.3,
         "hint": "低于此置信度的推理路径将被过滤（0.1-0.9）"
+      }
+    }
+  },
+  "llm_enhanced": {
+    "description": "LLM智能增强",
+    "type": "object",
+    "items": {
+      "sensitivity_mode": {
+        "description": "敏感度检测模式",
+        "type": "string",
+        "default": "rule",
+        "options": ["rule", "llm", "hybrid"],
+        "hint": "rule-规则匹配（默认），llm-语义理解，hybrid-混合（推荐）"
+      },
+      "trigger_mode": {
+        "description": "触发器检测模式",
+        "type": "string",
+        "default": "rule",
+        "options": ["rule", "llm", "hybrid"],
+        "hint": "rule-关键词匹配（默认），llm-意图理解，hybrid-混合（推荐）"
+      },
+      "emotion_mode": {
+        "description": "情感分析模式",
+        "type": "string",
+        "default": "rule",
+        "options": ["rule", "llm", "hybrid"],
+        "hint": "rule-词典+规则（默认），llm-深度理解，hybrid-混合（推荐）"
+      },
+      "proactive_mode": {
+        "description": "主动回复检测模式",
+        "type": "string",
+        "default": "rule",
+        "options": ["rule", "llm", "hybrid"],
+        "hint": "rule-规则判断（默认），llm-社交理解，hybrid-混合（推荐）"
+      },
+      "conflict_mode": {
+        "description": "冲突解决模式",
+        "type": "string",
+        "default": "rule",
+        "options": ["rule", "llm", "hybrid"],
+        "hint": "rule-相似度判断（默认），llm-语义判断，hybrid-混合（推荐）"
+      },
+      "retrieval_mode": {
+        "description": "检索路由模式",
+        "type": "string",
+        "default": "rule",
+        "options": ["rule", "llm", "hybrid"],
+        "hint": "rule-规则路由（默认），llm-意图理解，hybrid-混合（推荐）"
+      }
+    }
+  },
+  "image_analysis": {
+    "description": "图片分析设置",
+    "type": "object",
+    "items": {
+      "enable": {
+        "description": "启用图片分析",
+        "type": "bool",
+        "default": true,
+        "hint": "使用Vision LLM分析对话中的图片内容"
+      },
+      "mode": {
+        "description": "分析模式",
+        "type": "string",
+        "default": "auto",
+        "options": ["auto", "brief", "detailed", "skip"],
+        "hint": "auto-智能判断（推荐）, brief-简要, detailed-详细, skip-跳过"
+      },
+      "daily_budget": {
+        "description": "每日分析次数上限",
+        "type": "int",
+        "default": 100,
+        "hint": "每天最多分析的图片数量，0表示无限制"
+      }
+    }
+  },
+  "proactive_reply": {
+    "description": "主动回复设置",
+    "type": "object",
+    "items": {
+      "enable": {
+        "description": "启用主动回复",
+        "type": "bool",
+        "default": false,
+        "hint": "检测到用户需要回应时主动发送消息（实验性功能）"
+      },
+      "group_whitelist_mode": {
+        "description": "群聊白名单模式",
+        "type": "bool",
+        "default": false,
+        "hint": "开启后仅在管理员通过指令启用的群聊中触发主动回复，使用 /proactive_reply on|off 控制"
+      }
+    }
+  },
+  "activity_adaptive": {
+    "description": "场景自适应设置",
+    "type": "object",
+    "items": {
+      "enable": {
+        "description": "启用场景自适应",
+        "type": "bool",
+        "default": true,
+        "hint": "根据群活跃度自动调整主动回复频率、批量处理参数等配置，实现温和型陪伴风格。使用 /activity_status 查看各群状态"
+      }
+    }
+  },
+  "error_friendly": {
+    "description": "错误消息友好化",
+    "type": "object",
+    "items": {
+      "enable": {
+        "description": "启用错误消息友好化",
+        "type": "bool",
+        "default": true,
+        "hint": "将框架发送的技术性错误消息替换为友好的提示语"
       }
     }
   },

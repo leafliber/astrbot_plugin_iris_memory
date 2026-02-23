@@ -170,7 +170,6 @@ class LLMIntegrationDefaults:
     max_context_memories: int = 3
     token_budget: int = 512
     chat_context_count: int = 15  # 注入最近N条聊天记录到LLM上下文
-    provider_id: str = ""  # LLM 提供者 ID，空字符串表示使用默认
     
     # 高级配置
     injection_mode: str = "suffix"
@@ -245,7 +244,6 @@ class ImageAnalysisDefaults:
     enable_image_analysis: bool = True
     analysis_mode: str = "auto"  # auto/brief/detailed/skip
     max_images_per_message: int = 2
-    provider_id: str = ""  # 图片分析 LLM 提供者 ID，空字符串表示使用默认
     
     # 高级配置
     skip_sticker: bool = True
@@ -288,13 +286,26 @@ class PersonaDefaults:
     enable_persona_injection: bool = True
     
     extraction_mode: str = "rule"
-    llm_provider: str = ""
     enable_interest_extraction: bool = True
     enable_style_extraction: bool = True
     enable_preference_extraction: bool = True
     llm_max_tokens: int = 300
     llm_daily_limit: int = 50
     fallback_to_rule: bool = True
+
+
+@dataclass
+class LLMProvidersDefaults:
+    """LLM提供者默认配置
+    
+    统一管理所有LLM提供者的配置，避免分散在各功能模块中。
+    """
+    default_provider_id: str = ""  # 默认LLM提供者ID，空字符串表示使用AstrBot默认提供者
+    memory_provider_id: str = ""  # 记忆功能LLM提供者ID
+    persona_provider_id: str = ""  # 用户画像LLM提供者ID
+    knowledge_graph_provider_id: str = ""  # 知识图谱LLM提供者ID
+    image_analysis_provider_id: str = ""  # 图片分析LLM提供者ID
+    enhanced_provider_id: str = ""  # 智能增强LLM提供者ID
 
 
 @dataclass
@@ -306,8 +317,6 @@ class LLMEnhancedDefaults:
     - llm: 仅使用LLM（准确，消耗token）
     - hybrid: 混合模式（推荐，规则预筛+LLM确认）
     """
-    provider_id: str = ""
-    
     sensitivity_mode: str = "rule"
     sensitivity_confidence_threshold: float = 0.7
     
@@ -331,7 +340,6 @@ class KnowledgeGraphDefaults:
     """知识图谱默认配置"""
     enabled: bool = True                   # 是否启用知识图谱
     extraction_mode: str = "rule"           # 提取模式: rule / llm / hybrid
-    provider_id: str = ""                  # 知识图谱 LLM provider ID，空字符串表示使用默认
     max_depth: int = 3                     # BFS 最大跳数
     max_nodes_per_hop: int = 10            # 每跳最大节点数
     max_facts: int = 8                     # 注入LLM的最大事实数
@@ -361,6 +369,7 @@ class AllDefaults:
     log: LogDefaults = field(default_factory=LogDefaults)
     persona: PersonaDefaults = field(default_factory=PersonaDefaults)
     activity_adaptive: ActivityAdaptiveDefaults = field(default_factory=ActivityAdaptiveDefaults)
+    llm_providers: LLMProvidersDefaults = field(default_factory=LLMProvidersDefaults)
     llm_enhanced: LLMEnhancedDefaults = field(default_factory=LLMEnhancedDefaults)
     knowledge_graph: KnowledgeGraphDefaults = field(default_factory=KnowledgeGraphDefaults)
     web_ui: WebUIDefaults = field(default_factory=WebUIDefaults)
@@ -398,8 +407,8 @@ def get_defaults_dict() -> Dict[str, Dict[str, Any]]:
     for section_name in ['memory', 'session', 'cache', 'embedding', 
                          'llm_integration', 'message_processing', 
                          'proactive_reply', 'image_analysis', 'log',
-                         'persona', 'activity_adaptive', 'llm_enhanced',
-                         'knowledge_graph', 'web_ui']:
+                         'persona', 'activity_adaptive', 'llm_providers',
+                         'llm_enhanced', 'knowledge_graph', 'web_ui']:
         section_obj = getattr(DEFAULTS, section_name, None)
         if section_obj:
             result[section_name] = asdict(section_obj)

@@ -213,7 +213,7 @@ class ConfigManager:
     
     @property
     def log_level(self) -> str:
-        return self.get("basic.log_level", "INFO")
+        return self.get("logging.log_level", "INFO")
     
     # 记忆设置
     @property
@@ -280,7 +280,7 @@ class ConfigManager:
     
     @property
     def image_analysis_provider_id(self) -> str:
-        return normalize_provider_id(self.get("image_analysis.provider_id", ""))
+        return normalize_provider_id(self.get("llm_providers.image_analysis_provider_id", ""))
     
     # LLM增强处理
     @property
@@ -289,7 +289,7 @@ class ConfigManager:
     
     @property
     def llm_provider_id(self) -> str:
-        return normalize_provider_id(self.get("memory.provider_id", ""))
+        return normalize_provider_id(self.get("llm_providers.memory_provider_id", ""))
     
     # 批量处理配置
     @property
@@ -367,7 +367,7 @@ class ConfigManager:
 
     @property
     def persona_llm_provider(self) -> str:
-        provider_id = normalize_provider_id(self.get("persona.llm_provider", "default"))
+        provider_id = normalize_provider_id(self.get("llm_providers.persona_provider_id", ""))
         return provider_id or "default"
 
     @property
@@ -397,7 +397,7 @@ class ConfigManager:
     # LLM智能增强配置
     @property
     def llm_enhanced_provider_id(self) -> str:
-        return normalize_provider_id(self.get("llm_enhanced.provider_id", ""))
+        return normalize_provider_id(self.get("llm_providers.enhanced_provider_id", ""))
     
     @property
     def sensitivity_mode(self) -> str:
@@ -439,7 +439,7 @@ class ConfigManager:
     # 知识图谱配置
     @property
     def knowledge_graph_provider_id(self) -> str:
-        return normalize_provider_id(self.get("knowledge_graph.provider_id", ""))
+        return normalize_provider_id(self.get("llm_providers.knowledge_graph_provider_id", ""))
     
     # ========== 批量处理动态配置 ==========
     
