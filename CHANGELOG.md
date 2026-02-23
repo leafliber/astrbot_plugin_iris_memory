@@ -3,6 +3,14 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.6.2] - 2026-02-23
+
+### Added
+- 添加项目 logo 图片 (`logo.png`)
+
+### Fixed
+- 修复 `main.py` 中 `StarTools` 导入位置错误，从 `astrbot.api` 移至 `astrbot.api.star`
+
 ## [v1.6.1] - 2026-02-23
 
 ### Added
