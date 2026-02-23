@@ -1,0 +1,1113 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Iris Memory Dashboard</title>
+<style>
+:root {
+  --bg: #0f1923;
+  --bg2: #1a2632;
+  --bg3: #243447;
+  --border: #2d4a5e;
+  --text: #e0e6ed;
+  --text2: #8899a6;
+  --accent: #1da1f2;
+  --accent2: #0d8bd9;
+  --success: #17bf63;
+  --danger: #e0245e;
+  --warning: #ffad1f;
+  --radius: 8px;
+  --shadow: 0 2px 8px rgba(0,0,0,0.3);
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background:var(--bg); color:var(--text); min-height:100vh; }
+
+/* Layout */
+.app { display:flex; min-height:100vh; }
+.sidebar { width:220px; background:var(--bg2); border-right:1px solid var(--border); padding:20px 0; flex-shrink:0; }
+.sidebar h1 { font-size:18px; padding:0 20px 20px; color:var(--accent); border-bottom:1px solid var(--border); margin-bottom:10px; }
+.sidebar h1 span { font-size:12px; color:var(--text2); display:block; margin-top:4px; }
+.nav-item { padding:12px 20px; cursor:pointer; border-left:3px solid transparent; transition:all 0.2s; display:flex; align-items:center; gap:10px; }
+.nav-item:hover { background:var(--bg3); }
+.nav-item.active { background:var(--bg3); border-left-color:var(--accent); color:var(--accent); }
+.nav-item .icon { font-size:18px; width:24px; text-align:center; }
+.main { flex:1; padding:24px; overflow-y:auto; }
+
+/* Cards */
+.card { background:var(--bg2); border:1px solid var(--border); border-radius:var(--radius); padding:20px; margin-bottom:16px; }
+.card-title { font-size:16px; font-weight:600; margin-bottom:16px; display:flex; align-items:center; gap:8px; }
+.stats-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(200px,1fr)); gap:16px; margin-bottom:20px; }
+.stat-card { background:var(--bg3); border-radius:var(--radius); padding:16px; text-align:center; }
+.stat-value { font-size:28px; font-weight:700; color:var(--accent); }
+.stat-label { font-size:13px; color:var(--text2); margin-top:4px; }
+
+/* Buttons */
+.btn { padding:8px 16px; border:none; border-radius:var(--radius); cursor:pointer; font-size:13px; transition:all 0.2s; display:inline-flex; align-items:center; gap:6px; }
+.btn-primary { background:var(--accent); color:#fff; }
+.btn-primary:hover { background:var(--accent2); }
+.btn-danger { background:var(--danger); color:#fff; }
+.btn-danger:hover { opacity:0.85; }
+.btn-success { background:var(--success); color:#fff; }
+.btn-success:hover { opacity:0.85; }
+.btn-outline { background:transparent; border:1px solid var(--border); color:var(--text); }
+.btn-outline:hover { border-color:var(--accent); color:var(--accent); }
+.btn-sm { padding:5px 10px; font-size:12px; }
+.btn:disabled { opacity:0.5; cursor:not-allowed; }
+
+/* Forms */
+input, select { background:var(--bg3); border:1px solid var(--border); border-radius:var(--radius); padding:8px 12px; color:var(--text); font-size:13px; outline:none; }
+input:focus, select:focus { border-color:var(--accent); }
+.filter-bar { display:flex; gap:10px; margin-bottom:16px; flex-wrap:wrap; align-items:center; }
+.filter-bar input { flex:1; min-width:200px; }
+
+/* Table */
+.table-wrap { overflow-x:auto; }
+table { width:100%; border-collapse:collapse; font-size:13px; }
+th { background:var(--bg3); padding:10px 12px; text-align:left; font-weight:600; color:var(--text2); border-bottom:1px solid var(--border); white-space:nowrap; }
+td { padding:10px 12px; border-bottom:1px solid var(--border); max-width:300px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+tr:hover td { background:rgba(29,161,242,0.05); }
+.checkbox-col { width:40px; text-align:center; }
+input[type="checkbox"] { width:16px; height:16px; accent-color:var(--accent); }
+
+/* Badges */
+.badge { display:inline-block; padding:2px 8px; border-radius:12px; font-size:11px; font-weight:600; }
+.badge-working { background:rgba(29,161,242,0.2); color:var(--accent); }
+.badge-episodic { background:rgba(23,191,99,0.2); color:var(--success); }
+.badge-semantic { background:rgba(255,173,31,0.2); color:var(--warning); }
+.badge-fact { background:rgba(29,161,242,0.2); color:var(--accent); }
+.badge-emotion { background:rgba(224,36,94,0.2); color:var(--danger); }
+.badge-relationship { background:rgba(23,191,99,0.2); color:var(--success); }
+
+/* Pagination */
+.pagination { display:flex; gap:8px; margin-top:16px; align-items:center; justify-content:center; }
+.pagination button { padding:6px 12px; }
+.page-info { color:var(--text2); font-size:13px; }
+
+/* Chart */
+.chart-container { height:250px; position:relative; }
+.chart-bar-wrap { display:flex; align-items:flex-end; gap:2px; height:200px; padding:0 10px; }
+.chart-bar { background:var(--accent); border-radius:2px 2px 0 0; min-width:6px; flex:1; transition:height 0.3s; cursor:pointer; position:relative; }
+.chart-bar:hover { background:var(--accent2); }
+.chart-bar .tooltip { display:none; position:absolute; bottom:100%; left:50%; transform:translateX(-50%); background:var(--bg); padding:4px 8px; border-radius:4px; font-size:11px; white-space:nowrap; border:1px solid var(--border); }
+.chart-bar:hover .tooltip { display:block; }
+.chart-labels { display:flex; gap:2px; padding:4px 10px 0; }
+.chart-labels span { flex:1; text-align:center; font-size:10px; color:var(--text2); overflow:hidden; }
+
+/* KG Graph */
+#kg-canvas { width:100%; height:500px; background:var(--bg); border:1px solid var(--border); border-radius:var(--radius); }
+
+/* Modal */
+.modal-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:1000; justify-content:center; align-items:center; }
+.modal-overlay.show { display:flex; }
+.modal { background:var(--bg2); border:1px solid var(--border); border-radius:var(--radius); padding:24px; max-width:500px; width:90%; max-height:80vh; overflow-y:auto; }
+.modal h3 { margin-bottom:16px; }
+.modal-actions { display:flex; gap:10px; justify-content:flex-end; margin-top:20px; }
+
+/* Toast */
+.toast-container { position:fixed; top:20px; right:20px; z-index:2000; }
+.toast { padding:12px 20px; border-radius:var(--radius); margin-bottom:8px; font-size:13px; animation:slideIn 0.3s ease; box-shadow:var(--shadow); }
+.toast-success { background:var(--success); color:#fff; }
+.toast-error { background:var(--danger); color:#fff; }
+.toast-info { background:var(--accent); color:#fff; }
+@keyframes slideIn { from{transform:translateX(100%);opacity:0} to{transform:translateX(0);opacity:1} }
+
+/* Import Area */
+.import-area { border:2px dashed var(--border); border-radius:var(--radius); padding:40px; text-align:center; cursor:pointer; transition:border-color 0.2s; }
+.import-area:hover { border-color:var(--accent); }
+.import-area.dragover { border-color:var(--accent); background:rgba(29,161,242,0.05); }
+
+/* Tabs */
+.tabs { display:flex; gap:0; border-bottom:1px solid var(--border); margin-bottom:16px; }
+.tab { padding:10px 20px; cursor:pointer; border-bottom:2px solid transparent; color:var(--text2); transition:all 0.2s; }
+.tab:hover { color:var(--text); }
+.tab.active { color:var(--accent); border-bottom-color:var(--accent); }
+
+/* Loading */
+.loading { text-align:center; padding:40px; color:var(--text2); }
+.spinner { display:inline-block; width:24px; height:24px; border:3px solid var(--border); border-top-color:var(--accent); border-radius:50%; animation:spin 0.8s linear infinite; }
+@keyframes spin { to{transform:rotate(360deg)} }
+
+/* Section hide/show */
+.section { display:none; }
+.section.active { display:block; }
+
+/* Health indicator */
+.health-dot { width:10px; height:10px; border-radius:50%; display:inline-block; }
+.health-dot.healthy { background:var(--success); }
+.health-dot.degraded { background:var(--warning); }
+.health-dot.unhealthy { background:var(--danger); }
+
+/* Responsive */
+@media(max-width:768px) {
+  .sidebar { width:60px; }
+  .sidebar h1, .nav-item span:not(.icon) { display:none; }
+  .nav-item { padding:12px; justify-content:center; }
+  .stats-grid { grid-template-columns:repeat(2,1fr); }
+  .filter-bar { flex-direction:column; }
+  .filter-bar input { min-width:100%; }
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- Sidebar -->
+  <div class="sidebar">
+    <h1>🧠 Iris Memory<span>管理面板</span></h1>
+    <div class="nav-item active" onclick="showSection('dashboard')">
+      <span class="icon">📊</span><span>统计面板</span>
+    </div>
+    <div class="nav-item" onclick="showSection('memories')">
+      <span class="icon">💾</span><span>记忆管理</span>
+    </div>
+    <div class="nav-item" onclick="showSection('kg')">
+      <span class="icon">🔗</span><span>知识图谱</span>
+    </div>
+    <div class="nav-item" onclick="showSection('io')">
+      <span class="icon">📦</span><span>导入导出</span>
+    </div>
+  </div>
+
+  <!-- Main Content -->
+  <div class="main">
+
+    <!-- ======== Dashboard Section ======== -->
+    <div id="sec-dashboard" class="section active">
+      <h2 style="margin-bottom:20px">📊 统计面板</h2>
+      <div class="stats-grid" id="stats-grid">
+        <div class="stat-card"><div class="spinner"></div></div>
+      </div>
+      <div class="card">
+        <div class="card-title">记忆类型分布</div>
+        <div id="type-distribution" style="display:flex;gap:12px;flex-wrap:wrap;"></div>
+      </div>
+      <div class="card">
+        <div class="card-title">
+          记忆创建趋势
+          <select id="trend-days" onchange="loadTrend()" style="margin-left:auto;width:auto;">
+            <option value="7">近 7 天</option>
+            <option value="14">近 14 天</option>
+            <option value="30" selected>近 30 天</option>
+            <option value="90">近 90 天</option>
+          </select>
+        </div>
+        <div class="chart-container">
+          <div class="chart-bar-wrap" id="trend-bars"></div>
+          <div class="chart-labels" id="trend-labels"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ======== Memories Section ======== -->
+    <div id="sec-memories" class="section">
+      <h2 style="margin-bottom:20px">💾 记忆管理</h2>
+      <div class="filter-bar">
+        <input type="text" id="mem-query" placeholder="搜索记忆内容..." onkeydown="if(event.key==='Enter')searchMemories()">
+        <input type="text" id="mem-user" placeholder="用户 ID">
+        <input type="text" id="mem-group" placeholder="群组 ID">
+        <select id="mem-layer">
+          <option value="">全部层级</option>
+          <option value="working">工作记忆</option>
+          <option value="episodic">情景记忆</option>
+          <option value="semantic">语义记忆</option>
+        </select>
+        <select id="mem-type">
+          <option value="">全部类型</option>
+          <option value="fact">事实</option>
+          <option value="emotion">情感</option>
+          <option value="relationship">关系</option>
+          <option value="interaction">交互</option>
+          <option value="inferred">推断</option>
+        </select>
+        <button class="btn btn-primary" onclick="searchMemories()">搜索</button>
+        <button class="btn btn-outline" onclick="resetMemoryFilters()">重置</button>
+      </div>
+      <div style="margin-bottom:10px;display:flex;gap:10px;align-items:center;">
+        <button class="btn btn-danger btn-sm" id="batch-del-btn" onclick="batchDeleteMemories()" disabled>
+          批量删除 (<span id="selected-count">0</span>)
+        </button>
+        <span class="page-info" id="mem-total-info"></span>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th class="checkbox-col"><input type="checkbox" id="select-all" onchange="toggleSelectAll()"></th>
+              <th>内容</th>
+              <th>用户</th>
+              <th>类型</th>
+              <th>层级</th>
+              <th>置信度</th>
+              <th>创建时间</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody id="mem-tbody"></tbody>
+        </table>
+      </div>
+      <div class="pagination" id="mem-pagination"></div>
+    </div>
+
+    <!-- ======== Knowledge Graph Section ======== -->
+    <div id="sec-kg" class="section">
+      <h2 style="margin-bottom:20px">🔗 知识图谱</h2>
+      <div class="tabs">
+        <div class="tab active" onclick="switchKgTab('graph')">图谱可视化</div>
+        <div class="tab" onclick="switchKgTab('nodes')">节点管理</div>
+      </div>
+
+      <!-- Graph Tab -->
+      <div id="kg-tab-graph">
+        <div class="filter-bar">
+          <input type="text" id="kg-user" placeholder="用户 ID">
+          <input type="text" id="kg-center" placeholder="中心节点 ID（可选）">
+          <select id="kg-depth">
+            <option value="1">深度 1</option>
+            <option value="2" selected>深度 2</option>
+            <option value="3">深度 3</option>
+          </select>
+          <button class="btn btn-primary" onclick="loadKgGraph()">查询图谱</button>
+        </div>
+        <div class="card" style="padding:0;overflow:hidden;">
+          <canvas id="kg-canvas"></canvas>
+        </div>
+        <div id="kg-graph-info" style="margin-top:8px;color:var(--text2);font-size:13px;"></div>
+      </div>
+
+      <!-- Nodes Tab -->
+      <div id="kg-tab-nodes" style="display:none;">
+        <div class="filter-bar">
+          <input type="text" id="kg-node-query" placeholder="搜索节点名称..." onkeydown="if(event.key==='Enter')searchKgNodes()">
+          <input type="text" id="kg-node-user" placeholder="用户 ID">
+          <select id="kg-node-type">
+            <option value="">全部类型</option>
+            <option value="person">人物</option>
+            <option value="location">地点</option>
+            <option value="organization">组织</option>
+            <option value="object">物品</option>
+            <option value="event">事件</option>
+            <option value="concept">概念</option>
+          </select>
+          <button class="btn btn-primary" onclick="searchKgNodes()">搜索</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>名称</th>
+                <th>类型</th>
+                <th>用户</th>
+                <th>提及次数</th>
+                <th>置信度</th>
+                <th>创建时间</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody id="kg-nodes-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ======== Import/Export Section ======== -->
+    <div id="sec-io" class="section">
+      <h2 style="margin-bottom:20px">📦 数据导入导出</h2>
+      <div class="tabs">
+        <div class="tab active" onclick="switchIoTab('export')">数据导出</div>
+        <div class="tab" onclick="switchIoTab('import')">数据导入</div>
+      </div>
+
+      <!-- Export Tab -->
+      <div id="io-tab-export">
+        <div class="card">
+          <div class="card-title">导出记忆数据</div>
+          <div class="filter-bar">
+            <input type="text" id="exp-mem-user" placeholder="用户 ID（留空导出全部）">
+            <input type="text" id="exp-mem-group" placeholder="群组 ID（可选）">
+            <select id="exp-mem-layer">
+              <option value="">全部层级</option>
+              <option value="working">工作记忆</option>
+              <option value="episodic">情景记忆</option>
+              <option value="semantic">语义记忆</option>
+            </select>
+            <select id="exp-mem-format">
+              <option value="json">JSON</option>
+              <option value="csv">CSV</option>
+            </select>
+            <button class="btn btn-primary" onclick="exportMemories()">📥 导出记忆</button>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-title">导出知识图谱</div>
+          <div class="filter-bar">
+            <input type="text" id="exp-kg-user" placeholder="用户 ID（留空导出全部）">
+            <input type="text" id="exp-kg-group" placeholder="群组 ID（可选）">
+            <select id="exp-kg-format">
+              <option value="json">JSON</option>
+              <option value="csv">CSV</option>
+            </select>
+            <button class="btn btn-primary" onclick="exportKg()">📥 导出图谱</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Import Tab -->
+      <div id="io-tab-import" style="display:none;">
+        <div class="card">
+          <div class="card-title">导入记忆数据</div>
+          <div class="import-area" id="import-mem-area" onclick="document.getElementById('import-mem-file').click()"
+               ondragover="event.preventDefault();this.classList.add('dragover')"
+               ondragleave="this.classList.remove('dragover')"
+               ondrop="handleFileDrop(event,'memories')">
+            <p style="font-size:16px;margin-bottom:8px;">📁 点击或拖拽文件到此处</p>
+            <p style="color:var(--text2);">支持 JSON / CSV 格式，最大 50MB</p>
+            <input type="file" id="import-mem-file" accept=".json,.csv" style="display:none" onchange="handleFileSelect(this,'memories')">
+          </div>
+          <div id="import-mem-result" style="margin-top:12px;"></div>
+        </div>
+        <div class="card">
+          <div class="card-title">导入知识图谱</div>
+          <div class="import-area" id="import-kg-area" onclick="document.getElementById('import-kg-file').click()"
+               ondragover="event.preventDefault();this.classList.add('dragover')"
+               ondragleave="this.classList.remove('dragover')"
+               ondrop="handleFileDrop(event,'kg')">
+            <p style="font-size:16px;margin-bottom:8px;">📁 点击或拖拽文件到此处</p>
+            <p style="color:var(--text2);">支持 JSON / CSV 格式，最大 50MB</p>
+            <input type="file" id="import-kg-file" accept=".json,.csv" style="display:none" onchange="handleFileSelect(this,'kg')">
+          </div>
+          <div id="import-kg-result" style="margin-top:12px;"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Confirm Modal -->
+<div class="modal-overlay" id="confirm-modal">
+  <div class="modal">
+    <h3 id="confirm-title">确认操作</h3>
+    <p id="confirm-message"></p>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="closeModal()">取消</button>
+      <button class="btn btn-danger" id="confirm-btn" onclick="">确认</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast Container -->
+<div class="toast-container" id="toast-container"></div>
+
+<script>
+// ========== Configuration ==========
+const API_BASE = '/api/plug/iris/api';
+
+// Get auth token from AstrBot dashboard
+function getToken() {
+  try {
+    return localStorage.getItem('token') || '';
+  } catch(e) { return ''; }
+}
+
+async function api(path, options = {}) {
+  const url = API_BASE + path;
+  const headers = { 'Content-Type': 'application/json' };
+  const token = getToken();
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  
+  try {
+    const resp = await fetch(url, { ...options, headers: { ...headers, ...options.headers } });
+    if (resp.status === 401) {
+      toast('认证失败，请重新登录 AstrBot 面板', 'error');
+      return null;
+    }
+    const ct = resp.headers.get('content-type') || '';
+    if (ct.includes('application/json')) {
+      return await resp.json();
+    }
+    return await resp.text();
+  } catch(e) {
+    toast(`请求失败: ${e.message}`, 'error');
+    return null;
+  }
+}
+
+// ========== Navigation ==========
+function showSection(name) {
+  document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  document.getElementById('sec-' + name).classList.add('active');
+  event.currentTarget.classList.add('active');
+  
+  if (name === 'dashboard') loadDashboard();
+  if (name === 'memories') { if (!memState.loaded) searchMemories(); }
+  if (name === 'kg') { /* load on demand */ }
+}
+
+// ========== Toast ==========
+function toast(msg, type = 'info') {
+  const container = document.getElementById('toast-container');
+  const el = document.createElement('div');
+  el.className = `toast toast-${type}`;
+  el.textContent = msg;
+  container.appendChild(el);
+  setTimeout(() => el.remove(), 4000);
+}
+
+// ========== Modal ==========
+let modalCallback = null;
+function showConfirm(title, message, callback) {
+  document.getElementById('confirm-title').textContent = title;
+  document.getElementById('confirm-message').textContent = message;
+  document.getElementById('confirm-modal').classList.add('show');
+  modalCallback = callback;
+  document.getElementById('confirm-btn').onclick = () => { closeModal(); if(modalCallback) modalCallback(); };
+}
+function closeModal() {
+  document.getElementById('confirm-modal').classList.remove('show');
+  modalCallback = null;
+}
+
+// ========== Dashboard ==========
+async function loadDashboard() {
+  const resp = await api('/dashboard');
+  if (!resp || resp.status !== 'ok') return;
+  const d = resp.data;
+  
+  const sys = d.system || {};
+  const mem = d.memories || {};
+  const kg = d.knowledge_graph || {};
+  const health = d.health || {};
+  
+  const healthClass = health.status === 'healthy' ? 'healthy' : health.status === 'degraded' ? 'degraded' : 'unhealthy';
+  
+  document.getElementById('stats-grid').innerHTML = `
+    <div class="stat-card">
+      <div class="stat-value">${mem.total_count || 0}</div>
+      <div class="stat-label">总记忆数</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value">${sys.total_users || 0}</div>
+      <div class="stat-label">用户数</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value">${kg.nodes || 0} / ${kg.edges || 0}</div>
+      <div class="stat-label">KG 节点 / 边</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value"><span class="health-dot ${healthClass}"></span> ${health.status || 'unknown'}</div>
+      <div class="stat-label">系统状态</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value">${mem.by_layer?.working || 0}</div>
+      <div class="stat-label">工作记忆</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value">${mem.by_layer?.episodic || 0}</div>
+      <div class="stat-label">情景记忆</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value">${mem.by_layer?.semantic || 0}</div>
+      <div class="stat-label">语义记忆</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value">${sys.total_sessions || 0} / ${sys.active_sessions || 0}</div>
+      <div class="stat-label">总/活跃会话</div>
+    </div>
+  `;
+  
+  // Type distribution
+  const typeDiv = document.getElementById('type-distribution');
+  const byType = mem.by_type || {};
+  if (Object.keys(byType).length > 0) {
+    typeDiv.innerHTML = Object.entries(byType).map(([t, c]) => 
+      `<div class="stat-card" style="flex:1;min-width:120px;"><div class="stat-value" style="font-size:20px;">${c}</div><div class="stat-label">${typeLabels[t] || t}</div></div>`
+    ).join('');
+  } else {
+    typeDiv.innerHTML = '<span style="color:var(--text2)">暂无数据</span>';
+  }
+  
+  loadTrend();
+}
+
+const typeLabels = { fact:'事实', emotion:'情感', relationship:'关系', interaction:'交互', inferred:'推断' };
+const layerLabels = { working:'工作', episodic:'情景', semantic:'语义' };
+
+async function loadTrend() {
+  const days = document.getElementById('trend-days').value;
+  const resp = await api(`/dashboard/trend?days=${days}`);
+  if (!resp || resp.status !== 'ok') return;
+  
+  const data = resp.data || [];
+  if (data.length === 0) {
+    document.getElementById('trend-bars').innerHTML = '<span style="color:var(--text2);padding:40px;">暂无趋势数据</span>';
+    document.getElementById('trend-labels').innerHTML = '';
+    return;
+  }
+  
+  const maxCount = Math.max(...data.map(d => d.count), 1);
+  const barsHtml = data.map(d => {
+    const h = Math.max(2, (d.count / maxCount) * 180);
+    return `<div class="chart-bar" style="height:${h}px"><div class="tooltip">${d.date}: ${d.count}</div></div>`;
+  }).join('');
+  
+  // Show labels (every Nth item depending on data size)
+  const step = Math.max(1, Math.floor(data.length / 10));
+  const labelsHtml = data.map((d, i) => {
+    const label = i % step === 0 ? d.date.slice(5) : '';
+    return `<span>${label}</span>`;
+  }).join('');
+  
+  document.getElementById('trend-bars').innerHTML = barsHtml;
+  document.getElementById('trend-labels').innerHTML = labelsHtml;
+}
+
+// ========== Memories ==========
+const memState = { page:1, pageSize:20, loaded:false, selected:new Set() };
+
+async function searchMemories() {
+  const query = document.getElementById('mem-query').value;
+  const userId = document.getElementById('mem-user').value;
+  const groupId = document.getElementById('mem-group').value;
+  const layer = document.getElementById('mem-layer').value;
+  const type = document.getElementById('mem-type').value;
+  
+  let path;
+  if (query) {
+    path = `/memories/search?q=${encodeURIComponent(query)}&page=${memState.page}&page_size=${memState.pageSize}`;
+  } else {
+    path = `/memories?page=${memState.page}&page_size=${memState.pageSize}`;
+  }
+  if (userId) path += `&user_id=${encodeURIComponent(userId)}`;
+  if (groupId) path += `&group_id=${encodeURIComponent(groupId)}`;
+  if (layer) path += `&layer=${layer}`;
+  if (type) path += `&type=${type}`;
+  
+  document.getElementById('mem-tbody').innerHTML = '<tr><td colspan="8" class="loading"><div class="spinner"></div></td></tr>';
+  
+  const resp = await api(path);
+  memState.loaded = true;
+  
+  if (!resp || resp.status !== 'ok') {
+    document.getElementById('mem-tbody').innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--text2)">查询失败</td></tr>';
+    return;
+  }
+  
+  const data = resp.data;
+  const items = data.items || [];
+  
+  document.getElementById('mem-total-info').textContent = `共 ${data.total} 条记忆`;
+  
+  if (items.length === 0) {
+    document.getElementById('mem-tbody').innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--text2)">暂无记忆数据</td></tr>';
+    document.getElementById('mem-pagination').innerHTML = '';
+    return;
+  }
+  
+  memState.selected.clear();
+  updateSelectedCount();
+  document.getElementById('select-all').checked = false;
+  
+  const tbody = items.map(m => {
+    const layerBadge = m.storage_layer ? `<span class="badge badge-${m.storage_layer}">${layerLabels[m.storage_layer] || m.storage_layer}</span>` : '';
+    const typeBadge = m.type ? `<span class="badge badge-${m.type}">${typeLabels[m.type] || m.type}</span>` : '';
+    const time = m.created_time ? new Date(m.created_time).toLocaleString('zh-CN') : '';
+    const content = (m.summary || m.content || '').substring(0, 100);
+    return `<tr>
+      <td class="checkbox-col"><input type="checkbox" value="${m.id}" onchange="toggleSelect(this)"></td>
+      <td title="${escHtml(m.content || '')}">${escHtml(content)}</td>
+      <td>${escHtml(m.sender_name || m.user_id || '')}</td>
+      <td>${typeBadge}</td>
+      <td>${layerBadge}</td>
+      <td>${(m.confidence || 0).toFixed(2)}</td>
+      <td style="font-size:12px;">${time}</td>
+      <td><button class="btn btn-danger btn-sm" onclick="deleteSingleMemory('${m.id}')">删除</button></td>
+    </tr>`;
+  }).join('');
+  
+  document.getElementById('mem-tbody').innerHTML = tbody;
+  
+  // Pagination
+  const totalPages = Math.ceil(data.total / memState.pageSize);
+  let pagHtml = '';
+  if (totalPages > 1) {
+    pagHtml += `<button class="btn btn-outline btn-sm" ${memState.page<=1?'disabled':''} onclick="memPage(${memState.page-1})">上一页</button>`;
+    pagHtml += `<span class="page-info">${memState.page} / ${totalPages}</span>`;
+    pagHtml += `<button class="btn btn-outline btn-sm" ${memState.page>=totalPages?'disabled':''} onclick="memPage(${memState.page+1})">下一页</button>`;
+  }
+  document.getElementById('mem-pagination').innerHTML = pagHtml;
+}
+
+function memPage(p) { memState.page = p; searchMemories(); }
+function resetMemoryFilters() {
+  document.getElementById('mem-query').value = '';
+  document.getElementById('mem-user').value = '';
+  document.getElementById('mem-group').value = '';
+  document.getElementById('mem-layer').value = '';
+  document.getElementById('mem-type').value = '';
+  memState.page = 1;
+  searchMemories();
+}
+
+function toggleSelect(cb) {
+  if (cb.checked) memState.selected.add(cb.value);
+  else memState.selected.delete(cb.value);
+  updateSelectedCount();
+}
+function toggleSelectAll() {
+  const checked = document.getElementById('select-all').checked;
+  document.querySelectorAll('#mem-tbody input[type="checkbox"]').forEach(cb => {
+    cb.checked = checked;
+    if (checked) memState.selected.add(cb.value);
+    else memState.selected.delete(cb.value);
+  });
+  updateSelectedCount();
+}
+function updateSelectedCount() {
+  document.getElementById('selected-count').textContent = memState.selected.size;
+  document.getElementById('batch-del-btn').disabled = memState.selected.size === 0;
+}
+
+function deleteSingleMemory(id) {
+  showConfirm('确认删除', '确定要删除这条记忆吗？此操作不可撤销。', async () => {
+    const resp = await api('/memories/delete', { method:'POST', body:JSON.stringify({id}) });
+    if (resp && resp.status === 'ok') {
+      toast('删除成功', 'success');
+      searchMemories();
+    } else {
+      toast(resp?.message || '删除失败', 'error');
+    }
+  });
+}
+
+function batchDeleteMemories() {
+  const ids = [...memState.selected];
+  showConfirm('批量删除', `确定要删除选中的 ${ids.length} 条记忆吗？此操作不可撤销。`, async () => {
+    const resp = await api('/memories/batch-delete', { method:'POST', body:JSON.stringify({ids}) });
+    if (resp && resp.status === 'ok') {
+      const d = resp.data;
+      toast(`成功删除 ${d.success_count} 条，失败 ${d.fail_count} 条`, d.fail_count > 0 ? 'error' : 'success');
+      memState.selected.clear();
+      searchMemories();
+    } else {
+      toast(resp?.message || '批量删除失败', 'error');
+    }
+  });
+}
+
+// ========== Knowledge Graph ==========
+function switchKgTab(tab) {
+  document.getElementById('kg-tab-graph').style.display = tab === 'graph' ? 'block' : 'none';
+  document.getElementById('kg-tab-nodes').style.display = tab === 'nodes' ? 'block' : 'none';
+  document.querySelectorAll('#sec-kg .tab').forEach((t, i) => t.classList.toggle('active', (i===0&&tab==='graph')||(i===1&&tab==='nodes')));
+  if (tab === 'nodes') searchKgNodes();
+}
+
+// Graph rendering with Canvas
+let graphData = { nodes:[], edges:[] };
+let graphNodes = []; // with x,y positions
+let dragNode = null;
+let panOffset = { x: 0, y: 0 };
+let isPanning = false;
+let lastMouse = { x: 0, y: 0 };
+
+const nodeColors = {
+  person: '#1da1f2', location: '#17bf63', organization: '#ffad1f',
+  object: '#e0245e', event: '#794bc4', concept: '#f45d22',
+  time: '#aab8c2', unknown: '#657786'
+};
+
+async function loadKgGraph() {
+  const userId = document.getElementById('kg-user').value;
+  const center = document.getElementById('kg-center').value;
+  const depth = document.getElementById('kg-depth').value;
+  
+  let path = `/kg/graph?depth=${depth}&max_nodes=100`;
+  if (userId) path += `&user_id=${encodeURIComponent(userId)}`;
+  if (center) path += `&center=${encodeURIComponent(center)}`;
+  
+  const resp = await api(path);
+  if (!resp || resp.status !== 'ok') { toast('加载图谱失败', 'error'); return; }
+  
+  graphData = resp.data || { nodes:[], edges:[] };
+  document.getElementById('kg-graph-info').textContent = `节点: ${graphData.nodes.length}, 边: ${graphData.edges.length}`;
+  
+  initGraph();
+}
+
+function initGraph() {
+  const canvas = document.getElementById('kg-canvas');
+  const ctx = canvas.getContext('2d');
+  const W = canvas.parentElement.clientWidth;
+  const H = 500;
+  canvas.width = W * window.devicePixelRatio;
+  canvas.height = H * window.devicePixelRatio;
+  canvas.style.width = W + 'px';
+  canvas.style.height = H + 'px';
+  ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+  
+  panOffset = { x: W/2, y: H/2 };
+  
+  if (graphData.nodes.length === 0) {
+    ctx.fillStyle = '#657786';
+    ctx.font = '14px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('暂无图谱数据，请输入用户 ID 后点击查询', W/2, H/2);
+    return;
+  }
+  
+  // Layout: force-directed simple
+  graphNodes = graphData.nodes.map((n, i) => ({
+    ...n,
+    x: (Math.cos(i / graphData.nodes.length * Math.PI * 2)) * Math.min(W, H) * 0.3,
+    y: (Math.sin(i / graphData.nodes.length * Math.PI * 2)) * Math.min(W, H) * 0.3,
+    vx: 0, vy: 0,
+    r: n.size || 14
+  }));
+  
+  // Build edge lookup
+  const nodeMap = {};
+  graphNodes.forEach(n => nodeMap[n.id] = n);
+  
+  // Simple force simulation
+  for (let iter = 0; iter < 100; iter++) {
+    // Repulsion between all nodes
+    for (let i = 0; i < graphNodes.length; i++) {
+      for (let j = i+1; j < graphNodes.length; j++) {
+        let dx = graphNodes[j].x - graphNodes[i].x;
+        let dy = graphNodes[j].y - graphNodes[i].y;
+        let d = Math.sqrt(dx*dx + dy*dy) || 1;
+        let f = 5000 / (d * d);
+        graphNodes[i].vx -= dx/d * f;
+        graphNodes[i].vy -= dy/d * f;
+        graphNodes[j].vx += dx/d * f;
+        graphNodes[j].vy += dy/d * f;
+      }
+    }
+    // Attraction along edges
+    for (const e of graphData.edges) {
+      const s = nodeMap[e.source], t = nodeMap[e.target];
+      if (!s || !t) continue;
+      let dx = t.x - s.x, dy = t.y - s.y;
+      let d = Math.sqrt(dx*dx + dy*dy) || 1;
+      let f = (d - 80) * 0.05;
+      s.vx += dx/d * f;
+      s.vy += dy/d * f;
+      t.vx -= dx/d * f;
+      t.vy -= dy/d * f;
+    }
+    // Apply velocity with damping
+    for (const n of graphNodes) {
+      n.x += n.vx * 0.3;
+      n.y += n.vy * 0.3;
+      n.vx *= 0.5;
+      n.vy *= 0.5;
+    }
+  }
+  
+  drawGraph(canvas, ctx, W, H);
+  
+  // Interaction
+  canvas.onmousedown = (ev) => {
+    const rect = canvas.getBoundingClientRect();
+    const mx = ev.clientX - rect.left - panOffset.x;
+    const my = ev.clientY - rect.top - panOffset.y;
+    
+    dragNode = graphNodes.find(n => Math.hypot(n.x - mx, n.y - my) < n.r + 4);
+    if (dragNode) {
+      canvas.style.cursor = 'grabbing';
+    } else {
+      isPanning = true;
+      lastMouse = { x: ev.clientX, y: ev.clientY };
+      canvas.style.cursor = 'move';
+    }
+  };
+  canvas.onmousemove = (ev) => {
+    const rect = canvas.getBoundingClientRect();
+    if (dragNode) {
+      dragNode.x = ev.clientX - rect.left - panOffset.x;
+      dragNode.y = ev.clientY - rect.top - panOffset.y;
+      drawGraph(canvas, ctx, W, H);
+    } else if (isPanning) {
+      panOffset.x += ev.clientX - lastMouse.x;
+      panOffset.y += ev.clientY - lastMouse.y;
+      lastMouse = { x: ev.clientX, y: ev.clientY };
+      drawGraph(canvas, ctx, W, H);
+    } else {
+      const mx = ev.clientX - rect.left - panOffset.x;
+      const my = ev.clientY - rect.top - panOffset.y;
+      const hover = graphNodes.find(n => Math.hypot(n.x - mx, n.y - my) < n.r + 4);
+      canvas.style.cursor = hover ? 'pointer' : 'default';
+    }
+  };
+  canvas.onmouseup = () => { dragNode = null; isPanning = false; canvas.style.cursor = 'default'; };
+  canvas.onmouseleave = () => { dragNode = null; isPanning = false; };
+}
+
+function drawGraph(canvas, ctx, W, H) {
+  ctx.clearRect(0, 0, W, H);
+  ctx.save();
+  ctx.translate(panOffset.x, panOffset.y);
+  
+  const nodeMap = {};
+  graphNodes.forEach(n => nodeMap[n.id] = n);
+  
+  // Draw edges
+  ctx.lineWidth = 1;
+  for (const e of graphData.edges) {
+    const s = nodeMap[e.source], t = nodeMap[e.target];
+    if (!s || !t) continue;
+    ctx.beginPath();
+    ctx.moveTo(s.x, s.y);
+    ctx.lineTo(t.x, t.y);
+    ctx.strokeStyle = 'rgba(101,119,134,0.4)';
+    ctx.stroke();
+    
+    // Edge label
+    if (e.label) {
+      const mx = (s.x + t.x) / 2, my = (s.y + t.y) / 2;
+      ctx.font = '10px sans-serif';
+      ctx.fillStyle = '#657786';
+      ctx.textAlign = 'center';
+      ctx.fillText(e.label, mx, my - 4);
+    }
+    
+    // Arrow
+    const angle = Math.atan2(t.y - s.y, t.x - s.x);
+    const arrowX = t.x - Math.cos(angle) * (t.r + 4);
+    const arrowY = t.y - Math.sin(angle) * (t.r + 4);
+    ctx.beginPath();
+    ctx.moveTo(arrowX, arrowY);
+    ctx.lineTo(arrowX - 8 * Math.cos(angle - 0.4), arrowY - 8 * Math.sin(angle - 0.4));
+    ctx.lineTo(arrowX - 8 * Math.cos(angle + 0.4), arrowY - 8 * Math.sin(angle + 0.4));
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(101,119,134,0.5)';
+    ctx.fill();
+  }
+  
+  // Draw nodes
+  for (const n of graphNodes) {
+    ctx.beginPath();
+    ctx.arc(n.x, n.y, n.r, 0, Math.PI * 2);
+    ctx.fillStyle = nodeColors[n.type] || nodeColors.unknown;
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    
+    // Label
+    ctx.font = '12px sans-serif';
+    ctx.fillStyle = '#e0e6ed';
+    ctx.textAlign = 'center';
+    ctx.fillText(n.label || '', n.x, n.y + n.r + 14);
+  }
+  
+  ctx.restore();
+}
+
+async function searchKgNodes() {
+  const query = document.getElementById('kg-node-query').value;
+  const userId = document.getElementById('kg-node-user').value;
+  const nodeType = document.getElementById('kg-node-type').value;
+  
+  let path = `/kg/nodes?limit=50`;
+  if (query) path += `&q=${encodeURIComponent(query)}`;
+  if (userId) path += `&user_id=${encodeURIComponent(userId)}`;
+  if (nodeType) path += `&type=${nodeType}`;
+  
+  const resp = await api(path);
+  if (!resp || resp.status !== 'ok') return;
+  
+  const nodes = resp.data || [];
+  const nodeTypeLabels = { person:'人物', location:'地点', organization:'组织', object:'物品', event:'事件', concept:'概念', time:'时间', unknown:'未知' };
+  
+  if (nodes.length === 0) {
+    document.getElementById('kg-nodes-tbody').innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text2)">暂无节点数据</td></tr>';
+    return;
+  }
+  
+  document.getElementById('kg-nodes-tbody').innerHTML = nodes.map(n => `<tr>
+    <td title="ID: ${n.id}">${escHtml(n.display_name || n.name)}</td>
+    <td><span class="badge" style="background:${nodeColors[n.node_type]||'#657786'}33;color:${nodeColors[n.node_type]||'#657786'}">${nodeTypeLabels[n.node_type]||n.node_type}</span></td>
+    <td>${escHtml(n.user_id || '')}</td>
+    <td>${n.mention_count}</td>
+    <td>${(n.confidence || 0).toFixed(2)}</td>
+    <td style="font-size:12px;">${n.created_time ? new Date(n.created_time).toLocaleString('zh-CN') : ''}</td>
+    <td>
+      <button class="btn btn-outline btn-sm" onclick="focusNode('${n.id}')" style="margin-right:4px;">定位</button>
+      <button class="btn btn-danger btn-sm" onclick="deleteKgNode('${n.id}','${escHtml(n.display_name||n.name)}')">删除</button>
+    </td>
+  </tr>`).join('');
+}
+
+function focusNode(nodeId) {
+  document.getElementById('kg-center').value = nodeId;
+  switchKgTab('graph');
+  loadKgGraph();
+}
+
+function deleteKgNode(id, name) {
+  showConfirm('删除节点', `确定要删除节点 "${name}" 及其所有关联边吗？`, async () => {
+    const resp = await api('/kg/node/delete', { method:'POST', body:JSON.stringify({id}) });
+    if (resp && resp.status === 'ok') {
+      toast(resp.message || '删除成功', 'success');
+      searchKgNodes();
+    } else {
+      toast(resp?.message || '删除失败', 'error');
+    }
+  });
+}
+
+// ========== Import/Export ==========
+function switchIoTab(tab) {
+  document.getElementById('io-tab-export').style.display = tab === 'export' ? 'block' : 'none';
+  document.getElementById('io-tab-import').style.display = tab === 'import' ? 'block' : 'none';
+  document.querySelectorAll('#sec-io .tab').forEach((t, i) => t.classList.toggle('active', (i===0&&tab==='export')||(i===1&&tab==='import')));
+}
+
+async function exportMemories() {
+  const userId = document.getElementById('exp-mem-user').value;
+  const groupId = document.getElementById('exp-mem-group').value;
+  const layer = document.getElementById('exp-mem-layer').value;
+  const format = document.getElementById('exp-mem-format').value;
+  
+  let path = `/export/memories?format=${format}`;
+  if (userId) path += `&user_id=${encodeURIComponent(userId)}`;
+  if (groupId) path += `&group_id=${encodeURIComponent(groupId)}`;
+  if (layer) path += `&layer=${layer}`;
+  
+  toast('正在导出...', 'info');
+  
+  try {
+    const headers = {};
+    const token = getToken();
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    
+    const resp = await fetch(API_BASE + path, { headers });
+    if (!resp.ok) { toast('导出失败', 'error'); return; }
+    
+    const blob = await resp.blob();
+    const cd = resp.headers.get('content-disposition') || '';
+    const match = cd.match(/filename="?(.+?)"?$/);
+    const filename = match ? match[1] : `memories_export.${format}`;
+    
+    downloadBlob(blob, filename);
+    toast('导出成功', 'success');
+  } catch(e) {
+    toast(`导出失败: ${e.message}`, 'error');
+  }
+}
+
+async function exportKg() {
+  const userId = document.getElementById('exp-kg-user').value;
+  const groupId = document.getElementById('exp-kg-group').value;
+  const format = document.getElementById('exp-kg-format').value;
+  
+  let path = `/export/kg?format=${format}`;
+  if (userId) path += `&user_id=${encodeURIComponent(userId)}`;
+  if (groupId) path += `&group_id=${encodeURIComponent(groupId)}`;
+  
+  toast('正在导出...', 'info');
+  
+  try {
+    const headers = {};
+    const token = getToken();
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    
+    const resp = await fetch(API_BASE + path, { headers });
+    if (!resp.ok) { toast('导出失败', 'error'); return; }
+    
+    const blob = await resp.blob();
+    const cd = resp.headers.get('content-disposition') || '';
+    const match = cd.match(/filename="?(.+?)"?$/);
+    const filename = match ? match[1] : `kg_export.${format}`;
+    
+    downloadBlob(blob, filename);
+    toast('导出成功', 'success');
+  } catch(e) {
+    toast(`导出失败: ${e.message}`, 'error');
+  }
+}
+
+function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 100);
+}
+
+function handleFileDrop(ev, type) {
+  ev.preventDefault();
+  ev.currentTarget.classList.remove('dragover');
+  const file = ev.dataTransfer.files[0];
+  if (file) processImportFile(file, type);
+}
+
+function handleFileSelect(input, type) {
+  const file = input.files[0];
+  if (file) processImportFile(file, type);
+  input.value = '';
+}
+
+async function processImportFile(file, type) {
+  const ext = file.name.split('.').pop().toLowerCase();
+  if (!['json', 'csv'].includes(ext)) {
+    toast('仅支持 JSON 和 CSV 格式', 'error');
+    return;
+  }
+  
+  if (file.size > 50 * 1024 * 1024) {
+    toast('文件过大，最大支持 50MB', 'error');
+    return;
+  }
+  
+  const resultDiv = document.getElementById(type === 'memories' ? 'import-mem-result' : 'import-kg-result');
+  resultDiv.innerHTML = '<div class="loading"><div class="spinner"></div> 正在导入...</div>';
+  
+  try {
+    const content = await file.text();
+    const endpoint = type === 'memories' ? '/import/memories' : '/import/kg';
+    
+    const resp = await api(endpoint, {
+      method: 'POST',
+      body: JSON.stringify({ data: content, format: ext })
+    });
+    
+    if (resp && resp.status === 'ok') {
+      const d = resp.data;
+      if (type === 'memories') {
+        resultDiv.innerHTML = `<div style="padding:12px;background:var(--bg3);border-radius:var(--radius);">
+          ✅ 导入完成：成功 <strong>${d.success_count}</strong> 条，失败 <strong>${d.fail_count}</strong> 条
+          ${d.errors?.length ? '<br>错误: ' + d.errors.join('<br>') : ''}
+        </div>`;
+      } else {
+        resultDiv.innerHTML = `<div style="padding:12px;background:var(--bg3);border-radius:var(--radius);">
+          ✅ 导入完成：节点 <strong>${d.nodes_imported}</strong>，边 <strong>${d.edges_imported}</strong>
+          ${d.errors?.length ? '<br>错误: ' + d.errors.join('<br>') : ''}
+        </div>`;
+      }
+      toast('导入完成', 'success');
+    } else {
+      resultDiv.innerHTML = `<div style="padding:12px;color:var(--danger);">导入失败: ${resp?.message || '未知错误'}</div>`;
+    }
+  } catch(e) {
+    resultDiv.innerHTML = `<div style="padding:12px;color:var(--danger);">导入失败: ${e.message}</div>`;
+  }
+}
+
+// ========== Utils ==========
+function escHtml(s) {
+  const div = document.createElement('div');
+  div.textContent = s || '';
+  return div.innerHTML;
+}
+
+// ========== Init ==========
+document.addEventListener('DOMContentLoaded', () => {
+  loadDashboard();
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,1878 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Iris Memory Dashboard</title>
+<style>
+:root {
+  --bg: #0f1923;
+  --bg2: #1a2632;
+  --bg3: #243447;
+  --border: #2d4a5e;
+  --text: #e0e6ed;
+  --text2: #8899a6;
+  --accent: #1da1f2;
+  --accent2: #0d8bd9;
+  --success: #17bf63;
+  --danger: #e0245e;
+  --warning: #ffad1f;
+  --radius: 8px;
+  --shadow: 0 2px 8px rgba(0,0,0,0.3);
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background:var(--bg); color:var(--text); min-height:100vh; }
+
+/* Layout */
+.app { display:flex; min-height:100vh; }
+.sidebar { width:220px; background:var(--bg2); border-right:1px solid var(--border); padding:20px 0; flex-shrink:0; }
+.sidebar h1 { font-size:18px; padding:0 20px 20px; color:var(--accent); border-bottom:1px solid var(--border); margin-bottom:10px; }
+.sidebar h1 span { font-size:12px; color:var(--text2); display:block; margin-top:4px; }
+.nav-item { padding:12px 20px; cursor:pointer; border-left:3px solid transparent; transition:all 0.2s; display:flex; align-items:center; gap:10px; }
+.nav-item:hover { background:var(--bg3); }
+.nav-item.active { background:var(--bg3); border-left-color:var(--accent); color:var(--accent); }
+.nav-item .icon { font-size:18px; width:24px; text-align:center; }
+.main { flex:1; padding:24px; overflow-y:auto; }
+
+/* Cards */
+.card { background:var(--bg2); border:1px solid var(--border); border-radius:var(--radius); padding:20px; margin-bottom:16px; }
+.card-title { font-size:16px; font-weight:600; margin-bottom:16px; display:flex; align-items:center; gap:8px; }
+.stats-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(200px,1fr)); gap:16px; margin-bottom:20px; }
+.stat-card { background:var(--bg3); border-radius:var(--radius); padding:16px; text-align:center; }
+.stat-value { font-size:28px; font-weight:700; color:var(--accent); }
+.stat-label { font-size:13px; color:var(--text2); margin-top:4px; }
+
+/* Buttons */
+.btn { padding:8px 16px; border:none; border-radius:var(--radius); cursor:pointer; font-size:13px; transition:all 0.2s; display:inline-flex; align-items:center; gap:6px; }
+.btn-primary { background:var(--accent); color:#fff; }
+.btn-primary:hover { background:var(--accent2); }
+.btn-danger { background:var(--danger); color:#fff; }
+.btn-danger:hover { opacity:0.85; }
+.btn-success { background:var(--success); color:#fff; }
+.btn-success:hover { opacity:0.85; }
+.btn-outline { background:transparent; border:1px solid var(--border); color:var(--text); }
+.btn-outline:hover { border-color:var(--accent); color:var(--accent); }
+.btn-warning { background:var(--warning); color:#000; }
+.btn-warning:hover { opacity:0.85; }
+.btn-sm { padding:5px 10px; font-size:12px; }
+.btn:disabled { opacity:0.5; cursor:not-allowed; }
+.btn-icon { padding:6px 8px; font-size:16px; background:transparent; border:1px solid var(--border); color:var(--text2); border-radius:var(--radius); cursor:pointer; }
+.btn-icon:hover { border-color:var(--accent); color:var(--accent); }
+
+/* Forms */
+input, select, textarea { background:var(--bg3); border:1px solid var(--border); border-radius:var(--radius); padding:8px 12px; color:var(--text); font-size:13px; outline:none; font-family:inherit; }
+input:focus, select:focus, textarea:focus { border-color:var(--accent); }
+textarea { resize:vertical; min-height:80px; width:100%; }
+.filter-bar { display:flex; gap:10px; margin-bottom:16px; flex-wrap:wrap; align-items:center; }
+.filter-bar input { flex:1; min-width:200px; }
+.form-group { margin-bottom:12px; }
+.form-group label { display:block; font-size:13px; color:var(--text2); margin-bottom:4px; }
+.form-group input, .form-group select, .form-group textarea { width:100%; }
+.form-row { display:flex; gap:12px; }
+.form-row .form-group { flex:1; }
+
+/* Table */
+.table-wrap { overflow-x:auto; }
+table { width:100%; border-collapse:collapse; font-size:13px; }
+th { background:var(--bg3); padding:10px 12px; text-align:left; font-weight:600; color:var(--text2); border-bottom:1px solid var(--border); white-space:nowrap; }
+td { padding:10px 12px; border-bottom:1px solid var(--border); max-width:300px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+tr:hover td { background:rgba(29,161,242,0.05); }
+.checkbox-col { width:40px; text-align:center; }
+input[type="checkbox"] { width:16px; height:16px; accent-color:var(--accent); }
+.clickable-row td { cursor:pointer; }
+
+/* Badges */
+.badge { display:inline-block; padding:2px 8px; border-radius:12px; font-size:11px; font-weight:600; }
+.badge-working { background:rgba(29,161,242,0.2); color:var(--accent); }
+.badge-episodic { background:rgba(23,191,99,0.2); color:var(--success); }
+.badge-semantic { background:rgba(255,173,31,0.2); color:var(--warning); }
+.badge-fact { background:rgba(29,161,242,0.2); color:var(--accent); }
+.badge-emotion { background:rgba(224,36,94,0.2); color:var(--danger); }
+.badge-relationship { background:rgba(23,191,99,0.2); color:var(--success); }
+
+/* Pagination */
+.pagination { display:flex; gap:8px; margin-top:16px; align-items:center; justify-content:center; }
+.pagination button { padding:6px 12px; }
+.page-info { color:var(--text2); font-size:13px; }
+.page-size-select { width:auto; padding:4px 8px; font-size:12px; }
+
+/* Chart */
+.chart-container { height:250px; position:relative; }
+.chart-bar-wrap { display:flex; align-items:flex-end; gap:2px; height:200px; padding:0 10px; }
+.chart-bar { background:var(--accent); border-radius:2px 2px 0 0; min-width:6px; flex:1; transition:height 0.3s; cursor:pointer; position:relative; }
+.chart-bar:hover { background:var(--accent2); }
+.chart-bar .tooltip { display:none; position:absolute; bottom:100%; left:50%; transform:translateX(-50%); background:var(--bg); padding:4px 8px; border-radius:4px; font-size:11px; white-space:nowrap; border:1px solid var(--border); z-index:10; }
+.chart-bar:hover .tooltip { display:block; }
+.chart-labels { display:flex; gap:2px; padding:4px 10px 0; }
+.chart-labels span { flex:1; text-align:center; font-size:10px; color:var(--text2); overflow:hidden; }
+
+/* KG Graph */
+#kg-canvas { width:100%; height:500px; background:var(--bg); border:1px solid var(--border); border-radius:var(--radius); cursor:default; }
+
+/* Modal */
+.modal-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:1000; justify-content:center; align-items:center; }
+.modal-overlay.show { display:flex; }
+.modal { background:var(--bg2); border:1px solid var(--border); border-radius:var(--radius); padding:24px; max-width:600px; width:90%; max-height:85vh; overflow-y:auto; }
+.modal-lg { max-width:800px; }
+.modal h3 { margin-bottom:16px; }
+.modal-actions { display:flex; gap:10px; justify-content:flex-end; margin-top:20px; }
+.modal-close { position:absolute; top:12px; right:16px; background:none; border:none; color:var(--text2); font-size:24px; cursor:pointer; }
+.modal-body { position:relative; }
+
+/* Detail Section */
+.detail-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px 16px; margin-bottom:16px; }
+.detail-item { padding:8px 0; }
+.detail-label { font-size:12px; color:var(--text2); margin-bottom:2px; }
+.detail-value { font-size:14px; word-break:break-all; }
+.detail-content { background:var(--bg3); padding:12px; border-radius:var(--radius); margin-bottom:16px; white-space:pre-wrap; word-break:break-all; line-height:1.6; max-height:300px; overflow-y:auto; }
+
+/* Search Highlight */
+.highlight { background:rgba(29,161,242,0.3); border-radius:2px; padding:0 1px; }
+
+/* Toast */
+.toast-container { position:fixed; top:20px; right:20px; z-index:2000; }
+.toast { padding:12px 20px; border-radius:var(--radius); margin-bottom:8px; font-size:13px; animation:slideIn 0.3s ease; box-shadow:var(--shadow); display:flex; align-items:center; gap:8px; }
+.toast-success { background:var(--success); color:#fff; }
+.toast-error { background:var(--danger); color:#fff; }
+.toast-info { background:var(--accent); color:#fff; }
+.toast-retry { background:none; border:1px solid rgba(255,255,255,0.5); color:#fff; padding:3px 8px; border-radius:4px; cursor:pointer; font-size:12px; margin-left:8px; }
+@keyframes slideIn { from{transform:translateX(100%);opacity:0} to{transform:translateX(0);opacity:1} }
+
+/* Import Area */
+.import-area { border:2px dashed var(--border); border-radius:var(--radius); padding:40px; text-align:center; cursor:pointer; transition:border-color 0.2s; }
+.import-area:hover { border-color:var(--accent); }
+.import-area.dragover { border-color:var(--accent); background:rgba(29,161,242,0.05); }
+
+/* Preview Table */
+.preview-table { max-height:300px; overflow-y:auto; margin:12px 0; }
+.preview-table table { font-size:12px; }
+.preview-summary { padding:12px; background:var(--bg3); border-radius:var(--radius); margin:12px 0; }
+
+/* Tabs */
+.tabs { display:flex; gap:0; border-bottom:1px solid var(--border); margin-bottom:16px; }
+.tab { padding:10px 20px; cursor:pointer; border-bottom:2px solid transparent; color:var(--text2); transition:all 0.2s; }
+.tab:hover { color:var(--text); }
+.tab.active { color:var(--accent); border-bottom-color:var(--accent); }
+
+/* Loading */
+.loading { text-align:center; padding:40px; color:var(--text2); }
+.spinner { display:inline-block; width:24px; height:24px; border:3px solid var(--border); border-top-color:var(--accent); border-radius:50%; animation:spin 0.8s linear infinite; }
+@keyframes spin { to{transform:rotate(360deg)} }
+.loading-overlay { position:absolute; inset:0; background:rgba(15,25,35,0.7); display:flex; justify-content:center; align-items:center; z-index:5; border-radius:var(--radius); }
+
+/* Section hide/show */
+.section { display:none; }
+.section.active { display:block; }
+
+/* Health indicator */
+.health-dot { width:10px; height:10px; border-radius:50%; display:inline-block; }
+.health-dot.healthy { background:var(--success); }
+.health-dot.degraded { background:var(--warning); }
+.health-dot.unhealthy { background:var(--danger); }
+
+/* Section Header */
+.section-header { display:flex; align-items:center; gap:12px; margin-bottom:20px; }
+.section-header h2 { margin:0; }
+.section-header .spacer { flex:1; }
+
+/* Persona Cards */
+.persona-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(350px,1fr)); gap:16px; }
+.persona-card { background:var(--bg3); border-radius:var(--radius); padding:16px; cursor:pointer; transition:border-color 0.2s; border:1px solid var(--border); }
+.persona-card:hover { border-color:var(--accent); }
+.persona-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; }
+.persona-uid { font-weight:600; font-size:15px; }
+.persona-meta { font-size:12px; color:var(--text2); }
+.persona-traits { display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; }
+.persona-trait { background:var(--bg2); padding:3px 8px; border-radius:10px; font-size:11px; color:var(--text2); }
+.persona-bar { height:6px; background:var(--bg2); border-radius:3px; margin:4px 0; overflow:hidden; }
+.persona-bar-fill { height:100%; border-radius:3px; transition:width 0.3s; }
+
+/* Emotion Display */
+.emotion-card { background:var(--bg3); border-radius:var(--radius); padding:16px; }
+.emotion-primary { font-size:24px; font-weight:700; margin-bottom:4px; }
+.emotion-intensity { height:8px; background:var(--bg2); border-radius:4px; overflow:hidden; margin:8px 0; }
+.emotion-intensity-fill { height:100%; border-radius:4px; }
+.emotion-history { display:flex; gap:4px; align-items:flex-end; height:60px; margin-top:12px; }
+.emotion-history-bar { flex:1; min-width:4px; border-radius:2px 2px 0 0; }
+
+/* KG Node popup */
+.node-popup { position:absolute; background:var(--bg2); border:1px solid var(--border); border-radius:var(--radius); padding:16px; max-width:300px; box-shadow:var(--shadow); z-index:100; pointer-events:auto; }
+.node-popup h4 { margin-bottom:8px; color:var(--accent); }
+.node-popup .detail-item { padding:4px 0; }
+
+/* Responsive */
+@media(max-width:768px) {
+  .sidebar { width:60px; }
+  .sidebar h1, .nav-item span:not(.icon) { display:none; }
+  .nav-item { padding:12px; justify-content:center; }
+  .stats-grid { grid-template-columns:repeat(2,1fr); }
+  .filter-bar { flex-direction:column; }
+  .filter-bar input { min-width:100%; }
+  .persona-grid { grid-template-columns:1fr; }
+  .detail-grid { grid-template-columns:1fr; }
+  .form-row { flex-direction:column; }
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- Sidebar -->
+  <div class="sidebar">
+    <h1>🧠 Iris Memory<span>管理面板</span></h1>
+    <div class="nav-item active" data-section="dashboard" onclick="showSection('dashboard',this)">
+      <span class="icon">📊</span><span>统计面板</span>
+    </div>
+    <div class="nav-item" data-section="memories" onclick="showSection('memories',this)">
+      <span class="icon">💾</span><span>记忆管理</span>
+    </div>
+    <div class="nav-item" data-section="kg" onclick="showSection('kg',this)">
+      <span class="icon">🔗</span><span>知识图谱</span>
+    </div>
+    <div class="nav-item" data-section="personas" onclick="showSection('personas',this)">
+      <span class="icon">👤</span><span>用户画像</span>
+    </div>
+    <div class="nav-item" data-section="io" onclick="showSection('io',this)">
+      <span class="icon">📦</span><span>导入导出</span>
+    </div>
+  </div>
+
+  <!-- Main Content -->
+  <div class="main">
+
+    <!-- ======== Dashboard Section ======== -->
+    <div id="sec-dashboard" class="section active">
+      <div class="section-header">
+        <h2>📊 统计面板</h2>
+        <div class="spacer"></div>
+        <button class="btn-icon" onclick="loadDashboard()" title="刷新">🔄</button>
+      </div>
+      <div class="stats-grid" id="stats-grid">
+        <div class="stat-card"><div class="spinner"></div></div>
+      </div>
+      <div class="card">
+        <div class="card-title">记忆类型分布</div>
+        <div id="type-distribution" style="display:flex;gap:12px;flex-wrap:wrap;"></div>
+      </div>
+      <div class="card">
+        <div class="card-title">
+          记忆创建趋势
+          <select id="trend-days" onchange="loadTrend()" style="margin-left:auto;width:auto;">
+            <option value="7">近 7 天</option>
+            <option value="14">近 14 天</option>
+            <option value="30" selected>近 30 天</option>
+            <option value="90">近 90 天</option>
+          </select>
+        </div>
+        <div class="chart-container">
+          <div class="chart-bar-wrap" id="trend-bars"></div>
+          <div class="chart-labels" id="trend-labels"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ======== Memories Section ======== -->
+    <div id="sec-memories" class="section">
+      <div class="section-header">
+        <h2>💾 记忆管理</h2>
+        <div class="spacer"></div>
+        <button class="btn-icon" onclick="searchMemories()" title="刷新">🔄</button>
+      </div>
+      <div class="filter-bar">
+        <input type="text" id="mem-query" placeholder="搜索记忆内容..." onkeydown="if(event.key==='Enter')searchMemories()">
+        <input type="text" id="mem-user" placeholder="用户 ID">
+        <input type="text" id="mem-group" placeholder="群组 ID">
+        <select id="mem-layer">
+          <option value="">全部层级</option>
+          <option value="working">工作记忆</option>
+          <option value="episodic">情景记忆</option>
+          <option value="semantic">语义记忆</option>
+        </select>
+        <select id="mem-type">
+          <option value="">全部类型</option>
+          <option value="fact">事实</option>
+          <option value="emotion">情感</option>
+          <option value="relationship">关系</option>
+          <option value="interaction">交互</option>
+          <option value="inferred">推断</option>
+        </select>
+        <button class="btn btn-primary" onclick="searchMemories()">搜索</button>
+        <button class="btn btn-outline" onclick="resetMemoryFilters()">重置</button>
+      </div>
+      <div style="margin-bottom:10px;display:flex;gap:10px;align-items:center;">
+        <button class="btn btn-danger btn-sm" id="batch-del-btn" onclick="batchDeleteMemories()" disabled>
+          批量删除 (<span id="selected-count">0</span>)
+        </button>
+        <button class="btn btn-outline btn-sm" id="batch-export-btn" onclick="exportSelectedMemories()" disabled>
+          导出选中
+        </button>
+        <span class="page-info" id="mem-total-info"></span>
+        <div class="spacer" style="flex:1;"></div>
+        <label style="font-size:12px;color:var(--text2);">每页</label>
+        <select class="page-size-select" id="mem-page-size" onchange="memState.pageSize=+this.value;memState.page=1;searchMemories();">
+          <option value="10">10</option>
+          <option value="20" selected>20</option>
+          <option value="50">50</option>
+          <option value="100">100</option>
+        </select>
+      </div>
+      <div class="table-wrap" style="position:relative;">
+        <div id="mem-loading" class="loading-overlay" style="display:none;"><div class="spinner"></div></div>
+        <table>
+          <thead>
+            <tr>
+              <th class="checkbox-col"><input type="checkbox" id="select-all" onchange="toggleSelectAll()"></th>
+              <th>内容</th>
+              <th>用户</th>
+              <th>类型</th>
+              <th>层级</th>
+              <th>置信度</th>
+              <th>创建时间</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody id="mem-tbody"></tbody>
+        </table>
+      </div>
+      <div class="pagination" id="mem-pagination"></div>
+    </div>
+
+    <!-- ======== Knowledge Graph Section ======== -->
+    <div id="sec-kg" class="section">
+      <div class="section-header">
+        <h2>🔗 知识图谱</h2>
+        <div class="spacer"></div>
+        <button class="btn-icon" onclick="refreshKgTab()" title="刷新">🔄</button>
+      </div>
+      <div class="tabs">
+        <div class="tab active" onclick="switchKgTab('graph')">图谱可视化</div>
+        <div class="tab" onclick="switchKgTab('nodes')">节点管理</div>
+        <div class="tab" onclick="switchKgTab('edges')">边管理</div>
+      </div>
+
+      <!-- Graph Tab -->
+      <div id="kg-tab-graph">
+        <div class="filter-bar">
+          <input type="text" id="kg-user" placeholder="用户 ID">
+          <input type="text" id="kg-center" placeholder="中心节点 ID（可选）">
+          <select id="kg-depth">
+            <option value="1">深度 1</option>
+            <option value="2" selected>深度 2</option>
+            <option value="3">深度 3</option>
+          </select>
+          <button class="btn btn-primary" onclick="loadKgGraph()">查询图谱</button>
+        </div>
+        <div class="card" style="padding:0;overflow:hidden;position:relative;">
+          <div id="kg-graph-loading" class="loading-overlay" style="display:none;"><div class="spinner"></div></div>
+          <canvas id="kg-canvas"></canvas>
+          <div id="node-popup" class="node-popup" style="display:none;"></div>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;">
+          <span id="kg-graph-info" style="color:var(--text2);font-size:13px;"></span>
+          <span style="font-size:12px;color:var(--text2);">滚轮缩放 | 拖拽平移 | 点击节点查看详情</span>
+        </div>
+      </div>
+
+      <!-- Nodes Tab -->
+      <div id="kg-tab-nodes" style="display:none;">
+        <div class="filter-bar">
+          <input type="text" id="kg-node-query" placeholder="搜索节点名称..." onkeydown="if(event.key==='Enter')searchKgNodes()">
+          <input type="text" id="kg-node-user" placeholder="用户 ID">
+          <select id="kg-node-type">
+            <option value="">全部类型</option>
+            <option value="person">人物</option>
+            <option value="location">地点</option>
+            <option value="organization">组织</option>
+            <option value="object">物品</option>
+            <option value="event">事件</option>
+            <option value="concept">概念</option>
+          </select>
+          <button class="btn btn-primary" onclick="searchKgNodes()">搜索</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>名称</th>
+                <th>类型</th>
+                <th>用户</th>
+                <th>提及次数</th>
+                <th>置信度</th>
+                <th>创建时间</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody id="kg-nodes-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Edges Tab -->
+      <div id="kg-tab-edges" style="display:none;">
+        <div class="filter-bar">
+          <input type="text" id="kg-edge-user" placeholder="用户 ID">
+          <input type="text" id="kg-edge-node" placeholder="关联节点 ID">
+          <select id="kg-edge-relation">
+            <option value="">全部关系类型</option>
+            <option value="friend_of">朋友</option>
+            <option value="colleague_of">同事</option>
+            <option value="family_of">家人</option>
+            <option value="boss_of">上级</option>
+            <option value="subordinate_of">下属</option>
+            <option value="knows">认识</option>
+            <option value="lives_in">居住于</option>
+            <option value="works_at">工作于</option>
+            <option value="studies_at">就读于</option>
+            <option value="belongs_to">属于</option>
+            <option value="owns">拥有</option>
+            <option value="likes">喜欢</option>
+            <option value="dislikes">不喜欢</option>
+            <option value="does">做</option>
+            <option value="is">是</option>
+            <option value="has">有</option>
+            <option value="wants">想要</option>
+            <option value="participated_in">参与</option>
+            <option value="happened_at">发生于</option>
+            <option value="caused_by">由...引起</option>
+            <option value="related_to">相关</option>
+          </select>
+          <button class="btn btn-primary" onclick="searchKgEdges()">搜索</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>源节点</th>
+                <th>关系</th>
+                <th>目标节点</th>
+                <th>置信度</th>
+                <th>权重</th>
+                <th>用户</th>
+                <th>创建时间</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody id="kg-edges-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ======== Personas Section ======== -->
+    <div id="sec-personas" class="section">
+      <div class="section-header">
+        <h2>👤 用户画像</h2>
+        <div class="spacer"></div>
+        <button class="btn-icon" onclick="loadPersonas()" title="刷新">🔄</button>
+      </div>
+      <div id="personas-container" class="persona-grid">
+        <div class="loading"><div class="spinner"></div></div>
+      </div>
+    </div>
+
+    <!-- ======== Import/Export Section ======== -->
+    <div id="sec-io" class="section">
+      <div class="section-header">
+        <h2>📦 数据导入导出</h2>
+        <div class="spacer"></div>
+      </div>
+      <div class="tabs">
+        <div class="tab active" onclick="switchIoTab('export')">数据导出</div>
+        <div class="tab" onclick="switchIoTab('import')">数据导入</div>
+      </div>
+
+      <!-- Export Tab -->
+      <div id="io-tab-export">
+        <div class="card">
+          <div class="card-title">导出记忆数据</div>
+          <div class="filter-bar">
+            <input type="text" id="exp-mem-user" placeholder="用户 ID（留空导出全部）">
+            <input type="text" id="exp-mem-group" placeholder="群组 ID（可选）">
+            <select id="exp-mem-layer">
+              <option value="">全部层级</option>
+              <option value="working">工作记忆</option>
+              <option value="episodic">情景记忆</option>
+              <option value="semantic">语义记忆</option>
+            </select>
+            <select id="exp-mem-format">
+              <option value="json">JSON</option>
+              <option value="csv">CSV</option>
+            </select>
+            <button class="btn btn-primary" onclick="exportMemories()">📥 导出记忆</button>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-title">导出知识图谱</div>
+          <div class="filter-bar">
+            <input type="text" id="exp-kg-user" placeholder="用户 ID（留空导出全部）">
+            <input type="text" id="exp-kg-group" placeholder="群组 ID（可选）">
+            <select id="exp-kg-format">
+              <option value="json">JSON</option>
+              <option value="csv">CSV</option>
+            </select>
+            <button class="btn btn-primary" onclick="exportKg()">📥 导出图谱</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Import Tab -->
+      <div id="io-tab-import" style="display:none;">
+        <div class="card">
+          <div class="card-title">导入记忆数据</div>
+          <div class="import-area" id="import-mem-area" onclick="document.getElementById('import-mem-file').click()"
+               ondragover="event.preventDefault();this.classList.add('dragover')"
+               ondragleave="this.classList.remove('dragover')"
+               ondrop="handleFileDrop(event,'memories')">
+            <p style="font-size:16px;margin-bottom:8px;">📁 点击或拖拽文件到此处</p>
+            <p style="color:var(--text2);">支持 JSON / CSV 格式，最大 50MB</p>
+            <input type="file" id="import-mem-file" accept=".json,.csv" style="display:none" onchange="handleFileSelect(this,'memories')">
+          </div>
+          <div id="import-mem-preview" style="margin-top:12px;"></div>
+          <div id="import-mem-result" style="margin-top:12px;"></div>
+        </div>
+        <div class="card">
+          <div class="card-title">导入知识图谱</div>
+          <div class="import-area" id="import-kg-area" onclick="document.getElementById('import-kg-file').click()"
+               ondragover="event.preventDefault();this.classList.add('dragover')"
+               ondragleave="this.classList.remove('dragover')"
+               ondrop="handleFileDrop(event,'kg')">
+            <p style="font-size:16px;margin-bottom:8px;">📁 点击或拖拽文件到此处</p>
+            <p style="color:var(--text2);">支持 JSON / CSV 格式，最大 50MB</p>
+            <input type="file" id="import-kg-file" accept=".json,.csv" style="display:none" onchange="handleFileSelect(this,'kg')">
+          </div>
+          <div id="import-kg-preview" style="margin-top:12px;"></div>
+          <div id="import-kg-result" style="margin-top:12px;"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Confirm Modal -->
+<div class="modal-overlay" id="confirm-modal">
+  <div class="modal">
+    <h3 id="confirm-title">确认操作</h3>
+    <p id="confirm-message"></p>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="closeModal('confirm-modal')">取消</button>
+      <button class="btn btn-danger" id="confirm-btn" onclick="">确认</button>
+    </div>
+  </div>
+</div>
+
+<!-- Memory Detail Modal -->
+<div class="modal-overlay" id="detail-modal">
+  <div class="modal modal-lg">
+    <div class="modal-body">
+      <h3>📋 记忆详情</h3>
+      <div id="detail-content"></div>
+      <div class="modal-actions">
+        <button class="btn btn-outline" onclick="closeModal('detail-modal')">关闭</button>
+        <button class="btn btn-primary" id="detail-edit-btn" onclick="">编辑</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Memory Edit Modal -->
+<div class="modal-overlay" id="edit-modal">
+  <div class="modal modal-lg">
+    <h3>✏️ 编辑记忆</h3>
+    <input type="hidden" id="edit-id">
+    <div class="form-group">
+      <label>内容</label>
+      <textarea id="edit-content" rows="5"></textarea>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>类型</label>
+        <select id="edit-type">
+          <option value="fact">事实</option>
+          <option value="emotion">情感</option>
+          <option value="relationship">关系</option>
+          <option value="interaction">交互</option>
+          <option value="inferred">推断</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>层级</label>
+        <select id="edit-layer">
+          <option value="working">工作记忆</option>
+          <option value="episodic">情景记忆</option>
+          <option value="semantic">语义记忆</option>
+        </select>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>置信度 (0-1)</label>
+        <input type="number" id="edit-confidence" step="0.01" min="0" max="1">
+      </div>
+      <div class="form-group">
+        <label>重要性 (0-1)</label>
+        <input type="number" id="edit-importance" step="0.01" min="0" max="1">
+      </div>
+    </div>
+    <div class="form-group">
+      <label>摘要</label>
+      <input type="text" id="edit-summary">
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="closeModal('edit-modal')">取消</button>
+      <button class="btn btn-primary" onclick="saveMemoryEdit()">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- Persona Detail Modal -->
+<div class="modal-overlay" id="persona-modal">
+  <div class="modal modal-lg">
+    <h3>👤 用户画像详情</h3>
+    <div id="persona-detail-content"></div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="closeModal('persona-modal')">关闭</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast Container -->
+<div class="toast-container" id="toast-container"></div>
+
+<script>
+// ========== Configuration ==========
+const API_BASE = '/api/plug/iris/api';
+
+function getToken() {
+  try { return localStorage.getItem('token') || ''; } catch(e) { return ''; }
+}
+
+// Track last failed request for retry
+let lastFailedRequest = null;
+
+async function api(path, options = {}) {
+  const url = API_BASE + path;
+  const headers = { 'Content-Type': 'application/json' };
+  const token = getToken();
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  
+  try {
+    const resp = await fetch(url, { ...options, headers: { ...headers, ...options.headers } });
+    if (resp.status === 401) {
+      toast('认证失败，请重新登录 AstrBot 面板', 'error');
+      return null;
+    }
+    const ct = resp.headers.get('content-type') || '';
+    if (ct.includes('application/json')) {
+      return await resp.json();
+    }
+    return await resp.text();
+  } catch(e) {
+    lastFailedRequest = { path, options };
+    toast(`请求失败: ${e.message}`, 'error', true);
+    return null;
+  }
+}
+
+// ========== Navigation ==========
+function showSection(name, navEl) {
+  document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  document.getElementById('sec-' + name).classList.add('active');
+  if (navEl) navEl.classList.add('active');
+  else document.querySelector(`.nav-item[data-section="${name}"]`)?.classList.add('active');
+  
+  if (name === 'dashboard') loadDashboard();
+  if (name === 'memories') { if (!memState.loaded) searchMemories(); }
+  if (name === 'personas') loadPersonas();
+}
+
+// ========== Toast ==========
+function toast(msg, type = 'info', retryable = false) {
+  const container = document.getElementById('toast-container');
+  const el = document.createElement('div');
+  el.className = `toast toast-${type}`;
+  el.innerHTML = escHtml(msg);
+  if (retryable && lastFailedRequest) {
+    const retryBtn = document.createElement('button');
+    retryBtn.className = 'toast-retry';
+    retryBtn.textContent = '重试';
+    retryBtn.onclick = () => {
+      el.remove();
+      if (lastFailedRequest) {
+        api(lastFailedRequest.path, lastFailedRequest.options);
+        lastFailedRequest = null;
+      }
+    };
+    el.appendChild(retryBtn);
+  }
+  container.appendChild(el);
+  setTimeout(() => el.remove(), retryable ? 8000 : 4000);
+}
+
+// ========== Modal ==========
+let modalCallback = null;
+function showConfirm(title, message, callback) {
+  document.getElementById('confirm-title').textContent = title;
+  document.getElementById('confirm-message').textContent = message;
+  document.getElementById('confirm-modal').classList.add('show');
+  modalCallback = callback;
+  document.getElementById('confirm-btn').onclick = () => { closeModal('confirm-modal'); if(modalCallback) modalCallback(); };
+}
+function closeModal(id) {
+  document.getElementById(id).classList.remove('show');
+  if (id === 'confirm-modal') modalCallback = null;
+}
+
+// ========== Dashboard ==========
+async function loadDashboard() {
+  const resp = await api('/dashboard');
+  if (!resp || resp.status !== 'ok') return;
+  const d = resp.data;
+  
+  const sys = d.system || {};
+  const mem = d.memories || {};
+  const kg = d.knowledge_graph || {};
+  const health = d.health || {};
+  
+  const healthClass = health.status === 'healthy' ? 'healthy' : health.status === 'degraded' ? 'degraded' : 'unhealthy';
+  
+  document.getElementById('stats-grid').innerHTML = `
+    <div class="stat-card">
+      <div class="stat-value">${mem.total_count || 0}</div>
+      <div class="stat-label">总记忆数</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value">${sys.total_users || 0}</div>
+      <div class="stat-label">用户数</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value">${kg.nodes || 0} / ${kg.edges || 0}</div>
+      <div class="stat-label">KG 节点 / 边</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value"><span class="health-dot ${healthClass}"></span> ${health.status || 'unknown'}</div>
+      <div class="stat-label">系统状态</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value">${mem.by_layer?.working || 0}</div>
+      <div class="stat-label">工作记忆</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value">${mem.by_layer?.episodic || 0}</div>
+      <div class="stat-label">情景记忆</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value">${mem.by_layer?.semantic || 0}</div>
+      <div class="stat-label">语义记忆</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value">${sys.total_sessions || 0} / ${sys.active_sessions || 0}</div>
+      <div class="stat-label">总/活跃会话</div>
+    </div>
+  `;
+  
+  const typeDiv = document.getElementById('type-distribution');
+  const byType = mem.by_type || {};
+  if (Object.keys(byType).length > 0) {
+    typeDiv.innerHTML = Object.entries(byType).map(([t, c]) => 
+      `<div class="stat-card" style="flex:1;min-width:120px;"><div class="stat-value" style="font-size:20px;">${c}</div><div class="stat-label">${typeLabels[t] || t}</div></div>`
+    ).join('');
+  } else {
+    typeDiv.innerHTML = '<span style="color:var(--text2)">暂无数据</span>';
+  }
+  
+  loadTrend();
+}
+
+const typeLabels = { fact:'事实', emotion:'情感', relationship:'关系', interaction:'交互', inferred:'推断' };
+const layerLabels = { working:'工作', episodic:'情景', semantic:'语义' };
+const relationLabels = { friend_of:'朋友', colleague_of:'同事', family_of:'家人', boss_of:'上级', subordinate_of:'下属', knows:'认识', lives_in:'居住于', works_at:'工作于', studies_at:'就读于', belongs_to:'属于', owns:'拥有', likes:'喜欢', dislikes:'不喜欢', does:'做', is:'是', has:'有', wants:'想要', participated_in:'参与', happened_at:'发生于', caused_by:'引起', related_to:'相关' };
+
+async function loadTrend() {
+  const days = document.getElementById('trend-days').value;
+  const resp = await api(`/dashboard/trend?days=${days}`);
+  if (!resp || resp.status !== 'ok') return;
+  
+  const data = resp.data || [];
+  if (data.length === 0) {
+    document.getElementById('trend-bars').innerHTML = '<span style="color:var(--text2);padding:40px;">暂无趋势数据</span>';
+    document.getElementById('trend-labels').innerHTML = '';
+    return;
+  }
+  
+  const maxCount = Math.max(...data.map(d => d.count), 1);
+  const barsHtml = data.map(d => {
+    const h = Math.max(2, (d.count / maxCount) * 180);
+    return `<div class="chart-bar" style="height:${h}px"><div class="tooltip">${d.date}: ${d.count}</div></div>`;
+  }).join('');
+  
+  const step = Math.max(1, Math.floor(data.length / 10));
+  const labelsHtml = data.map((d, i) => {
+    const label = i % step === 0 ? d.date.slice(5) : '';
+    return `<span>${label}</span>`;
+  }).join('');
+  
+  document.getElementById('trend-bars').innerHTML = barsHtml;
+  document.getElementById('trend-labels').innerHTML = labelsHtml;
+}
+
+// ========== Memories ==========
+const memState = { page:1, pageSize:20, loaded:false, selected:new Set(), currentQuery:'' };
+
+async function searchMemories() {
+  const query = document.getElementById('mem-query').value;
+  const userId = document.getElementById('mem-user').value;
+  const groupId = document.getElementById('mem-group').value;
+  const layer = document.getElementById('mem-layer').value;
+  const type = document.getElementById('mem-type').value;
+  
+  memState.currentQuery = query;
+  
+  let path;
+  if (query) {
+    path = `/memories/search?q=${encodeURIComponent(query)}&page=${memState.page}&page_size=${memState.pageSize}`;
+  } else {
+    path = `/memories?page=${memState.page}&page_size=${memState.pageSize}`;
+  }
+  if (userId) path += `&user_id=${encodeURIComponent(userId)}`;
+  if (groupId) path += `&group_id=${encodeURIComponent(groupId)}`;
+  if (layer) path += `&layer=${layer}`;
+  if (type) path += `&type=${type}`;
+  
+  document.getElementById('mem-loading').style.display = 'flex';
+  document.getElementById('mem-tbody').innerHTML = '';
+  
+  const resp = await api(path);
+  document.getElementById('mem-loading').style.display = 'none';
+  memState.loaded = true;
+  
+  if (!resp || resp.status !== 'ok') {
+    document.getElementById('mem-tbody').innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--text2)">查询失败</td></tr>';
+    return;
+  }
+  
+  const data = resp.data;
+  const items = data.items || [];
+  
+  document.getElementById('mem-total-info').textContent = `共 ${data.total} 条记忆`;
+  
+  if (items.length === 0) {
+    document.getElementById('mem-tbody').innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--text2)">暂无记忆数据</td></tr>';
+    document.getElementById('mem-pagination').innerHTML = '';
+    return;
+  }
+  
+  memState.selected.clear();
+  updateSelectedCount();
+  document.getElementById('select-all').checked = false;
+  
+  const tbody = items.map(m => {
+    const layerBadge = m.storage_layer ? `<span class="badge badge-${m.storage_layer}">${layerLabels[m.storage_layer] || m.storage_layer}</span>` : '';
+    const typeBadge = m.type ? `<span class="badge badge-${m.type}">${typeLabels[m.type] || m.type}</span>` : '';
+    const time = m.created_time ? new Date(m.created_time).toLocaleString('zh-CN') : '';
+    const contentRaw = (m.summary || m.content || '').substring(0, 100);
+    const contentHtml = memState.currentQuery ? highlightText(contentRaw, memState.currentQuery) : escHtml(contentRaw);
+    return `<tr>
+      <td class="checkbox-col"><input type="checkbox" value="${m.id}" onchange="toggleSelect(this)"></td>
+      <td class="clickable-row" onclick="showMemoryDetail('${m.id}')" title="点击查看详情">${contentHtml}</td>
+      <td>${escHtml(m.sender_name || m.user_id || '')}</td>
+      <td>${typeBadge}</td>
+      <td>${layerBadge}</td>
+      <td>${(m.confidence || 0).toFixed(2)}</td>
+      <td style="font-size:12px;">${time}</td>
+      <td style="white-space:nowrap;">
+        <button class="btn btn-outline btn-sm" onclick="openEditModal('${m.id}')" style="margin-right:4px;">编辑</button>
+        <button class="btn btn-danger btn-sm" onclick="deleteSingleMemory('${m.id}')">删除</button>
+      </td>
+    </tr>`;
+  }).join('');
+  
+  document.getElementById('mem-tbody').innerHTML = tbody;
+  
+  // Pagination
+  const totalPages = Math.ceil(data.total / memState.pageSize);
+  let pagHtml = '';
+  if (totalPages > 1) {
+    pagHtml += `<button class="btn btn-outline btn-sm" ${memState.page<=1?'disabled':''} onclick="memPage(1)">首页</button>`;
+    pagHtml += `<button class="btn btn-outline btn-sm" ${memState.page<=1?'disabled':''} onclick="memPage(${memState.page-1})">上一页</button>`;
+    pagHtml += `<span class="page-info">${memState.page} / ${totalPages}</span>`;
+    pagHtml += `<button class="btn btn-outline btn-sm" ${memState.page>=totalPages?'disabled':''} onclick="memPage(${memState.page+1})">下一页</button>`;
+    pagHtml += `<button class="btn btn-outline btn-sm" ${memState.page>=totalPages?'disabled':''} onclick="memPage(${totalPages})">末页</button>`;
+  }
+  document.getElementById('mem-pagination').innerHTML = pagHtml;
+}
+
+function highlightText(text, query) {
+  if (!query) return escHtml(text);
+  const escaped = escHtml(text);
+  const queryEsc = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  try {
+    return escaped.replace(new RegExp(`(${queryEsc})`, 'gi'), '<span class="highlight">$1</span>');
+  } catch(e) { return escaped; }
+}
+
+function memPage(p) { memState.page = p; searchMemories(); }
+function resetMemoryFilters() {
+  document.getElementById('mem-query').value = '';
+  document.getElementById('mem-user').value = '';
+  document.getElementById('mem-group').value = '';
+  document.getElementById('mem-layer').value = '';
+  document.getElementById('mem-type').value = '';
+  memState.page = 1;
+  searchMemories();
+}
+
+function toggleSelect(cb) {
+  if (cb.checked) memState.selected.add(cb.value);
+  else memState.selected.delete(cb.value);
+  updateSelectedCount();
+}
+function toggleSelectAll() {
+  const checked = document.getElementById('select-all').checked;
+  document.querySelectorAll('#mem-tbody input[type="checkbox"]').forEach(cb => {
+    cb.checked = checked;
+    if (checked) memState.selected.add(cb.value);
+    else memState.selected.delete(cb.value);
+  });
+  updateSelectedCount();
+}
+function updateSelectedCount() {
+  const count = memState.selected.size;
+  document.getElementById('selected-count').textContent = count;
+  document.getElementById('batch-del-btn').disabled = count === 0;
+  document.getElementById('batch-export-btn').disabled = count === 0;
+}
+
+// Memory Detail Modal
+async function showMemoryDetail(id) {
+  const resp = await api(`/memories/detail?id=${encodeURIComponent(id)}`);
+  if (!resp || resp.status !== 'ok') { toast('获取详情失败', 'error'); return; }
+  
+  const m = resp.data;
+  const layerBadge = m.storage_layer ? `<span class="badge badge-${m.storage_layer}">${layerLabels[m.storage_layer] || m.storage_layer}</span>` : '';
+  const typeBadge = m.type ? `<span class="badge badge-${m.type}">${typeLabels[m.type] || m.type}</span>` : '';
+  
+  document.getElementById('detail-content').innerHTML = `
+    <div class="detail-content">${escHtml(m.content || '')}</div>
+    ${m.summary ? `<div style="margin-bottom:12px;"><strong>摘要:</strong> ${escHtml(m.summary)}</div>` : ''}
+    <div class="detail-grid">
+      <div class="detail-item"><div class="detail-label">ID</div><div class="detail-value" style="font-size:12px;font-family:monospace;">${m.id}</div></div>
+      <div class="detail-item"><div class="detail-label">用户</div><div class="detail-value">${escHtml(m.sender_name || m.user_id || '')}</div></div>
+      <div class="detail-item"><div class="detail-label">类型</div><div class="detail-value">${typeBadge}</div></div>
+      <div class="detail-item"><div class="detail-label">层级</div><div class="detail-value">${layerBadge}</div></div>
+      <div class="detail-item"><div class="detail-label">置信度</div><div class="detail-value">${(m.confidence || 0).toFixed(3)}</div></div>
+      <div class="detail-item"><div class="detail-label">重要性</div><div class="detail-value">${(m.importance_score || 0).toFixed(3)}</div></div>
+      <div class="detail-item"><div class="detail-label">RIF 评分</div><div class="detail-value">${(m.rif_score || 0).toFixed(3)}</div></div>
+      <div class="detail-item"><div class="detail-label">访问次数</div><div class="detail-value">${m.access_count || 0}</div></div>
+      <div class="detail-item"><div class="detail-label">群组 ID</div><div class="detail-value">${escHtml(m.group_id || '无')}</div></div>
+      <div class="detail-item"><div class="detail-label">作用域</div><div class="detail-value">${m.scope || '—'}</div></div>
+      <div class="detail-item"><div class="detail-label">质量等级</div><div class="detail-value">${m.quality_level || '—'}</div></div>
+      <div class="detail-item"><div class="detail-label">创建时间</div><div class="detail-value">${m.created_time ? new Date(m.created_time).toLocaleString('zh-CN') : ''}</div></div>
+    </div>
+  `;
+  
+  document.getElementById('detail-edit-btn').onclick = () => { closeModal('detail-modal'); openEditModal(id); };
+  document.getElementById('detail-modal').classList.add('show');
+}
+
+// Memory Edit Modal
+async function openEditModal(id) {
+  const resp = await api(`/memories/detail?id=${encodeURIComponent(id)}`);
+  if (!resp || resp.status !== 'ok') { toast('获取记忆失败', 'error'); return; }
+  
+  const m = resp.data;
+  document.getElementById('edit-id').value = m.id;
+  document.getElementById('edit-content').value = m.content || '';
+  document.getElementById('edit-type').value = m.type || 'fact';
+  document.getElementById('edit-layer').value = m.storage_layer || 'episodic';
+  document.getElementById('edit-confidence').value = m.confidence || 0.5;
+  document.getElementById('edit-importance').value = m.importance_score || 0.5;
+  document.getElementById('edit-summary').value = m.summary || '';
+  document.getElementById('edit-modal').classList.add('show');
+}
+
+async function saveMemoryEdit() {
+  const id = document.getElementById('edit-id').value;
+  const updates = {
+    content: document.getElementById('edit-content').value,
+    type: document.getElementById('edit-type').value,
+    storage_layer: document.getElementById('edit-layer').value,
+    confidence: parseFloat(document.getElementById('edit-confidence').value),
+    importance_score: parseFloat(document.getElementById('edit-importance').value),
+    summary: document.getElementById('edit-summary').value,
+  };
+  
+  if (!updates.content.trim()) { toast('内容不能为空', 'error'); return; }
+  
+  const resp = await api('/memories/update', { method:'POST', body:JSON.stringify({ id, updates }) });
+  if (resp && resp.status === 'ok') {
+    toast('更新成功', 'success');
+    closeModal('edit-modal');
+    searchMemories();
+  } else {
+    toast(resp?.message || '更新失败', 'error');
+  }
+}
+
+function deleteSingleMemory(id) {
+  showConfirm('确认删除', '确定要删除这条记忆吗？此操作不可撤销。', async () => {
+    const resp = await api('/memories/delete', { method:'POST', body:JSON.stringify({id}) });
+    if (resp && resp.status === 'ok') {
+      toast('删除成功', 'success');
+      searchMemories();
+    } else {
+      toast(resp?.message || '删除失败', 'error');
+    }
+  });
+}
+
+function batchDeleteMemories() {
+  const ids = [...memState.selected];
+  showConfirm('批量删除', `确定要删除选中的 ${ids.length} 条记忆吗？此操作不可撤销。`, async () => {
+    const resp = await api('/memories/batch-delete', { method:'POST', body:JSON.stringify({ids}) });
+    if (resp && resp.status === 'ok') {
+      const d = resp.data;
+      toast(`成功删除 ${d.success_count} 条，失败 ${d.fail_count} 条`, d.fail_count > 0 ? 'error' : 'success');
+      memState.selected.clear();
+      searchMemories();
+    } else {
+      toast(resp?.message || '批量删除失败', 'error');
+    }
+  });
+}
+
+async function exportSelectedMemories() {
+  // Export selected memory IDs by fetching their details
+  const ids = [...memState.selected];
+  if (ids.length === 0) return;
+  toast('正在导出选中记忆...', 'info');
+  
+  const items = [];
+  for (const id of ids) {
+    const resp = await api(`/memories/detail?id=${encodeURIComponent(id)}`);
+    if (resp && resp.status === 'ok') items.push(resp.data);
+  }
+  
+  const blob = new Blob([JSON.stringify({ memories: items, exported_at: new Date().toISOString() }, null, 2)], { type: 'application/json' });
+  downloadBlob(blob, `selected_memories_${items.length}.json`);
+  toast(`已导出 ${items.length} 条记忆`, 'success');
+}
+
+// ========== Knowledge Graph ==========
+let currentKgTab = 'graph';
+
+function switchKgTab(tab) {
+  currentKgTab = tab;
+  document.getElementById('kg-tab-graph').style.display = tab === 'graph' ? 'block' : 'none';
+  document.getElementById('kg-tab-nodes').style.display = tab === 'nodes' ? 'block' : 'none';
+  document.getElementById('kg-tab-edges').style.display = tab === 'edges' ? 'block' : 'none';
+  document.querySelectorAll('#sec-kg .tab').forEach((t, i) => t.classList.toggle('active', 
+    (i===0&&tab==='graph')||(i===1&&tab==='nodes')||(i===2&&tab==='edges')));
+  if (tab === 'nodes') searchKgNodes();
+  if (tab === 'edges') searchKgEdges();
+}
+
+function refreshKgTab() {
+  if (currentKgTab === 'graph') loadKgGraph();
+  else if (currentKgTab === 'nodes') searchKgNodes();
+  else if (currentKgTab === 'edges') searchKgEdges();
+}
+
+// Graph rendering with Canvas
+let graphData = { nodes:[], edges:[] };
+let graphNodes = [];
+let dragNode = null;
+let panOffset = { x: 0, y: 0 };
+let isPanning = false;
+let lastMouse = { x: 0, y: 0 };
+let graphZoom = 1.0;
+
+const nodeColors = {
+  person: '#1da1f2', location: '#17bf63', organization: '#ffad1f',
+  object: '#e0245e', event: '#794bc4', concept: '#f45d22',
+  time: '#aab8c2', unknown: '#657786'
+};
+
+const nodeTypeLabels = { person:'人物', location:'地点', organization:'组织', object:'物品', event:'事件', concept:'概念', time:'时间', unknown:'未知' };
+
+async function loadKgGraph() {
+  const userId = document.getElementById('kg-user').value;
+  const center = document.getElementById('kg-center').value;
+  const depth = document.getElementById('kg-depth').value;
+  
+  let path = `/kg/graph?depth=${depth}&max_nodes=100`;
+  if (userId) path += `&user_id=${encodeURIComponent(userId)}`;
+  if (center) path += `&center=${encodeURIComponent(center)}`;
+  
+  document.getElementById('kg-graph-loading').style.display = 'flex';
+  const resp = await api(path);
+  document.getElementById('kg-graph-loading').style.display = 'none';
+  
+  if (!resp || resp.status !== 'ok') { toast('加载图谱失败', 'error'); return; }
+  
+  graphData = resp.data || { nodes:[], edges:[] };
+  document.getElementById('kg-graph-info').textContent = `节点: ${graphData.nodes.length}, 边: ${graphData.edges.length}`;
+  
+  graphZoom = 1.0;
+  initGraph();
+}
+
+function initGraph() {
+  const canvas = document.getElementById('kg-canvas');
+  const ctx = canvas.getContext('2d');
+  const W = canvas.parentElement.clientWidth;
+  const H = 500;
+  canvas.width = W * window.devicePixelRatio;
+  canvas.height = H * window.devicePixelRatio;
+  canvas.style.width = W + 'px';
+  canvas.style.height = H + 'px';
+  ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+  
+  panOffset = { x: W/2, y: H/2 };
+  
+  if (graphData.nodes.length === 0) {
+    ctx.fillStyle = '#657786';
+    ctx.font = '14px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('暂无图谱数据，请输入用户 ID 后点击查询', W/2, H/2);
+    return;
+  }
+  
+  // Layout: force-directed
+  graphNodes = graphData.nodes.map((n, i) => ({
+    ...n,
+    x: (Math.cos(i / graphData.nodes.length * Math.PI * 2)) * Math.min(W, H) * 0.3,
+    y: (Math.sin(i / graphData.nodes.length * Math.PI * 2)) * Math.min(W, H) * 0.3,
+    vx: 0, vy: 0,
+    r: n.size || 14
+  }));
+  
+  const nodeMap = {};
+  graphNodes.forEach(n => nodeMap[n.id] = n);
+  
+  // Adaptive iteration count based on node count
+  const iterations = Math.min(200, Math.max(50, graphNodes.length * 3));
+  
+  for (let iter = 0; iter < iterations; iter++) {
+    for (let i = 0; i < graphNodes.length; i++) {
+      for (let j = i+1; j < graphNodes.length; j++) {
+        let dx = graphNodes[j].x - graphNodes[i].x;
+        let dy = graphNodes[j].y - graphNodes[i].y;
+        let d = Math.sqrt(dx*dx + dy*dy) || 1;
+        let f = 5000 / (d * d);
+        graphNodes[i].vx -= dx/d * f;
+        graphNodes[i].vy -= dy/d * f;
+        graphNodes[j].vx += dx/d * f;
+        graphNodes[j].vy += dy/d * f;
+      }
+    }
+    for (const e of graphData.edges) {
+      const s = nodeMap[e.source], t = nodeMap[e.target];
+      if (!s || !t) continue;
+      let dx = t.x - s.x, dy = t.y - s.y;
+      let d = Math.sqrt(dx*dx + dy*dy) || 1;
+      let f = (d - 80) * 0.05;
+      s.vx += dx/d * f; s.vy += dy/d * f;
+      t.vx -= dx/d * f; t.vy -= dy/d * f;
+    }
+    const damping = 0.5 + (iter / iterations) * 0.4;
+    for (const n of graphNodes) {
+      n.x += n.vx * 0.3;
+      n.y += n.vy * 0.3;
+      n.vx *= damping;
+      n.vy *= damping;
+    }
+  }
+  
+  drawGraph(canvas, ctx, W, H);
+  setupGraphInteraction(canvas, ctx, W, H);
+}
+
+function setupGraphInteraction(canvas, ctx, W, H) {
+  // Cleanup old listeners
+  canvas.onmousedown = null; canvas.onmousemove = null; canvas.onmouseup = null;
+  canvas.onmouseleave = null; canvas.onwheel = null; canvas.onclick = null;
+  
+  canvas.onmousedown = (ev) => {
+    const rect = canvas.getBoundingClientRect();
+    const mx = (ev.clientX - rect.left - panOffset.x) / graphZoom;
+    const my = (ev.clientY - rect.top - panOffset.y) / graphZoom;
+    
+    dragNode = graphNodes.find(n => Math.hypot(n.x - mx, n.y - my) < (n.r + 4) / graphZoom);
+    if (dragNode) {
+      canvas.style.cursor = 'grabbing';
+    } else {
+      isPanning = true;
+      lastMouse = { x: ev.clientX, y: ev.clientY };
+      canvas.style.cursor = 'move';
+    }
+  };
+  
+  canvas.onmousemove = (ev) => {
+    const rect = canvas.getBoundingClientRect();
+    if (dragNode) {
+      dragNode.x = (ev.clientX - rect.left - panOffset.x) / graphZoom;
+      dragNode.y = (ev.clientY - rect.top - panOffset.y) / graphZoom;
+      drawGraph(canvas, ctx, W, H);
+    } else if (isPanning) {
+      panOffset.x += ev.clientX - lastMouse.x;
+      panOffset.y += ev.clientY - lastMouse.y;
+      lastMouse = { x: ev.clientX, y: ev.clientY };
+      drawGraph(canvas, ctx, W, H);
+    } else {
+      const mx = (ev.clientX - rect.left - panOffset.x) / graphZoom;
+      const my = (ev.clientY - rect.top - panOffset.y) / graphZoom;
+      const hover = graphNodes.find(n => Math.hypot(n.x - mx, n.y - my) < n.r + 4);
+      canvas.style.cursor = hover ? 'pointer' : 'default';
+    }
+  };
+  
+  canvas.onmouseup = (ev) => {
+    if (dragNode) {
+      // If barely moved, treat as click
+      dragNode = null;
+    }
+    isPanning = false;
+    canvas.style.cursor = 'default';
+  };
+  
+  canvas.onmouseleave = () => { dragNode = null; isPanning = false; hideNodePopup(); };
+  
+  // Zoom with scroll wheel
+  canvas.onwheel = (ev) => {
+    ev.preventDefault();
+    const rect = canvas.getBoundingClientRect();
+    const mouseX = ev.clientX - rect.left;
+    const mouseY = ev.clientY - rect.top;
+    
+    const zoomFactor = ev.deltaY > 0 ? 0.9 : 1.1;
+    const newZoom = Math.max(0.2, Math.min(5, graphZoom * zoomFactor));
+    
+    // Adjust pan to zoom toward mouse position
+    panOffset.x = mouseX - (mouseX - panOffset.x) * (newZoom / graphZoom);
+    panOffset.y = mouseY - (mouseY - panOffset.y) * (newZoom / graphZoom);
+    
+    graphZoom = newZoom;
+    drawGraph(canvas, ctx, W, H);
+  };
+  
+  // Click to show node details
+  canvas.onclick = (ev) => {
+    const rect = canvas.getBoundingClientRect();
+    const mx = (ev.clientX - rect.left - panOffset.x) / graphZoom;
+    const my = (ev.clientY - rect.top - panOffset.y) / graphZoom;
+    
+    const clicked = graphNodes.find(n => Math.hypot(n.x - mx, n.y - my) < n.r + 4);
+    if (clicked) {
+      showNodePopup(clicked, ev.clientX - rect.left, ev.clientY - rect.top);
+    } else {
+      hideNodePopup();
+    }
+  };
+}
+
+function showNodePopup(node, x, y) {
+  const popup = document.getElementById('node-popup');
+  const connectedEdges = graphData.edges.filter(e => e.source === node.id || e.target === node.id);
+  
+  popup.innerHTML = `
+    <h4 style="display:flex;align-items:center;gap:8px;">
+      <span style="width:12px;height:12px;border-radius:50%;background:${nodeColors[node.type]||nodeColors.unknown};display:inline-block;"></span>
+      ${escHtml(node.label || node.id)}
+    </h4>
+    <div class="detail-item"><div class="detail-label">类型</div><div class="detail-value">${nodeTypeLabels[node.type] || node.type}</div></div>
+    <div class="detail-item"><div class="detail-label">置信度</div><div class="detail-value">${(node.confidence || 0).toFixed(2)}</div></div>
+    <div class="detail-item"><div class="detail-label">连接数</div><div class="detail-value">${connectedEdges.length} 条边</div></div>
+    ${connectedEdges.length > 0 ? `<div class="detail-item"><div class="detail-label">关系</div><div class="detail-value" style="font-size:12px;">${
+      connectedEdges.slice(0, 5).map(e => escHtml(e.label || e.relation_type || '')).join(', ')
+    }${connectedEdges.length > 5 ? '...' : ''}</div></div>` : ''}
+    <div style="margin-top:8px;display:flex;gap:6px;">
+      <button class="btn btn-outline btn-sm" onclick="focusNode('${node.id}')">从此展开</button>
+      <button class="btn btn-danger btn-sm" onclick="deleteKgNode('${node.id}','${escHtml(node.label || '')}')">删除</button>
+    </div>
+  `;
+  
+  // Position popup
+  const container = popup.parentElement;
+  const containerRect = container.getBoundingClientRect();
+  let left = x + 10;
+  let top = y - 10;
+  if (left + 300 > containerRect.width) left = x - 310;
+  if (top + 200 > containerRect.height) top = containerRect.height - 210;
+  if (top < 0) top = 10;
+  
+  popup.style.left = left + 'px';
+  popup.style.top = top + 'px';
+  popup.style.display = 'block';
+}
+
+function hideNodePopup() {
+  document.getElementById('node-popup').style.display = 'none';
+}
+
+function drawGraph(canvas, ctx, W, H) {
+  ctx.clearRect(0, 0, W, H);
+  ctx.save();
+  ctx.translate(panOffset.x, panOffset.y);
+  ctx.scale(graphZoom, graphZoom);
+  
+  const nodeMap = {};
+  graphNodes.forEach(n => nodeMap[n.id] = n);
+  
+  // Draw edges
+  ctx.lineWidth = 1 / graphZoom;
+  for (const e of graphData.edges) {
+    const s = nodeMap[e.source], t = nodeMap[e.target];
+    if (!s || !t) continue;
+    ctx.beginPath();
+    ctx.moveTo(s.x, s.y);
+    ctx.lineTo(t.x, t.y);
+    ctx.strokeStyle = 'rgba(101,119,134,0.4)';
+    ctx.stroke();
+    
+    if (e.label && graphZoom > 0.5) {
+      const mx = (s.x + t.x) / 2, my = (s.y + t.y) / 2;
+      ctx.font = `${10/graphZoom}px sans-serif`;
+      ctx.fillStyle = '#657786';
+      ctx.textAlign = 'center';
+      ctx.fillText(e.label, mx, my - 4);
+    }
+    
+    // Arrow
+    const angle = Math.atan2(t.y - s.y, t.x - s.x);
+    const arrowX = t.x - Math.cos(angle) * (t.r + 4);
+    const arrowY = t.y - Math.sin(angle) * (t.r + 4);
+    const arrowSize = 8 / Math.max(graphZoom, 0.5);
+    ctx.beginPath();
+    ctx.moveTo(arrowX, arrowY);
+    ctx.lineTo(arrowX - arrowSize * Math.cos(angle - 0.4), arrowY - arrowSize * Math.sin(angle - 0.4));
+    ctx.lineTo(arrowX - arrowSize * Math.cos(angle + 0.4), arrowY - arrowSize * Math.sin(angle + 0.4));
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(101,119,134,0.5)';
+    ctx.fill();
+  }
+  
+  // Draw nodes
+  for (const n of graphNodes) {
+    ctx.beginPath();
+    ctx.arc(n.x, n.y, n.r, 0, Math.PI * 2);
+    ctx.fillStyle = nodeColors[n.type] || nodeColors.unknown;
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+    ctx.lineWidth = 2 / graphZoom;
+    ctx.stroke();
+    
+    if (graphZoom > 0.4) {
+      ctx.font = `${12/graphZoom}px sans-serif`;
+      ctx.fillStyle = '#e0e6ed';
+      ctx.textAlign = 'center';
+      ctx.fillText(n.label || '', n.x, n.y + n.r + 14/graphZoom);
+    }
+  }
+  
+  ctx.restore();
+}
+
+async function searchKgNodes() {
+  const query = document.getElementById('kg-node-query').value;
+  const userId = document.getElementById('kg-node-user').value;
+  const nodeType = document.getElementById('kg-node-type').value;
+  
+  let path = `/kg/nodes?limit=50`;
+  if (query) path += `&q=${encodeURIComponent(query)}`;
+  if (userId) path += `&user_id=${encodeURIComponent(userId)}`;
+  if (nodeType) path += `&type=${nodeType}`;
+  
+  const resp = await api(path);
+  if (!resp || resp.status !== 'ok') return;
+  
+  const nodes = resp.data || [];
+  
+  if (nodes.length === 0) {
+    document.getElementById('kg-nodes-tbody').innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text2)">暂无节点数据</td></tr>';
+    return;
+  }
+  
+  document.getElementById('kg-nodes-tbody').innerHTML = nodes.map(n => `<tr>
+    <td title="ID: ${n.id}">${escHtml(n.display_name || n.name)}</td>
+    <td><span class="badge" style="background:${nodeColors[n.node_type]||'#657786'}33;color:${nodeColors[n.node_type]||'#657786'}">${nodeTypeLabels[n.node_type]||n.node_type}</span></td>
+    <td>${escHtml(n.user_id || '')}</td>
+    <td>${n.mention_count}</td>
+    <td>${(n.confidence || 0).toFixed(2)}</td>
+    <td style="font-size:12px;">${n.created_time ? new Date(n.created_time).toLocaleString('zh-CN') : ''}</td>
+    <td style="white-space:nowrap;">
+      <button class="btn btn-outline btn-sm" onclick="focusNode('${n.id}')" style="margin-right:4px;">定位</button>
+      <button class="btn btn-outline btn-sm" onclick="showNodeEdges('${n.id}')" style="margin-right:4px;">查边</button>
+      <button class="btn btn-danger btn-sm" onclick="deleteKgNode('${n.id}','${escHtml(n.display_name||n.name)}')">删除</button>
+    </td>
+  </tr>`).join('');
+}
+
+async function searchKgEdges() {
+  const userId = document.getElementById('kg-edge-user').value;
+  const nodeId = document.getElementById('kg-edge-node').value;
+  const relType = document.getElementById('kg-edge-relation').value;
+  
+  let path = `/kg/edges?limit=50`;
+  if (userId) path += `&user_id=${encodeURIComponent(userId)}`;
+  if (nodeId) path += `&node_id=${encodeURIComponent(nodeId)}`;
+  if (relType) path += `&relation_type=${relType}`;
+  
+  const resp = await api(path);
+  if (!resp || resp.status !== 'ok') return;
+  
+  const edges = resp.data || [];
+  
+  if (edges.length === 0) {
+    document.getElementById('kg-edges-tbody').innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--text2)">暂无边数据</td></tr>';
+    return;
+  }
+  
+  document.getElementById('kg-edges-tbody').innerHTML = edges.map(e => `<tr>
+    <td title="ID: ${escHtml(e.source_id)}">${escHtml(e.source_name)}</td>
+    <td><span class="badge" style="background:rgba(29,161,242,0.15);color:var(--accent);">${escHtml(relationLabels[e.relation_type] || e.relation_label || e.relation_type)}</span></td>
+    <td title="ID: ${escHtml(e.target_id)}">${escHtml(e.target_name)}</td>
+    <td>${(e.confidence || 0).toFixed(2)}</td>
+    <td>${(e.weight || 0).toFixed(2)}</td>
+    <td>${escHtml(e.user_id || '')}</td>
+    <td style="font-size:12px;">${e.created_time ? new Date(e.created_time).toLocaleString('zh-CN') : ''}</td>
+    <td>
+      <button class="btn btn-danger btn-sm" onclick="deleteKgEdge('${e.id}','${escHtml(e.source_name)} → ${escHtml(e.target_name)}')">删除</button>
+    </td>
+  </tr>`).join('');
+}
+
+function showNodeEdges(nodeId) {
+  document.getElementById('kg-edge-node').value = nodeId;
+  switchKgTab('edges');
+}
+
+function focusNode(nodeId) {
+  document.getElementById('kg-center').value = nodeId;
+  switchKgTab('graph');
+  loadKgGraph();
+}
+
+function deleteKgNode(id, name) {
+  hideNodePopup();
+  showConfirm('删除节点', `确定要删除节点 "${name}" 及其所有关联边吗？`, async () => {
+    const resp = await api('/kg/node/delete', { method:'POST', body:JSON.stringify({id}) });
+    if (resp && resp.status === 'ok') {
+      toast(resp.message || '删除成功', 'success');
+      searchKgNodes();
+      if (currentKgTab === 'edges') searchKgEdges();
+    } else {
+      toast(resp?.message || '删除失败', 'error');
+    }
+  });
+}
+
+function deleteKgEdge(id, label) {
+  showConfirm('删除边', `确定要删除关系 "${label}" 吗？`, async () => {
+    const resp = await api('/kg/edge/delete', { method:'POST', body:JSON.stringify({id}) });
+    if (resp && resp.status === 'ok') {
+      toast('删除成功', 'success');
+      searchKgEdges();
+    } else {
+      toast(resp?.message || '删除失败', 'error');
+    }
+  });
+}
+
+// ========== User Personas ==========
+async function loadPersonas() {
+  const container = document.getElementById('personas-container');
+  container.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+  
+  const resp = await api('/personas');
+  if (!resp || resp.status !== 'ok') {
+    container.innerHTML = '<div style="color:var(--text2);text-align:center;padding:40px;">获取画像失败</div>';
+    return;
+  }
+  
+  const personas = resp.data || [];
+  if (personas.length === 0) {
+    container.innerHTML = '<div style="color:var(--text2);text-align:center;padding:40px;">暂无用户画像数据<br><span style="font-size:13px;">当用户与 Bot 交互后将自动生成画像</span></div>';
+    return;
+  }
+  
+  container.innerHTML = personas.map(p => `
+    <div class="persona-card" onclick="showPersonaDetail('${escHtml(p.user_id)}')">
+      <div class="persona-header">
+        <span class="persona-uid">👤 ${escHtml(p.user_id)}</span>
+        <span class="persona-meta">更新 ${p.update_count} 次</span>
+      </div>
+      <div style="font-size:12px;color:var(--text2);margin-bottom:8px;">
+        最后更新: ${p.last_updated ? new Date(p.last_updated).toLocaleString('zh-CN') : '—'}
+      </div>
+      <div style="margin-bottom:8px;">
+        <div style="font-size:12px;color:var(--text2);margin-bottom:4px;">信任度</div>
+        <div class="persona-bar"><div class="persona-bar-fill" style="width:${(p.trust_level||0.5)*100}%;background:var(--accent);"></div></div>
+      </div>
+      <div style="margin-bottom:8px;">
+        <div style="font-size:12px;color:var(--text2);margin-bottom:4px;">亲密度</div>
+        <div class="persona-bar"><div class="persona-bar-fill" style="width:${(p.intimacy_level||0.5)*100}%;background:var(--success);"></div></div>
+      </div>
+      ${p.work_style ? `<div style="font-size:12px;"><strong>工作风格:</strong> ${escHtml(p.work_style)}</div>` : ''}
+      ${p.lifestyle ? `<div style="font-size:12px;"><strong>生活方式:</strong> ${escHtml(p.lifestyle)}</div>` : ''}
+      ${Object.keys(p.interests || {}).length > 0 ? `
+        <div class="persona-traits">
+          ${Object.entries(p.interests).slice(0,5).map(([k,v]) => `<span class="persona-trait">${escHtml(k)}</span>`).join('')}
+        </div>
+      ` : ''}
+    </div>
+  `).join('');
+}
+
+async function showPersonaDetail(userId) {
+  const resp = await api(`/personas/detail?user_id=${encodeURIComponent(userId)}`);
+  if (!resp || resp.status !== 'ok') { toast('获取画像详情失败', 'error'); return; }
+  
+  const p = resp.data;
+  const container = document.getElementById('persona-detail-content');
+  
+  // Also try to get emotion state
+  const emotionResp = await api(`/emotions?user_id=${encodeURIComponent(userId)}`);
+  const emotion = (emotionResp && emotionResp.status === 'ok') ? emotionResp.data : null;
+  
+  let html = `<div style="margin-bottom:16px;font-size:14px;color:var(--text2);">用户: <strong style="color:var(--text);">${escHtml(userId)}</strong></div>`;
+  
+  // Big Five personality
+  html += `<div class="card" style="margin-bottom:12px;">
+    <div class="card-title">🧠 人格特质 (Big Five)</div>
+    <div style="display:grid;gap:8px;">
+      ${renderPersonalityBar('开放性', p.personality_openness)}
+      ${renderPersonalityBar('尽责性', p.personality_conscientiousness)}
+      ${renderPersonalityBar('外向性', p.personality_extraversion)}
+      ${renderPersonalityBar('亲和性', p.personality_agreeableness)}
+      ${renderPersonalityBar('神经质', p.personality_neuroticism)}
+    </div>
+  </div>`;
+  
+  // Communication style
+  html += `<div class="card" style="margin-bottom:12px;">
+    <div class="card-title">💬 沟通风格</div>
+    <div style="display:grid;gap:8px;">
+      ${renderPersonalityBar('正式度', p.communication_formality)}
+      ${renderPersonalityBar('直接度', p.communication_directness)}
+      ${renderPersonalityBar('幽默感', p.communication_humor)}
+      ${renderPersonalityBar('共情力', p.communication_empathy)}
+    </div>
+  </div>`;
+  
+  // Interests
+  if (p.interests && Object.keys(p.interests).length > 0) {
+    html += `<div class="card" style="margin-bottom:12px;">
+      <div class="card-title">🎯 兴趣偏好</div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;">
+        ${Object.entries(p.interests).map(([k,v]) => 
+          `<span class="persona-trait" style="font-size:13px;">${escHtml(k)}: ${(v||0).toFixed(1)}</span>`
+        ).join('')}
+      </div>
+    </div>`;
+  }
+  
+  // Relationship
+  html += `<div class="card" style="margin-bottom:12px;">
+    <div class="card-title">🤝 关系指标</div>
+    <div class="detail-grid">
+      <div class="detail-item"><div class="detail-label">信任度</div><div class="detail-value">${(p.trust_level||0).toFixed(2)}</div></div>
+      <div class="detail-item"><div class="detail-label">亲密度</div><div class="detail-value">${(p.intimacy_level||0).toFixed(2)}</div></div>
+      <div class="detail-item"><div class="detail-label">社交风格</div><div class="detail-value">${escHtml(p.social_style||'—')}</div></div>
+      <div class="detail-item"><div class="detail-label">情感基线</div><div class="detail-value">${escHtml(p.emotional_baseline||'neutral')}</div></div>
+    </div>
+  </div>`;
+  
+  // Work & Life
+  html += `<div class="card" style="margin-bottom:12px;">
+    <div class="card-title">🏠 工作与生活</div>
+    <div class="detail-grid">
+      <div class="detail-item"><div class="detail-label">工作风格</div><div class="detail-value">${escHtml(p.work_style||'—')}</div></div>
+      <div class="detail-item"><div class="detail-label">生活方式</div><div class="detail-value">${escHtml(p.lifestyle||'—')}</div></div>
+    </div>
+    ${(p.work_goals||[]).length > 0 ? `<div style="margin-top:8px;"><strong style="font-size:12px;color:var(--text2);">工作目标:</strong> ${p.work_goals.map(g => escHtml(g)).join(', ')}</div>` : ''}
+    ${(p.habits||[]).length > 0 ? `<div style="margin-top:4px;"><strong style="font-size:12px;color:var(--text2);">习惯:</strong> ${p.habits.map(h => escHtml(h)).join(', ')}</div>` : ''}
+  </div>`;
+  
+  // Emotion state
+  if (emotion) {
+    const cur = emotion.current || {};
+    const emotionColors = { happy:'#17bf63', sad:'#1da1f2', angry:'#e0245e', fear:'#ffad1f', surprise:'#794bc4', disgust:'#657786', neutral:'#aab8c2' };
+    const ec = emotionColors[cur.primary] || '#aab8c2';
+    
+    html += `<div class="card" style="margin-bottom:12px;">
+      <div class="card-title">😊 情感状态</div>
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
+        <div class="emotion-primary" style="color:${ec};">${escHtml(cur.primary || 'neutral')}</div>
+        <div style="flex:1;">
+          <div style="font-size:12px;color:var(--text2);">强度: ${(cur.intensity||0).toFixed(2)}</div>
+          <div class="emotion-intensity"><div class="emotion-intensity-fill" style="width:${(cur.intensity||0)*100}%;background:${ec};"></div></div>
+        </div>
+      </div>
+      ${emotion.trajectory ? `
+        <div class="detail-grid">
+          <div class="detail-item"><div class="detail-label">趋势</div><div class="detail-value">${escHtml(emotion.trajectory.trend||'stable')}</div></div>
+          <div class="detail-item"><div class="detail-label">波动性</div><div class="detail-value">${(emotion.trajectory.volatility||0).toFixed(2)}</div></div>
+        </div>
+      ` : ''}
+    </div>`;
+  }
+  
+  // Metadata
+  html += `<div class="card">
+    <div class="card-title">📝 元数据</div>
+    <div class="detail-grid">
+      <div class="detail-item"><div class="detail-label">版本</div><div class="detail-value">${p.version || 1}</div></div>
+      <div class="detail-item"><div class="detail-label">更新次数</div><div class="detail-value">${p.update_count || 0}</div></div>
+      <div class="detail-item"><div class="detail-label">最后更新</div><div class="detail-value">${p.last_updated ? new Date(p.last_updated).toLocaleString('zh-CN') : '—'}</div></div>
+      <div class="detail-item"><div class="detail-label">主动回复偏好</div><div class="detail-value">${(p.proactive_reply_preference||0.5).toFixed(2)}</div></div>
+    </div>
+  </div>`;
+  
+  container.innerHTML = html;
+  document.getElementById('persona-modal').classList.add('show');
+}
+
+function renderPersonalityBar(label, value) {
+  const v = value || 0.5;
+  const pct = v * 100;
+  const color = v > 0.7 ? 'var(--success)' : v < 0.3 ? 'var(--danger)' : 'var(--accent)';
+  return `<div style="display:flex;align-items:center;gap:8px;">
+    <span style="width:60px;font-size:12px;color:var(--text2);">${label}</span>
+    <div class="persona-bar" style="flex:1;"><div class="persona-bar-fill" style="width:${pct}%;background:${color};"></div></div>
+    <span style="width:40px;text-align:right;font-size:12px;">${v.toFixed(2)}</span>
+  </div>`;
+}
+
+// ========== Import/Export ==========
+function switchIoTab(tab) {
+  document.getElementById('io-tab-export').style.display = tab === 'export' ? 'block' : 'none';
+  document.getElementById('io-tab-import').style.display = tab === 'import' ? 'block' : 'none';
+  document.querySelectorAll('#sec-io .tab').forEach((t, i) => t.classList.toggle('active', (i===0&&tab==='export')||(i===1&&tab==='import')));
+}
+
+async function exportMemories() {
+  const userId = document.getElementById('exp-mem-user').value;
+  const groupId = document.getElementById('exp-mem-group').value;
+  const layer = document.getElementById('exp-mem-layer').value;
+  const format = document.getElementById('exp-mem-format').value;
+  
+  let path = `/export/memories?format=${format}`;
+  if (userId) path += `&user_id=${encodeURIComponent(userId)}`;
+  if (groupId) path += `&group_id=${encodeURIComponent(groupId)}`;
+  if (layer) path += `&layer=${layer}`;
+  
+  toast('正在导出...', 'info');
+  
+  try {
+    const headers = {};
+    const token = getToken();
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    
+    const resp = await fetch(API_BASE + path, { headers });
+    if (!resp.ok) { toast('导出失败', 'error'); return; }
+    
+    const blob = await resp.blob();
+    const cd = resp.headers.get('content-disposition') || '';
+    const match = cd.match(/filename="?(.+?)"?$/);
+    const filename = match ? match[1] : `memories_export.${format}`;
+    
+    downloadBlob(blob, filename);
+    toast('导出成功', 'success');
+  } catch(e) {
+    toast(`导出失败: ${e.message}`, 'error');
+  }
+}
+
+async function exportKg() {
+  const userId = document.getElementById('exp-kg-user').value;
+  const groupId = document.getElementById('exp-kg-group').value;
+  const format = document.getElementById('exp-kg-format').value;
+  
+  let path = `/export/kg?format=${format}`;
+  if (userId) path += `&user_id=${encodeURIComponent(userId)}`;
+  if (groupId) path += `&group_id=${encodeURIComponent(groupId)}`;
+  
+  toast('正在导出...', 'info');
+  
+  try {
+    const headers = {};
+    const token = getToken();
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    
+    const resp = await fetch(API_BASE + path, { headers });
+    if (!resp.ok) { toast('导出失败', 'error'); return; }
+    
+    const blob = await resp.blob();
+    const cd = resp.headers.get('content-disposition') || '';
+    const match = cd.match(/filename="?(.+?)"?$/);
+    const filename = match ? match[1] : `kg_export.${format}`;
+    
+    downloadBlob(blob, filename);
+    toast('导出成功', 'success');
+  } catch(e) {
+    toast(`导出失败: ${e.message}`, 'error');
+  }
+}
+
+function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 100);
+}
+
+function handleFileDrop(ev, type) {
+  ev.preventDefault();
+  ev.currentTarget.classList.remove('dragover');
+  const file = ev.dataTransfer.files[0];
+  if (file) previewImportFile(file, type);
+}
+
+function handleFileSelect(input, type) {
+  const file = input.files[0];
+  if (file) previewImportFile(file, type);
+  input.value = '';
+}
+
+// Import preview before actual import
+let pendingImport = { file:null, type:'', content:'', format:'' };
+
+async function previewImportFile(file, type) {
+  const ext = file.name.split('.').pop().toLowerCase();
+  if (!['json', 'csv'].includes(ext)) {
+    toast('仅支持 JSON 和 CSV 格式', 'error');
+    return;
+  }
+  
+  if (file.size > 50 * 1024 * 1024) {
+    toast('文件过大，最大支持 50MB', 'error');
+    return;
+  }
+  
+  const previewDiv = document.getElementById(type === 'memories' ? 'import-mem-preview' : 'import-kg-preview');
+  const resultDiv = document.getElementById(type === 'memories' ? 'import-mem-result' : 'import-kg-result');
+  resultDiv.innerHTML = '';
+  previewDiv.innerHTML = '<div class="loading"><div class="spinner"></div> 正在解析预览...</div>';
+  
+  try {
+    const content = await file.text();
+    pendingImport = { file, type, content, format: ext };
+    
+    const resp = await api('/import/preview', {
+      method: 'POST',
+      body: JSON.stringify({ data: content, format: ext, type })
+    });
+    
+    if (resp && resp.status === 'ok') {
+      const d = resp.data;
+      let html = `<div class="preview-summary">
+        <strong>📋 预览结果:</strong> 共 ${d.total} 条数据，有效 <span style="color:var(--success);">${d.valid}</span> 条，无效 <span style="color:var(--danger);">${d.invalid}</span> 条
+        ${d.errors.length > 0 ? `<br><span style="color:var(--danger);font-size:12px;">错误: ${d.errors.slice(0,3).map(e => escHtml(e)).join('; ')}</span>` : ''}
+      </div>`;
+      
+      if (d.preview_items.length > 0) {
+        html += '<div class="preview-table"><table>';
+        if (type === 'memories') {
+          html += '<thead><tr><th>内容</th><th>用户</th><th>类型</th><th>层级</th></tr></thead><tbody>';
+          html += d.preview_items.map(it => `<tr>
+            <td>${escHtml((it.content||'').substring(0,80))}</td>
+            <td>${escHtml(it.user_id||'')}</td>
+            <td>${escHtml(it.type||'')}</td>
+            <td>${escHtml(it.storage_layer||'')}</td>
+          </tr>`).join('');
+        } else {
+          html += '<thead><tr><th>类型</th><th>名称/源</th><th>详情</th></tr></thead><tbody>';
+          html += d.preview_items.map(it => {
+            if (it.item_type === 'node') {
+              return `<tr><td>节点</td><td>${escHtml(it.name||'')}</td><td>类型: ${escHtml(it.node_type||'')}</td></tr>`;
+            } else {
+              return `<tr><td>边</td><td>${escHtml(it.source_id||'')} → ${escHtml(it.target_id||'')}</td><td>${escHtml(it.relation_type||'')}</td></tr>`;
+            }
+          }).join('');
+        }
+        html += '</tbody></table></div>';
+      }
+      
+      html += `<div style="display:flex;gap:10px;margin-top:12px;">
+        <button class="btn btn-primary" onclick="confirmImport('${type}')">确认导入 (${d.valid} 条有效)</button>
+        <button class="btn btn-outline" onclick="cancelImport('${type}')">取消</button>
+      </div>`;
+      
+      previewDiv.innerHTML = html;
+    } else {
+      previewDiv.innerHTML = `<div style="color:var(--danger);">预览失败: ${resp?.message || '未知错误'}</div>`;
+    }
+  } catch(e) {
+    previewDiv.innerHTML = `<div style="color:var(--danger);">预览失败: ${e.message}</div>`;
+  }
+}
+
+async function confirmImport(type) {
+  const previewDiv = document.getElementById(type === 'memories' ? 'import-mem-preview' : 'import-kg-preview');
+  const resultDiv = document.getElementById(type === 'memories' ? 'import-mem-result' : 'import-kg-result');
+  previewDiv.innerHTML = '';
+  resultDiv.innerHTML = '<div class="loading"><div class="spinner"></div> 正在导入...</div>';
+  
+  try {
+    const endpoint = type === 'memories' ? '/import/memories' : '/import/kg';
+    const resp = await api(endpoint, {
+      method: 'POST',
+      body: JSON.stringify({ data: pendingImport.content, format: pendingImport.format })
+    });
+    
+    if (resp && resp.status === 'ok') {
+      const d = resp.data;
+      if (type === 'memories') {
+        resultDiv.innerHTML = `<div style="padding:12px;background:var(--bg3);border-radius:var(--radius);">
+          ✅ 导入完成：成功 <strong>${d.success_count}</strong> 条，失败 <strong>${d.fail_count}</strong> 条
+          ${d.errors?.length ? '<br>错误: ' + d.errors.join('<br>') : ''}
+        </div>`;
+      } else {
+        resultDiv.innerHTML = `<div style="padding:12px;background:var(--bg3);border-radius:var(--radius);">
+          ✅ 导入完成：节点 <strong>${d.nodes_imported}</strong>，边 <strong>${d.edges_imported}</strong>
+          ${d.errors?.length ? '<br>错误: ' + d.errors.join('<br>') : ''}
+        </div>`;
+      }
+      toast('导入完成', 'success');
+    } else {
+      resultDiv.innerHTML = `<div style="padding:12px;color:var(--danger);">导入失败: ${resp?.message || '未知错误'}</div>`;
+    }
+  } catch(e) {
+    resultDiv.innerHTML = `<div style="padding:12px;color:var(--danger);">导入失败: ${e.message}</div>`;
+  }
+  
+  pendingImport = { file:null, type:'', content:'', format:'' };
+}
+
+function cancelImport(type) {
+  const previewDiv = document.getElementById(type === 'memories' ? 'import-mem-preview' : 'import-kg-preview');
+  previewDiv.innerHTML = '';
+  pendingImport = { file:null, type:'', content:'', format:'' };
+}
+
+// ========== Utils ==========
+function escHtml(s) {
+  const div = document.createElement('div');
+  div.textContent = s || '';
+  return div.innerHTML;
+}
+
+// ========== Keyboard Shortcuts ==========
+document.addEventListener('keydown', (e) => {
+  // Escape closes modals
+  if (e.key === 'Escape') {
+    document.querySelectorAll('.modal-overlay.show').forEach(m => m.classList.remove('show'));
+    hideNodePopup();
+  }
+});
+
+// ========== Init ==========
+document.addEventListener('DOMContentLoaded', () => {
+  loadDashboard();
+});
+</script>
+</body>
+</html>

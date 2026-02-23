@@ -85,8 +85,22 @@ class IrisMemoryPlugin(Star):
         
         # 加载持久化数据
         await self._service.load_from_kv(self.get_kv_data)
+        
+        # 初始化 Web 管理界面
+        self._init_web_api()
     
     # ========== 权限检查 ==========
+    
+    def _init_web_api(self) -> None:
+        """初始化 Web 管理界面 API"""
+        try:
+            from iris_memory.web import IrisWebAPI
+            self._web_api = IrisWebAPI(self.context, self._service)
+            self._web_api.register_all_routes()
+        except Exception as e:
+            # Web 模块初始化失败不影响核心功能
+            import logging
+            logging.getLogger("iris_memory").warning(f"Web API 初始化失败（不影响核心功能）: {e}")
     
     def _is_admin(self, event: AstrMessageEvent) -> bool:
         """
