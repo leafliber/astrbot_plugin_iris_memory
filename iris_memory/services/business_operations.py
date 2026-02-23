@@ -270,7 +270,8 @@ class BusinessOperations:
                 self.storage._session_manager = SessionManager(
                     max_working_memory=self.cfg.max_working_memory,
                     max_sessions=self.cfg.get("session.max_sessions", 3),
-                    ttl=self.cfg.session_timeout
+                    ttl=self.cfg.session_timeout,
+                    activity_tracker=self._activity_tracker,
                 )
 
             if hasattr(self, 'kg') and self.kg and self.kg.enabled:
