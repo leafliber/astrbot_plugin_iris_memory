@@ -3,6 +3,42 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.7.0] - 2026-02-23
+
+### Changed
+- **配置文件结构重组** (`_conf_schema.json`)
+  - 新增独立 `logging` 模块，将 `log_level` 从 `basic` 中分离
+  - 新增 `llm_providers` 模块，统一管理所有 LLM 提供者配置
+  - 移除各功能模块中分散的 `provider_id` 配置，集中到 `llm_providers`
+  - 配置组织更加清晰，按功能模块分层：基础配置 → 基础设施 → LLM配置 → 核心功能 → 智能增强 → 交互功能 → 其他
+
+### Added
+- **新增 LLM 提供者统一配置** (`llm_providers`)
+  - `default_provider_id`: 默认 LLM 提供者
+  - `memory_provider_id`: 记忆功能 LLM 提供者
+  - `persona_provider_id`: 用户画像 LLM 提供者
+  - `knowledge_graph_provider_id`: 知识图谱 LLM 提供者
+  - `image_analysis_provider_id`: 图片分析 LLM 提供者
+  - `enhanced_provider_id`: 智能增强 LLM 提供者
+
+### Migration
+配置路径变更对照表：
+
+| 原路径 | 新路径 |
+|--------|--------|
+| `basic.log_level` | `logging.log_level` |
+| `memory.provider_id` | `llm_providers.memory_provider_id` |
+| `llm_enhanced.provider_id` | `llm_providers.enhanced_provider_id` |
+| `image_analysis.provider_id` | `llm_providers.image_analysis_provider_id` |
+| `persona.llm_provider` | `llm_providers.persona_provider_id` |
+| `knowledge_graph.provider_id` | `llm_providers.knowledge_graph_provider_id` |
+
+### Code Changes
+- `config_manager.py`: 更新所有 provider_id 属性的配置路径
+- `config_registry.py`: 更新配置注册表，新增 llm_providers 相关定义
+- `defaults.py`: 新增 `LLMProvidersDefaults` 类，移除各模块分散的 provider_id 默认值
+- `constants.py`: 更新 `ConfigKeys.LOG_LEVEL` 路径
+
 ## [v1.6.2] - 2026-02-23
 
 ### Added

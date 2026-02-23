@@ -40,7 +40,7 @@ from iris_memory.core.constants import (
 )
 # adasdasdadasd
 
-@register("iris_memory", "YourName", "基于companion-memory框架的三层记忆插件", "1.6.0")
+@register("iris_memory", "YourName", "基于companion-memory框架的三层记忆插件", "1.7.0")
 class IrisMemoryPlugin(Star):
     """
     Iris记忆插件 - Handler层

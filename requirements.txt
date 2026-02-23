@@ -4,8 +4,8 @@
 # 向量数据库
 chromadb>=0.4.0
 
-# 嵌入模型（可选，用于更好的文本向量）
-#sentence-transformers>=2.2.0
+# 嵌入模型（用于本地的文本向量）
+sentence-transformers>=2.2.0
 
 # 情感分析（可选，用于更准确的情感识别）
 #transformers>=4.30.0
@@ -21,10 +21,10 @@ aiofiles
 python-dateutil
 pyyaml>=6.0
 
-# 测试依赖
-pytest>=7.4.0
-pytest-asyncio>=0.21.0
-pytest-cov>=4.1.0
+# 测试依赖（可选）
+#pytest>=7.4.0
+#pytest-asyncio>=0.21.0
+#pytest-cov>=4.1.0
 
 # token支持
 tiktoken>=0.3.0
