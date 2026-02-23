@@ -179,6 +179,26 @@ class ChromaManager(ChromaQueries, ChromaOperations):
         
         return detected_dimension
 
+    def _get_dimension_from_metadata(self, collection) -> Optional[int]:
+        """从集合元数据中获取嵌入维度
+        
+        Args:
+            collection: ChromaDB 集合对象
+            
+        Returns:
+            Optional[int]: 元数据中记录的维度，获取失败返回 None
+        """
+        try:
+            metadata = collection.metadata
+            if metadata and "embedding_dimension" in metadata:
+                dimension = metadata["embedding_dimension"]
+                if isinstance(dimension, int):
+                    logger.debug(f"Got embedding dimension from collection metadata: {dimension}")
+                    return dimension
+        except Exception as e:
+            logger.debug(f"Failed to get dimension from collection metadata: {e}")
+        return None
+
     def _handle_dimension_conflict(self, existing_collection, detected_dimension: Optional[int]) -> None:
         """处理维度冲突
 
@@ -187,22 +207,30 @@ class ChromaManager(ChromaQueries, ChromaOperations):
 
         Args:
             existing_collection: 现有的 ChromaDB 集合实例，为 None 时直接返回
-            detected_dimension: 从现有集合检测到的嵌入维度，为 None 时直接返回
+            detected_dimension: 从现有集合检测到的嵌入维度，为 None 时尝试从元数据获取
 
         Raises:
             不会抛出异常，失败时通过日志记录
         """
-        if not existing_collection or not detected_dimension:
+        if not existing_collection:
+            return
+        
+        collection_dimension = detected_dimension
+        if collection_dimension is None:
+            collection_dimension = self._get_dimension_from_metadata(existing_collection)
+        
+        if collection_dimension is None:
+            logger.debug("Could not determine existing collection dimension, skipping conflict check")
             return
         
         actual_dimension = self.embedding_manager.get_dimension()
-        if detected_dimension == actual_dimension:
+        if collection_dimension == actual_dimension:
             return
         
         old_count = existing_collection.count()
         logger.error(
             f"⚠️ CRITICAL: Embedding dimension conflict detected! "
-            f"Collection has {detected_dimension}-dim vectors but provider outputs {actual_dimension}-dim. "
+            f"Collection has {collection_dimension}-dim vectors but provider outputs {actual_dimension}-dim. "
             f"Old memories count: {old_count}. "
             f"This usually happens when the embedding model/provider changes. "
             f"The old collection will be backed up and then deleted."
