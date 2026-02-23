@@ -680,7 +680,7 @@ class MessageBatchProcessor:
                         "sender_name": m.sender_name,
                         "group_id": m.group_id,
                         "timestamp": m.timestamp,
-                        "context": m.context,
+                        "context": self._serialize_context(m.context),
                         "umo": m.umo,
                         "is_merged": m.is_merged,
                         "original_messages": m.original_messages
@@ -691,6 +691,28 @@ class MessageBatchProcessor:
             },
             "last_process_time": self.last_process_time
         }
+    
+    def _serialize_context(self, context: Dict[str, Any]) -> Dict[str, Any]:
+        """序列化 context 字典，过滤掉无法 JSON 序列化的对象
+        
+        Args:
+            context: 原始 context 字典
+            
+        Returns:
+            Dict[str, Any]: 可序列化的 context 字典
+        """
+        if not isinstance(context, dict):
+            return {}
+        
+        result = {}
+        for key, value in context.items():
+            try:
+                import json
+                json.dumps(value)
+                result[key] = value
+            except (TypeError, ValueError):
+                result[key] = str(type(value).__name__)
+        return result
     
     async def deserialize_queues(self, data: Dict[str, Any]) -> None:
         """反序列化队列"""
