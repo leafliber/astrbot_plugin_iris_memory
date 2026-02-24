@@ -648,6 +648,7 @@ class StandaloneWebServer:
             config = Config()
             config.bind = [f"{self._host}:{self._port}"]
             config.accesslog = None
+            config.reuse_address = True
             
             self._shutdown_event = asyncio.Event()
             self._running = True
