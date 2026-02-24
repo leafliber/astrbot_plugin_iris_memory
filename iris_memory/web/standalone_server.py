@@ -160,6 +160,7 @@ class StandaloneWebServer:
         self._app: Optional[Any] = None
         self._running = False
         self._shutdown_event: Optional[asyncio.Event] = None
+        self._server: Optional[Any] = None
     
     @property
     def port(self) -> int:
@@ -649,6 +650,7 @@ class StandaloneWebServer:
             config.bind = [f"{self._host}:{self._port}"]
             config.accesslog = None
             config.reuse_address = True
+            config.reuse_port = True
             
             self._shutdown_event = asyncio.Event()
             self._running = True
@@ -668,5 +670,6 @@ class StandaloneWebServer:
         """停止 Web 服务器"""
         if self._shutdown_event:
             self._shutdown_event.set()
+            self._shutdown_event = None
         self._running = False
         logger.info("Web 管理界面已停止")

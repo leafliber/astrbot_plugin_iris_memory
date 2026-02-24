@@ -977,7 +977,11 @@ class IrisMemoryPlugin(Star):
     # ========== 生命周期方法 ==========
     
     async def terminate(self) -> None:
-        """插件销毁（热更新友好）"""
+        """插件销毁"""
+        # 停止 Web 服务器
+        if hasattr(self, '_standalone_web') and self._standalone_web:
+            await self._standalone_web.stop()
+        
         # 保存数据
         try:
             await self._service.save_to_kv(self.put_kv_data)
