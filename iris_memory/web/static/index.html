@@ -6,19 +6,19 @@
 <title>Iris Memory Dashboard</title>
 <style>
 :root {
-  --bg: #0f1923;
-  --bg2: #1a2632;
-  --bg3: #243447;
-  --border: #2d4a5e;
-  --text: #e0e6ed;
-  --text2: #8899a6;
-  --accent: #1da1f2;
-  --accent2: #0d8bd9;
-  --success: #17bf63;
-  --danger: #e0245e;
-  --warning: #ffad1f;
-  --radius: 8px;
-  --shadow: 0 2px 8px rgba(0,0,0,0.3);
+  --bg: #10111a;
+  --bg2: #181926;
+  --bg3: #222336;
+  --border: #2e3048;
+  --text: #e4e6f0;
+  --text2: #8b8fa8;
+  --accent: #7c6cf0;
+  --accent2: #6558d3;
+  --success: #36c78d;
+  --danger: #ef4565;
+  --warning: #f5a623;
+  --radius: 10px;
+  --shadow: 0 4px 16px rgba(0,0,0,0.25);
 }
 * { margin:0; padding:0; box-sizing:border-box; }
 body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background:var(--bg); color:var(--text); min-height:100vh; }
@@ -76,19 +76,19 @@ textarea { resize:vertical; min-height:80px; width:100%; }
 table { width:100%; border-collapse:collapse; font-size:13px; }
 th { background:var(--bg3); padding:10px 12px; text-align:left; font-weight:600; color:var(--text2); border-bottom:1px solid var(--border); white-space:nowrap; }
 td { padding:10px 12px; border-bottom:1px solid var(--border); max-width:300px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-tr:hover td { background:rgba(29,161,242,0.05); }
+tr:hover td { background:rgba(124,108,240,0.05); }
 .checkbox-col { width:40px; text-align:center; }
 input[type="checkbox"] { width:16px; height:16px; accent-color:var(--accent); }
 .clickable-row td { cursor:pointer; }
 
 /* Badges */
 .badge { display:inline-block; padding:2px 8px; border-radius:12px; font-size:11px; font-weight:600; }
-.badge-working { background:rgba(29,161,242,0.2); color:var(--accent); }
-.badge-episodic { background:rgba(23,191,99,0.2); color:var(--success); }
-.badge-semantic { background:rgba(255,173,31,0.2); color:var(--warning); }
-.badge-fact { background:rgba(29,161,242,0.2); color:var(--accent); }
-.badge-emotion { background:rgba(224,36,94,0.2); color:var(--danger); }
-.badge-relationship { background:rgba(23,191,99,0.2); color:var(--success); }
+.badge-working { background:rgba(124,108,240,0.2); color:var(--accent); }
+.badge-episodic { background:rgba(54,199,141,0.2); color:var(--success); }
+.badge-semantic { background:rgba(245,166,35,0.2); color:var(--warning); }
+.badge-fact { background:rgba(124,108,240,0.2); color:var(--accent); }
+.badge-emotion { background:rgba(239,69,101,0.2); color:var(--danger); }
+.badge-relationship { background:rgba(54,199,141,0.2); color:var(--success); }
 
 /* Pagination */
 .pagination { display:flex; gap:8px; margin-top:16px; align-items:center; justify-content:center; }
@@ -127,7 +127,7 @@ input[type="checkbox"] { width:16px; height:16px; accent-color:var(--accent); }
 .detail-content { background:var(--bg3); padding:12px; border-radius:var(--radius); margin-bottom:16px; white-space:pre-wrap; word-break:break-all; line-height:1.6; max-height:300px; overflow-y:auto; }
 
 /* Search Highlight */
-.highlight { background:rgba(29,161,242,0.3); border-radius:2px; padding:0 1px; }
+.highlight { background:rgba(124,108,240,0.3); border-radius:2px; padding:0 1px; }
 
 /* Toast */
 .toast-container { position:fixed; top:20px; right:20px; z-index:2000; }
@@ -141,7 +141,7 @@ input[type="checkbox"] { width:16px; height:16px; accent-color:var(--accent); }
 /* Import Area */
 .import-area { border:2px dashed var(--border); border-radius:var(--radius); padding:40px; text-align:center; cursor:pointer; transition:border-color 0.2s; }
 .import-area:hover { border-color:var(--accent); }
-.import-area.dragover { border-color:var(--accent); background:rgba(29,161,242,0.05); }
+.import-area.dragover { border-color:var(--accent); background:rgba(124,108,240,0.05); }
 
 /* Preview Table */
 .preview-table { max-height:300px; overflow-y:auto; margin:12px 0; }
@@ -218,21 +218,21 @@ input[type="checkbox"] { width:16px; height:16px; accent-color:var(--accent); }
 <div class="app">
   <!-- Sidebar -->
   <div class="sidebar">
-    <h1>🧠 Iris Memory<span>管理面板</span></h1>
+    <h1>✦ Iris Memory<span>管理面板</span></h1>
     <div class="nav-item active" data-section="dashboard" onclick="showSection('dashboard',this)">
-      <span class="icon">📊</span><span>统计面板</span>
+      <span class="icon">⬡</span><span>统计面板</span>
     </div>
     <div class="nav-item" data-section="memories" onclick="showSection('memories',this)">
-      <span class="icon">💾</span><span>记忆管理</span>
+      <span class="icon">◈</span><span>记忆管理</span>
     </div>
     <div class="nav-item" data-section="kg" onclick="showSection('kg',this)">
-      <span class="icon">🔗</span><span>知识图谱</span>
+      <span class="icon">⬢</span><span>知识图谱</span>
     </div>
     <div class="nav-item" data-section="personas" onclick="showSection('personas',this)">
-      <span class="icon">👤</span><span>用户画像</span>
+      <span class="icon">◉</span><span>用户画像</span>
     </div>
     <div class="nav-item" data-section="io" onclick="showSection('io',this)">
-      <span class="icon">📦</span><span>导入导出</span>
+      <span class="icon">⇄</span><span>导入导出</span>
     </div>
   </div>
 
@@ -242,9 +242,9 @@ input[type="checkbox"] { width:16px; height:16px; accent-color:var(--accent); }
     <!-- ======== Dashboard Section ======== -->
     <div id="sec-dashboard" class="section active">
       <div class="section-header">
-        <h2>📊 统计面板</h2>
+        <h2>⬡ 统计面板</h2>
         <div class="spacer"></div>
-        <button class="btn-icon" onclick="loadDashboard()" title="刷新">🔄</button>
+        <button class="btn-icon" onclick="loadDashboard()" title="刷新">↻</button>
       </div>
       <div class="stats-grid" id="stats-grid">
         <div class="stat-card"><div class="spinner"></div></div>
@@ -273,9 +273,9 @@ input[type="checkbox"] { width:16px; height:16px; accent-color:var(--accent); }
     <!-- ======== Memories Section ======== -->
     <div id="sec-memories" class="section">
       <div class="section-header">
-        <h2>💾 记忆管理</h2>
+        <h2>◈ 记忆管理</h2>
         <div class="spacer"></div>
-        <button class="btn-icon" onclick="searchMemories()" title="刷新">🔄</button>
+        <button class="btn-icon" onclick="searchMemories()" title="刷新">↻</button>
       </div>
       <div class="filter-bar">
         <input type="text" id="mem-query" placeholder="搜索记忆内容..." onkeydown="if(event.key==='Enter')searchMemories()">
@@ -339,9 +339,9 @@ input[type="checkbox"] { width:16px; height:16px; accent-color:var(--accent); }
     <!-- ======== Knowledge Graph Section ======== -->
     <div id="sec-kg" class="section">
       <div class="section-header">
-        <h2>🔗 知识图谱</h2>
+        <h2>⬢ 知识图谱</h2>
         <div class="spacer"></div>
-        <button class="btn-icon" onclick="refreshKgTab()" title="刷新">🔄</button>
+        <button class="btn-icon" onclick="refreshKgTab()" title="刷新">↻</button>
       </div>
       <div class="tabs">
         <div class="tab active" onclick="switchKgTab('graph')">图谱可视化</div>
@@ -460,9 +460,9 @@ input[type="checkbox"] { width:16px; height:16px; accent-color:var(--accent); }
     <!-- ======== Personas Section ======== -->
     <div id="sec-personas" class="section">
       <div class="section-header">
-        <h2>👤 用户画像</h2>
+        <h2>◉ 用户画像</h2>
         <div class="spacer"></div>
-        <button class="btn-icon" onclick="loadPersonas()" title="刷新">🔄</button>
+        <button class="btn-icon" onclick="loadPersonas()" title="刷新">↻</button>
       </div>
       <div id="personas-container" class="persona-grid">
         <div class="loading"><div class="spinner"></div></div>
@@ -472,7 +472,7 @@ input[type="checkbox"] { width:16px; height:16px; accent-color:var(--accent); }
     <!-- ======== Import/Export Section ======== -->
     <div id="sec-io" class="section">
       <div class="section-header">
-        <h2>📦 数据导入导出</h2>
+        <h2>⇄ 数据导入导出</h2>
         <div class="spacer"></div>
       </div>
       <div class="tabs">
@@ -497,7 +497,7 @@ input[type="checkbox"] { width:16px; height:16px; accent-color:var(--accent); }
               <option value="json">JSON</option>
               <option value="csv">CSV</option>
             </select>
-            <button class="btn btn-primary" onclick="exportMemories()">📥 导出记忆</button>
+            <button class="btn btn-primary" onclick="exportMemories()">↓ 导出记忆</button>
           </div>
         </div>
         <div class="card">
@@ -509,7 +509,7 @@ input[type="checkbox"] { width:16px; height:16px; accent-color:var(--accent); }
               <option value="json">JSON</option>
               <option value="csv">CSV</option>
             </select>
-            <button class="btn btn-primary" onclick="exportKg()">📥 导出图谱</button>
+            <button class="btn btn-primary" onclick="exportKg()">↓ 导出图谱</button>
           </div>
         </div>
       </div>
@@ -522,7 +522,7 @@ input[type="checkbox"] { width:16px; height:16px; accent-color:var(--accent); }
                ondragover="event.preventDefault();this.classList.add('dragover')"
                ondragleave="this.classList.remove('dragover')"
                ondrop="handleFileDrop(event,'memories')">
-            <p style="font-size:16px;margin-bottom:8px;">📁 点击或拖拽文件到此处</p>
+            <p style="font-size:16px;margin-bottom:8px;">↑ 点击或拖拽文件到此处</p>
             <p style="color:var(--text2);">支持 JSON / CSV 格式，最大 50MB</p>
             <input type="file" id="import-mem-file" accept=".json,.csv" style="display:none" onchange="handleFileSelect(this,'memories')">
           </div>
@@ -535,7 +535,7 @@ input[type="checkbox"] { width:16px; height:16px; accent-color:var(--accent); }
                ondragover="event.preventDefault();this.classList.add('dragover')"
                ondragleave="this.classList.remove('dragover')"
                ondrop="handleFileDrop(event,'kg')">
-            <p style="font-size:16px;margin-bottom:8px;">📁 点击或拖拽文件到此处</p>
+            <p style="font-size:16px;margin-bottom:8px;">↑ 点击或拖拽文件到此处</p>
             <p style="color:var(--text2);">支持 JSON / CSV 格式，最大 50MB</p>
             <input type="file" id="import-kg-file" accept=".json,.csv" style="display:none" onchange="handleFileSelect(this,'kg')">
           </div>
@@ -563,7 +563,7 @@ input[type="checkbox"] { width:16px; height:16px; accent-color:var(--accent); }
 <div class="modal-overlay" id="detail-modal">
   <div class="modal modal-lg">
     <div class="modal-body">
-      <h3>📋 记忆详情</h3>
+      <h3>◈ 记忆详情</h3>
       <div id="detail-content"></div>
       <div class="modal-actions">
         <button class="btn btn-outline" onclick="closeModal('detail-modal')">关闭</button>
@@ -576,7 +576,7 @@ input[type="checkbox"] { width:16px; height:16px; accent-color:var(--accent); }
 <!-- Memory Edit Modal -->
 <div class="modal-overlay" id="edit-modal">
   <div class="modal modal-lg">
-    <h3>✏️ 编辑记忆</h3>
+    <h3>✎ 编辑记忆</h3>
     <input type="hidden" id="edit-id">
     <div class="form-group">
       <label>内容</label>
@@ -626,7 +626,7 @@ input[type="checkbox"] { width:16px; height:16px; accent-color:var(--accent); }
 <!-- Persona Detail Modal -->
 <div class="modal-overlay" id="persona-modal">
   <div class="modal modal-lg">
-    <h3>👤 用户画像详情</h3>
+    <h3>◉ 用户画像详情</h3>
     <div id="persona-detail-content"></div>
     <div class="modal-actions">
       <button class="btn btn-outline" onclick="closeModal('persona-modal')">关闭</button>
@@ -640,7 +640,7 @@ input[type="checkbox"] { width:16px; height:16px; accent-color:var(--accent); }
 <!-- Login Modal -->
 <div class="modal-overlay" id="login-modal">
   <div class="modal" style="max-width:400px;">
-    <h3 style="margin-bottom:20px;text-align:center;">🔐 访问密钥认证</h3>
+    <h3 style="margin-bottom:20px;text-align:center;">⊘ 访问密钥认证</h3>
     <div class="form-group">
       <label>请输入访问密钥</label>
       <input type="password" id="access-key-input" placeholder="访问密钥" onkeydown="if(event.key==='Enter')doLogin()">
@@ -1171,9 +1171,9 @@ let lastMouse = { x: 0, y: 0 };
 let graphZoom = 1.0;
 
 const nodeColors = {
-  person: '#1da1f2', location: '#17bf63', organization: '#ffad1f',
-  object: '#e0245e', event: '#794bc4', concept: '#f45d22',
-  time: '#aab8c2', unknown: '#657786'
+  person: '#7c6cf0', location: '#36c78d', organization: '#f5a623',
+  object: '#ef4565', event: '#9d6cf0', concept: '#f27649',
+  time: '#8b8fa8', unknown: '#5c6082'
 };
 
 const nodeTypeLabels = { person:'人物', location:'地点', organization:'组织', object:'物品', event:'事件', concept:'概念', time:'时间', unknown:'未知' };
@@ -1214,7 +1214,7 @@ function initGraph() {
   panOffset = { x: W/2, y: H/2 };
   
   if (graphData.nodes.length === 0) {
-    ctx.fillStyle = '#657786';
+    ctx.fillStyle = '#5c6082';
     ctx.font = '14px sans-serif';
     ctx.textAlign = 'center';
     ctx.fillText('暂无图谱数据，请输入用户 ID 后点击查询', W/2, H/2);
@@ -1410,13 +1410,13 @@ function drawGraph(canvas, ctx, W, H) {
     ctx.beginPath();
     ctx.moveTo(s.x, s.y);
     ctx.lineTo(t.x, t.y);
-    ctx.strokeStyle = 'rgba(101,119,134,0.4)';
+    ctx.strokeStyle = 'rgba(140,145,180,0.35)';
     ctx.stroke();
     
     if (e.label && graphZoom > 0.5) {
       const mx = (s.x + t.x) / 2, my = (s.y + t.y) / 2;
       ctx.font = `${10/graphZoom}px sans-serif`;
-      ctx.fillStyle = '#657786';
+      ctx.fillStyle = '#8b8fa8';
       ctx.textAlign = 'center';
       ctx.fillText(e.label, mx, my - 4);
     }
@@ -1431,7 +1431,7 @@ function drawGraph(canvas, ctx, W, H) {
     ctx.lineTo(arrowX - arrowSize * Math.cos(angle - 0.4), arrowY - arrowSize * Math.sin(angle - 0.4));
     ctx.lineTo(arrowX - arrowSize * Math.cos(angle + 0.4), arrowY - arrowSize * Math.sin(angle + 0.4));
     ctx.closePath();
-    ctx.fillStyle = 'rgba(101,119,134,0.5)';
+    ctx.fillStyle = 'rgba(140,145,180,0.45)';
     ctx.fill();
   }
   
@@ -1441,13 +1441,13 @@ function drawGraph(canvas, ctx, W, H) {
     ctx.arc(n.x, n.y, n.r, 0, Math.PI * 2);
     ctx.fillStyle = nodeColors[n.type] || nodeColors.unknown;
     ctx.fill();
-    ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+    ctx.strokeStyle = 'rgba(255,255,255,0.2)';
     ctx.lineWidth = 2 / graphZoom;
     ctx.stroke();
     
     if (graphZoom > 0.4) {
       ctx.font = `${12/graphZoom}px sans-serif`;
-      ctx.fillStyle = '#e0e6ed';
+      ctx.fillStyle = '#e4e6f0';
       ctx.textAlign = 'center';
       ctx.fillText(n.label || '', n.x, n.y + n.r + 14/graphZoom);
     }
@@ -1478,7 +1478,7 @@ async function searchKgNodes() {
   
   document.getElementById('kg-nodes-tbody').innerHTML = nodes.map(n => `<tr>
     <td title="ID: ${n.id}">${escHtml(n.display_name || n.name)}</td>
-    <td><span class="badge" style="background:${nodeColors[n.node_type]||'#657786'}33;color:${nodeColors[n.node_type]||'#657786'}">${nodeTypeLabels[n.node_type]||n.node_type}</span></td>
+    <td><span class="badge" style="background:${nodeColors[n.node_type]||'#5c6082'}33;color:${nodeColors[n.node_type]||'#5c6082'}">${nodeTypeLabels[n.node_type]||n.node_type}</span></td>
     <td>${escHtml(n.user_id || '')}</td>
     <td>${n.mention_count}</td>
     <td>${(n.confidence || 0).toFixed(2)}</td>
@@ -1513,7 +1513,7 @@ async function searchKgEdges() {
   
   document.getElementById('kg-edges-tbody').innerHTML = edges.map(e => `<tr>
     <td title="ID: ${escHtml(e.source_id)}">${escHtml(e.source_name)}</td>
-    <td><span class="badge" style="background:rgba(29,161,242,0.15);color:var(--accent);">${escHtml(relationLabels[e.relation_type] || e.relation_label || e.relation_type)}</span></td>
+    <td><span class="badge" style="background:rgba(124,108,240,0.15);color:var(--accent);">${escHtml(relationLabels[e.relation_type] || e.relation_label || e.relation_type)}</span></td>
     <td title="ID: ${escHtml(e.target_id)}">${escHtml(e.target_name)}</td>
     <td>${(e.confidence || 0).toFixed(2)}</td>
     <td>${(e.weight || 0).toFixed(2)}</td>
@@ -1573,7 +1573,7 @@ async function loadPersonas() {
     return;
   }
   
-  const personas = resp.data || [];
+  const personas = Array.isArray(resp.data) ? resp.data : (resp.data?.items || []);
   if (personas.length === 0) {
     container.innerHTML = '<div style="color:var(--text2);text-align:center;padding:40px;">暂无用户画像数据<br><span style="font-size:13px;">当用户与 Bot 交互后将自动生成画像</span></div>';
     return;
@@ -1582,7 +1582,7 @@ async function loadPersonas() {
   container.innerHTML = personas.map(p => `
     <div class="persona-card" onclick="showPersonaDetail('${escHtml(p.user_id)}')">
       <div class="persona-header">
-        <span class="persona-uid">👤 ${escHtml(p.user_id)}</span>
+        <span class="persona-uid">◉ ${escHtml(p.user_id)}</span>
         <span class="persona-meta">更新 ${p.update_count} 次</span>
       </div>
       <div style="font-size:12px;color:var(--text2);margin-bottom:8px;">
@@ -1622,7 +1622,7 @@ async function showPersonaDetail(userId) {
   
   // Big Five personality
   html += `<div class="card" style="margin-bottom:12px;">
-    <div class="card-title">🧠 人格特质 (Big Five)</div>
+    <div class="card-title">⬠ 人格特质 (Big Five)</div>
     <div style="display:grid;gap:8px;">
       ${renderPersonalityBar('开放性', p.personality_openness)}
       ${renderPersonalityBar('尽责性', p.personality_conscientiousness)}
@@ -1634,7 +1634,7 @@ async function showPersonaDetail(userId) {
   
   // Communication style
   html += `<div class="card" style="margin-bottom:12px;">
-    <div class="card-title">💬 沟通风格</div>
+    <div class="card-title">⬡ 沟通风格</div>
     <div style="display:grid;gap:8px;">
       ${renderPersonalityBar('正式度', p.communication_formality)}
       ${renderPersonalityBar('直接度', p.communication_directness)}
@@ -1646,7 +1646,7 @@ async function showPersonaDetail(userId) {
   // Interests
   if (p.interests && Object.keys(p.interests).length > 0) {
     html += `<div class="card" style="margin-bottom:12px;">
-      <div class="card-title">🎯 兴趣偏好</div>
+      <div class="card-title">◇ 兴趣偏好</div>
       <div style="display:flex;flex-wrap:wrap;gap:8px;">
         ${Object.entries(p.interests).map(([k,v]) => 
           `<span class="persona-trait" style="font-size:13px;">${escHtml(k)}: ${(v||0).toFixed(1)}</span>`
@@ -1657,7 +1657,7 @@ async function showPersonaDetail(userId) {
   
   // Relationship
   html += `<div class="card" style="margin-bottom:12px;">
-    <div class="card-title">🤝 关系指标</div>
+    <div class="card-title">⬢ 关系指标</div>
     <div class="detail-grid">
       <div class="detail-item"><div class="detail-label">信任度</div><div class="detail-value">${(p.trust_level||0).toFixed(2)}</div></div>
       <div class="detail-item"><div class="detail-label">亲密度</div><div class="detail-value">${(p.intimacy_level||0).toFixed(2)}</div></div>
@@ -1668,7 +1668,7 @@ async function showPersonaDetail(userId) {
   
   // Work & Life
   html += `<div class="card" style="margin-bottom:12px;">
-    <div class="card-title">🏠 工作与生活</div>
+    <div class="card-title">◈ 工作与生活</div>
     <div class="detail-grid">
       <div class="detail-item"><div class="detail-label">工作风格</div><div class="detail-value">${escHtml(p.work_style||'—')}</div></div>
       <div class="detail-item"><div class="detail-label">生活方式</div><div class="detail-value">${escHtml(p.lifestyle||'—')}</div></div>
@@ -1680,11 +1680,11 @@ async function showPersonaDetail(userId) {
   // Emotion state
   if (emotion) {
     const cur = emotion.current || {};
-    const emotionColors = { happy:'#17bf63', sad:'#1da1f2', angry:'#e0245e', fear:'#ffad1f', surprise:'#794bc4', disgust:'#657786', neutral:'#aab8c2' };
+    const emotionColors = { happy:'#36c78d', sad:'#7c6cf0', angry:'#ef4565', fear:'#f5a623', surprise:'#9d6cf0', disgust:'#5c6082', neutral:'#8b8fa8' };
     const ec = emotionColors[cur.primary] || '#aab8c2';
     
     html += `<div class="card" style="margin-bottom:12px;">
-      <div class="card-title">😊 情感状态</div>
+      <div class="card-title">∿ 情感状态</div>
       <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
         <div class="emotion-primary" style="color:${ec};">${escHtml(cur.primary || 'neutral')}</div>
         <div style="flex:1;">
@@ -1703,7 +1703,7 @@ async function showPersonaDetail(userId) {
   
   // Metadata
   html += `<div class="card">
-    <div class="card-title">📝 元数据</div>
+    <div class="card-title">≡ 元数据</div>
     <div class="detail-grid">
       <div class="detail-item"><div class="detail-label">版本</div><div class="detail-value">${p.version || 1}</div></div>
       <div class="detail-item"><div class="detail-label">更新次数</div><div class="detail-value">${p.update_count || 0}</div></div>
@@ -1853,7 +1853,7 @@ async function previewImportFile(file, type) {
     if (resp && resp.status === 'ok') {
       const d = resp.data;
       let html = `<div class="preview-summary">
-        <strong>📋 预览结果:</strong> 共 ${d.total} 条数据，有效 <span style="color:var(--success);">${d.valid}</span> 条，无效 <span style="color:var(--danger);">${d.invalid}</span> 条
+        <strong>⬡ 预览结果:</strong> 共 ${d.total} 条数据，有效 <span style="color:var(--success);">${d.valid}</span> 条，无效 <span style="color:var(--danger);">${d.invalid}</span> 条
         ${d.errors.length > 0 ? `<br><span style="color:var(--danger);font-size:12px;">错误: ${d.errors.slice(0,3).map(e => escHtml(e)).join('; ')}</span>` : ''}
       </div>`;
       

@@ -3,6 +3,33 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.7.1] - 2026-02-24
+
+### Fixed
+- **修复 Web API 方法名不匹配** (`iris_memory/web/web_service.py`, `iris_memory/web/standalone_server.py`)
+  - 修复 `list_personas` 路由调用不存在方法的 AttributeError，原方法名为 `get_user_personas_list`
+  - 修复 `get_persona_detail` 与 `get_user_persona_detail` 方法名不匹配
+  - 修复 `get_emotion_state` 路由传参 `(user_id, group_id)` 但方法签名只接受 `(user_id)` 的问题
+- **修复 `list_personas` 缺少分页支持**，新增 `page`/`page_size` 参数与分页返回格式
+- **修复服务器无法正常关闭**：`stop()` 方法未实际停止 Hypercorn，改用 `asyncio.Event` 作为 `shutdown_trigger`
+
+### Changed
+- **Web UI 全面改版** (`iris_memory/web/static/index.html`)
+  - 配色方案从蓝色 (`#1da1f2`) 更换为紫蓝色 (`#7c6cf0`) 主题
+  - 所有 emoji 替换为几何符号（🧠→✦、📊→⬡、💾→◈、🔗→⬢、👤→◉ 等），提升视觉一致性
+  - 图谱节点颜色、徽章颜色、情绪颜色全面更新
+- **`format` 参数更名为 `fmt`**：`export_memories`、`export_kg`、`import_memories`、`import_kg`、`preview_import_data` 五个方法避免遮蔽 Python 内置函数
+- **`_get_memory_overview` 查询优化**：从 N+1 次 ChromaDB 查询优化为单次全量查询 + 内存计数
+
+### Added
+- **路径遍历防护** (`standalone_server.py`)：`_serve_static` 新增 `.resolve()` 校验，防止路径遍历攻击
+- **登录频率限制**：新增 `_check_login_rate_limit` / `_record_login_attempt`，每 IP 60 秒内最多 5 次尝试
+- **安全整数解析** (`_safe_int`)：所有路由参数解析统一使用带范围限制的安全解析函数
+- **会话令牌清理**：`check_auth` 中调用 `cleanup_expired_tokens()`，防止令牌内存泄漏
+- **分页参数校验**：`page` 和 `page_size` 强制有效范围 (`page≥1`, `1≤page_size≤100`)
+- **记忆更新白名单校验** (`update_memory_by_id`)：仅允许更新指定字段，拒绝未知 key；数值字段增加安全类型转换
+- **错误响应脱敏**：移除所有 API 错误响应中的 `{e}` 异常详情，防止信息泄漏
+
 ## [v1.7.0] - 2026-02-23
 
 ### Changed
