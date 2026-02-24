@@ -186,6 +186,7 @@ async def call_llm(
     # ① 尝试 context.llm_generate
     if context and hasattr(context, "llm_generate") and provider_id:
         try:
+            logger.debug(f"[{label}] Calling context.llm_generate with provider_id={repr(provider_id)}, prompt_length={len(prompt)}")
             resp = await context.llm_generate(
                 chat_provider_id=provider_id,
                 prompt=prompt,
@@ -193,6 +194,7 @@ async def call_llm(
             if resp and hasattr(resp, "completion_text"):
                 text = (resp.completion_text or "").strip()
                 tokens = _estimate_tokens(prompt + text)
+                logger.debug(f"[{label}] llm_generate success, response_length={len(text)}, tokens={tokens}")
                 return LLMCallResult(
                     success=True,
                     content=text,
@@ -200,7 +202,7 @@ async def call_llm(
                     tokens_used=tokens,
                 )
         except Exception as e:
-            logger.debug(f"llm_generate failed: {e}")
+            logger.warning(f"[{label}] llm_generate failed: {e}")
 
     # ② 回退：provider.text_chat
     if provider and hasattr(provider, "text_chat"):
