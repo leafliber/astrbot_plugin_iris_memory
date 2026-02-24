@@ -67,8 +67,10 @@ class UpgradeEvaluator:
 1. **核心身份信息**：用户的基本身份特征，如姓名、生日、性别等
 2. **稳定偏好**：用户长期稳定的喜好、习惯、价值观
 3. **重要关系**：密切的家庭成员、挚友等核心社交关系
-4. **高频访问**：被频繁检索和使用的记忆（访问次数>=10次）
-5. **高置信度**：多次验证、高度可信的事实性记忆（置信度>0.8）
+4. **频繁访问**：被频繁检索和使用的记忆（访问次数>=5次）
+5. **较高置信度**：多次验证、高度可信的事实性记忆（置信度>0.65）
+6. **高重要性**：重要性评分>=0.8且被访问>=3次的记忆
+7. **时间验证**：存在超过7天且被访问>=3次且置信度>0.6的记忆
 
 ## 待评估的记忆
 {memories_json}
@@ -209,10 +211,12 @@ class UpgradeEvaluator:
     def _get_episodic_upgrade_reason(self, memory: Memory, should_upgrade: bool) -> str:
         """获取情景记忆升级原因"""
         if should_upgrade:
-            if memory.access_count >= 10 and memory.confidence > 0.8:
-                return f"高频访问({memory.access_count}次)且高置信度({memory.confidence:.2f})"
+            if memory.access_count >= 5 and memory.confidence > 0.65:
+                return f"频繁访问({memory.access_count}次)且置信度较高({memory.confidence:.2f})"
             elif memory.quality_level.value == "confirmed":
                 return "质量已确认"
+            elif memory.importance_score >= 0.8 and memory.access_count >= 3:
+                return f"高重要性({memory.importance_score:.2f})且已被访问{memory.access_count}次"
             else:
                 return "满足升级条件"
         else:

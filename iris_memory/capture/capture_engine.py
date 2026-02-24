@@ -540,10 +540,11 @@ class MemoryCaptureEngine:
     def _determine_storage_layer(self, memory: Memory, is_user_requested: bool):
         """确定初始存储层
         
-        优化后的存储层判断逻辑，降低 EPISODIC 存储门槛：
+        优化后的存储层判断逻辑：
         - 用户请求 -> 直接 EPISODIC
         - 高质量 (HIGH_CONFIDENCE/CONFIRMED) -> EPISODIC 或 SEMANTIC
-        - 中高置信度 (>=0.5) -> EPISODIC
+        - 高情感权重 (>0.6) -> EPISODIC
+        - 高置信度 (>=0.7) -> EPISODIC
         - 普通置信度 -> WORKING
         
         Args:
@@ -567,7 +568,7 @@ class MemoryCaptureEngine:
             memory.storage_layer = StorageLayer.EPISODIC
             return
         
-        if memory.confidence >= 0.5:
+        if memory.confidence >= 0.7:
             memory.storage_layer = StorageLayer.EPISODIC
             return
         

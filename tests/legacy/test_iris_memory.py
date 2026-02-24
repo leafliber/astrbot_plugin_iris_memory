@@ -166,8 +166,8 @@ def test_memory_upgrade_criteria():
     # 测试情景记忆升级到语义记忆
     episodic_memory = Memory(
         storage_layer=StorageLayer.EPISODIC,
-        access_count=10,
-        confidence=0.85
+        access_count=5,
+        confidence=0.7
     )
     assert episodic_memory.should_upgrade_to_semantic() is True
 

@@ -181,16 +181,21 @@ class Memory:
         """判断是否应该从情景记忆升级到语义记忆
         
         触发条件：
-        - 访问>=10次 且 置信度>0.8
+        - 访问>=5次 且 置信度>0.65
         - 或 质量=CONFIRMED
+        - 或 重要性>=0.8 且 访问>=3次
+        - 或 存在超过7天 且 访问>=3次 且 置信度>0.6
         """
         if self.storage_layer != StorageLayer.EPISODIC:
             return False
         
-        condition1 = self.access_count >= 10 and self.confidence > 0.8
+        condition1 = self.access_count >= 5 and self.confidence > 0.65
         condition2 = self.quality_level == QualityLevel.CONFIRMED
+        condition3 = self.importance_score >= 0.8 and self.access_count >= 3
+        days_since_creation = (datetime.now() - self.created_time).days
+        condition4 = days_since_creation >= 7 and self.access_count >= 3 and self.confidence > 0.6
         
-        return condition1 or condition2
+        return condition1 or condition2 or condition3 or condition4
     
     def should_archive(self, rif_threshold: float = 0.4) -> bool:
         """判断是否应该归档

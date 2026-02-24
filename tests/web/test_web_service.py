@@ -194,9 +194,12 @@ class TestDashboardStats:
 
     @pytest.mark.asyncio
     async def test_memory_overview(self, web_service):
-        """测试记忆总览"""
+        """测试记忆总览 - 包含工作记忆和ChromaDB记忆"""
         overview = await web_service._get_memory_overview()
-        assert overview["total_count"] == 3
+        # 3 from ChromaDB + 1 from working_memory_cache
+        assert overview["total_count"] == 4
+        # 工作记忆来自 SessionManager.working_memory_cache
+        assert overview["by_layer"]["working"] >= 1
 
     @pytest.mark.asyncio
     async def test_kg_overview(self, web_service):

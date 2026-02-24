@@ -103,13 +103,35 @@ class WebService:
         return result
 
     async def _get_memory_overview(self) -> Dict[str, Any]:
-        """记忆总览统计（单次查询优化）"""
+        """记忆总览统计（单次查询优化）
+        
+        同时统计 ChromaDB 中的持久化记忆和 SessionManager 中的工作记忆。
+        工作记忆仅存在于内存中，不在 ChromaDB 里，需要单独统计。
+        """
         result: Dict[str, Any] = {
             "total_count": 0,
             "by_layer": {"working": 0, "episodic": 0, "semantic": 0},
             "by_type": {},
         }
 
+        # 统计工作记忆（仅存在于内存中的 SessionManager.working_memory_cache）
+        try:
+            session_mgr = self._service.session_manager
+            if session_mgr and hasattr(session_mgr, 'working_memory_cache'):
+                for session_key, memories in session_mgr.working_memory_cache.items():
+                    working_count = len(memories) if memories else 0
+                    result["by_layer"]["working"] += working_count
+                    result["total_count"] += working_count
+                    # 按类型统计工作记忆
+                    for mem in (memories or []):
+                        mtype = getattr(mem, 'type', None)
+                        if mtype:
+                            mtype_val = mtype.value if hasattr(mtype, 'value') else str(mtype)
+                            result["by_type"][mtype_val] = result["by_type"].get(mtype_val, 0) + 1
+        except Exception as e:
+            logger.debug(f"Working memory stats error: {e}")
+
+        # 统计 ChromaDB 中的持久化记忆（episodic + semantic）
         try:
             chroma = self._service.chroma_manager
             if not chroma or not chroma.is_ready:
@@ -117,7 +139,7 @@ class WebService:
 
             collection = chroma.collection
             total = collection.count()
-            result["total_count"] = total
+            result["total_count"] += total
 
             if total == 0:
                 return result

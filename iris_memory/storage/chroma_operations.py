@@ -135,6 +135,68 @@ class ChromaOperations:
             logger.error(f"Failed to update memory: {e}")
             return False
 
+    async def batch_update_access_stats(self, memories: list) -> int:
+        """批量更新记忆的访问统计到 ChromaDB
+        
+        仅更新 metadata 中的 access_count、last_access_time 和 access_frequency，
+        不重新生成 embedding，以保证高效。
+        
+        Args:
+            memories: 已调用 update_access() 后的记忆对象列表
+            
+        Returns:
+            int: 成功更新的记忆数量
+        """
+        if not memories:
+            return 0
+        
+        try:
+            self._ensure_ready()
+        except Exception:
+            return 0
+        
+        updated = 0
+        # 收集需要更新的 id 和 metadata
+        ids = []
+        metadatas = []
+        for memory in memories:
+            try:
+                ids.append(memory.id)
+                # 仅更新访问相关字段，使用 collection.get 获取现有 metadata 并合并
+                metadatas.append({
+                    "access_count": memory.access_count,
+                    "last_access_time": memory.last_access_time.isoformat(),
+                })
+            except Exception as e:
+                logger.debug(f"Skip access stats update for {getattr(memory, 'id', '?')}: {e}")
+        
+        if not ids:
+            return 0
+        
+        try:
+            # 先获取现有 metadata
+            existing = self.collection.get(ids=ids, include=["metadatas"])
+            if existing and existing.get("ids"):
+                merged_metadatas = []
+                for i, mid in enumerate(existing["ids"]):
+                    meta = dict(existing["metadatas"][i]) if i < len(existing["metadatas"]) else {}
+                    # 找到对应的更新数据
+                    idx = ids.index(mid) if mid in ids else -1
+                    if idx >= 0:
+                        meta.update(metadatas[idx])
+                    merged_metadatas.append(meta)
+                
+                self.collection.update(
+                    ids=existing["ids"],
+                    metadatas=merged_metadatas,
+                )
+                updated = len(existing["ids"])
+                logger.debug(f"Batch updated access stats for {updated} memories")
+        except Exception as e:
+            logger.warning(f"Batch access stats update failed: {e}")
+        
+        return updated
+
     async def delete_memory(self, memory_id: str) -> bool:
         """删除记忆
         

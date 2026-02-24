@@ -128,6 +128,31 @@ class MemoryRetrievalEngine:
         # 知识图谱模块（可选，由外部注入）
         self._kg_module = None
     
+    async def _update_access_and_sync(self, memories: List[Memory]) -> None:
+        """更新记忆访问统计并同步到 ChromaDB
+        
+        对最终返回的记忆调用 update_access()，然后将 access_count
+        同步回 ChromaDB，确保升级条件（如 access_count >= 5）可以满足。
+        
+        Args:
+            memories: 最终返回的记忆列表
+        """
+        if not memories:
+            return
+        
+        chroma_memories = []
+        for memory in memories:
+            memory.update_access()
+            # 只有非 WORKING 层的记忆才需要同步到 ChromaDB
+            if memory.storage_layer != StorageLayer.WORKING:
+                chroma_memories.append(memory)
+        
+        if chroma_memories and self.chroma_manager:
+            try:
+                await self.chroma_manager.batch_update_access_stats(chroma_memories)
+            except Exception as e:
+                logger.debug(f"Failed to sync access stats to ChromaDB: {e}")
+
     async def retrieve(
         self,
         query: str,
@@ -366,9 +391,8 @@ class MemoryRetrievalEngine:
         
         result = ranked_memories[:top_k]
         
-        # 仅对最终返回的记忆更新访问统计
-        for memory in result:
-            memory.update_access()
+        # 更新访问统计并同步到 ChromaDB
+        await self._update_access_and_sync(result)
         
         return result
     
@@ -388,8 +412,7 @@ class MemoryRetrievalEngine:
             top_k=top_k,
             storage_layer=storage_layer
         )
-        for memory in memories:
-            memory.update_access()
+        await self._update_access_and_sync(memories)
         return memories
     
     async def _time_aware_retrieval(
@@ -414,9 +437,8 @@ class MemoryRetrievalEngine:
         scored.sort(key=lambda x: x[1], reverse=True)
 
         result = [m for m, s in scored[:top_k]]
-        # 仅对最终返回的记忆更新访问统计
-        for memory in result:
-            memory.update_access()
+        # 更新访问统计并同步到 ChromaDB
+        await self._update_access_and_sync(result)
         return result
 
     def _calculate_time_score(self, memory: Memory) -> float:
@@ -454,9 +476,8 @@ class MemoryRetrievalEngine:
             memories = self._apply_emotion_filter(memories, emotional_state, user_id)
         
         result = memories[:top_k]
-        # 仅对最终返回的记忆更新访问统计
-        for memory in result:
-            memory.update_access()
+        # 更新访问统计并同步到 ChromaDB
+        await self._update_access_and_sync(result)
         return result
 
     def set_kg_module(self, kg_module) -> None:
@@ -551,8 +572,7 @@ class MemoryRetrievalEngine:
         )
 
         result = ranked[:top_k]
-        for memory in result:
-            memory.update_access()
+        await self._update_access_and_sync(result)
 
         return result
     
