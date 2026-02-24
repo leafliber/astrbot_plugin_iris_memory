@@ -9,17 +9,24 @@ from __future__ import annotations
 import asyncio
 import secrets
 import time
+from collections import defaultdict
 from pathlib import Path
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from iris_memory.utils.logger import get_logger
 
 logger = get_logger("standalone_web")
 
 _STATIC_DIR = Path(__file__).parent / "static"
+_STATIC_DIR_RESOLVED = _STATIC_DIR.resolve()
 
 _SESSION_TOKENS: Dict[str, float] = {}
 _TOKEN_EXPIRE_SECONDS = 3600 * 24
+
+# 登录限流
+_LOGIN_ATTEMPTS: Dict[str, List[float]] = defaultdict(list)
+_LOGIN_MAX_ATTEMPTS = 5
+_LOGIN_WINDOW_SECONDS = 60
 
 
 def _json_response(data: Any, status: int = 200) -> Any:
@@ -41,6 +48,45 @@ def _success_response(data: Any = None, message: str = "success") -> Any:
     return _json_response(result)
 
 
+def _safe_int(value: Optional[str], default: int, min_val: int = 1, max_val: int = 10000) -> int:
+    """安全解析整数参数，并限制范围
+
+    Args:
+        value: 字符串值
+        default: 默认值
+        min_val: 最小值
+        max_val: 最大值
+
+    Returns:
+        解析后的整数，在 [min_val, max_val] 范围内
+    """
+    try:
+        n = int(value) if value else default
+    except (ValueError, TypeError):
+        n = default
+    return max(min_val, min(n, max_val))
+
+
+def _check_login_rate_limit(client_ip: str) -> bool:
+    """检查登录限流
+
+    Returns:
+        True 表示允许，False 表示被限流
+    """
+    now = time.time()
+    attempts = _LOGIN_ATTEMPTS[client_ip]
+    # 清理窗口外的记录
+    _LOGIN_ATTEMPTS[client_ip] = [t for t in attempts if now - t < _LOGIN_WINDOW_SECONDS]
+    if len(_LOGIN_ATTEMPTS[client_ip]) >= _LOGIN_MAX_ATTEMPTS:
+        return False
+    return True
+
+
+def _record_login_attempt(client_ip: str) -> None:
+    """记录登录尝试"""
+    _LOGIN_ATTEMPTS[client_ip].append(time.time())
+
+
 class AuthMiddleware:
     """访问密钥认证中间件"""
     
@@ -49,15 +95,19 @@ class AuthMiddleware:
         self._require_auth = bool(access_key)
     
     def check_auth(self, request: Any) -> bool:
-        """检查请求是否通过认证
-        
-        支持两种方式：
+        """Checks request authentication.
+        Also cleans up expired tokens periodically.
+
+        Supports:
         1. Authorization: Bearer <access_key>
         2. Query parameter: ?key=<access_key>
         """
         if not self._require_auth:
             return True
-        
+
+        # 定期清理过期令牌
+        self.cleanup_expired_tokens()
+
         auth_header = request.headers.get("Authorization", "")
         if auth_header.startswith("Bearer "):
             token = auth_header[7:]
@@ -109,6 +159,7 @@ class StandaloneWebServer:
         self._auth = AuthMiddleware(access_key)
         self._app: Optional[Any] = None
         self._running = False
+        self._shutdown_event: Optional[asyncio.Event] = None
     
     @property
     def port(self) -> int:
@@ -146,6 +197,11 @@ class StandaloneWebServer:
         
         @app.route("/api/login", methods=["POST"])
         async def login():
+            # 登录限流
+            client_ip = request.remote_addr or "unknown"
+            if not _check_login_rate_limit(client_ip):
+                return _error_response("登录尝试过于频繁，请稍后重试", 429)
+
             data = await request.get_json()
             if not data:
                 return _error_response("Missing request body")
@@ -154,6 +210,7 @@ class StandaloneWebServer:
             if not key:
                 return _error_response("Missing access key")
             
+            _record_login_attempt(client_ip)
             if key != self._access_key:
                 return _error_response("Invalid access key", 401)
             
@@ -197,18 +254,17 @@ class StandaloneWebServer:
                 return _success_response(stats)
             except Exception as e:
                 logger.error(f"Dashboard error: {e}")
-                return _error_response(f"获取统计失败: {e}", 500)
+                return _error_response("获取统计失败", 500)
         
         @app.route("/api/dashboard/trend", methods=["GET"])
         async def dashboard_trend():
             try:
-                days = int(request.args.get("days", "30"))
-                days = max(1, min(days, 365))
+                days = _safe_int(request.args.get("days"), 30, 1, 365)
                 trend = await web_service.get_memory_trend(days)
                 return _success_response(trend)
             except Exception as e:
                 logger.error(f"Trend error: {e}")
-                return _error_response(f"获取趋势失败: {e}", 500)
+                return _error_response("获取趋势失败", 500)
         
         @app.route("/api/memories", methods=["GET"])
         async def memories_list():
@@ -218,13 +274,13 @@ class StandaloneWebServer:
                     group_id=request.args.get("group_id"),
                     storage_layer=request.args.get("layer"),
                     memory_type=request.args.get("type"),
-                    page=int(request.args.get("page", "1")),
-                    page_size=int(request.args.get("page_size", "20")),
+                    page=_safe_int(request.args.get("page"), 1, 1, 10000),
+                    page_size=_safe_int(request.args.get("page_size"), 20, 1, 100),
                 )
                 return _success_response(result)
             except Exception as e:
                 logger.error(f"Memories list error: {e}")
-                return _error_response(f"查询失败: {e}", 500)
+                return _error_response("查询失败", 500)
         
         @app.route("/api/memories/search", methods=["GET"])
         async def memories_search():
@@ -239,13 +295,13 @@ class StandaloneWebServer:
                     group_id=request.args.get("group_id"),
                     storage_layer=request.args.get("layer"),
                     memory_type=request.args.get("type"),
-                    page=int(request.args.get("page", "1")),
-                    page_size=int(request.args.get("page_size", "20")),
+                    page=_safe_int(request.args.get("page"), 1, 1, 10000),
+                    page_size=_safe_int(request.args.get("page_size"), 20, 1, 100),
                 )
                 return _success_response(result)
             except Exception as e:
                 logger.error(f"Memories search error: {e}")
-                return _error_response(f"搜索失败: {e}", 500)
+                return _error_response("搜索失败", 500)
         
         @app.route("/api/memories/detail", methods=["GET"])
         async def memory_detail():
@@ -260,7 +316,7 @@ class StandaloneWebServer:
                 return _error_response("记忆不存在", 404)
             except Exception as e:
                 logger.error(f"Memory detail error: {e}")
-                return _error_response(f"获取详情失败: {e}", 500)
+                return _error_response("获取详情失败", 500)
         
         @app.route("/api/memories/update", methods=["POST"])
         async def memory_update():
@@ -279,7 +335,7 @@ class StandaloneWebServer:
                 return _error_response(msg)
             except Exception as e:
                 logger.error(f"Memory update error: {e}")
-                return _error_response(f"更新失败: {e}", 500)
+                return _error_response("更新失败", 500)
         
         @app.route("/api/memories/delete", methods=["POST"])
         async def memory_delete():
@@ -294,7 +350,7 @@ class StandaloneWebServer:
                 return _error_response(msg)
             except Exception as e:
                 logger.error(f"Memory delete error: {e}")
-                return _error_response(f"删除失败: {e}", 500)
+                return _error_response("删除失败", 500)
         
         @app.route("/api/memories/batch-delete", methods=["POST"])
         async def memory_batch_delete():
@@ -313,7 +369,7 @@ class StandaloneWebServer:
                 return _success_response(result)
             except Exception as e:
                 logger.error(f"Batch delete error: {e}")
-                return _error_response(f"批量删除失败: {e}", 500)
+                return _error_response("批量删除失败", 500)
         
         @app.route("/api/kg/nodes", methods=["GET"])
         async def kg_nodes():
@@ -323,12 +379,12 @@ class StandaloneWebServer:
                     user_id=request.args.get("user_id"),
                     group_id=request.args.get("group_id"),
                     node_type=request.args.get("type"),
-                    limit=int(request.args.get("limit", "50")),
+                    limit=_safe_int(request.args.get("limit"), 50, 1, 500),
                 )
                 return _success_response(nodes)
             except Exception as e:
                 logger.error(f"KG nodes error: {e}")
-                return _error_response(f"查询失败: {e}", 500)
+                return _error_response("查询失败", 500)
         
         @app.route("/api/kg/edges", methods=["GET"])
         async def kg_edges():
@@ -338,12 +394,12 @@ class StandaloneWebServer:
                     group_id=request.args.get("group_id"),
                     relation_type=request.args.get("relation_type"),
                     node_id=request.args.get("node_id"),
-                    limit=int(request.args.get("limit", "50")),
+                    limit=_safe_int(request.args.get("limit"), 50, 1, 500),
                 )
                 return _success_response(edges)
             except Exception as e:
                 logger.error(f"KG edges error: {e}")
-                return _error_response(f"查询失败: {e}", 500)
+                return _error_response("查询失败", 500)
         
         @app.route("/api/kg/graph", methods=["GET"])
         async def kg_graph():
@@ -352,13 +408,13 @@ class StandaloneWebServer:
                     user_id=request.args.get("user_id"),
                     group_id=request.args.get("group_id"),
                     center_node_id=request.args.get("center"),
-                    depth=int(request.args.get("depth", "2")),
-                    max_nodes=int(request.args.get("max_nodes", "100")),
+                    depth=_safe_int(request.args.get("depth"), 2, 1, 5),
+                    max_nodes=_safe_int(request.args.get("max_nodes"), 100, 1, 500),
                 )
                 return _success_response(graph)
             except Exception as e:
                 logger.error(f"KG graph error: {e}")
-                return _error_response(f"获取图谱失败: {e}", 500)
+                return _error_response("获取图谱失败", 500)
         
         @app.route("/api/kg/node/delete", methods=["POST"])
         async def kg_node_delete():
@@ -373,7 +429,7 @@ class StandaloneWebServer:
                 return _error_response(msg)
             except Exception as e:
                 logger.error(f"KG node delete error: {e}")
-                return _error_response(f"删除失败: {e}", 500)
+                return _error_response("删除失败", 500)
         
         @app.route("/api/kg/edge/delete", methods=["POST"])
         async def kg_edge_delete():
@@ -388,7 +444,7 @@ class StandaloneWebServer:
                 return _error_response(msg)
             except Exception as e:
                 logger.error(f"KG edge delete error: {e}")
-                return _error_response(f"删除失败: {e}", 500)
+                return _error_response("删除失败", 500)
         
         @app.route("/api/export/memories", methods=["GET"])
         async def export_memories():
@@ -398,7 +454,7 @@ class StandaloneWebServer:
                     return _error_response("format 必须是 json 或 csv")
                 
                 data, content_type, filename = await web_service.export_memories(
-                    format=fmt,
+                    fmt=fmt,
                     user_id=request.args.get("user_id"),
                     group_id=request.args.get("group_id"),
                     storage_layer=request.args.get("layer"),
@@ -411,7 +467,7 @@ class StandaloneWebServer:
                 )
             except Exception as e:
                 logger.error(f"Export memories error: {e}")
-                return _error_response(f"导出失败: {e}", 500)
+                return _error_response("导出失败", 500)
         
         @app.route("/api/export/kg", methods=["GET"])
         async def export_kg():
@@ -421,7 +477,7 @@ class StandaloneWebServer:
                     return _error_response("format 必须是 json 或 csv")
                 
                 data, content_type, filename = await web_service.export_kg(
-                    format=fmt,
+                    fmt=fmt,
                     user_id=request.args.get("user_id"),
                     group_id=request.args.get("group_id"),
                 )
@@ -433,7 +489,7 @@ class StandaloneWebServer:
                 )
             except Exception as e:
                 logger.error(f"Export KG error: {e}")
-                return _error_response(f"导出失败: {e}", 500)
+                return _error_response("导出失败", 500)
         
         @app.route("/api/import/memories", methods=["POST"])
         async def import_memories():
@@ -448,12 +504,12 @@ class StandaloneWebServer:
                 
                 result = await web_service.import_memories(
                     data=body["data"],
-                    format=fmt,
+                    fmt=fmt,
                 )
                 return _success_response(result)
             except Exception as e:
                 logger.error(f"Import memories error: {e}")
-                return _error_response(f"导入失败: {e}", 500)
+                return _error_response("导入失败", 500)
         
         @app.route("/api/import/kg", methods=["POST"])
         async def import_kg():
@@ -468,12 +524,12 @@ class StandaloneWebServer:
                 
                 result = await web_service.import_kg(
                     data=body["data"],
-                    format=fmt,
+                    fmt=fmt,
                 )
                 return _success_response(result)
             except Exception as e:
                 logger.error(f"Import KG error: {e}")
-                return _error_response(f"导入失败: {e}", 500)
+                return _error_response("导入失败", 500)
         
         @app.route("/api/import/preview", methods=["POST"])
         async def import_preview():
@@ -487,25 +543,25 @@ class StandaloneWebServer:
                 
                 result = await web_service.preview_import_data(
                     data=body["data"],
-                    format=fmt,
+                    fmt=fmt,
                     import_type=import_type,
                 )
                 return _success_response(result)
             except Exception as e:
                 logger.error(f"Import preview error: {e}")
-                return _error_response(f"预览失败: {e}", 500)
+                return _error_response("预览失败", 500)
         
         @app.route("/api/personas", methods=["GET"])
         async def personas_list():
             try:
                 personas = await web_service.list_personas(
-                    page=int(request.args.get("page", "1")),
-                    page_size=int(request.args.get("page_size", "20")),
+                    page=_safe_int(request.args.get("page"), 1, 1, 10000),
+                    page_size=_safe_int(request.args.get("page_size"), 20, 1, 100),
                 )
                 return _success_response(personas)
             except Exception as e:
                 logger.error(f"Personas list error: {e}")
-                return _error_response(f"查询失败: {e}", 500)
+                return _error_response("查询失败", 500)
         
         @app.route("/api/personas/detail", methods=["GET"])
         async def persona_detail():
@@ -520,7 +576,7 @@ class StandaloneWebServer:
                 return _error_response("用户画像不存在", 404)
             except Exception as e:
                 logger.error(f"Persona detail error: {e}")
-                return _error_response(f"获取详情失败: {e}", 500)
+                return _error_response("获取详情失败", 500)
         
         @app.route("/api/emotions", methods=["GET"])
         async def emotion_state():
@@ -532,7 +588,7 @@ class StandaloneWebServer:
                 return _success_response(state)
             except Exception as e:
                 logger.error(f"Emotion state error: {e}")
-                return _error_response(f"获取情感状态失败: {e}", 500)
+                return _error_response("获取情感状态失败", 500)
     
     async def _serve_index(self) -> Any:
         """服务前端页面"""
@@ -545,9 +601,12 @@ class StandaloneWebServer:
                        content_type="text/html; charset=utf-8")
     
     async def _serve_static(self, filename: str) -> Any:
-        """服务静态文件"""
+        """服务静态文件（包含路径穿越防护）"""
         from quart import Response
-        file_path = _STATIC_DIR / filename
+        file_path = (_STATIC_DIR / filename).resolve()
+        # 路径穿越防护
+        if not str(file_path).startswith(str(_STATIC_DIR_RESOLVED)):
+            return Response("Forbidden", status=403)
         if file_path.exists() and file_path.is_file():
             content = file_path.read_bytes()
             content_type = self._get_content_type(filename)
@@ -583,7 +642,6 @@ class StandaloneWebServer:
             from quart import Quart
             app = self.create_app()
             
-            import asyncio
             from hypercorn.asyncio import serve
             from hypercorn.config import Config
             
@@ -591,19 +649,23 @@ class StandaloneWebServer:
             config.bind = [f"{self._host}:{self._port}"]
             config.accesslog = None
             
+            self._shutdown_event = asyncio.Event()
             self._running = True
             logger.info(f"Web 管理界面已启动: http://{self._host}:{self._port}")
             
-            await serve(app, config)
+            await serve(app, config, shutdown_trigger=self._shutdown_event.wait)
             
         except ImportError as e:
             logger.warning(f"无法启动 Web 服务器（缺少依赖）: {e}")
             logger.info("请安装 quart 和 hypercorn: pip install quart hypercorn")
         except Exception as e:
             logger.error(f"Web 服务器启动失败: {e}")
+        finally:
             self._running = False
     
     async def stop(self) -> None:
         """停止 Web 服务器"""
+        if self._shutdown_event:
+            self._shutdown_event.set()
         self._running = False
         logger.info("Web 管理界面已停止")

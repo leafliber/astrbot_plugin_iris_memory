@@ -103,7 +103,7 @@ class WebService:
         return result
 
     async def _get_memory_overview(self) -> Dict[str, Any]:
-        """记忆总览统计"""
+        """记忆总览统计（单次查询优化）"""
         result: Dict[str, Any] = {
             "total_count": 0,
             "by_layer": {"working": 0, "episodic": 0, "semantic": 0},
@@ -115,34 +115,28 @@ class WebService:
             if not chroma or not chroma.is_ready:
                 return result
 
-            # 总数
             collection = chroma.collection
             total = collection.count()
             result["total_count"] = total
 
-            # 按层级统计
-            for layer in StorageLayer:
-                try:
-                    res = collection.get(
-                        where={"storage_layer": layer.value},
-                        include=[]
-                    )
-                    result["by_layer"][layer.value] = len(res["ids"]) if res["ids"] else 0
-                except Exception:
-                    pass
+            if total == 0:
+                return result
 
-            # 按类型统计
-            for mtype in MemoryType:
-                try:
-                    res = collection.get(
-                        where={"type": mtype.value},
-                        include=[]
-                    )
-                    count = len(res["ids"]) if res["ids"] else 0
-                    if count > 0:
-                        result["by_type"][mtype.value] = count
-                except Exception:
-                    pass
+            # 单次查询获取全部 metadata，在内存中统计
+            res = collection.get(include=["metadatas"])
+            if not res["ids"]:
+                return result
+
+            for meta in res["metadatas"]:
+                # 按层级统计
+                layer = meta.get("storage_layer", "")
+                if layer in result["by_layer"]:
+                    result["by_layer"][layer] += 1
+
+                # 按类型统计
+                mtype = meta.get("type", "")
+                if mtype:
+                    result["by_type"][mtype] = result["by_type"].get(mtype, 0) + 1
 
         except Exception as e:
             logger.warning(f"Memory overview error: {e}")
@@ -235,6 +229,8 @@ class WebService:
         Returns:
             {items: [...], total: N, page: N, page_size: N}
         """
+        page = max(1, page)
+        page_size = max(1, min(page_size, 100))
         result: Dict[str, Any] = {"items": [], "total": 0, "page": page, "page_size": page_size}
 
         try:
@@ -394,6 +390,12 @@ class WebService:
         Returns:
             (success, message)
         """
+        # 白名单验证
+        _ALLOWED_UPDATE_KEYS = {"content", "type", "storage_layer", "confidence", "importance_score", "summary"}
+        invalid_keys = set(updates.keys()) - _ALLOWED_UPDATE_KEYS
+        if invalid_keys:
+            return False, f"不允许更新的字段: {', '.join(invalid_keys)}"
+
         try:
             chroma = self._service.chroma_manager
             if not chroma or not chroma.is_ready:
@@ -411,24 +413,41 @@ class WebService:
             doc = res["documents"][0] if res.get("documents") else ""
             meta = res["metadatas"][0] if res.get("metadatas") else {}
 
+            # 验证 storage_layer
+            storage_layer_val = updates.get("storage_layer", meta.get("storage_layer", "episodic"))
+            try:
+                sl = StorageLayer(storage_layer_val)
+            except ValueError:
+                return False, f"无效的 storage_layer: {storage_layer_val}"
+
             memory = Memory(
                 id=memory_id,
                 content=updates.get("content", doc),
                 user_id=meta.get("user_id", ""),
                 sender_name=meta.get("sender_name", ""),
                 group_id=meta.get("group_id") or None,
-                storage_layer=StorageLayer(updates.get("storage_layer", meta.get("storage_layer", "episodic"))),
+                storage_layer=sl,
                 created_time=datetime.fromisoformat(meta["created_time"]) if meta.get("created_time") else datetime.now(),
             )
 
             # 更新可选字段
-            if updates.get("type") or meta.get("type"):
+            type_val = updates.get("type", meta.get("type"))
+            if type_val:
                 try:
-                    memory.type = MemoryType(updates.get("type", meta.get("type")))
+                    memory.type = MemoryType(type_val)
                 except ValueError:
-                    pass
-            memory.confidence = float(updates.get("confidence", meta.get("confidence", 0.5)))
-            memory.importance_score = float(updates.get("importance_score", meta.get("importance_score", 0.5)))
+                    return False, f"无效的 type: {type_val}"
+
+            # 安全解析数值字段
+            try:
+                memory.confidence = float(updates.get("confidence", meta.get("confidence", 0.5)))
+            except (ValueError, TypeError):
+                return False, "confidence 必须是有效数字"
+            try:
+                memory.importance_score = float(updates.get("importance_score", meta.get("importance_score", 0.5)))
+            except (ValueError, TypeError):
+                return False, "importance_score 必须是有效数字"
+
             if updates.get("summary") is not None:
                 memory.summary = updates["summary"]
             elif meta.get("summary"):
@@ -494,14 +513,14 @@ class WebService:
     async def preview_import_data(
         self,
         data: str,
-        format: str,
+        fmt: str,
         import_type: str,
     ) -> Dict[str, Any]:
         """预览导入数据（不实际导入）
 
         Args:
             data: 文件内容
-            format: 'json' 或 'csv'
+            fmt: 'json' 或 'csv'
             import_type: 'memories' 或 'kg'
 
         Returns:
@@ -517,7 +536,7 @@ class WebService:
 
         try:
             if import_type == "memories":
-                if format == "csv":
+                if fmt == "csv":
                     items = self._parse_csv_memories(data)
                 else:
                     items = self._parse_json_memories(data)
@@ -542,7 +561,7 @@ class WebService:
                     })
 
             elif import_type == "kg":
-                if format == "csv":
+                if fmt == "csv":
                     nodes_data, edges_data = self._parse_csv_kg(data)
                 else:
                     nodes_data, edges_data = self._parse_json_kg(data)
@@ -596,13 +615,28 @@ class WebService:
     # 用户画像与情感状态
     # ================================================================
 
-    async def get_user_personas_list(self) -> List[Dict[str, Any]]:
-        """获取所有用户画像摘要列表"""
-        result: List[Dict[str, Any]] = []
+    async def list_personas(
+        self,
+        page: int = 1,
+        page_size: int = 20,
+    ) -> Dict[str, Any]:
+        """获取用户画像分页列表
+
+        Args:
+            page: 页码（从 1 开始）
+            page_size: 每页数量
+
+        Returns:
+            {items: [...], total: N, page: N, page_size: N}
+        """
+        page = max(1, page)
+        page_size = max(1, min(page_size, 100))
+        result: Dict[str, Any] = {"items": [], "total": 0, "page": page, "page_size": page_size}
         try:
             personas = self._service._user_personas
+            all_items: List[Dict[str, Any]] = []
             for uid, persona in personas.items():
-                result.append({
+                all_items.append({
                     "user_id": uid,
                     "update_count": getattr(persona, "update_count", 0),
                     "last_updated": persona.last_updated.isoformat() if hasattr(persona.last_updated, "isoformat") else str(persona.last_updated),
@@ -613,12 +647,24 @@ class WebService:
                     "work_style": getattr(persona, "work_style", None),
                     "lifestyle": getattr(persona, "lifestyle", None),
                 })
+            # 按最后更新时间倒序
+            all_items.sort(key=lambda x: x.get("last_updated", ""), reverse=True)
+            result["total"] = len(all_items)
+            start = (page - 1) * page_size
+            result["items"] = all_items[start:start + page_size]
         except Exception as e:
-            logger.warning(f"Get personas list error: {e}")
+            logger.warning(f"List personas error: {e}")
         return result
 
-    async def get_user_persona_detail(self, user_id: str) -> Optional[Dict[str, Any]]:
-        """获取指定用户的画像详情"""
+    async def get_persona_detail(self, user_id: str) -> Optional[Dict[str, Any]]:
+        """获取指定用户的画像详情
+
+        Args:
+            user_id: 用户 ID
+
+        Returns:
+            用户画像详情字典，不存在返回 None
+        """
         try:
             personas = self._service._user_personas
             persona = personas.get(user_id)
@@ -629,9 +675,23 @@ class WebService:
             logger.warning(f"Get persona detail error: {e}")
             return None
 
-    async def get_emotion_state(self, user_id: str) -> Optional[Dict[str, Any]]:
-        """获取指定用户的情感状态"""
+    async def get_emotion_state(
+        self,
+        user_id: Optional[str] = None,
+        group_id: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """获取指定用户的情感状态
+
+        Args:
+            user_id: 用户 ID
+            group_id: 群组 ID（暂未使用，预留）
+
+        Returns:
+            情感状态字典，不存在返回 None
+        """
         try:
+            if not user_id:
+                return None
             states = self._service._user_emotional_states
             state = states.get(user_id)
             if not state:
@@ -1039,7 +1099,7 @@ class WebService:
 
     async def export_memories(
         self,
-        format: str = "json",
+        fmt: str = "json",
         user_id: Optional[str] = None,
         group_id: Optional[str] = None,
         storage_layer: Optional[str] = None,
@@ -1047,7 +1107,7 @@ class WebService:
         """导出记忆数据
 
         Args:
-            format: 导出格式 'json' 或 'csv'
+            fmt: 导出格式 'json' 或 'csv'
             user_id: 仅导出指定用户
             group_id: 仅导出指定群组
             storage_layer: 仅导出指定层级
@@ -1077,7 +1137,7 @@ class WebService:
                 res = collection.get(include=["documents", "metadatas"])
 
             if not res["ids"]:
-                if format == "csv":
+                if fmt == "csv":
                     return "id,content,user_id,type,storage_layer,created_time\n", "text/csv", "memories_empty.csv"
                 return json.dumps({"memories": [], "exported_at": datetime.now().isoformat()}, ensure_ascii=False), "application/json", "memories_empty.json"
 
@@ -1090,7 +1150,7 @@ class WebService:
 
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-            if format == "csv":
+            if fmt == "csv":
                 return self._memories_to_csv(items), "text/csv", f"memories_{timestamp}.csv"
 
             export_data = {
@@ -1145,13 +1205,13 @@ class WebService:
     async def import_memories(
         self,
         data: str,
-        format: str = "json",
+        fmt: str = "json",
     ) -> Dict[str, Any]:
         """导入记忆数据
 
         Args:
             data: 文件内容字符串
-            format: 格式 'json' 或 'csv'
+            fmt: 格式 'json' 或 'csv'
 
         Returns:
             {success_count, fail_count, errors, skipped}
@@ -1168,7 +1228,7 @@ class WebService:
                 result["errors"].append(f"文件过大，最大支持 {_IMPORT_MAX_FILE_SIZE // 1024 // 1024}MB")
                 return result
 
-            if format == "csv":
+            if fmt == "csv":
                 items = self._parse_csv_memories(data)
             else:
                 items = self._parse_json_memories(data)
@@ -1271,7 +1331,7 @@ class WebService:
 
     async def export_kg(
         self,
-        format: str = "json",
+        fmt: str = "json",
         user_id: Optional[str] = None,
         group_id: Optional[str] = None,
     ) -> Tuple[str, str, str]:
@@ -1319,7 +1379,7 @@ class WebService:
 
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-            if format == "csv":
+            if fmt == "csv":
                 nodes_csv = self._kg_nodes_to_csv(nodes)
                 edges_csv = self._kg_edges_to_csv(edges)
                 # 合并为一个文件，用分隔行区分
@@ -1373,7 +1433,7 @@ class WebService:
     async def import_kg(
         self,
         data: str,
-        format: str = "json",
+        fmt: str = "json",
     ) -> Dict[str, Any]:
         """导入知识图谱数据
 
@@ -1392,7 +1452,7 @@ class WebService:
                 result["errors"].append(f"文件过大")
                 return result
 
-            if format == "csv":
+            if fmt == "csv":
                 nodes_data, edges_data = self._parse_csv_kg(data)
             else:
                 nodes_data, edges_data = self._parse_json_kg(data)
