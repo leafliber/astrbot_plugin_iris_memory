@@ -101,6 +101,8 @@ class LLMEnhancedModule:
         from iris_memory.retrieval.llm_retrieval_router import LLMRetrievalRouter
 
         provider_id = cfg.llm_enhanced_provider_id
+        logger.info(f"[DEBUG] enhanced_provider_id from config: {repr(provider_id)}")
+        logger.info(f"[DEBUG] raw config value: {repr(cfg.get('llm_providers.enhanced_provider_id'))}")
         modes: list[str] = []
 
         _MAPPING = [

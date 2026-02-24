@@ -139,21 +139,24 @@ def resolve_llm_provider(
         return None, None
 
     pid = normalize_provider_id(provider_id)
+    logger.info(f"[{label}] resolve_llm_provider: input={repr(provider_id)}, normalized={repr(pid)}")
 
     if pid and pid not in ("", "default"):
         try:
             provider, resolved_id = get_provider_by_id(context, pid)
             if provider:
-                logger.debug(f"[{label}] Provider resolved: {resolved_id or pid}")
+                logger.info(f"[{label}] Provider resolved by ID: {resolved_id or pid}")
                 return provider, resolved_id or pid
             logger.warning(f"[{label}] Provider '{pid}' not found, falling back to default")
         except Exception as e:
             logger.warning(f"[{label}] Error resolving provider '{pid}': {e}")
+    else:
+        logger.info(f"[{label}] pid is empty or 'default', using AstrBot default provider")
 
     provider, resolved_id = get_default_provider(context)
     if provider:
         resolved_id = resolved_id or extract_provider_id(provider)
-        logger.debug(f"[{label}] Using default provider: {resolved_id}")
+        logger.info(f"[{label}] Using default provider: {resolved_id}")
     return provider, resolved_id
 
 
