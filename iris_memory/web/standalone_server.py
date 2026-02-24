@@ -133,6 +133,8 @@ class StandaloneWebServer:
         async def check_auth():
             if request.path == "/api/login":
                 return None
+            if request.path == "/api/check-auth":
+                return None
             if request.path == "/" or request.path == "/index.html":
                 return None
             if request.path.startswith("/static/"):
