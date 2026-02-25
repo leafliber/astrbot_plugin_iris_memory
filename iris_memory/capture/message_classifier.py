@@ -484,4 +484,4 @@ class MessageClassifier:
         """
         self._fingerprint_cache.clear()
         self._last_llm_call.clear()
-        logger.info("Message classifier cache cleared")
+        logger.debug("Message classifier cache cleared")

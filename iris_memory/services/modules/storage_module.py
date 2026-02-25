@@ -100,7 +100,7 @@ class StorageModule:
             max_messages=cfg.chat_context_count,
         )
 
-        logger.info("StorageModule initialized")
+        logger.debug("StorageModule initialized")
 
     def is_embedding_ready(self) -> bool:
         """检查 embedding 系统是否就绪"""

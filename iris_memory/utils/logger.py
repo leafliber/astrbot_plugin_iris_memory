@@ -25,11 +25,11 @@ except ImportError:
 
 # 全局配置
 _LOG_CONFIG = {
-    "level": "INFO",  # 默认改为 INFO，减少 DEBUG 输出
+    "level": "INFO",
     "log_dir": None,
-    "max_bytes": 10 * 1024 * 1024,  # 10MB
+    "max_bytes": 10 * 1024 * 1024,
     "backup_count": 5,
-    "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    "format": "%(asctime)s - %(name)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s",
     "date_format": "%Y-%m-%d %H:%M:%S",
 }
 
@@ -57,16 +57,14 @@ def _extract_module_name(logger_name: str) -> str:
 
 
 class AstrBotLogHandler(logging.Handler):
-    """将日志转发到 AstrBot 控制台"""
-
     def emit(self, record: logging.LogRecord) -> None:
         if not _ASTRBOT_LOGGER_AVAILABLE or astrbot_logger is None:
             return
 
         module_name = _extract_module_name(record.name)
+        location = f"{Path(record.pathname).name}:{record.lineno}"
 
-        # 构建消息：模块名: 消息内容
-        msg = f"[{module_name}] {record.getMessage()}"
+        msg = f"[{module_name}] [{location}] {record.getMessage()}"
 
         level = record.levelno
         if level >= logging.ERROR:

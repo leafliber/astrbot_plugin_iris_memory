@@ -403,7 +403,7 @@ class MemberIdentityService:
             if len(profile.name_history) > self._MAX_NAME_HISTORY:
                 profile.name_history = profile.name_history[-self._MAX_NAME_HISTORY:]
 
-            logger.info(
+            logger.debug(
                 f"Member name changed: user={profile.user_id}, "
                 f"'{old_name}' -> '{new_name}'"
             )

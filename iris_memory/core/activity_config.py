@@ -161,7 +161,7 @@ class GroupActivityTracker:
         if new_level != state.level:
             old_level = state.level
             state.level = new_level
-            logger.info(
+            logger.debug(
                 f"Group {state.group_id} activity: "
                 f"{old_level.value} -> {new_level.value} "
                 f"({mph:.1f} msgs/h)"
@@ -278,7 +278,7 @@ class GroupActivityTracker:
                 self._states[gid] = GroupActivityState.from_dict(state_data)
             except Exception as e:
                 logger.warning(f"Failed to deserialize activity state for {gid}: {e}")
-        logger.info(f"Loaded activity states for {len(self._states)} groups")
+        logger.debug(f"Loaded activity states for {len(self._states)} groups")
 
 
 # ========== 活跃度感知配置提供者 ==========

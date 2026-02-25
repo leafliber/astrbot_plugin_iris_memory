@@ -65,7 +65,7 @@ class KGStorage:
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute("PRAGMA foreign_keys=ON")
         self._create_tables()
-        logger.info(f"KGStorage initialized: {db_path}")
+        logger.debug(f"KGStorage initialized: {db_path}")
 
     def _create_tables(self) -> None:
         """建表（幂等）"""

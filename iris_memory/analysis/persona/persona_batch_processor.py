@@ -147,7 +147,7 @@ class PersonaBatchProcessor:
             return
         self._is_running = True
         self._flush_task = asyncio.create_task(self._flush_loop())
-        logger.info(
+        logger.debug(
             f"PersonaBatchProcessor started "
             f"(threshold={self._batch_threshold}, "
             f"interval={self._flush_interval}s, "
@@ -158,7 +158,7 @@ class PersonaBatchProcessor:
         """停止处理器，处理剩余队列"""
         if not self._is_running:
             return
-        logger.info("[Hot-Reload] Stopping PersonaBatchProcessor...")
+        logger.debug("[Hot-Reload] Stopping PersonaBatchProcessor...")
         self._is_running = False
 
         if self._flush_task:
@@ -175,7 +175,7 @@ class PersonaBatchProcessor:
         except Exception as e:
             logger.warning(f"Error flushing remaining queues during stop: {e}")
 
-        logger.info(
+        logger.debug(
             f"[Hot-Reload] PersonaBatchProcessor stopped. "
             f"Stats: {self._stats.to_dict()}"
         )
@@ -293,7 +293,7 @@ class PersonaBatchProcessor:
         merged_content = self._merge_messages(messages)
         merged_summary = self._merge_summaries(messages)
 
-        logger.info(
+        logger.debug(
             f"Processing persona batch for {session_key}: "
             f"{msg_count} message(s)"
         )
@@ -420,7 +420,7 @@ class PersonaBatchProcessor:
             queues_data = data.get("queues", {})
             discarded = sum(len(msgs) for msgs in queues_data.values())
             if discarded > 0:
-                logger.info(
+                logger.debug(
                     f"Discarded {discarded} queued persona message(s) "
                     f"from previous session (clear-on-restart policy)"
                 )

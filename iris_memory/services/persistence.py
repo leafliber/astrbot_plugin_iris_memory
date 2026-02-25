@@ -48,7 +48,7 @@ class PersistenceOperations:
         sessions_data = await get_kv_data(KVStoreKeys.SESSIONS, {})
         if sessions_data:
             await self.session_manager.deserialize_from_kv_storage(sessions_data)
-            logger.info(LogTemplates.SESSION_LOADED.format(
+            logger.debug(LogTemplates.SESSION_LOADED.format(
                 count=self.session_manager.get_session_count()
             ))
 
@@ -60,7 +60,7 @@ class PersistenceOperations:
         lifecycle_state = await get_kv_data(KVStoreKeys.LIFECYCLE_STATE, {})
         if lifecycle_state:
             await self.lifecycle_manager.deserialize_state(lifecycle_state)
-            logger.info("Loaded lifecycle state")
+            logger.debug("Loaded lifecycle state")
 
     async def _load_batch_queues(self, get_kv_data) -> None:
         """加载批量处理器队列"""
@@ -70,7 +70,7 @@ class PersistenceOperations:
         batch_queues = await get_kv_data(KVStoreKeys.BATCH_QUEUES, {})
         if batch_queues:
             await self.batch_processor.deserialize_queues(batch_queues)
-            logger.info("Loaded batch processor queues")
+            logger.debug("Loaded batch processor queues")
 
     async def _load_chat_history(self, get_kv_data) -> None:
         """加载聊天记录缓冲区"""
@@ -80,7 +80,7 @@ class PersistenceOperations:
         chat_history = await get_kv_data(KVStoreKeys.CHAT_HISTORY, {})
         if chat_history:
             await self.chat_history_buffer.deserialize(chat_history)
-            logger.info("Loaded chat history buffer")
+            logger.debug("Loaded chat history buffer")
 
     async def _load_proactive_whitelist(self, get_kv_data) -> None:
         """加载主动回复白名单"""
@@ -90,7 +90,7 @@ class PersistenceOperations:
         whitelist_data = await get_kv_data(KVStoreKeys.PROACTIVE_REPLY_WHITELIST, [])
         if whitelist_data:
             self.proactive_manager.deserialize_whitelist(whitelist_data)
-            logger.info("Loaded proactive reply whitelist")
+            logger.debug("Loaded proactive reply whitelist")
 
     async def _load_member_identity(self, get_kv_data) -> None:
         """加载成员身份数据"""
@@ -101,7 +101,7 @@ class PersistenceOperations:
         if identity_data:
             self._member_identity.deserialize(identity_data)
             stats = self._member_identity.get_stats()
-            logger.info(
+            logger.debug(
                 f"Loaded member identity data: "
                 f"{stats['total_profiles']} profiles, "
                 f"{stats['total_groups']} groups"
@@ -115,7 +115,7 @@ class PersistenceOperations:
         activity_data = await get_kv_data(KVStoreKeys.GROUP_ACTIVITY, {})
         if activity_data:
             self._activity_tracker.deserialize(activity_data)
-            logger.info("Loaded group activity states")
+            logger.debug("Loaded group activity states")
 
     async def _load_user_personas(self, get_kv_data) -> None:
         """加载用户画像"""
@@ -136,7 +136,7 @@ class PersistenceOperations:
                     persona_log.restore_error(uid, e)
                     fail_count += 1
             persona_log.restore_summary(len(personas_data), success_count, fail_count)
-            logger.info(f"Loaded {len(self._user_personas)} user personas")
+            logger.debug(f"Loaded {len(self._user_personas)} user personas")
 
     async def _load_persona_batch_queues(self, get_kv_data) -> None:
         """加载画像批量处理器队列（重启时清空策略）"""
@@ -146,7 +146,7 @@ class PersistenceOperations:
         data = await get_kv_data(KVStoreKeys.PERSONA_BATCH_QUEUES, {})
         if data:
             await self._persona_batch_processor.deserialize_and_clear(data)
-            logger.info("Loaded persona batch processor state (queues cleared)")
+            logger.debug("Loaded persona batch processor state (queues cleared)")
 
     async def save_to_kv(self, put_kv_data) -> None:
         """保存到KV存储"""
@@ -173,7 +173,7 @@ class PersistenceOperations:
         
         sessions_data = await self.session_manager.serialize_for_kv_storage()
         await put_kv_data(KVStoreKeys.SESSIONS, sessions_data)
-        logger.info(LogTemplates.SESSION_SAVED.format(
+        logger.debug(LogTemplates.SESSION_SAVED.format(
             count=self.session_manager.get_session_count()
         ))
 
@@ -194,7 +194,7 @@ class PersistenceOperations:
         
         batch_queues = await self.batch_processor.serialize_queues()
         await put_func(KVStoreKeys.BATCH_QUEUES, batch_queues)
-        logger.info("Saved batch processor queues")
+        logger.debug("Saved batch processor queues")
 
     async def _save_chat_history(self, put_kv_data) -> None:
         """保存聊天记录缓冲区"""
@@ -203,7 +203,7 @@ class PersistenceOperations:
         
         chat_history = await self.chat_history_buffer.serialize()
         await put_kv_data(KVStoreKeys.CHAT_HISTORY, chat_history)
-        logger.info("Saved chat history buffer")
+        logger.debug("Saved chat history buffer")
 
     async def _save_proactive_whitelist(self, put_kv_data) -> None:
         """保存主动回复白名单"""
@@ -212,7 +212,7 @@ class PersistenceOperations:
         
         whitelist_data = self.proactive_manager.serialize_whitelist()
         await put_kv_data(KVStoreKeys.PROACTIVE_REPLY_WHITELIST, whitelist_data)
-        logger.info("Saved proactive reply whitelist")
+        logger.debug("Saved proactive reply whitelist")
 
     async def _save_member_identity(self, put_kv_data) -> None:
         """保存成员身份数据"""
@@ -221,7 +221,7 @@ class PersistenceOperations:
         
         identity_data = self._member_identity.serialize()
         await put_kv_data(KVStoreKeys.MEMBER_IDENTITY, identity_data)
-        logger.info("Saved member identity data")
+        logger.debug("Saved member identity data")
 
     async def _save_activity_data(self, put_kv_data) -> None:
         """保存群活跃度数据"""
@@ -230,7 +230,7 @@ class PersistenceOperations:
         
         activity_data = self._activity_tracker.serialize()
         await put_kv_data(KVStoreKeys.GROUP_ACTIVITY, activity_data)
-        logger.info("Saved group activity states")
+        logger.debug("Saved group activity states")
 
     async def _save_user_personas(self, put_kv_data) -> None:
         """保存用户画像"""
@@ -248,7 +248,7 @@ class PersistenceOperations:
             except Exception as e:
                 persona_log.persist_error(uid, e)
         await put_kv_data(KVStoreKeys.USER_PERSONAS, personas_data)
-        logger.info(f"Saved {len(personas_data)} user personas")
+        logger.debug(f"Saved {len(personas_data)} user personas")
 
     async def _save_persona_batch_queues(self, put_kv_data) -> None:
         """保存画像批量处理器队列"""
@@ -257,7 +257,7 @@ class PersistenceOperations:
 
         data = await self._persona_batch_processor.serialize_queues()
         await put_kv_data(KVStoreKeys.PERSONA_BATCH_QUEUES, data)
-        logger.info("Saved persona batch processor state")
+        logger.debug("Saved persona batch processor state")
 
     async def terminate(self) -> None:
         """销毁服务
@@ -269,7 +269,7 @@ class PersistenceOperations:
         4. 清理全局状态引用
         5. 关闭底层存储
         """
-        logger.info("[Hot-Reload] Terminating memory service...")
+        logger.debug("[Hot-Reload] Terminating memory service...")
         
         self._is_initialized = False
         
@@ -282,7 +282,7 @@ class PersistenceOperations:
             
             self._log_final_stats()
             
-            logger.info(LogTemplates.PLUGIN_TERMINATED)
+            logger.debug(LogTemplates.PLUGIN_TERMINATED)
             
         except Exception as e:
             logger.error(LogTemplates.PLUGIN_TERMINATE_ERROR.format(error=e), exc_info=True)
@@ -297,7 +297,7 @@ class PersistenceOperations:
 
     def _log_final_stats(self) -> None:
         """输出最终统计"""
-        logger.info(LogTemplates.FINAL_STATS_HEADER)
+        logger.debug(LogTemplates.FINAL_STATS_HEADER)
         
         components = [
             ("Message Classifier", self.message_classifier),
@@ -312,6 +312,6 @@ class PersistenceOperations:
             if component and hasattr(component, 'get_stats'):
                 try:
                     stats = component.get_stats()
-                    logger.info(f"{name}: {stats}")
+                    logger.debug(f"{name}: {stats}")
                 except Exception as e:
                     logger.debug(f"Failed to get stats from {name}: {e}")

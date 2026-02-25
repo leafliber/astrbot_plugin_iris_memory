@@ -107,7 +107,7 @@ class SessionLifecycleManager:
     async def start(self):
         """启动生命周期管理器"""
         if self.is_running:
-            logger.info("SessionLifecycleManager is already running")
+            logger.debug("SessionLifecycleManager is already running")
             return
         
         self.is_running = True
@@ -116,13 +116,13 @@ class SessionLifecycleManager:
         # 新增：启动记忆升级定时任务
         if self.chroma_manager:
             self.promotion_task = asyncio.create_task(self._promotion_loop())
-            logger.info("Memory promotion task started")
+            logger.debug("Memory promotion task started")
         
-        logger.info("SessionLifecycleManager started")
+        logger.debug("SessionLifecycleManager started")
     
     async def stop(self):
         """停止生命周期管理器（热更新友好）"""
-        logger.info("[Hot-Reload] Stopping SessionLifecycleManager...")
+        logger.debug("[Hot-Reload] Stopping SessionLifecycleManager...")
         self.is_running = False
         
         # 收集所有需要取消的任务
@@ -145,7 +145,7 @@ class SessionLifecycleManager:
         self.cleanup_task = None
         self.promotion_task = None
         
-        logger.info("[Hot-Reload] SessionLifecycleManager stopped")
+        logger.debug("[Hot-Reload] SessionLifecycleManager stopped")
     
     async def _cleanup_loop(self):
         """清理循环"""
@@ -233,7 +233,7 @@ class SessionLifecycleManager:
                             logger.error(f"Error promoting memory {memory.id}: {e}")
             
             if working_promoted > 0 or failed_promotions > 0:
-                logger.info(
+                logger.debug(
                     f"Working memory promotion: {working_promoted} promoted, "
                     f"{failed_promotions} failed"
                 )
@@ -281,7 +281,7 @@ class SessionLifecycleManager:
                             logger.error(f"Error updating memory {memory.id}: {e}")
             
             if semantic_promoted > 0:
-                logger.info(
+                logger.debug(
                     f"Memory promotion completed: {semantic_promoted} memories "
                     f"promoted from EPISODIC to SEMANTIC (mode={self.upgrade_mode.value})"
                 )
@@ -377,7 +377,7 @@ class SessionLifecycleManager:
                     cleaned_count += 1
         
         if cleaned_count > 0 or archived_count > 0:
-            logger.info(
+            logger.debug(
                 f"Session cleanup completed: {cleaned_count} closed, "
                 f"{archived_count} archived"
             )
@@ -472,7 +472,7 @@ class SessionLifecycleManager:
             await self.session_manager.clear_working_memory(user_id, group_id)
             
             if upgraded_memories:
-                logger.info(
+                logger.debug(
                     f"Archived session {session_key}: "
                     f"{len(upgraded_memories)} memories upgraded to EPISODIC, "
                     f"{len(discarded_memories)} memories discarded"
@@ -723,4 +723,4 @@ class SessionLifecycleManager:
                 "last_updated": last_updated
             }
 
-        logger.info(f"Loaded {len(self.session_states)} session states")
+        logger.debug(f"Loaded {len(self.session_states)} session states")

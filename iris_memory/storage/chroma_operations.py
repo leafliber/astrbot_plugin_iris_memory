@@ -55,7 +55,7 @@ class ChromaOperations:
                 metadatas=[metadata]
             )
             
-            logger.info(f"Memory added to Chroma: id={memory.id}, user={memory.user_id}, storage_layer={memory.storage_layer.value}")
+            logger.debug(f"Memory added to Chroma: id={memory.id}, user={memory.user_id}, storage_layer={memory.storage_layer.value}")
             return memory.id
             
         except Exception as e:
@@ -235,7 +235,7 @@ class ChromaOperations:
             
             if results['ids']:
                 self.collection.delete(ids=results['ids'])
-                logger.info(f"Deleted {len(results['ids'])} memories for session {user_id}/{group_id}")
+                logger.debug(f"Deleted {len(results['ids'])} memories for session {user_id}/{group_id}")
                 return True
             
             return False
@@ -276,7 +276,7 @@ class ChromaOperations:
             
             if all_ids:
                 self.collection.delete(ids=list(all_ids))
-                logger.info(f"Deleted {len(all_ids)} memories for user {user_id} (private_only={in_private_only})")
+                logger.debug(f"Deleted {len(all_ids)} memories for user {user_id} (private_only={in_private_only})")
                 return True, len(all_ids)
             
             return False, 0
@@ -317,7 +317,7 @@ class ChromaOperations:
             
             if all_ids:
                 self.collection.delete(ids=list(all_ids))
-                logger.info(f"Deleted {len(all_ids)} memories for group {group_id} (scope_filter={scope_filter})")
+                logger.debug(f"Deleted {len(all_ids)} memories for group {group_id} (scope_filter={scope_filter})")
                 return True, len(all_ids)
             
             return False, 0
@@ -337,7 +337,7 @@ class ChromaOperations:
             results = self.collection.get()
             
             if not results or not results.get('ids'):
-                logger.info("Database is empty, nothing to delete")
+                logger.debug("Database is empty, nothing to delete")
                 return True, 0
             
             count = len(results['ids'])

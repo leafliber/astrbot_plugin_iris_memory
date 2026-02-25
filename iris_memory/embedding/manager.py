@@ -153,9 +153,8 @@ class EmbeddingManager:
         self._embedding_cache[cache_key] = (embedding, expire_at)
 
     def clear_cache(self):
-        """清空缓存"""
         self._embedding_cache.clear()
-        logger.info("Embedding cache cleared")
+        logger.debug("Embedding cache cleared")
 
     def get_cache_stats(self) -> Dict[str, Any]:
         """获取缓存统计
@@ -190,14 +189,7 @@ class EmbeddingManager:
     # ========== 初始化逻辑 ==========
 
     async def initialize(self) -> bool:
-        """初始化嵌入管理器
-
-        根据配置的 embedding.source 选择并初始化嵌入提供者。
-
-        Returns:
-            bool: 是否至少有一个提供者可用
-        """
-        logger.info("Initializing embedding manager...")
+        logger.debug("Initializing embedding manager...")
 
         from iris_memory.core.config_manager import get_config_manager
         cfg = get_config_manager()
@@ -209,7 +201,7 @@ class EmbeddingManager:
             logger.warning(f"Invalid embedding source '{source_str}', using AUTO")
             self.current_source = EmbeddingSource.AUTO
 
-        logger.info(f"Embedding source: {self.current_source.value}")
+        logger.debug(f"Embedding source: {self.current_source.value}")
 
         # 根据源选择初始化提供者
         if self.current_source == EmbeddingSource.AUTO:
@@ -235,7 +227,7 @@ class EmbeddingManager:
         astrbot_ok = await self._try_init_astrbot(cfg)
         if astrbot_ok:
             self.current_provider = self.providers["astrbot"]
-            logger.info(
+            logger.debug(
                 f"Selected embedding provider: astrbot "
                 f"(model={self.current_provider.model}, dimension={self.get_dimension()})"
             )
@@ -247,21 +239,21 @@ class EmbeddingManager:
             if local_ok:
                 self.current_provider = self.providers["local"]
                 if self.current_provider.is_ready:
-                    logger.info(
+                    logger.debug(
                         f"AstrBot unavailable, using local provider "
                         f"(model={self.current_provider.model}, dimension={self.get_dimension()})"
                     )
                 else:
-                    logger.info(
+                    logger.debug(
                         f"AstrBot unavailable, using local provider "
                         f"(model={self.current_provider.model}, dimension=loading...)"
                     )
                 return True
             logger.warning("Local provider initialization also failed")
         elif not cfg.embedding_fallback_to_local:
-            logger.info("AstrBot unavailable and fallback_to_local is disabled")
+            logger.debug("AstrBot unavailable and fallback_to_local is disabled")
         elif not cfg.enable_local_provider:
-            logger.info("AstrBot unavailable and local provider is disabled")
+            logger.debug("AstrBot unavailable and local provider is disabled")
 
         # 3. 都失败，使用 Fallback
         return await self._init_fallback_as_last_resort()
@@ -278,7 +270,7 @@ class EmbeddingManager:
         astrbot_ok = await self._try_init_astrbot(cfg)
         if astrbot_ok:
             self.current_provider = self.providers["astrbot"]
-            logger.info(
+            logger.debug(
                 f"Selected embedding provider: astrbot "
                 f"(model={self.current_provider.model}, dimension={self.get_dimension()})"
             )
@@ -304,12 +296,12 @@ class EmbeddingManager:
         if local_ok:
             self.current_provider = self.providers["local"]
             if self.current_provider.is_ready:
-                logger.info(
+                logger.debug(
                     f"Selected embedding provider: local "
                     f"(model={self.current_provider.model}, dimension={self.get_dimension()})"
                 )
             else:
-                logger.info(
+                logger.debug(
                     f"Selected embedding provider: local "
                     f"(model={self.current_provider.model}, dimension=loading...)"
                 )
@@ -368,7 +360,7 @@ class EmbeddingManager:
             self.providers["fallback"] = provider
             self.current_provider = provider
             self.stats["provider_usage"]["fallback"] = 0
-            logger.info(f"Fallback provider initialized (dimension={self.get_dimension()})")
+            logger.debug(f"Fallback provider initialized (dimension={self.get_dimension()})")
             return True
 
         logger.error("Failed to initialize any embedding provider")
@@ -391,7 +383,7 @@ class EmbeddingManager:
         # 检查模型是否变更，变更时清空缓存
         current_model = self.get_model()
         if self._cache_model_key and self._cache_model_key != current_model:
-            logger.info(
+            logger.debug(
                 f"Embedding model changed from '{self._cache_model_key}' to '{current_model}', "
                 f"clearing cache ({len(self._embedding_cache)} entries)"
             )
@@ -459,7 +451,7 @@ class EmbeddingManager:
 
                 # 切换当前提供者
                 self.current_provider = provider
-                logger.info(f"Switched to provider: {provider_name}")
+                logger.debug(f"Switched to provider: {provider_name}")
 
                 self.stats["successful_requests"] += 1
                 self.stats["provider_usage"][provider_name] = \
@@ -561,7 +553,7 @@ class EmbeddingManager:
 
             if results.get('embeddings') and results['embeddings'][0]:
                 dimension = len(results['embeddings'][0])
-                logger.info(f"Detected existing collection dimension: {dimension}")
+                logger.debug(f"Detected existing collection dimension: {dimension}")
                 return dimension
 
             return None

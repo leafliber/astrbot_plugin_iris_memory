@@ -96,7 +96,7 @@ class ChromaQueries:
                 f"returned={len(memories)}"
             )
 
-            logger.info(f"Queried {len(memories)} memories for user={user_id}, group={group_id}, query='{query_text[:30]}...'")
+            logger.debug(f"Queried {len(memories)} memories for user={user_id}, group={group_id}, query='{query_text[:30]}...'")
             return memories
 
         except Exception as e:

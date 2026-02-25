@@ -140,7 +140,7 @@ class KeywordMaps:
                 with open(self._yaml_path, "r", encoding="utf-8") as f:
                     self._data = yaml.safe_load(f) or {}
                 self._loaded = True
-                logger.info(f"Keyword maps loaded from {self._yaml_path}")
+                logger.debug(f"Keyword maps loaded from {self._yaml_path}")
                 return
             except Exception as e:
                 logger.warning(f"Failed to load keyword maps from {self._yaml_path}: {e}")
@@ -148,7 +148,7 @@ class KeywordMaps:
         # 内置默认值（兜底）
         self._data = self._builtin_defaults()
         self._loaded = True
-        logger.info("Using builtin default keyword maps")
+        logger.debug("Using builtin default keyword maps")
 
     @staticmethod
     def _builtin_defaults() -> Dict[str, Any]:

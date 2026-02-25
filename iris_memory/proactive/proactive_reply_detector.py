@@ -125,7 +125,7 @@ class ProactiveReplyDetector:
             user_persona=context.get("user_persona", {}) if context else {}
         )
         
-        logger.info(f"Proactive reply decision for {user_id}: "
+        logger.debug(f"Proactive reply decision for {user_id}: "
                    f"{decision.urgency.value}, reason: {decision.reason}")
         
         return decision

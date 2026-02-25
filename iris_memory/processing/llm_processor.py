@@ -133,7 +133,7 @@ class LLMMessageProcessor:
             logger.info("AstrBot context not available, LLM features disabled")
             return False
         
-        logger.info("LLM processor initialized (provider will be loaded on first use)")
+        logger.debug("LLM processor initialized (provider will be loaded on first use)")
         return True
     
     async def _try_init_provider(self) -> bool:
@@ -163,7 +163,7 @@ class LLMMessageProcessor:
             if provider:
                 self.llm_api = provider
                 self.default_provider_id = extract_provider_id(self.llm_api)
-                logger.info(
+                logger.debug(
                     f"LLM provider loaded on demand: {self.default_provider_id} "
                     f"(attempt {self._init_retry_count})"
                 )
@@ -393,7 +393,7 @@ class LLMMessageProcessor:
             elapsed = time.time() - self._cb_last_failure_time
             if elapsed >= CIRCUIT_BREAKER_RECOVERY_TIMEOUT:
                 self._cb_state = "half_open"
-                logger.info(
+                logger.debug(
                     f"LLM circuit breaker transitioning to HALF_OPEN "
                     f"after {elapsed:.0f}s recovery timeout"
                 )
@@ -406,7 +406,7 @@ class LLMMessageProcessor:
     def _circuit_breaker_on_success(self) -> None:
         """请求成功时重置熔断器"""
         if self._cb_state != "closed":
-            logger.info(
+            logger.debug(
                 f"LLM circuit breaker CLOSED (recovered from {self._cb_state})"
             )
         self._cb_failure_count = 0

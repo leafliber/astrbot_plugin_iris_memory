@@ -136,7 +136,7 @@ class ImageAnalyzer:
             "context_skipped": 0
         }
         
-        logger.info(f"ImageAnalyzer initialized: enable={self.enable_analysis}, "
+        logger.debug(f"ImageAnalyzer initialized: enable={self.enable_analysis}, "
                    f"max_images={self.max_images_per_message}, "
                    f"default_level={self.default_level}")
     
@@ -539,12 +539,12 @@ class ImageAnalyzer:
         """清空缓存"""
         self._cache_manager.clear()
         self._similar_detector.clear()
-        logger.info("Image analysis cache cleared")
+        logger.debug("Image analysis cache cleared")
     
     def clear_all_budgets(self) -> None:
         """清空所有预算计数"""
         self._budget_manager.clear_all()
-        logger.info("All image analysis budgets cleared")
+        logger.debug("All image analysis budgets cleared")
     
     def _increment_budget(self, user_id: str, session_id: str = "") -> None:
         """向后兼容方法：增加预算计数"""

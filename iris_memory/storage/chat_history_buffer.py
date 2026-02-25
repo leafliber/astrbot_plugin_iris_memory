@@ -302,6 +302,6 @@ class ChatHistoryBuffer:
                         logger.warning(f"Skipping malformed chat message during deserialization: {e}")
                         continue
                 self._buffers[key] = buf
-            logger.info(
+            logger.debug(
                 f"Chat history deserialized: {len(self._buffers)} sessions"
             )

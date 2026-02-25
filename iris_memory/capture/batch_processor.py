@@ -117,14 +117,14 @@ class MessageBatchProcessor:
         self.is_running = True
         self.cleanup_task = asyncio.create_task(self._cleanup_loop())
         self.auto_save_task = asyncio.create_task(self._auto_save_loop())
-        logger.info(
+        logger.debug(
             f"MessageBatchProcessor started (threshold={self.threshold_count}, "
             f"LLM: {self.use_llm_summary})"
         )
     
     async def stop(self) -> None:
         """停止处理器（热更新友好）"""
-        logger.info("[Hot-Reload] Stopping MessageBatchProcessor...")
+        logger.debug("[Hot-Reload] Stopping MessageBatchProcessor...")
         self.is_running = False
         
         if self.cleanup_task:
@@ -149,7 +149,7 @@ class MessageBatchProcessor:
         except Exception as e:
             logger.warning(f"[Hot-Reload] Error processing remaining queues during stop: {e}")
         
-        logger.info("[Hot-Reload] MessageBatchProcessor stopped")
+        logger.debug("[Hot-Reload] MessageBatchProcessor stopped")
     
     def _check_llm_cooldown(self, session_key: str) -> bool:
         """检查LLM冷却时间"""
@@ -322,7 +322,7 @@ class MessageBatchProcessor:
                 self.last_process_time.pop(key, None)
                 evicted += 1
         if evicted > 0:
-            logger.info(f"Evicted {evicted} oldest idle session(s) (cap={self.MAX_TRACKED_SESSIONS})")
+            logger.debug(f"Evicted {evicted} oldest idle session(s) (cap={self.MAX_TRACKED_SESSIONS})")
     
     async def _process_queue(self, session_key: str):
         """处理指定队列"""
@@ -333,14 +333,14 @@ class MessageBatchProcessor:
         self.stats["batches_processed"] += 1
         original_count = len(queue)
         
-        logger.info(f"Processing batch for {session_key}, original count: {original_count}")
+        logger.debug(f"Processing batch for {session_key}, original count: {original_count}")
         
         try:
             queue = self._merger.deduplicate_messages(queue)
             queue = self._merger.merge_short_messages(queue)
             
             merged_count = len(queue)
-            logger.info(f"After merge: {merged_count} messages (merged {original_count - merged_count})")
+            logger.debug(f"After merge: {merged_count} messages (merged {original_count - merged_count})")
             
             if self.processing_mode == "summary":
                 await self._process_summary_mode(session_key, queue)
@@ -482,7 +482,7 @@ class MessageBatchProcessor:
                 logger.warning(f"Failed to capture memory: {e}")
         
         if captured_count > 0:
-            logger.info(f"Batch capture: {captured_count}/{len(queue)} messages")
+            logger.debug(f"Batch capture: {captured_count}/{len(queue)} messages")
         
         if len(queue) >= 2 and self._check_summary_cooldown(session_key):
             await self._process_summary_mode(session_key, queue)
@@ -526,7 +526,7 @@ class MessageBatchProcessor:
                 if 0 <= idx < len(queue):
                     indices.add(idx)
             
-            logger.info(f"Batch LLM classified {len(indices)}/{len(queue)} as high value")
+            logger.debug(f"Batch LLM classified {len(indices)}/{len(queue)} as high value")
             return indices
             
         except Exception as e:

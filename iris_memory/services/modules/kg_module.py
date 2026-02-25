@@ -90,7 +90,7 @@ class KnowledgeGraphModule:
         """
         self._enabled = enabled
         if not enabled:
-            logger.info("KnowledgeGraphModule disabled by config")
+            logger.debug("KnowledgeGraphModule disabled by config")
             return
 
         from iris_memory.knowledge_graph.kg_storage import KGStorage
@@ -123,7 +123,7 @@ class KnowledgeGraphModule:
             max_facts=max_facts,
         )
 
-        logger.info(
+        logger.debug(
             f"KnowledgeGraphModule initialized: mode={kg_mode}, "
             f"max_depth={max_depth}, db={db_path}"
         )

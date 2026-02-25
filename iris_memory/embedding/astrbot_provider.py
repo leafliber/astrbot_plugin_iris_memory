@@ -85,13 +85,13 @@ class AstrBotProvider(EmbeddingProvider):
             # 通过实际嵌入调用检测真实维度
             actual_dimension = await self._detect_actual_dimension()
             if actual_dimension and actual_dimension != self._dimension:
-                logger.info(
+                logger.debug(
                     f"Detected actual embedding dimension: {actual_dimension} "
                     f"(was {self._dimension})"
                 )
                 self._dimension = actual_dimension
             
-            logger.info(
+            logger.debug(
                 f"AstrBot embedding provider initialized: {self._model}, "
                 f"dimension={self._dimension}"
                 f"{f', provider_id={self.provider_id}' if self.provider_id else ''}"
@@ -122,11 +122,10 @@ class AstrBotProvider(EmbeddingProvider):
         for provider in providers:
             pid = extract_provider_id(provider)
             if pid and pid == self.provider_id:
-                logger.info(f"Found matching embedding provider: {self.provider_id}")
+                logger.debug(f"Found matching embedding provider: {self.provider_id}")
                 return provider
-            # 大小写不敏感匹配
             if pid and pid.lower() == self.provider_id.lower():
-                logger.info(f"Found matching embedding provider (case-insensitive): {self.provider_id}")
+                logger.debug(f"Found matching embedding provider (case-insensitive): {self.provider_id}")
                 return provider
         
         # 未找到匹配的 provider

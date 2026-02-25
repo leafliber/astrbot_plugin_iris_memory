@@ -594,4 +594,4 @@ class PersonaCoordinator:
             strategy: 协调策略
         """
         self.strategy = strategy
-        logger.info(f"Persona coordination strategy set to: {strategy.value}")
+        logger.debug(f"Persona coordination strategy set to: {strategy.value}")

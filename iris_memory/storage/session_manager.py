@@ -257,7 +257,7 @@ class SessionManager:
         if session_key in self.session_metadata:
             del self.session_metadata[session_key]
 
-        logger.info(f"Session deleted: {session_key}")
+        logger.debug(f"Session deleted: {session_key}")
         return True
     
     def get_all_sessions(self) -> Dict[str, Dict[str, Any]]:
@@ -343,7 +343,7 @@ class SessionManager:
                     Memory.from_dict(m) for m in memories_data
                 ]
         
-        logger.info(f"Session data deserialized: {len(self.session_metadata)} sessions")
+        logger.debug(f"Session data deserialized: {len(self.session_metadata)} sessions")
     
     def set_max_working_memory(self, max_count: int):
         """设置最大工作记忆数量
@@ -381,7 +381,7 @@ class SessionManager:
                 self._stats["memories_removed"] += removed
 
         if cleaned_count > 0:
-            logger.info(f"Cleaned {cleaned_count} expired working memories")
+            logger.debug(f"Cleaned {cleaned_count} expired working memories")
     
     def get_memory_usage_stats(self) -> Dict[str, Any]:
         """获取内存使用统计
@@ -430,7 +430,7 @@ class SessionManager:
         - 清理过期会话
         - 强制LRU淘汰（如果超过限制）
         """
-        logger.info("Starting session manager maintenance...")
+        logger.debug("Starting session manager maintenance...")
         
         # 1. 清理过期工作记忆
         self.clean_expired_working_memory(hours=24)
@@ -454,7 +454,7 @@ class SessionManager:
             self.delete_session(session_key)
         
         if expired_sessions:
-            logger.info(f"Removed {len(expired_sessions)} expired sessions")
+            logger.debug(f"Removed {len(expired_sessions)} expired sessions")
         
         # 3. 强制LRU淘汰（如果超过限制）
         while len(self._session_order) > self.max_sessions:
@@ -467,7 +467,7 @@ class SessionManager:
             logger.debug(f"LRU evicted session: {oldest_key}")
         
         stats = self.get_memory_usage_stats()
-        logger.info(f"Maintenance complete: {stats['total_sessions']} sessions, "
+        logger.debug(f"Maintenance complete: {stats['total_sessions']} sessions, "
                    f"{stats['total_working_memories']} memories, "
                    f"~{stats['estimated_memory_mb']}MB estimated")
     

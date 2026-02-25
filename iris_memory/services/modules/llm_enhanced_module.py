@@ -89,7 +89,7 @@ class LLMEnhancedModule:
     async def initialize(self, cfg: Any, context: Any) -> None:
         """初始化所有 LLM 增强组件"""
         if not cfg.llm_enhanced_enabled:
-            logger.info("LLM enhanced: all modules using rule mode")
+            logger.debug("LLM enhanced: all modules using rule mode")
             return
 
         from iris_memory.core.detection.llm_enhanced_base import DetectionMode
@@ -101,8 +101,8 @@ class LLMEnhancedModule:
         from iris_memory.retrieval.llm_retrieval_router import LLMRetrievalRouter
 
         provider_id = cfg.llm_enhanced_provider_id
-        logger.info(f"[DEBUG] enhanced_provider_id from config: {repr(provider_id)}")
-        logger.info(f"[DEBUG] raw config value: {repr(cfg.get('llm_providers.enhanced_provider_id'))}")
+        logger.debug(f"[DEBUG] enhanced_provider_id from config: {repr(provider_id)}")
+        logger.debug(f"[DEBUG] raw config value: {repr(cfg.get('llm_providers.enhanced_provider_id'))}")
         modes: list[str] = []
 
         _MAPPING = [
@@ -126,9 +126,9 @@ class LLMEnhancedModule:
                 modes.append(f"{name}={mode_str}")
 
         if modes:
-            logger.info(f"LLM enhanced enabled: {', '.join(modes)}")
+            logger.debug(f"LLM enhanced enabled: {', '.join(modes)}")
         else:
-            logger.info("LLM enhanced: all modules using rule mode")
+            logger.debug("LLM enhanced: all modules using rule mode")
 
     async def init_llm_processor(
         self,
@@ -150,7 +150,7 @@ class LLMEnhancedModule:
         llm_ready = await self._llm_processor.initialize()
         if llm_ready and lifecycle_manager:
             lifecycle_manager.set_llm_provider(self._llm_processor)
-            logger.info("LLM processor ready")
+            logger.debug("LLM processor ready")
         else:
             logger.warning("LLM context not available, LLM features disabled")
             self._llm_processor = None

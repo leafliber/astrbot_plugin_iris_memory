@@ -54,7 +54,7 @@ class AnalysisModule:
 
         self._emotion_analyzer = EmotionAnalyzer(config)
         self._rif_scorer = RIFScorer()
-        logger.info("AnalysisModule core initialized (emotion + rif)")
+        logger.debug("AnalysisModule core initialized (emotion + rif)")
 
     async def init_persona_extractor(
         self,
@@ -67,7 +67,7 @@ class AnalysisModule:
         from iris_memory.analysis.persona.keyword_maps import KeywordMaps
 
         mode = cfg.persona_extraction_mode
-        logger.info(f"Initializing persona extractor (mode={mode})")
+        logger.debug(f"Initializing persona extractor (mode={mode})")
 
         # 关键词配置加载优先级：
         # 1) 外部 data 目录（用户覆盖）
@@ -107,7 +107,7 @@ class AnalysisModule:
             enable_preference=cfg.persona_enable_preference,
             fallback_to_rule=cfg.persona_fallback_to_rule,
         )
-        logger.info(f"Persona extractor ready (mode={mode})")
+        logger.debug(f"Persona extractor ready (mode={mode})")
 
     async def init_persona_batch_processor(
         self,
@@ -119,11 +119,11 @@ class AnalysisModule:
         依赖 persona_extractor 已初始化。若未启用或提取器不可用，则跳过。
         """
         if not cfg.persona_batch_enabled:
-            logger.info("Persona batch processor disabled by config")
+            logger.debug("Persona batch processor disabled by config")
             return
 
         if not self._persona_extractor:
-            logger.info("Persona batch processor skipped: extractor not available")
+            logger.debug("Persona batch processor skipped: extractor not available")
             return
 
         from iris_memory.analysis.persona.persona_batch_processor import (
@@ -138,7 +138,7 @@ class AnalysisModule:
             apply_result_callback=apply_result_callback,
         )
         await self._persona_batch_processor.start()
-        logger.info(
+        logger.debug(
             f"Persona batch processor initialized "
             f"(threshold={cfg.persona_batch_threshold}, "
             f"interval={cfg.persona_batch_flush_interval}s)"

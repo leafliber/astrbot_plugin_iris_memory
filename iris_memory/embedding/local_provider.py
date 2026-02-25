@@ -64,7 +64,7 @@ class LocalProvider(EmbeddingProvider):
             from iris_memory.core.config_manager import get_config_manager
             cfg = get_config_manager()
             if not cfg.enable_local_provider:
-                logger.info("Local embedding provider disabled by configuration")
+                logger.debug("Local embedding provider disabled by configuration")
                 return False
             
             # 检查依赖
@@ -100,7 +100,7 @@ class LocalProvider(EmbeddingProvider):
             
             # 启动后台加载任务
             self._start_background_load(model_name)
-            logger.info(f"LocalProvider initialized, background model loading started: {model_name}")
+            logger.debug(f"LocalProvider initialized, background model loading started: {model_name}")
             return True
 
         except Exception as e:
@@ -116,11 +116,11 @@ class LocalProvider(EmbeddingProvider):
         def _load_model():
             try:
                 from sentence_transformers import SentenceTransformer
-                logger.info(f"[Background] Loading local embedding model: {model_name} on {self.device}")
+                logger.debug(f"[Background] Loading local embedding model: {model_name} on {self.device}")
                 self._model_instance = SentenceTransformer(model_name, device=self.device)
                 actual_dim = self._model_instance.get_sentence_embedding_dimension()
                 self._dimension = actual_dim
-                logger.info(
+                logger.debug(
                     f"[Background] Local embedding model loaded successfully: "
                     f"{model_name} (dim={actual_dim}, device={self.device})"
                 )
@@ -149,7 +149,7 @@ class LocalProvider(EmbeddingProvider):
                 raise RuntimeError(f"Local embedding model failed to load: {self._load_error}")
             return
         
-        logger.info("Waiting for local embedding model to finish loading...")
+        logger.debug("Waiting for local embedding model to finish loading...")
         if not self._load_complete.wait(timeout=timeout):
             raise RuntimeError(
                 f"Local embedding model loading timed out after {timeout}s"

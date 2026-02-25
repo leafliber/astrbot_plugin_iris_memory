@@ -63,7 +63,7 @@ class CaptureModule:
             llm_trigger_detector=llm_trigger_detector,
             llm_conflict_resolver=llm_conflict_resolver,
         )
-        logger.info("CaptureEngine initialized")
+        logger.debug("CaptureEngine initialized")
 
     def init_message_classifier(
         self,
@@ -88,7 +88,7 @@ class CaptureModule:
                 "immediate_emotion_intensity": DEFAULTS.message_processing.immediate_emotion_intensity,
             },
         )
-        logger.info("MessageClassifier initialized")
+        logger.debug("MessageClassifier initialized")
 
     async def init_batch_processor(
         self,
@@ -125,7 +125,7 @@ class CaptureModule:
             config_manager=cfg,
         )
         await self._batch_processor.start()
-        logger.info(f"BatchProcessor initialized (threshold={threshold_count})")
+        logger.debug(f"BatchProcessor initialized (threshold={threshold_count})")
 
     # ── 配置应用 ──
 

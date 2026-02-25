@@ -42,7 +42,7 @@ class RIFScorer:
             'calculations': 0
         }
         
-        logger.info("RIF Scorer initialized")
+        logger.debug("RIF Scorer initialized")
     
     def calculate_rif(
         self,

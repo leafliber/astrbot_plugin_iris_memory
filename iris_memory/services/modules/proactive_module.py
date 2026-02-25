@@ -41,10 +41,10 @@ class ProactiveModule:
         from iris_memory.core.defaults import DEFAULTS
         from iris_memory.core.constants import LogTemplates
 
-        logger.info(LogTemplates.COMPONENT_INIT.format(component="proactive reply"))
+        logger.debug(LogTemplates.COMPONENT_INIT.format(component="proactive reply"))
 
         if not cfg.proactive_reply_enabled:
-            logger.info(LogTemplates.COMPONENT_INIT_DISABLED.format(component="Proactive reply"))
+            logger.debug(LogTemplates.COMPONENT_INIT_DISABLED.format(component="Proactive reply"))
             return
 
         # 选择检测器
@@ -75,7 +75,7 @@ class ProactiveModule:
             config_manager=cfg,
         )
         await self._proactive_manager.initialize()
-        logger.info("Proactive reply components initialized")
+        logger.debug("Proactive reply components initialized")
 
     def _resolve_detector(
         self,
@@ -83,7 +83,7 @@ class ProactiveModule:
         llm_detector: Any = None,
     ) -> Any:
         if llm_detector:
-            logger.info("Using LLM-enhanced proactive reply detector")
+            logger.debug("Using LLM-enhanced proactive reply detector")
             return llm_detector
 
         from iris_memory.proactive.proactive_reply_detector import ProactiveReplyDetector

@@ -292,7 +292,7 @@ class ConflictResolver:
                 try:
                     if chroma_manager:
                         await chroma_manager.delete_memory(old_memory.id)
-                        logger.info(f"Conflict resolved: replaced {old_memory.id} with {new_memory.id}")
+                        logger.debug(f"Conflict resolved: replaced {old_memory.id} with {new_memory.id}")
                         resolved_count += 1
                 except Exception as e:
                     logger.error(f"Failed to replace conflicting memory: {e}")
@@ -301,7 +301,7 @@ class ConflictResolver:
                 # 保留旧记忆，标记新记忆为低质量
                 new_memory.quality_level = QualityLevel.LOW_CONFIDENCE
                 new_memory.metadata["conflict_resolution"] = "kept_old"
-                logger.info(f"Conflict resolved: keeping {old_memory.id}, lowered {new_memory.id} quality")
+                logger.debug(f"Conflict resolved: keeping {old_memory.id}, lowered {new_memory.id} quality")
                 resolved_count += 1
                 
             elif resolution == "merge":
@@ -311,7 +311,7 @@ class ConflictResolver:
                         old_memory.confidence = min(1.0, old_memory.confidence + 0.1)
                         old_memory.access_count += 1
                         await chroma_manager.update_memory(old_memory)
-                        logger.info(f"Conflict resolved: merged into {old_memory.id}")
+                        logger.debug(f"Conflict resolved: merged into {old_memory.id}")
                         resolved_count += 1
                         # 返回False表示不需要存储新记忆
                         return False
@@ -322,7 +322,7 @@ class ConflictResolver:
                 # 标记为待确认
                 new_memory.metadata["conflict_status"] = "pending_user_confirmation"
                 new_memory.metadata["conflicting_memory_id"] = old_memory.id
-                logger.info(f"Conflict pending: {new_memory.id} vs {old_memory.id}")
+                logger.debug(f"Conflict pending: {new_memory.id} vs {old_memory.id}")
         
         return resolved_count == len(conflicting_memories)
 

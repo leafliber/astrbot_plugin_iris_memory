@@ -123,7 +123,7 @@ class ChromaManager(ChromaQueries, ChromaOperations):
             
             self._create_or_use_collection(existing_collection)
             
-            logger.info(
+            logger.debug(
                 f"Chroma manager initialized successfully. "
                 f"Collection: {self.collection_name}, "
                 f"Model: {self.embedding_manager.get_model()}, "
@@ -165,7 +165,7 @@ class ChromaManager(ChromaQueries, ChromaOperations):
             logger.debug("Auto-detecting embedding dimension from existing collection...")
             detected_dimension = await self.embedding_manager.detect_existing_dimension(existing_collection)
             if detected_dimension:
-                logger.info(f"Auto-detected embedding dimension: {detected_dimension}")
+                logger.debug(f"Auto-detected embedding dimension: {detected_dimension}")
                 self.embedding_dimension = detected_dimension
         
         logger.debug("Initializing embedding manager...")
@@ -274,7 +274,7 @@ class ChromaManager(ChromaQueries, ChromaOperations):
         try:
             all_data = existing_collection.get(include=["documents", "metadatas", "embeddings"])
             if not all_data or not all_data.get("ids"):
-                logger.info("No data in old collection to backup.")
+                logger.debug("No data in old collection to backup.")
                 return True  # 没有数据，无需备份
 
             # 1. ChromaDB 集合级备份
@@ -339,7 +339,7 @@ class ChromaManager(ChromaQueries, ChromaOperations):
         """创建或使用现有集合"""
         if existing_collection and self.collection_name in [c.name for c in self.client.list_collections()]:
             self.collection = self.client.get_collection(name=self.collection_name)
-            logger.info(f"Using existing collection: {self.collection_name}")
+            logger.debug(f"Using existing collection: {self.collection_name}")
         else:
             logger.debug(f"Creating new collection: {self.collection_name}")
             self.collection = self.client.create_collection(
@@ -350,7 +350,7 @@ class ChromaManager(ChromaQueries, ChromaOperations):
                     "embedding_dimension": self.embedding_dimension
                 }
             )
-            logger.info(f"Created new collection: {self.collection_name}")
+            logger.debug(f"Created new collection: {self.collection_name}")
 
     async def _generate_embedding(self, text: str) -> Optional[List[float]]:
         """生成文本嵌入向量（使用策略模式的嵌入管理器）
@@ -502,4 +502,4 @@ class ChromaManager(ChromaQueries, ChromaOperations):
         self.collection = None
         self.client = None
         
-        logger.info("[Hot-Reload] Chroma manager closed (data preserved on disk)")
+        logger.debug("[Hot-Reload] Chroma manager closed (data preserved on disk)")

@@ -62,7 +62,7 @@ class ServiceInitializer:
         # 成员身份服务
         self._init_member_identity()
 
-        logger.info("Core components initialized")
+        logger.debug("Core components initialized")
 
     def _init_member_identity(self) -> None:
         from iris_memory.utils.member_utils import set_identity_service
@@ -70,13 +70,13 @@ class ServiceInitializer:
 
         self._member_identity = MemberIdentityService()
         set_identity_service(self._member_identity)
-        logger.info("MemberIdentityService initialized")
+        logger.debug("MemberIdentityService initialized")
 
     # ── 知识图谱 ──
 
     async def _init_knowledge_graph(self) -> None:
         """初始化知识图谱模块"""
-        logger.info(LogTemplates.COMPONENT_INIT.format(component="knowledge graph"))
+        logger.debug(LogTemplates.COMPONENT_INIT.format(component="knowledge graph"))
 
         kg_enabled = self.cfg.get("knowledge_graph.enabled", True)
         kg_mode = self.cfg.get("knowledge_graph.extraction_mode", "rule")
@@ -103,14 +103,14 @@ class ServiceInitializer:
 
     async def _init_llm_enhanced(self) -> None:
         """初始化 LLM 增强组件"""
-        logger.info(LogTemplates.COMPONENT_INIT.format(component="LLM enhanced"))
+        logger.debug(LogTemplates.COMPONENT_INIT.format(component="LLM enhanced"))
         await self.llm_enhanced.initialize(self.cfg, self.context)
 
     # ── 场景自适应 ──
 
     async def _init_activity_adaptive(self) -> None:
         """初始化场景自适应组件"""
-        logger.info(LogTemplates.COMPONENT_INIT.format(component="activity adaptive"))
+        logger.debug(LogTemplates.COMPONENT_INIT.format(component="activity adaptive"))
 
         from iris_memory.core.activity_config import GroupActivityTracker
 
@@ -126,19 +126,19 @@ class ServiceInitializer:
         )
 
         status = "enabled" if enabled else "disabled"
-        logger.info(f"Activity adaptive system {status}")
+        logger.debug(f"Activity adaptive system {status}")
 
     # ── 消息处理（LLM processor + classifier） ──
 
     async def _init_message_processing(self) -> None:
         """初始化分层消息处理组件"""
-        logger.info(LogTemplates.COMPONENT_INIT.format(component="message processing"))
+        logger.debug(LogTemplates.COMPONENT_INIT.format(component="message processing"))
 
         enable_batch = DEFAULTS.message_processing.batch_threshold_count > 0
         use_llm = self.cfg.use_llm
 
         if not enable_batch:
-            logger.info(LogTemplates.COMPONENT_INIT_DISABLED.format(component="Batch processing"))
+            logger.debug(LogTemplates.COMPONENT_INIT_DISABLED.format(component="Batch processing"))
             return
 
         if use_llm:
@@ -153,7 +153,7 @@ class ServiceInitializer:
             llm_processor=self.llm_enhanced.llm_processor,
         )
 
-        logger.info("Message classifier initialized")
+        logger.debug("Message classifier initialized")
 
     # ── 画像提取 ──
 
@@ -248,10 +248,10 @@ class ServiceInitializer:
 
     async def _init_image_analyzer(self) -> None:
         """初始化图片分析器"""
-        logger.info(LogTemplates.COMPONENT_INIT.format(component="image analyzer"))
+        logger.debug(LogTemplates.COMPONENT_INIT.format(component="image analyzer"))
 
         if not self.cfg.image_analysis_enabled:
-            logger.info(LogTemplates.COMPONENT_INIT_DISABLED.format(component="Image analysis"))
+            logger.debug(LogTemplates.COMPONENT_INIT_DISABLED.format(component="Image analysis"))
             return
 
         from iris_memory.multimodal.image_analyzer import ImageAnalyzer
@@ -278,7 +278,7 @@ class ServiceInitializer:
             provider_id=self.cfg.image_analysis_provider_id,
         )
 
-        logger.info(f"Image analyzer initialized: mode={self.cfg.image_analysis_mode}")
+        logger.debug(f"Image analyzer initialized: mode={self.cfg.image_analysis_mode}")
 
     # ── 配置应用 ──
 

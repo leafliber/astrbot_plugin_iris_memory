@@ -98,7 +98,7 @@ class ProactiveReplyManager:
     async def initialize(self):
         """初始化"""
         if not self.enabled:
-            logger.info("Proactive reply is disabled")
+            logger.debug("Proactive reply is disabled")
             return
         
         # 检查事件队列是否可用
@@ -107,7 +107,7 @@ class ProactiveReplyManager:
             if self.astrbot_context and hasattr(self.astrbot_context, '_event_queue'):
                 self.event_queue = self.astrbot_context._event_queue
             if not self.event_queue:
-                logger.info("Event queue not available, proactive reply disabled")
+                logger.debug("Event queue not available, proactive reply disabled")
                 self.enabled = False
                 return
         
@@ -115,11 +115,11 @@ class ProactiveReplyManager:
         self.is_running = True
         self.processing_task = asyncio.create_task(self._process_loop())
         
-        logger.info("Proactive reply manager initialized (event queue mode)")
+        logger.debug("Proactive reply manager initialized (event queue mode)")
     
     async def stop(self):
         """停止（热更新友好）"""
-        logger.info("[Hot-Reload] Stopping ProactiveReplyManager...")
+        logger.debug("[Hot-Reload] Stopping ProactiveReplyManager...")
         self.is_running = False
         
         if self.processing_task:
@@ -142,7 +142,7 @@ class ProactiveReplyManager:
             except Exception as e:
                 logger.error(f"Error processing pending task during shutdown: {e}")
         
-        logger.info("[Hot-Reload] ProactiveReplyManager stopped")
+        logger.debug("[Hot-Reload] ProactiveReplyManager stopped")
     
     def _get_cooldown_seconds(self, group_id: Optional[str] = None) -> int:
         """获取冷却时间"""
@@ -220,7 +220,7 @@ class ProactiveReplyManager:
                 # _process_task 成功后会再次刷新时间戳
                 self.last_reply_time[session_key] = asyncio.get_running_loop().time()
                 
-                logger.info(f"Proactive reply queued for {session_key}, "
+                logger.debug(f"Proactive reply queued for {session_key}, "
                            f"urgency: {decision.urgency.value}")
             else:
                 self.stats["replies_skipped"] += 1
@@ -258,7 +258,7 @@ class ProactiveReplyManager:
             
             # 检查事件队列和 context
             if not self.event_queue or not self.astrbot_context:
-                logger.info("Event queue or context not available, skip proactive reply")
+                logger.debug("Event queue or context not available, skip proactive reply")
                 self.stats["replies_failed"] += 1
                 return
             
@@ -336,7 +336,7 @@ class ProactiveReplyManager:
             self.daily_reply_count[count_key] = \
                 self.daily_reply_count.get(count_key, 0) + 1
             
-            logger.info(
+            logger.debug(
                 f"Proactive reply event dispatched for {task.user_id}, "
                 f"urgency: {task.decision.urgency.value}, "
                 f"reason: {task.decision.reason}"
@@ -431,7 +431,7 @@ class ProactiveReplyManager:
     def reset_daily_counts(self):
         """重置每日计数"""
         self.daily_reply_count.clear()
-        logger.info("Daily proactive reply counts reset")
+        logger.debug("Daily proactive reply counts reset")
     
     # ========== 群聊白名单管理 ==========
     
@@ -463,7 +463,7 @@ class ProactiveReplyManager:
         if group_id_str in self._dynamic_whitelist:
             return False
         self._dynamic_whitelist.add(group_id_str)
-        logger.info(f"Group {group_id} added to proactive reply whitelist")
+        logger.debug(f"Group {group_id} added to proactive reply whitelist")
         return True
     
     def remove_group_from_whitelist(self, group_id: str) -> bool:
@@ -476,7 +476,7 @@ class ProactiveReplyManager:
         if group_id_str not in self._dynamic_whitelist:
             return False
         self._dynamic_whitelist.discard(group_id_str)
-        logger.info(f"Group {group_id} removed from proactive reply whitelist")
+        logger.debug(f"Group {group_id} removed from proactive reply whitelist")
         return True
     
     def is_group_in_whitelist(self, group_id: str) -> bool:
@@ -495,4 +495,4 @@ class ProactiveReplyManager:
         """反序列化动态白名单（从 KV 存储加载）"""
         if isinstance(data, list):
             self._dynamic_whitelist = set(str(g) for g in data)
-            logger.info(f"Loaded {len(self._dynamic_whitelist)} groups to proactive reply whitelist")
+            logger.debug(f"Loaded {len(self._dynamic_whitelist)} groups to proactive reply whitelist")
