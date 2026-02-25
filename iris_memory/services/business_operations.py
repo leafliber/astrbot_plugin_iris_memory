@@ -101,7 +101,13 @@ class BusinessOperations:
                 await self.chroma_manager.add_memory(memory)
 
     async def _update_persona_from_memory(self, memory, user_id: str) -> None:
-        """画像闭环：从记忆更新用户画像并记录 DEBUG 日志"""
+        """画像闭环：从记忆更新用户画像并记录 DEBUG 日志
+
+        批量处理策略：
+        - emotion 类型消息 → 即时处理（情感时效性要求高）
+        - 其他消息 → 若启用 persona_batch_processor 则入队批量处理
+        - 批量处理器不可用时 → 自动降级到即时处理
+        """
         try:
             persona = self.get_or_create_user_persona(user_id)
             mem_id = getattr(memory, "id", None)
@@ -113,10 +119,48 @@ class BusinessOperations:
             mem_type_raw = getattr(memory, "type", None)
             mem_type = mem_type_raw.value if hasattr(mem_type_raw, "value") else str(mem_type_raw)
             confidence = getattr(memory, "confidence", 0.5)
+            group_id = getattr(memory, "group_id", None)
 
+            # 情感类记忆保持即时处理
             if mem_type in ("emotion",):
                 changes.extend(persona._update_emotional(memory, mem_id, confidence))
 
+            # 尝试走批量处理通道
+            if self._persona_batch_processor and mem_type not in ("emotion",):
+                try:
+                    await self._persona_batch_processor.add_message(
+                        content=content,
+                        user_id=user_id,
+                        group_id=group_id,
+                        summary=summary,
+                        memory_type=mem_type,
+                        confidence=confidence,
+                        memory_id=mem_id,
+                    )
+                    persona_log.update_skipped(user_id, "queued_for_batch")
+                    logger.debug(
+                        f"Persona update queued for batch: "
+                        f"user={user_id}, memory={mem_id}"
+                    )
+                    # 仍然更新活跃时段（轻量操作，不需要批量）
+                    created = getattr(memory, "created_time", None)
+                    if created and isinstance(created, datetime):
+                        persona.hourly_distribution[created.hour] += 1.0
+                    # 如果有情感变更（emotion 路径），也记录
+                    if changes:
+                        persona_log.update_applied(
+                            user_id,
+                            [c.to_dict() for c in changes]
+                        )
+                    return
+                except Exception as e:
+                    logger.warning(
+                        f"Persona batch enqueue failed, "
+                        f"falling back to immediate: {e}"
+                    )
+                    # 降级到即时处理（下面的逻辑）
+
+            # 即时处理路径（降级或未启用批量处理器）
             if self.persona_extractor and self.cfg.persona_extraction_mode != "rule":
                 result = await self.persona_extractor.extract(
                     content=content,

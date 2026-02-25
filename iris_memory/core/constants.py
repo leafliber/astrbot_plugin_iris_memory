@@ -103,6 +103,7 @@ class KVStoreKeys:
     MEMBER_IDENTITY: Final[str] = "member_identity"
     USER_PERSONAS: Final[str] = "user_personas"
     GROUP_ACTIVITY: Final[str] = "group_activity"
+    PERSONA_BATCH_QUEUES: Final[str] = "persona_batch_queues"
 
 
 class ErrorMessages:

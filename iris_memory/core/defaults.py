@@ -293,6 +293,12 @@ class PersonaDefaults:
     llm_daily_limit: int = 50
     fallback_to_rule: bool = True
 
+    # 批量处理配置
+    batch_enabled: bool = True          # 是否启用画像批量提取
+    batch_threshold: int = 10             # 触发批量处理的消息数量阈值
+    batch_flush_interval: int = 300      # 定时刷新间隔（秒）
+    batch_max_size: int = 10             # 单次批量处理的最大消息数
+
 
 @dataclass
 class LLMProvidersDefaults:

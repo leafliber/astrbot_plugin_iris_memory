@@ -33,6 +33,7 @@ class PersistenceOperations:
             await self._load_member_identity(get_kv_data)
             await self._load_activity_data(get_kv_data)
             await self._load_user_personas(get_kv_data)
+            await self._load_persona_batch_queues(get_kv_data)
             
         except Exception as e:
             logger.error(f"Failed to load from KV: {e}", exc_info=True)
@@ -137,6 +138,16 @@ class PersistenceOperations:
             persona_log.restore_summary(len(personas_data), success_count, fail_count)
             logger.info(f"Loaded {len(self._user_personas)} user personas")
 
+    async def _load_persona_batch_queues(self, get_kv_data) -> None:
+        """加载画像批量处理器队列（重启时清空策略）"""
+        if not self._persona_batch_processor:
+            return
+
+        data = await get_kv_data(KVStoreKeys.PERSONA_BATCH_QUEUES, {})
+        if data:
+            await self._persona_batch_processor.deserialize_and_clear(data)
+            logger.info("Loaded persona batch processor state (queues cleared)")
+
     async def save_to_kv(self, put_kv_data) -> None:
         """保存到KV存储"""
         try:
@@ -150,6 +161,7 @@ class PersistenceOperations:
             await self._save_member_identity(put_kv_data)
             await self._save_activity_data(put_kv_data)
             await self._save_user_personas(put_kv_data)
+            await self._save_persona_batch_queues(put_kv_data)
             
         except Exception as e:
             logger.error(f"Failed to save to KV: {e}", exc_info=True)
@@ -238,6 +250,15 @@ class PersistenceOperations:
         await put_kv_data(KVStoreKeys.USER_PERSONAS, personas_data)
         logger.info(f"Saved {len(personas_data)} user personas")
 
+    async def _save_persona_batch_queues(self, put_kv_data) -> None:
+        """保存画像批量处理器队列"""
+        if not self._persona_batch_processor:
+            return
+
+        data = await self._persona_batch_processor.serialize_queues()
+        await put_kv_data(KVStoreKeys.PERSONA_BATCH_QUEUES, data)
+        logger.info("Saved persona batch processor state")
+
     async def terminate(self) -> None:
         """销毁服务
         
@@ -254,6 +275,7 @@ class PersistenceOperations:
         
         try:
             await self.capture.stop()
+            await self.analysis.stop()
             await self.proactive.stop()
             await self.storage.stop()
             self._clear_global_state()
@@ -280,6 +302,7 @@ class PersistenceOperations:
         components = [
             ("Message Classifier", self.message_classifier),
             ("Batch Processor", self.batch_processor),
+            ("Persona Batch Processor", self._persona_batch_processor),
             ("LLM Processor", self.llm_enhanced.llm_processor if hasattr(self, 'llm_enhanced') else None),
             ("Proactive Manager", self.proactive_manager),
             ("Image Analyzer", self._image_analyzer),

@@ -393,6 +393,23 @@ class ConfigManager:
     @property
     def persona_fallback_to_rule(self) -> bool:
         return self.get("persona.fallback_to_rule", True)
+
+    # 画像批量处理配置
+    @property
+    def persona_batch_enabled(self) -> bool:
+        return self.get("persona.batch_enabled", DEFAULTS.persona.batch_enabled)
+    
+    @property
+    def persona_batch_threshold(self) -> int:
+        return self.get("persona.batch_threshold", DEFAULTS.persona.batch_threshold)
+    
+    @property
+    def persona_batch_flush_interval(self) -> int:
+        return self.get("persona.batch_flush_interval", DEFAULTS.persona.batch_flush_interval)
+    
+    @property
+    def persona_batch_max_size(self) -> int:
+        return self.get("persona.batch_max_size", DEFAULTS.persona.batch_max_size)
     
     # LLM智能增强配置
     @property

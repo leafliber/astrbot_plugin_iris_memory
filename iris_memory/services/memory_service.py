@@ -149,6 +149,10 @@ class MemoryService(
         return self.analysis.persona_extractor
 
     @property
+    def _persona_batch_processor(self):
+        return self.analysis.persona_batch_processor
+
+    @property
     def member_identity(self):
         return self._member_identity
 
@@ -222,6 +226,11 @@ class MemoryService(
         )
         components["batch_processor"] = (
             "running" if self.batch_processor else "unavailable"
+        )
+        components["persona_batch_processor"] = (
+            "running" if (self._persona_batch_processor
+                         and self._persona_batch_processor.is_running)
+            else "unavailable"
         )
 
         # 增强模块
@@ -305,6 +314,17 @@ class MemoryService(
                     self._module_init_status["batch_processor"] = False
                     self.logger.warning(
                         f"Batch processor initialization failed: {e}",
+                        exc_info=True,
+                    )
+
+                # 画像批量处理器依赖 persona_extractor
+                try:
+                    await self._init_persona_batch_processor()
+                    self._module_init_status["persona_batch_processor"] = True
+                except Exception as e:
+                    self._module_init_status["persona_batch_processor"] = False
+                    self.logger.warning(
+                        f"Persona batch processor initialization failed: {e}",
                         exc_info=True,
                     )
 

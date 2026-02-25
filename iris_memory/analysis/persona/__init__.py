@@ -11,6 +11,11 @@ from iris_memory.analysis.persona.persona_coordinator import (
     ConflictType,
 )
 from iris_memory.analysis.persona.persona_logger import PersonaLogger, persona_log
+from iris_memory.analysis.persona.persona_batch_processor import (
+    PersonaBatchProcessor,
+    PersonaQueuedMessage,
+    PersonaBatchStats,
+)
 
 __all__ = [
     'ExtractionResult',
@@ -24,4 +29,7 @@ __all__ = [
     'ConflictType',
     'PersonaLogger',
     'persona_log',
+    'PersonaBatchProcessor',
+    'PersonaQueuedMessage',
+    'PersonaBatchStats',
 ]

@@ -165,6 +165,74 @@ class ServiceInitializer:
             context=self.context,
         )
 
+    # ── 画像批量处理器 ──
+
+    async def _init_persona_batch_processor(self) -> None:
+        """初始化画像批量处理器（依赖 persona_extractor）"""
+        await self.analysis.init_persona_batch_processor(
+            cfg=self.cfg,
+            apply_result_callback=self._apply_batch_persona_result,
+        )
+
+    def _apply_batch_persona_result(
+        self, user_id: str, session_key: str, result, msg
+    ) -> None:
+        """画像批量处理结果回调 — 将提取结果应用到用户画像
+
+        此回调由 PersonaBatchProcessor 在完成批量提取后调用。
+        复用现有 UserPersona.apply_extraction_result() 接口。
+        """
+        from iris_memory.analysis.persona.persona_logger import persona_log
+
+        try:
+            persona = self.get_or_create_user_persona(user_id)
+            changes = persona.apply_extraction_result(
+                result,
+                source_memory_id=msg.memory_id,
+                memory_type=msg.memory_type,
+                base_confidence=msg.confidence,
+            )
+            if not changes:
+                # 提取结果未匹配到可更新的字段，回退到规则更新
+                # 构造一个轻量 memory-like 对象供 update_from_memory 使用
+                changes = self._fallback_rule_update(persona, msg)
+
+            if changes:
+                persona_log.update_applied(
+                    user_id,
+                    [c.to_dict() for c in changes]
+                )
+                from iris_memory.utils.logger import get_logger
+                _logger = get_logger("memory_service.business")
+                _logger.debug(
+                    f"Persona batch result applied for user={user_id}: "
+                    f"{len(changes)} change(s)"
+                )
+        except Exception as e:
+            persona_log.update_error(user_id, e)
+            from iris_memory.utils.logger import get_logger
+            _logger = get_logger("memory_service.business")
+            _logger.warning(
+                f"Failed to apply batch persona result for user={user_id}: {e}"
+            )
+
+    @staticmethod
+    def _fallback_rule_update(persona, msg) -> list:
+        """当批量提取结果为空时，尝试规则引擎更新"""
+        from iris_memory.analysis.persona.persona_batch_processor import PersonaQueuedMessage
+
+        class _MemoryLike:
+            """轻量 memory 替身，供 update_from_memory 使用"""
+            def __init__(self, m: PersonaQueuedMessage):
+                self.id = m.memory_id
+                self.content = m.content
+                self.summary = m.summary
+                self.type = m.memory_type
+                self.confidence = m.confidence
+                self.created_time = None
+
+        return persona.update_from_memory(_MemoryLike(msg))
+
     # ── 主动回复 ──
 
     async def _init_proactive_reply(self) -> None:
