@@ -9,9 +9,13 @@ from typing import List, Dict, Any, Optional, TYPE_CHECKING
 
 from iris_memory.core.types import DecayRate, MemoryType
 from iris_memory.core.constants import DEFAULT_EMOTION, NEGATIVE_EMOTION_STRINGS
+from iris_memory.utils.logger import get_logger
 
 if TYPE_CHECKING:
     from iris_memory.analysis.persona.keyword_maps import ExtractionResult
+
+
+logger = get_logger("user_persona")
 
 
 # ---------------------------------------------------------------------------
@@ -197,11 +201,16 @@ class UserPersona:
 
         # 情感摘要
         if self.emotional_baseline != DEFAULT_EMOTION or self.emotional_trajectory:
-            view["emotional"] = {
+            emotional: Dict[str, Any] = {
                 "baseline": self.emotional_baseline,
                 "trajectory": self.emotional_trajectory,
                 "volatility": round(self.emotional_volatility, 2),
             }
+            if self.emotional_triggers:
+                emotional["triggers"] = self.emotional_triggers[:5]
+            if self.emotional_soothers:
+                emotional["soothers"] = dict(list(self.emotional_soothers.items())[:3])
+            view["emotional"] = emotional
 
         # 兴趣 / 习惯
         if self.interests:
@@ -210,18 +219,45 @@ class UserPersona:
         if self.habits:
             view["habits"] = self.habits[:10]
 
-        # 工作
+        # 工作维度
+        work: Dict[str, Any] = {}
         if self.work_style:
-            view["work_style"] = self.work_style
+            work["style"] = self.work_style
         if self.work_goals:
-            view["work_goals"] = self.work_goals[:5]
+            work["goals"] = self.work_goals[:5]
+        if self.work_challenges:
+            work["challenges"] = self.work_challenges[:5]
+        if self.work_preferences:
+            work["preferences"] = dict(list(self.work_preferences.items())[:5])
+        if work:
+            view["work"] = work
+
+        # 生活维度
+        life: Dict[str, Any] = {}
+        if self.lifestyle:
+            life["style"] = self.lifestyle
+        if self.life_preferences:
+            life["preferences"] = dict(list(self.life_preferences.items())[:5])
+        if life:
+            view["life"] = life
 
         # 沟通偏好
         view["communication"] = {
             "formality": round(self.communication_formality, 2),
             "directness": round(self.communication_directness, 2),
             "humor": round(self.communication_humor, 2),
+            "empathy": round(self.communication_empathy, 2),
         }
+
+        # 人格特质（Big Five）— 仅展示偏离默认值(0.5)的维度
+        personality: Dict[str, float] = {}
+        for trait in ("openness", "conscientiousness", "extraversion",
+                      "agreeableness", "neuroticism"):
+            val = getattr(self, f"personality_{trait}", 0.5)
+            if abs(val - 0.5) > 0.05:
+                personality[trait] = round(val, 2)
+        if personality:
+            view["personality"] = personality
 
         # 交互偏好
         view["preferences"] = {}
@@ -232,12 +268,15 @@ class UserPersona:
             view["preferences"]["topic_blacklist"] = self.topic_blacklist[:10]
 
         # 关系
-        view["relationship"] = {
+        relationship: Dict[str, Any] = {
             "trust": round(self.trust_level, 2),
             "intimacy": round(self.intimacy_level, 2),
         }
         if self.social_style:
-            view["relationship"]["social_style"] = self.social_style
+            relationship["social_style"] = self.social_style
+        if self.social_boundaries:
+            relationship["boundaries"] = dict(list(self.social_boundaries.items())[:5])
+        view["relationship"] = relationship
 
         return view
 
@@ -349,19 +388,54 @@ class UserPersona:
 
         # 分发到维度处理器
         if mem_type in (MemoryType.EMOTION.value, "emotion"):
-            changes.extend(self._update_emotional(memory, mem_id, confidence))
+            try:
+                changes.extend(self._update_emotional(memory, mem_id, confidence))
+            except Exception as e:
+                logger.warning(f"update_from_memory emotional update failed: {e}")
         if mem_type in (MemoryType.FACT.value, "fact"):
-            changes.extend(self._update_facts(memory, mem_id, confidence))
+            try:
+                changes.extend(self._update_facts(memory, mem_id, confidence))
+            except Exception as e:
+                logger.warning(f"update_from_memory fact update failed: {e}")
         if mem_type in (MemoryType.RELATIONSHIP.value, "relationship"):
-            changes.extend(self._update_social(memory, mem_id, confidence))
+            try:
+                changes.extend(self._update_social(memory, mem_id, confidence))
+            except Exception as e:
+                logger.warning(f"update_from_memory social update failed: {e}")
         if mem_type in (MemoryType.INTERACTION.value, "interaction"):
-            changes.extend(self._update_interaction(memory, mem_id, confidence))
+            try:
+                changes.extend(self._update_interaction(memory, mem_id, confidence))
+            except Exception as e:
+                logger.warning(f"update_from_memory interaction update failed: {e}")
 
         # 更新活跃时段
         created = getattr(memory, "created_time", None)
         if created and isinstance(created, datetime):
             hour = created.hour
             self.hourly_distribution[hour] += 1.0
+
+        # 更新话题序列（记录最近的记忆类型序列）
+        if mem_type:
+            self.topic_sequences.append(mem_type)
+            # 保持最多50条记录
+            if len(self.topic_sequences) > 50:
+                self.topic_sequences = self.topic_sequences[-50:]
+
+        # 更新记忆共现关系
+        entities = getattr(memory, "detected_entities", None)
+        if entities and isinstance(entities, list) and len(entities) >= 2:
+            for entity in entities:
+                others = [e for e in entities if e != entity]
+                if entity in self.memory_cooccurrence:
+                    # 追加去重
+                    existing = self.memory_cooccurrence[entity]
+                    for o in others:
+                        if o not in existing:
+                            existing.append(o)
+                    # 限制每个实体最多20条共现
+                    self.memory_cooccurrence[entity] = existing[:20]
+                else:
+                    self.memory_cooccurrence[entity] = others[:20]
 
         return changes
 
@@ -525,6 +599,205 @@ class UserPersona:
             if rec:
                 changes.append(rec)
 
+        # ── v2 新增维度应用 ──
+
+        # 工作风格
+        if result.work_style:
+            rec = self.apply_change(
+                "work_style", result.work_style,
+                source_memory_id=source_memory_id,
+                memory_type=memory_type or "fact",
+                rule_id=f"{rule_prefix}_work_style",
+                confidence=conf,
+                evidence_type=evidence,
+            )
+            if rec:
+                changes.append(rec)
+
+        # 工作挑战
+        if result.work_challenge:
+            rec = self.apply_change(
+                "work_challenges", result.work_challenge,
+                source_memory_id=source_memory_id,
+                memory_type=memory_type or "fact",
+                rule_id=f"{rule_prefix}_work_challenge",
+                confidence=conf,
+                evidence_type=evidence,
+            )
+            if rec:
+                changes.append(rec)
+
+        # 工作偏好
+        if result.work_preferences:
+            rec = self.apply_change(
+                "work_preferences", result.work_preferences,
+                source_memory_id=source_memory_id,
+                memory_type=memory_type or "fact",
+                rule_id=f"{rule_prefix}_work_pref",
+                confidence=conf,
+                evidence_type=evidence,
+            )
+            if rec:
+                changes.append(rec)
+
+        # 生活方式
+        if result.lifestyle:
+            rec = self.apply_change(
+                "lifestyle", result.lifestyle,
+                source_memory_id=source_memory_id,
+                memory_type=memory_type or "fact",
+                rule_id=f"{rule_prefix}_lifestyle",
+                confidence=conf,
+                evidence_type=evidence,
+            )
+            if rec:
+                changes.append(rec)
+
+        # 生活偏好
+        if result.life_preferences:
+            rec = self.apply_change(
+                "life_preferences", result.life_preferences,
+                source_memory_id=source_memory_id,
+                memory_type=memory_type or "fact",
+                rule_id=f"{rule_prefix}_life_pref",
+                confidence=conf,
+                evidence_type=evidence,
+            )
+            if rec:
+                changes.append(rec)
+
+        # 情感触发器
+        for trigger in result.emotional_triggers:
+            if trigger and trigger not in self.emotional_triggers:
+                rec = self.apply_change(
+                    "emotional_triggers", trigger,
+                    source_memory_id=source_memory_id,
+                    memory_type=memory_type or "emotion",
+                    rule_id=f"{rule_prefix}_emotion_trigger",
+                    confidence=conf,
+                    evidence_type=evidence,
+                )
+                if rec:
+                    changes.append(rec)
+
+        # 情感安慰物
+        if result.emotional_soothers:
+            rec = self.apply_change(
+                "emotional_soothers", result.emotional_soothers,
+                source_memory_id=source_memory_id,
+                memory_type=memory_type or "emotion",
+                rule_id=f"{rule_prefix}_emotion_soother",
+                confidence=conf,
+                evidence_type=evidence,
+            )
+            if rec:
+                changes.append(rec)
+
+        # 社交边界
+        if result.social_boundaries:
+            rec = self.apply_change(
+                "social_boundaries", result.social_boundaries,
+                source_memory_id=source_memory_id,
+                memory_type=memory_type or "relationship",
+                rule_id=f"{rule_prefix}_social_boundary",
+                confidence=conf * 0.9,
+                evidence_type=evidence,
+            )
+            if rec:
+                changes.append(rec)
+
+        # 人格特质（Big Five） — 渐进式微调
+        personality_traits = [
+            ("openness", result.personality_openness_delta),
+            ("conscientiousness", result.personality_conscientiousness_delta),
+            ("extraversion", result.personality_extraversion_delta),
+            ("agreeableness", result.personality_agreeableness_delta),
+            ("neuroticism", result.personality_neuroticism_delta),
+        ]
+        for trait_name, delta in personality_traits:
+            if delta != 0.0:
+                field_name = f"personality_{trait_name}"
+                old_val = getattr(self, field_name, 0.5)
+                # LLM 模式直接应用 delta，rule 模式使用更小步长
+                effective_delta = delta if result.source != "rule" else delta
+                new_val = round(max(0.0, min(1.0, old_val + effective_delta)), 3)
+                rec = self.apply_change(
+                    field_name, new_val,
+                    source_memory_id=source_memory_id,
+                    memory_type=memory_type or "interaction",
+                    rule_id=f"{rule_prefix}_personality_{trait_name}",
+                    confidence=conf * 0.7,
+                    evidence_type=evidence,
+                )
+                if rec:
+                    changes.append(rec)
+
+        # 沟通直接度
+        if result.directness_adjustment != 0.0:
+            if result.source == "rule":
+                new_val = max(0.0, min(1.0, self.communication_directness + result.directness_adjustment))
+            else:
+                new_val = max(0.0, min(1.0, self.communication_directness + result.directness_adjustment * 0.2))
+            rec = self.apply_change(
+                "communication_directness", round(new_val, 3),
+                source_memory_id=source_memory_id,
+                memory_type=memory_type or "interaction",
+                rule_id=f"{rule_prefix}_directness",
+                confidence=conf,
+                evidence_type=evidence,
+            )
+            if rec:
+                changes.append(rec)
+
+        # 幽默度
+        if result.humor_adjustment != 0.0:
+            if result.source == "rule":
+                new_val = max(0.0, min(1.0, self.communication_humor + result.humor_adjustment))
+            else:
+                new_val = max(0.0, min(1.0, self.communication_humor + result.humor_adjustment * 0.2))
+            rec = self.apply_change(
+                "communication_humor", round(new_val, 3),
+                source_memory_id=source_memory_id,
+                memory_type=memory_type or "interaction",
+                rule_id=f"{rule_prefix}_humor",
+                confidence=conf,
+                evidence_type=evidence,
+            )
+            if rec:
+                changes.append(rec)
+
+        # 共情度
+        if result.empathy_adjustment != 0.0:
+            if result.source == "rule":
+                new_val = max(0.0, min(1.0, self.communication_empathy + result.empathy_adjustment))
+            else:
+                new_val = max(0.0, min(1.0, self.communication_empathy + result.empathy_adjustment * 0.2))
+            rec = self.apply_change(
+                "communication_empathy", round(new_val, 3),
+                source_memory_id=source_memory_id,
+                memory_type=memory_type or "interaction",
+                rule_id=f"{rule_prefix}_empathy",
+                confidence=conf,
+                evidence_type=evidence,
+            )
+            if rec:
+                changes.append(rec)
+
+        # 主动回复偏好
+        if result.proactive_reply_delta != 0.0:
+            new_val = round(max(0.0, min(1.0,
+                self.proactive_reply_preference + result.proactive_reply_delta)), 3)
+            rec = self.apply_change(
+                "proactive_reply_preference", new_val,
+                source_memory_id=source_memory_id,
+                memory_type=memory_type or "interaction",
+                rule_id=f"{rule_prefix}_proactive_reply",
+                confidence=conf,
+                evidence_type=evidence,
+            )
+            if rec:
+                changes.append(rec)
+
         return changes
 
     # --- 情感维度 ---
@@ -532,6 +805,7 @@ class UserPersona:
         changes: List[PersonaChangeRecord] = []
         subtype = getattr(memory, "subtype", None)
         weight = getattr(memory, "emotional_weight", 0.0)
+        content = getattr(memory, "content", "") or ""
 
         # 更新情感模式统计
         if subtype:
@@ -585,7 +859,69 @@ class UserPersona:
             if rec:
                 changes.append(rec)
 
+        # 计算情感波动性（基于情感模式多样性和负面占比差异）
+        new_volatility = self._compute_volatility()
+        if abs(new_volatility - self.emotional_volatility) > 0.02:
+            rec = self.apply_change(
+                "emotional_volatility", round(new_volatility, 3),
+                source_memory_id=mem_id, memory_type="emotion",
+                rule_id="volatility_recalc", confidence=0.7,
+                evidence_type="inferred",
+            )
+            if rec:
+                changes.append(rec)
+
+        # 情感触发器推断（高强度负面情绪时，尝试提取触发上下文）
+        if weight > 0.6 and subtype in NEGATIVE_EMOTION_STRINGS and content:
+            trigger_snippet = content[:50].strip()
+            if trigger_snippet and trigger_snippet not in self.emotional_triggers:
+                rec = self.apply_change(
+                    "emotional_triggers", trigger_snippet,
+                    source_memory_id=mem_id, memory_type="emotion",
+                    rule_id="emotion_trigger_high_weight",
+                    confidence=confidence * 0.6,
+                    evidence_type="inferred",
+                )
+                if rec:
+                    changes.append(rec)
+
         return changes
+
+    def _compute_volatility(self) -> float:
+        """根据情感模式多样性和变化频率计算波动性
+
+        波动性 = 情感类型多样性 × 负面-正面比例偏差
+        范围: 0.0 (完全稳定) ~ 1.0 (高度波动)
+        """
+        if not self.emotional_patterns:
+            return 0.5  # 默认中等
+
+        total = sum(self.emotional_patterns.values())
+        if total < 3:
+            return 0.5  # 样本不足
+
+        # 因子1：情感类型多样性（Shannon 熵归一化）
+        import math
+        n_types = len(self.emotional_patterns)
+        if n_types <= 1:
+            diversity = 0.0
+        else:
+            entropy = 0.0
+            for count in self.emotional_patterns.values():
+                p = count / total
+                if p > 0:
+                    entropy -= p * math.log2(p)
+            max_entropy = math.log2(n_types) if n_types > 1 else 1.0
+            diversity = entropy / max_entropy if max_entropy > 0 else 0.0
+
+        # 因子2：负面占比偏离中性的程度
+        neg_count = sum(self.emotional_patterns.get(k, 0) for k in NEGATIVE_EMOTION_STRINGS)
+        neg_ratio = neg_count / total
+        # 偏离0.3（理想中性点）越远越波动
+        deviation = abs(neg_ratio - 0.3) * 2.0
+
+        volatility = min(1.0, diversity * 0.6 + deviation * 0.4)
+        return volatility
 
     def _infer_trajectory(self) -> Optional[str]:
         """根据情感模式推断趋势"""
@@ -625,6 +961,9 @@ class UserPersona:
             work_keywords = keyword_maps.work_keywords
             life_keywords = keyword_maps.life_keywords
             interest_map = keyword_maps.interests
+            work_styles = getattr(keyword_maps, "work_styles", {})
+            work_challenge_kws = getattr(keyword_maps, "work_challenge_keywords", [])
+            lifestyles = getattr(keyword_maps, "lifestyles", {})
         else:
             work_keywords = ["工作", "公司", "项目", "同事", "老板", "职业", "事业", "上班"]
             life_keywords = ["喜欢", "爱好", "兴趣", "习惯", "运动", "娱乐", "爱吃", "讨厌"]
@@ -636,6 +975,17 @@ class UserPersona:
                 "游戏": ["游戏", "打游戏", "玩游戏"],
                 "美食": ["吃", "美食", "餐厅", "做饭"],
                 "旅行": ["旅行", "旅游", "出游"],
+            }
+            work_styles = {
+                "远程": ["远程", "在家办公", "remote"],
+                "坐班": ["坐班", "朝九晚五", "打卡"],
+                "自由": ["自由职业", "弹性", "灵活"],
+            }
+            work_challenge_kws = ["压力", "加班", "困难", "挑战", "焦虑", "紧急"]
+            lifestyles = {
+                "夜猫子": ["夜猫子", "熬夜", "晚睡"],
+                "早起": ["早起", "早睡早起", "晨跑"],
+                "宅": ["宅", "宅家", "不出门"],
             }
 
         if any(kw in content_lower for kw in work_keywords) and summary:
@@ -677,6 +1027,46 @@ class UserPersona:
                         evidence_type="inferred",
                     ))
 
+        # 工作风格推断
+        for style, keywords in work_styles.items():
+            if any(kw in content_lower for kw in keywords):
+                rec = self.apply_change(
+                    "work_style", style,
+                    source_memory_id=mem_id, memory_type="fact",
+                    rule_id="fact_work_style_keyword",
+                    confidence=confidence * 0.8,
+                    evidence_type="inferred",
+                )
+                if rec:
+                    changes.append(rec)
+                break
+
+        # 工作挑战
+        if any(kw in content_lower for kw in work_challenge_kws) and summary:
+            rec = self.apply_change(
+                "work_challenges", summary,
+                source_memory_id=mem_id, memory_type="fact",
+                rule_id="fact_work_challenge_keyword",
+                confidence=confidence,
+                evidence_type="inferred",
+            )
+            if rec:
+                changes.append(rec)
+
+        # 生活方式推断
+        for style, keywords in lifestyles.items():
+            if any(kw in content_lower for kw in keywords):
+                rec = self.apply_change(
+                    "lifestyle", style,
+                    source_memory_id=mem_id, memory_type="fact",
+                    rule_id="fact_lifestyle_keyword",
+                    confidence=confidence * 0.8,
+                    evidence_type="inferred",
+                )
+                if rec:
+                    changes.append(rec)
+                break
+
         return changes
 
     # --- 关系维度 ---
@@ -694,6 +1084,7 @@ class UserPersona:
             trust_kws = keyword_maps.trust_keywords
             intimacy_kws = keyword_maps.intimacy_keywords
             style_map = keyword_maps.social_styles
+            boundary_kws = getattr(keyword_maps, "social_boundary_keywords", [])
         else:
             trust_kws = ["信任"]
             intimacy_kws = ["亲密"]
@@ -702,6 +1093,7 @@ class UserPersona:
                 "内向": ["内向", "安静", "独处"],
                 "温和": ["温和", "和善", "温柔"],
             }
+            boundary_kws = ["别聊", "不想说", "不讨论", "别问", "不说"]
 
         if any(kw in text for kw in trust_kws):
             rec = self.apply_change(
@@ -736,9 +1128,106 @@ class UserPersona:
                     changes.append(rec)
                 break
 
+        # 社交边界提取
+        for kw in boundary_kws:
+            if kw in content:
+                idx = content.index(kw)
+                boundary_ctx = content[idx:idx + 20].strip()
+                if boundary_ctx:
+                    rec = self.apply_change(
+                        "social_boundaries", {kw: boundary_ctx},
+                        source_memory_id=mem_id, memory_type="relationship",
+                        rule_id="social_boundary_keyword",
+                        confidence=confidence * 0.8,
+                        evidence_type="inferred",
+                    )
+                    if rec:
+                        changes.append(rec)
+
         return changes
 
     # --- 交互维度 ---
+    def _update_dimension_by_keywords(
+        self,
+        content: str,
+        field_name: str,
+        positive_keywords: List[str],
+        negative_keywords: List[str],
+        positive_rule_id: str,
+        negative_rule_id: str,
+        step: float,
+        mem_id: Optional[str],
+        confidence: float,
+    ) -> Optional[PersonaChangeRecord]:
+        """根据正负关键词对连续数值维度做增减更新。"""
+        old_val = float(getattr(self, field_name, 0.5))
+
+        if any(str(kw).lower() in content for kw in positive_keywords if kw is not None):
+            new_val = round(min(1.0, old_val + step), 3)
+            return self.apply_change(
+                field_name,
+                new_val,
+                source_memory_id=mem_id,
+                memory_type="interaction",
+                rule_id=positive_rule_id,
+                confidence=confidence,
+                evidence_type="inferred",
+            )
+
+        if any(str(kw).lower() in content for kw in negative_keywords if kw is not None):
+            new_val = round(max(0.0, old_val - step), 3)
+            return self.apply_change(
+                field_name,
+                new_val,
+                source_memory_id=mem_id,
+                memory_type="interaction",
+                rule_id=negative_rule_id,
+                confidence=confidence,
+                evidence_type="inferred",
+            )
+
+        return None
+
+    def _update_personality_by_keywords(
+        self,
+        content: str,
+        trait: str,
+        high_keywords: List[str],
+        low_keywords: List[str],
+        step: float,
+        mem_id: Optional[str],
+        confidence: float,
+    ) -> Optional[PersonaChangeRecord]:
+        """根据关键词更新单个人格特质。"""
+        field_name = f"personality_{trait}"
+        old_val = float(getattr(self, field_name, 0.5))
+
+        if any(str(kw).lower() in content for kw in high_keywords if kw is not None):
+            new_val = round(min(1.0, old_val + step), 3)
+            return self.apply_change(
+                field_name,
+                new_val,
+                source_memory_id=mem_id,
+                memory_type="interaction",
+                rule_id=f"personality_{trait}_increase",
+                confidence=confidence * 0.7,
+                evidence_type="inferred",
+            )
+
+        if any(str(kw).lower() in content for kw in low_keywords if kw is not None):
+            new_val = round(max(0.0, old_val - step), 3)
+            return self.apply_change(
+                field_name,
+                new_val,
+                source_memory_id=mem_id,
+                memory_type="interaction",
+                rule_id=f"personality_{trait}_decrease",
+                confidence=confidence * 0.7,
+                evidence_type="inferred",
+            )
+
+        return None
+
     def _update_interaction(
         self, memory, mem_id, confidence,
         keyword_maps=None,
@@ -750,6 +1239,11 @@ class UserPersona:
         if keyword_maps is not None:
             reply_style = keyword_maps.reply_style
             formality = keyword_maps.formality
+            directness = getattr(keyword_maps, "directness", {})
+            humor = getattr(keyword_maps, "humor", {})
+            empathy = getattr(keyword_maps, "empathy", {})
+            proactive_pref = getattr(keyword_maps, "proactive_preference", {})
+            personality_cfg = getattr(keyword_maps, "personality", {})
         else:
             reply_style = {
                 "brief": ["简短", "简洁", "不要太多"],
@@ -758,6 +1252,44 @@ class UserPersona:
             formality = {
                 "formal": ["正式", "礼貌", "敬语"],
                 "casual": ["随意", "口语", "不用客气"],
+            }
+            directness = {
+                "direct": ["直说", "别绕弯", "说重点", "直接"],
+                "indirect": ["委婉", "含蓄", "暗示"],
+            }
+            humor = {
+                "high": ["哈哈", "233", "笑死", "段子", "幽默", "lol", "搞笑"],
+                "low": ["严肃", "认真", "正经"],
+            }
+            empathy = {
+                "high": ["理解", "共情", "体谅", "安慰", "换位思考"],
+                "low": ["冷漠", "无所谓", "别矫情", "不关心"],
+            }
+            proactive_pref = {
+                "welcome": ["多聊聊", "常来", "找我聊", "欢迎"],
+                "unwanted": ["别打扰", "别找我", "不用管我", "少说话"],
+            }
+            personality_cfg = {
+                "openness": {
+                    "high": ["新鲜", "创意", "创新", "尝试", "探索", "好奇"],
+                    "low": ["传统", "保守", "不变", "墨守成规"],
+                },
+                "conscientiousness": {
+                    "high": ["计划", "规律", "条理", "准时", "认真", "仔细"],
+                    "low": ["随性", "拖延", "随便", "懒"],
+                },
+                "extraversion": {
+                    "high": ["外向", "社交", "聚会", "热闹", "活泼"],
+                    "low": ["内向", "独处", "安静", "一个人"],
+                },
+                "agreeableness": {
+                    "high": ["温和", "随和", "配合", "善良", "体贴"],
+                    "low": ["坚持", "固执", "不妥协", "竞争"],
+                },
+                "neuroticism": {
+                    "high": ["紧张", "焦虑", "担心", "多虑", "敏感"],
+                    "low": ["淡定", "冷静", "平和", "稳重"],
+                },
             }
 
         # 回复风格偏好
@@ -792,6 +1324,80 @@ class UserPersona:
                 source_memory_id=mem_id, memory_type="interaction",
                 rule_id="formality_decrease", confidence=confidence,
                 evidence_type="inferred",
+            )
+            if rec:
+                changes.append(rec)
+
+        # 沟通直接度
+        rec = self._update_dimension_by_keywords(
+            content=content,
+            field_name="communication_directness",
+            positive_keywords=directness.get("direct", []),
+            negative_keywords=directness.get("indirect", []),
+            positive_rule_id="directness_increase",
+            negative_rule_id="directness_decrease",
+            step=0.1,
+            mem_id=mem_id,
+            confidence=confidence,
+        )
+        if rec:
+            changes.append(rec)
+
+        # 幽默度
+        rec = self._update_dimension_by_keywords(
+            content=content,
+            field_name="communication_humor",
+            positive_keywords=humor.get("high", []),
+            negative_keywords=humor.get("low", []),
+            positive_rule_id="humor_increase",
+            negative_rule_id="humor_decrease",
+            step=0.1,
+            mem_id=mem_id,
+            confidence=confidence,
+        )
+        if rec:
+            changes.append(rec)
+
+        # 共情度（Rule 模式）
+        rec = self._update_dimension_by_keywords(
+            content=content,
+            field_name="communication_empathy",
+            positive_keywords=empathy.get("high", []),
+            negative_keywords=empathy.get("low", []),
+            positive_rule_id="empathy_increase",
+            negative_rule_id="empathy_decrease",
+            step=0.1,
+            mem_id=mem_id,
+            confidence=confidence,
+        )
+        if rec:
+            changes.append(rec)
+
+        # 主动回复偏好
+        rec = self._update_dimension_by_keywords(
+            content=content,
+            field_name="proactive_reply_preference",
+            positive_keywords=proactive_pref.get("welcome", []),
+            negative_keywords=proactive_pref.get("unwanted", []),
+            positive_rule_id="proactive_welcome",
+            negative_rule_id="proactive_unwanted",
+            step=0.1,
+            mem_id=mem_id,
+            confidence=confidence,
+        )
+        if rec:
+            changes.append(rec)
+
+        # 人格特质（Big Five）— 微调
+        for trait, directions in personality_cfg.items():
+            rec = self._update_personality_by_keywords(
+                content=content,
+                trait=trait,
+                high_keywords=directions.get("high", []),
+                low_keywords=directions.get("low", []),
+                step=0.05,
+                mem_id=mem_id,
+                confidence=confidence,
             )
             if rec:
                 changes.append(rec)

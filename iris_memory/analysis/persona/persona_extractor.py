@@ -6,7 +6,7 @@
 - llm: 纯 LLM 提取（准确，有 token 成本）
 - hybrid: 混合模式（规则优先 + LLM 补充）
 
-关键词配置外置到 data/keyword_maps.yaml，支持用户自定义扩展。
+关键词配置默认位于 iris_memory/analysis/persona/keyword_maps.yaml，支持外部覆盖与自定义扩展。
 """
 
 from typing import Dict, Any, Optional
@@ -176,6 +176,8 @@ class PersonaExtractor:
             (rule_result.interests and len(rule_result.interests) == 1)
             or (rule_result.social_style and not rule_result.reply_style_preference)
             or (rule_result.work_info and not rule_result.life_info)
+            or (rule_result.work_style and not rule_result.work_challenge)
+            or (rule_result.directness_adjustment != 0.0 and rule_result.humor_adjustment == 0.0)
         )
         if has_partial:
             value_signals += 1
@@ -225,6 +227,53 @@ class PersonaExtractor:
         # 信任/亲密度
         merged.trust_delta = max(rule.trust_delta, llm.trust_delta) if llm.trust_delta else rule.trust_delta
         merged.intimacy_delta = max(rule.intimacy_delta, llm.intimacy_delta) if llm.intimacy_delta else rule.intimacy_delta
+
+        # ── v2 新增维度合并 ──
+
+        # 工作维度
+        merged.work_style = llm.work_style or rule.work_style
+        merged.work_challenge = llm.work_challenge or rule.work_challenge
+        merged.work_preferences = {**rule.work_preferences, **llm.work_preferences}
+
+        # 生活维度
+        merged.lifestyle = llm.lifestyle or rule.lifestyle
+        merged.life_preferences = {**rule.life_preferences, **llm.life_preferences}
+
+        # 情感维度
+        merged.emotional_triggers = list(set(rule.emotional_triggers + llm.emotional_triggers))
+        merged.emotional_soothers = {**rule.emotional_soothers, **llm.emotional_soothers}
+
+        # 社交边界
+        merged.social_boundaries = {**rule.social_boundaries, **llm.social_boundaries}
+
+        # 人格特质（LLM 优先，非零时）
+        for trait in ("openness", "conscientiousness", "extraversion",
+                      "agreeableness", "neuroticism"):
+            attr = f"personality_{trait}_delta"
+            llm_val = getattr(llm, attr, 0.0)
+            rule_val = getattr(rule, attr, 0.0)
+            setattr(merged, attr, llm_val if llm_val != 0.0 else rule_val)
+
+        # 沟通维度（LLM 优先，非零时）
+        merged.directness_adjustment = (
+            llm.directness_adjustment if llm.directness_adjustment != 0.0
+            else rule.directness_adjustment
+        )
+        merged.humor_adjustment = (
+            llm.humor_adjustment if llm.humor_adjustment != 0.0
+            else rule.humor_adjustment
+        )
+        merged.empathy_adjustment = (
+            llm.empathy_adjustment if llm.empathy_adjustment != 0.0
+            else rule.empathy_adjustment
+        )
+
+        # 主动回复偏好
+        merged.proactive_reply_delta = (
+            llm.proactive_reply_delta if llm.proactive_reply_delta != 0.0
+            else rule.proactive_reply_delta
+        )
+
         # 置信度取最大
         merged.confidence = max(rule.confidence, llm.confidence)
 

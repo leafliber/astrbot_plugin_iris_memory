@@ -69,10 +69,31 @@ class AnalysisModule:
         mode = cfg.persona_extraction_mode
         logger.info(f"Initializing persona extractor (mode={mode})")
 
-        keyword_yaml = plugin_data_path.parent / "data" / "keyword_maps.yaml"
-        if not keyword_yaml.exists():
-            keyword_yaml = Path(__file__).resolve().parent.parent.parent / "data" / "keyword_maps.yaml"
-        kw_maps = KeywordMaps(yaml_path=keyword_yaml if keyword_yaml.exists() else None)
+        # 关键词配置加载优先级：
+        # 1) 外部 data 目录（用户覆盖）
+        # 2) 包内默认配置（可随代码入库）
+        # 3) 旧项目根 data 路径（兼容历史部署）
+        external_keyword_yaml = plugin_data_path.parent / "data" / "keyword_maps.yaml"
+        package_keyword_yaml = (
+            Path(__file__).resolve().parent.parent.parent
+            / "analysis"
+            / "persona"
+            / "keyword_maps.yaml"
+        )
+        legacy_keyword_yaml = (
+            Path(__file__).resolve().parent.parent.parent / "data" / "keyword_maps.yaml"
+        )
+
+        if external_keyword_yaml.exists():
+            keyword_yaml = external_keyword_yaml
+        elif package_keyword_yaml.exists():
+            keyword_yaml = package_keyword_yaml
+        elif legacy_keyword_yaml.exists():
+            keyword_yaml = legacy_keyword_yaml
+        else:
+            keyword_yaml = None
+
+        kw_maps = KeywordMaps(yaml_path=keyword_yaml)
 
         self._persona_extractor = PersonaExtractor(
             extraction_mode=mode,

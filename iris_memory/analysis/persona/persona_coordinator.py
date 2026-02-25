@@ -461,7 +461,19 @@ class PersonaCoordinator:
                 desc = f"情感基线: {baseline}"
                 if trajectory:
                     desc += f", 趋势: {trajectory}"
+                volatility = emotional.get("volatility", 0.5)
+                if volatility > 0.7:
+                    desc += ", 情绪波动较大"
+                elif volatility < 0.3:
+                    desc += ", 情绪稳定"
                 parts.append(desc)
+            triggers = emotional.get("triggers", [])
+            if triggers:
+                parts.append(f"情感敏感点: {', '.join(triggers[:3])}")
+            soothers = emotional.get("soothers", {})
+            if soothers:
+                soother_str = ", ".join(f"{k}" for k in list(soothers.keys())[:3])
+                parts.append(f"安慰方式: {soother_str}")
         
         # 兴趣
         interests = user_persona.get("interests", {})
@@ -475,6 +487,46 @@ class PersonaCoordinator:
         if habits:
             parts.append(f"习惯: {', '.join(habits[:3])}")
         
+        # 工作维度
+        work = user_persona.get("work", {})
+        if work:
+            work_parts = []
+            if work.get("style"):
+                work_parts.append(f"风格: {work['style']}")
+            if work.get("goals"):
+                work_parts.append(f"目标: {', '.join(work['goals'][:2])}")
+            if work.get("challenges"):
+                work_parts.append(f"挑战: {', '.join(work['challenges'][:2])}")
+            if work_parts:
+                parts.append("工作: " + ", ".join(work_parts))
+
+        # 生活维度
+        life = user_persona.get("life", {})
+        if life:
+            if life.get("style"):
+                parts.append(f"生活方式: {life['style']}")
+
+        # 人格特质
+        personality = user_persona.get("personality", {})
+        if personality:
+            trait_map = {
+                "openness": ("开放", "保守"),
+                "conscientiousness": ("自律", "随性"),
+                "extraversion": ("外向", "内向"),
+                "agreeableness": ("温和", "强势"),
+                "neuroticism": ("敏感", "稳定"),
+            }
+            trait_hints = []
+            for trait, (high_label, low_label) in trait_map.items():
+                val = personality.get(trait)
+                if val is not None:
+                    if val > 0.65:
+                        trait_hints.append(high_label)
+                    elif val < 0.35:
+                        trait_hints.append(low_label)
+            if trait_hints:
+                parts.append(f"性格: {', '.join(trait_hints)}")
+        
         # 沟通偏好
         comm = user_persona.get("communication", {})
         if comm:
@@ -484,9 +536,17 @@ class PersonaCoordinator:
                 hints.append("倾向正式沟通")
             elif formality < 0.3:
                 hints.append("倾向随意沟通")
+            directness = comm.get("directness", 0.5)
+            if directness > 0.7:
+                hints.append("喜欢直接表达")
+            elif directness < 0.3:
+                hints.append("倾向委婉表达")
             humor = comm.get("humor", 0.5)
             if humor > 0.7:
                 hints.append("喜欢幽默")
+            empathy = comm.get("empathy", 0.5)
+            if empathy > 0.7:
+                hints.append("注重共情")
             if hints:
                 parts.append("沟通: " + ", ".join(hints))
         
@@ -496,6 +556,11 @@ class PersonaCoordinator:
             style = prefs.get("style")
             if style:
                 parts.append(f"偏好回复风格: {style}")
+            proactive = prefs.get("proactive_reply", 0.5)
+            if proactive > 0.7:
+                parts.append("欢迎主动联系")
+            elif proactive < 0.3:
+                parts.append("不太希望被主动联系")
             blacklist = prefs.get("topic_blacklist", [])
             if blacklist:
                 parts.append(f"回避话题: {', '.join(blacklist[:3])}")
@@ -509,6 +574,13 @@ class PersonaCoordinator:
                 parts.append("与你关系亲近，可以更自然地交流")
             elif trust < 0.3:
                 parts.append("对你的信任度较低，注意措辞")
+            social_style = rel.get("social_style")
+            if social_style:
+                parts.append(f"社交风格: {social_style}")
+            boundaries = rel.get("boundaries", {})
+            if boundaries:
+                boundary_str = ", ".join(list(boundaries.keys())[:3])
+                parts.append(f"社交边界: {boundary_str}")
         
         if len(parts) <= 1:
             return ""

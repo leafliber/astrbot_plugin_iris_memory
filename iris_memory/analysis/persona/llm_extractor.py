@@ -146,6 +146,72 @@ class LLMExtractor:
         if conf is not None and isinstance(conf, (int, float)):
             result.confidence = max(0.0, min(1.0, float(conf)))
 
+        # ── v2 新增维度解析 ──
+
+        # directness
+        dn = raw.get("directness")
+        if dn is not None and isinstance(dn, (int, float)):
+            result.directness_adjustment = max(-1.0, min(1.0, float(dn)))
+
+        # humor
+        hm = raw.get("humor")
+        if hm is not None and isinstance(hm, (int, float)):
+            result.humor_adjustment = max(-1.0, min(1.0, float(hm)))
+
+        # empathy
+        em = raw.get("empathy")
+        if em is not None and isinstance(em, (int, float)):
+            result.empathy_adjustment = max(-1.0, min(1.0, float(em)))
+
+        # work_style
+        ws = raw.get("work_style")
+        if ws and isinstance(ws, str) and ws.lower() != "null":
+            result.work_style = ws
+
+        # work_challenge
+        wc = raw.get("work_challenge")
+        if wc and isinstance(wc, str) and wc.lower() != "null":
+            result.work_challenge = wc
+
+        # lifestyle
+        ls = raw.get("lifestyle")
+        if ls and isinstance(ls, str) and ls.lower() != "null":
+            result.lifestyle = ls
+
+        # emotional_triggers
+        et = raw.get("emotional_triggers")
+        if isinstance(et, list):
+            result.emotional_triggers = [str(t) for t in et if t]
+
+        # emotional_soothers
+        es = raw.get("emotional_soothers")
+        if isinstance(es, dict):
+            result.emotional_soothers = {
+                str(k): str(v) for k, v in es.items() if k and v
+            }
+
+        # social_boundaries
+        sb = raw.get("social_boundaries")
+        if isinstance(sb, dict):
+            result.social_boundaries = {
+                str(k): str(v) for k, v in sb.items() if k and v
+            }
+
+        # personality (Big Five)
+        personality = raw.get("personality")
+        if isinstance(personality, dict):
+            for trait in ("openness", "conscientiousness", "extraversion",
+                          "agreeableness", "neuroticism"):
+                val = personality.get(trait)
+                if val is not None and isinstance(val, (int, float)):
+                    clamped = max(-0.1, min(0.1, float(val)))
+                    setattr(result, f"personality_{trait}_delta", clamped)
+
+        # proactive_reply
+        pr = raw.get("proactive_reply")
+        if pr is not None and isinstance(pr, (int, float)):
+            result.proactive_reply_delta = max(-0.1, min(0.1, float(pr)))
+
         return result
 
     @property
