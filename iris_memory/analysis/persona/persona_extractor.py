@@ -10,6 +10,7 @@
 """
 
 from typing import Dict, Any, Optional
+import re
 
 from iris_memory.utils.logger import get_logger
 from iris_memory.analysis.persona.keyword_maps import ExtractionResult, KeywordMaps
@@ -114,9 +115,16 @@ class PersonaExtractor:
         """混合提取：先规则，再 LLM 补充"""
         rule_result = self._rule_extractor.extract(content, summary)
 
-        # 如果规则已经提取到足够信息（置信度 >= 0.6），不调用 LLM
-        if rule_result.confidence >= 0.6:
+        # 动态阈值：根据内容价值信号调整
+        threshold = self._compute_dynamic_threshold(content, rule_result)
+
+        # 如果规则已经提取到足够信息，不调用 LLM
+        if rule_result.confidence >= threshold:
             rule_result.source = "hybrid"
+            logger.debug(
+                f"Hybrid skip LLM: rule confidence {rule_result.confidence:.2f} "
+                f">= threshold {threshold:.2f}"
+            )
             return self._apply_feature_gates(rule_result)
 
         # LLM 补充
@@ -124,10 +132,66 @@ class PersonaExtractor:
             llm_result = await self._llm_extractor.extract(content, memory_context)
             if llm_result.confidence > 0:
                 merged = self._merge_results(rule_result, llm_result)
+                logger.debug(
+                    f"Hybrid LLM triggered: threshold={threshold:.2f}, "
+                    f"rule_conf={rule_result.confidence:.2f}, "
+                    f"llm_conf={llm_result.confidence:.2f}"
+                )
                 return self._apply_feature_gates(merged)
 
         rule_result.source = "hybrid"
         return self._apply_feature_gates(rule_result)
+
+    @staticmethod
+    def _compute_dynamic_threshold(
+        content: str,
+        rule_result: ExtractionResult,
+    ) -> float:
+        """动态计算 LLM 触发阈值
+
+        高价值内容降低阈值（更容易触发 LLM），
+        低价值内容提高阈值（节省 LLM 调用）。
+
+        基准阈值: 0.6
+        调整范围: [0.4, 0.75]
+        """
+        base_threshold = 0.6
+        value_signals = 0
+
+        # 1. 包含第一人称（自述信息更有价值）
+        first_person = ["我", "本人", "俺", "咱", "吃"]
+        if any(p in content for p in first_person):
+            value_signals += 1
+
+        # 2. 包含具体数字、地名等信息
+        if re.search(r'\d+', content):
+            value_signals += 1
+
+        # 3. 内容较长（更可能包含价值信息）
+        if len(content) > 50:
+            value_signals += 1
+
+        # 4. 规则提取到了部分而非完整信息
+        has_partial = (
+            (rule_result.interests and len(rule_result.interests) == 1)
+            or (rule_result.social_style and not rule_result.reply_style_preference)
+            or (rule_result.work_info and not rule_result.life_info)
+        )
+        if has_partial:
+            value_signals += 1
+
+        # 5. 包含明确的属性描述词（但规则可能未完全捕捉）
+        attribute_signals = [
+            "喜欢", "讨厌", "擅长", "不喜欢", "对…感兴趣",
+            "需要", "希望", "认为", "觉得",
+        ]
+        if any(s in content for s in attribute_signals):
+            value_signals += 1
+
+        # 根据价值信号调整阈值
+        # 更多信号 → 更低阈值 → 更容易触发 LLM
+        adjustment = min(value_signals * 0.05, 0.20)
+        return max(0.4, min(0.75, base_threshold - adjustment))
 
     # -- 工具方法 --
 

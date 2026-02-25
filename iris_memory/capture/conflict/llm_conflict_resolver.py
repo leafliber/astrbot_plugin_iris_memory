@@ -4,6 +4,7 @@ LLM增强冲突解决器
 
 基于 LLMEnhancedDetector 模板方法模式
 """
+import re
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
@@ -54,10 +55,28 @@ _ALLOWED_CONFLICT_TYPES = ["direct", "conditional", "temporal", "none"]
 _ALLOWED_RESOLUTIONS = [
     "merge", "keep_both", "keep_newer", "keep_older", "need_context"
 ]
-# 微妙冲突指示词对
+# 微妙冲突指示词对（扩展多维度检测）
 _SUBTLE_CONFLICT_INDICATORS = [
+    # 偏好矛盾
     ("喜欢", "不"), ("爱", "不"), ("讨厌", "但"),
     ("恨", "但"), ("想", "不"), ("要", "不"),
+    ("喜欢", "讨厌"), ("爱", "恨"), ("想要", "不想"),
+    # 情感矛盾
+    ("开心", "难过"), ("高兴", "伤心"), ("快乐", "痛苦"),
+    ("满意", "不满"), ("期待", "害怕"), ("兴奋", "失望"),
+    ("乐观", "悲观"), ("自信", "自卑"),
+    # 状态矛盾
+    ("是", "不是"), ("有", "没有"), ("会", "不会"),
+    ("能", "不能"), ("在", "不在"), ("懂", "不懂"),
+    # 时间变化信号
+    ("以前", "现在"), ("之前", "后来"), ("原来", "现在"),
+    ("过去", "如今"), ("曾经", "目前"), ("小时候", "长大后"),
+    # 频率矛盾
+    ("经常", "很少"), ("总是", "从不"), ("每天", "偶尔"),
+    ("常常", "几乎不"), ("一直", "不再"),
+    # 英文
+    ("like", "dislike"), ("love", "hate"), ("always", "never"),
+    ("before", "now"), ("used to", "no longer"),
 ]
 
 
@@ -203,11 +222,48 @@ class LLMConflictResolver(LLMEnhancedDetector[ConflictDetectionResult]):
         return rule_result
     
     def _might_have_subtle_conflict(self, text1: str, text2: str) -> bool:
-        """检查是否有细微冲突"""
+        """检查是否有细微冲突
+        
+        多维度检测策略：
+        1. 词对指示器（偏好/情感/状态/时间/频率矛盾）
+        2. 数值差异检测（相同描述框架下的不同数字）
+        3. 时间矛盾检测（相同主题不同时间线）
+        """
+        # 1. 词对事指示器
         for word1, word2 in _SUBTLE_CONFLICT_INDICATORS:
             if ((word1 in text1 and word2 in text2)
                     or (word1 in text2 and word2 in text1)):
                 return True
+        
+        # 2. 数值差异检测
+        nums1 = re.findall(r'\d+', text1)
+        nums2 = re.findall(r'\d+', text2)
+        if nums1 and nums2 and set(nums1) != set(nums2):
+            # 检查非数字部分是否相似（相同描述框架）
+            non_num1 = re.sub(r'\d+', '', text1).strip()
+            non_num2 = re.sub(r'\d+', '', text2).strip()
+            if non_num1 and non_num2:
+                # 简单字符重叠检查
+                chars1 = set(non_num1.replace(' ', ''))
+                chars2 = set(non_num2.replace(' ', ''))
+                overlap = len(chars1 & chars2) / max(len(chars1), len(chars2), 1)
+                if overlap > 0.5:
+                    return True
+        
+        # 3. 时间矛盾检测：相同主题不同时间词
+        time_markers = [
+            "昨天", "今天", "明天", "上周", "上月", "去年",
+            "今年", "明年", "昨晚", "今晚", "上午", "下午",
+        ]
+        has_time1 = any(t in text1 for t in time_markers)
+        has_time2 = any(t in text2 for t in time_markers)
+        if has_time1 and has_time2:
+            # 两条都有时间词且时间不同，可能是时间矛盾
+            times1 = [t for t in time_markers if t in text1]
+            times2 = [t for t in time_markers if t in text2]
+            if set(times1) != set(times2):
+                return True
+        
         return False
     
     async def resolve(

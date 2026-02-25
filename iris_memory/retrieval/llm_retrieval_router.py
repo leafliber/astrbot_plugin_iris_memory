@@ -5,6 +5,7 @@ LLM增强检索路由器
 基于 LLMEnhancedDetector 模板方法模式
 """
 from dataclasses import dataclass, field
+import re
 from typing import Any, Dict, List, Optional
 
 from iris_memory.core.types import RetrievalStrategy
@@ -69,11 +70,31 @@ _STRATEGY_MAP = {
     "hybrid": RetrievalStrategy.HYBRID,
 }
 
-# 复杂查询指示词
+# 复杂查询指示词（扩展多维度语义检测）
 _COMPLEX_INDICATORS = [
-    "和", "与", "跟", "一起", "同时",
-    "之前", "之后", "期间", "时候",
-    "为什么", "怎么", "如何", "原因"
+    # 连接词（多实体/多约束）
+    "和", "与", "跟", "一起", "同时", "以及", "还有",
+    # 时间约束
+    "之前", "之后", "期间", "时候", "那时", "当时",
+    # 因果/推理
+    "为什么", "怎么", "如何", "原因", "因为", "所以", "导致",
+    # 条件/比较
+    "如果", "假如", "相比", "比较", "不同", "区别",
+    # 多跳推理信号
+    "关于", "有关", "涉及", "相关",
+    # 英文
+    "why", "how", "because", "compared", "between", "about",
+]
+
+# 高价值查询模式（语义复杂度更高，用正则匹配）
+_HIGH_VALUE_QUERY_PATTERNS = [
+    r"(?:什么|哪些).*(?:和|与|跟)",   # "什么和什么"
+    r"(?:谁|哪个).*(?:之间|关系)",    # "谁和谁之间"
+    r"(?:怎么|如何).*(?:变化|改变)",  # "怎么变化的"
+    r"(?:为什么).*(?:不|没|却)",         # "为什么不..."
+    r"(?:从.*到).*(?:变|成)",            # "从...到...变化"
+    r"(?:what|which).*(?:and|between|with)",    # English multi-entity
+    r"(?:how|why).*(?:change|differ|affect)",   # English causation
 ]
 
 
@@ -187,6 +208,32 @@ class LLMRetrievalRouter(LLMEnhancedDetector[RoutingDetectionResult]):
         return rule_result
     
     def _might_be_complex(self, query: str) -> bool:
-        """检查是否可能是复杂查询"""
-        return any(ind in query for ind in _COMPLEX_INDICATORS)
+        """检查是否可能是复杂查询
+        
+        多层检测：
+        1. 复杂指示词计数（≥2 个立即判定）
+        2. 高价值模式正则匹配
+        3. 实体数量估计（多个专有名词）
+        4. 单个指示词 + 较长文本
+        """
+        # 1. 复杂指示词计数
+        indicator_count = sum(1 for ind in _COMPLEX_INDICATORS if ind in query)
+        if indicator_count >= 2:
+            return True
+        
+        # 2. 高价值模式匹配
+        for pattern in _HIGH_VALUE_QUERY_PATTERNS:
+            if re.search(pattern, query, re.IGNORECASE):
+                return True
+        
+        # 3. 实体数量估计（引号内容或专有名词）
+        quoted_entities = re.findall(r'[「」“”\'\"]+', query)
+        if len(quoted_entities) >= 2:
+            return True
+        
+        # 4. 单个指示词 + 较长文本
+        if indicator_count >= 1 and len(query) > 15:
+            return True
+        
+        return False
     

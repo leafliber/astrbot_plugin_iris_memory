@@ -19,7 +19,7 @@ from iris_memory.utils.llm_helper import (
     call_llm,
     parse_llm_json,
 )
-from iris_memory.utils.rate_limiter import DailyCallLimiter
+from iris_memory.utils.rate_limiter import CooldownTracker, DailyCallLimiter
 from iris_memory.core.provider_utils import normalize_provider_id
 
 logger = get_logger("llm_enhanced_base")
@@ -59,6 +59,7 @@ class LLMEnhancedBase(ABC):
         daily_limit: int = 0,
         max_tokens: int = 300,
         temperature: float = 0.3,
+        cooldown_seconds: int = 0,
     ):
         self._astrbot_context = astrbot_context
         self._configured_provider_id = normalize_provider_id(provider_id)
@@ -73,11 +74,20 @@ class LLMEnhancedBase(ABC):
         
         self._limiter = DailyCallLimiter(daily_limit)
         
+        # 可选冷却追踪器（per-context cooldown）
+        self._cooldown_tracker: Optional[CooldownTracker] = None
+        if cooldown_seconds > 0:
+            self._cooldown_tracker = CooldownTracker(cooldown_seconds)
+        
         self._stats = {
             "total_calls": 0,
             "successful_calls": 0,
             "failed_calls": 0,
             "total_tokens": 0,
+            "rule_only_decisions": 0,
+            "llm_triggered_decisions": 0,
+            "llm_skipped_cooldown": 0,
+            "llm_skipped_limit": 0,
         }
     
     @property
@@ -94,6 +104,17 @@ class LLMEnhancedBase(ABC):
     
     def _is_within_limit(self) -> bool:
         return self._limiter.is_within_limit()
+    
+    def _check_cooldown(self, context_key: str = "global") -> bool:
+        """检查冷却状态，无冷却追踪器时始终返回 True"""
+        if self._cooldown_tracker is None:
+            return True
+        return self._cooldown_tracker.is_ready(context_key)
+    
+    def _record_cooldown(self, context_key: str = "global") -> None:
+        """记录冷却调用"""
+        if self._cooldown_tracker is not None:
+            self._cooldown_tracker.record(context_key)
     
     @property
     def remaining_daily_calls(self) -> int:
@@ -167,6 +188,7 @@ class LLMEnhancedBase(ABC):
             "daily_limit": self._daily_limit,
             "remaining_calls": self.remaining_daily_calls,
             "mode": self._mode.value,
+            "has_cooldown": self._cooldown_tracker is not None,
         }
     
     @abstractmethod
@@ -244,10 +266,12 @@ class LLMEnhancedDetector(LLMEnhancedBase, Generic[T]):
         if hasattr(llm_result, 'confidence') and llm_result.confidence >= 0.6:
             if hasattr(llm_result, 'source'):
                 llm_result.source = "hybrid"
+            self._stats["llm_triggered_decisions"] += 1
             return llm_result
         
         if hasattr(rule_result, 'source'):
             rule_result.source = "hybrid"
+        self._stats["rule_only_decisions"] += 1
         return rule_result
     
     def _should_skip_input(self, *args, **kwargs) -> bool:

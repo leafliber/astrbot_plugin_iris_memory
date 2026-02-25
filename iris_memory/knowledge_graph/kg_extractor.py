@@ -24,6 +24,7 @@ from iris_memory.knowledge_graph.kg_models import (
 )
 from iris_memory.knowledge_graph.kg_storage import KGStorage
 from iris_memory.utils.logger import get_logger
+from iris_memory.utils.rate_limiter import DailyCallLimiter
 
 logger = get_logger("kg_extractor")
 
@@ -77,6 +78,24 @@ _TRIPLE_EXTRACTION_PROMPT = """从以下文本中提取实体关系三元组。
 
 # 文本长度阈值：超过此长度跳过规则提取（避免大量正则遍历长文本）
 RULE_TEXT_MAX_LENGTH: int = 2000
+
+# hybrid 模式默认每日 LLM 调用上限
+_DEFAULT_DAILY_LIMIT: int = 100
+
+# 关系信号关键词：文本含有这些词时更可能包含可提取的关系
+_RELATIONSHIP_SIGNAL_KEYWORDS: frozenset[str] = frozenset([
+    # 身份/属性描述
+    "是一", "是个", "当过", "做过", "担任",
+    # 事件参与
+    "参加", "参与", "一起", "带着", "陪着",
+    # 归属/所有
+    "属于", "来自", "出生", "毕业于",
+    # 描述句式
+    "叫做", "名叫", "人称", "外号", "绰号",
+    # 英文
+    "is a", "works as", "born in", "graduated from",
+    "known as", "called", "belongs to",
+])
 
 # 快速关键词预过滤集合：只有包含这些关键词的文本才进入精细正则匹配
 _QUICK_FILTER_KEYWORDS: frozenset[str] = frozenset([
@@ -264,6 +283,7 @@ class KGExtractor:
         mode: str = "rule",
         astrbot_context: Any = None,
         provider_id: Optional[str] = None,
+        daily_limit: int = _DEFAULT_DAILY_LIMIT,
     ) -> None:
         self.storage = storage
         self.mode = mode  # "rule" | "llm" | "hybrid"
@@ -272,6 +292,20 @@ class KGExtractor:
         self._provider = None
         self._resolved_provider_id: Optional[str] = None
         self._provider_initialized = False
+
+        # 每日 LLM 调用限制
+        self._limiter = DailyCallLimiter(daily_limit)
+
+        # Hybrid 决策统计
+        self._stats: Dict[str, int] = {
+            "rule_extractions": 0,
+            "llm_extractions": 0,
+            "llm_skipped_sufficient": 0,
+            "llm_skipped_limit": 0,
+            "llm_skipped_no_signal": 0,
+            "hybrid_decisions": 0,
+            "total_triples": 0,
+        }
 
     # ================================================================
     # 主入口
@@ -307,11 +341,37 @@ class KGExtractor:
         if self.mode in ("rule", "hybrid"):
             rule_triples = self._extract_by_rules(text, sender_name)
             triples.extend(rule_triples)
+            if rule_triples:
+                self._stats["rule_extractions"] += 1
 
-        if self.mode in ("llm", "hybrid"):
+        if self.mode == "llm":
+            # 纯 LLM 模式：直接调用
             llm_triples = await self._extract_by_llm(text, user_id, sender_name)
-            # 与规则结果去重
             triples = self._merge_triples(triples, llm_triples)
+            if llm_triples:
+                self._stats["llm_extractions"] += 1
+        elif self.mode == "hybrid":
+            # hybrid 模式：条件触发 LLM
+            self._stats["hybrid_decisions"] += 1
+            should_call, reason = self._should_call_llm_hybrid(text, triples)
+            if should_call:
+                if self._limiter.is_within_limit():
+                    llm_triples = await self._extract_by_llm(
+                        text, user_id, sender_name
+                    )
+                    if llm_triples:
+                        self._limiter.increment()
+                        self._stats["llm_extractions"] += 1
+                    triples = self._merge_triples(triples, llm_triples)
+                    logger.debug(
+                        f"Hybrid LLM triggered ({reason}): "
+                        f"got {len(llm_triples) if llm_triples else 0} triples"
+                    )
+                else:
+                    self._stats["llm_skipped_limit"] += 1
+                    logger.debug("Hybrid LLM skipped: daily limit reached")
+            else:
+                logger.debug(f"Hybrid LLM skipped: {reason}")
 
         if not triples:
             # 尝试从 existing_entities 构建隐含关系
@@ -325,12 +385,92 @@ class KGExtractor:
             await self._store_triple(triple, user_id, group_id, memory_id)
 
         if triples:
+            self._stats["total_triples"] += len(triples)
             logger.debug(
                 f"Extracted {len(triples)} triples from text (mode={self.mode}): "
                 + ", ".join(str(t) for t in triples[:3])
             )
 
         return triples
+
+    # ================================================================
+    # Hybrid 决策逻辑
+    # ================================================================
+
+    def _should_call_llm_hybrid(
+        self,
+        text: str,
+        rule_triples: List[KGTriple],
+    ) -> Tuple[bool, str]:
+        """判断 hybrid 模式下是否需要调用 LLM
+
+        决策逻辑：
+        1. 规则已提取到 ≥2 个高置信度三元组 → 跳过
+        2. 文本超长（规则跳过了）→ 触发 LLM
+        3. 文本含有关系信号但规则未提取到 → 触发 LLM
+        4. 规则只提取到低置信度结果 → 触发 LLM 补充
+
+        Returns:
+            (should_call, reason) 元组
+        """
+        # 规则已提取到足够多的高置信度结果
+        high_conf = [t for t in rule_triples if t.confidence >= 0.6]
+        if len(high_conf) >= 2:
+            self._stats["llm_skipped_sufficient"] += 1
+            return False, "rule_sufficient"
+
+        # 文本超长（规则因长度限制跳过了）
+        if len(text) > RULE_TEXT_MAX_LENGTH:
+            return True, "text_too_long_for_rules"
+
+        # 规则未提取到但文本有关系信号
+        if not rule_triples and self._has_relationship_signals(text):
+            return True, "relationship_signals_detected"
+
+        # 规则提取到了但全部低置信度
+        if rule_triples and all(t.confidence < 0.5 for t in rule_triples):
+            return True, "low_confidence_rules"
+
+        # 规则提取到 1 个高置信度结果，但文本可能还有更多关系
+        if len(high_conf) == 1 and self._has_relationship_signals(text):
+            return True, "partial_rules_with_signals"
+
+        # 其余情况不调用
+        if not rule_triples:
+            self._stats["llm_skipped_no_signal"] += 1
+            return False, "no_signal"
+
+        self._stats["llm_skipped_sufficient"] += 1
+        return False, "rule_acceptable"
+
+    @staticmethod
+    def _has_relationship_signals(text: str) -> bool:
+        """检测文本是否包含关系描述的信号词
+
+        除了 _QUICK_FILTER_KEYWORDS（用于规则匹配的精确关键词），
+        这里额外覆盖一些规则正则无法匹配但 LLM 能理解的模式。
+        """
+        # 先检查规则关键词（这些文本至少可能包含关系）
+        if any(kw in text for kw in _QUICK_FILTER_KEYWORDS):
+            return True
+        # 再检查扩展信号词
+        if any(kw in text for kw in _RELATIONSHIP_SIGNAL_KEYWORDS):
+            return True
+        return False
+
+    def get_stats(self) -> Dict[str, Any]:
+        """获取 Hybrid 决策统计"""
+        return {
+            **self._stats,
+            "daily_limit": self._limiter._daily_limit,
+            "remaining_calls": self._limiter.remaining,
+            "mode": self.mode,
+        }
+
+    @property
+    def remaining_daily_calls(self) -> int:
+        """剩余每日 LLM 可用次数"""
+        return self._limiter.remaining
 
     # ================================================================
     # 规则提取
