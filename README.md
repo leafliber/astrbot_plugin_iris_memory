@@ -1,10 +1,10 @@
 # Iris Memory Plugin
 
-**⚠️注意**：
-- 当前插件在默认情况下，没有开启LLM分析，记忆升级会比较死板，建议在astrbot插件配置页面，启用llm分析，但同时会消耗比较多的token，请注意费用
-- 建议关闭astrbot自带的主动回复和上下文感知，以避免冲突
+面向 AstrBot 的三层记忆插件：让机器人“记住你”、按上下文检索、并在对话中自动注入相关记忆。
 
-**当前版本**: v1.7.1 | **Python**: 3.12+
+**适用版本**：Python 3.12+（插件版本请以 [CHANGELOG.md](./CHANGELOG.md) 最新记录为准）
+
+---
 
 ## 功能特性
 
@@ -35,285 +35,235 @@
 - 情感感知记忆过滤
 - 知识图谱多跳推理增强
 
----
+## 快速开始
 
-## 安装与配置
+### 1) 安装与启用
 
-### 安装依赖
+1. 在 AstrBot 中安装本插件。
+2. 确认依赖可用（`sentence-transformers` 默认已安装）。
 
-#### 可选：本地嵌入模型支持（推荐安装）
+### 2) 推荐先做的两件事
 
-**注意**：附加库可通过 AstrBot 控制台安装：
-- 打开 AstrBot 控制台 → **更多功能** → **平台日志**
-- 点击右上角 **安装 pip 库**，输入下面的包名确认安装
-- 安装后可能需要重启 AstrBot 或插件
+- 为避免行为冲突，建议关闭 AstrBot 自带的“主动回复”和“上下文感知”。
+- 如果希望记忆质量更自然，建议开启 `memory.use_llm`（会增加 token 消耗）。
 
-```
-sentence-transformers（已默认安装）
-```
+### 3) 验证是否生效
 
----
+发送以下命令检查：
 
-## 配置说明
+- `/memory_save 我最喜欢喝冰美式`
+- `/memory_search 喜欢喝什么`
+- `/memory_stats`
 
-### 基础功能
-| 配置项 | 说明 | 默认值 |
-|--------|------|--------|
-| `basic.enable_memory` | 启用记忆功能 | true |
-| `basic.enable_inject` | 自动注入记忆到对话 | true |
-| `basic.log_level` | 日志级别 (DEBUG/INFO/WARNING/ERROR) | INFO |
-
-### 记忆与 LLM 设置
-| 配置项 | 说明 | 默认值 |
-|--------|------|--------|
-| `memory.max_context_memories` | 注入记忆数量（1-10） | 3 |
-| `memory.max_working_memory` | 工作记忆数量上限 | 10 |
-| `memory.upgrade_mode` | 记忆升级模式 (rule/llm/hybrid) | rule |
-| `memory.use_llm` | 使用 LLM 增强处理 | false |
-| `memory.provider_id` | LLM 提供者（留空使用默认） | "" |
-
-### LLM 智能增强（v1.6+）
-| 配置项 | 说明 | 默认值 | 选项 |
-|--------|------|--------|------|
-| `llm_enhanced.provider_id` | LLM 增强提供者 | "" | 选择提供者 |
-| `llm_enhanced.sensitivity_mode` | 敏感度检测模式 | rule | rule/llm/hybrid |
-| `llm_enhanced.trigger_mode` | 触发器检测模式 | rule | rule/llm/hybrid |
-| `llm_enhanced.emotion_mode` | 情感分析模式 | rule | rule/llm/hybrid |
-| `llm_enhanced.proactive_mode` | 主动回复检测模式 | rule | rule/llm/hybrid |
-| `llm_enhanced.conflict_mode` | 冲突解决模式 | rule | rule/llm/hybrid |
-| `llm_enhanced.retrieval_mode` | 检索路由模式 | rule | rule/llm/hybrid |
-
-### 知识图谱
-| 配置项 | 说明 | 默认值 |
-|--------|------|--------|
-| `knowledge_graph.enabled` | 启用知识图谱 | true |
-| `knowledge_graph.extraction_mode` | 三元组提取模式 (rule/llm/hybrid) | rule |
-| `knowledge_graph.provider_id` | 知识图谱 LLM 提供者 | "" |
-| `knowledge_graph.max_depth` | 最大推理跳数（1-5） | 3 |
-| `knowledge_graph.max_nodes_per_hop` | 每跳最大节点数（5-50） | 10 |
-| `knowledge_graph.max_facts` | 注入事实数量上限（3-20） | 8 |
-| `knowledge_graph.min_confidence` | 最小置信度（0.1-0.9） | 0.3 |
-
-### 嵌入向量设置
-| 配置项 | 说明 | 默认值 | 选项 |
-|--------|------|--------|------|
-| `embedding.source` | 嵌入源选择 | auto | auto/astrbot/local |
-| `embedding.astrbot_provider_id` | AstrBot Embedding 提供者 | "" | 选择提供者 |
-| `embedding.fallback_to_local` | AstrBot 不可用时降级到本地模型 | true | true/false |
-| `embedding.local_model` | 本地嵌入模型 | BAAI/bge-small-zh-v1.5 | sentence-transformers 模型 |
-| `embedding.local_dimension` | 本地模型嵌入维度 | 512 | 512/768/1024 等 |
-| `embedding.enable_local_provider` | 启用本地嵌入模型 | true | true/false |
-
-### 主动回复
-| 配置项 | 说明 | 默认值 |
-|--------|------|--------|
-| `proactive_reply.enable` | 启用主动回复 | false |
-| `proactive_reply.group_whitelist_mode` | 群聊白名单模式 | false |
-
-### 场景自适应（v1.6+）
-| 配置项 | 说明 | 默认值 |
-|--------|------|--------|
-| `activity_adaptive.enable` | 启用场景自适应 | true |
-
-**功能说明**：根据群活跃度自动调整主动回复频率、批量处理参数等配置，实现温和型陪伴风格。
-
-### 图片分析
-| 配置项 | 说明 | 默认值 | 选项 |
-|--------|------|--------|------|
-| `image_analysis.enable` | 启用图片分析 | true | true/false |
-| `image_analysis.mode` | 分析模式 | auto | auto/brief/detailed/skip |
-| `image_analysis.daily_budget` | 每日分析次数上限 | 100 | 整数，0 表示无限制 |
-| `image_analysis.provider_id` | 图片分析 LLM 提供者 | "" | 选择提供者 |
-
-### 错误友好化
-| 配置项 | 说明 | 默认值 |
-|--------|------|--------|
-| `error_friendly.enable` | 启用错误消息友好化 | true |
-
-### Web 管理界面（v1.6+）
-| 配置项 | 说明 | 默认值 |
-|--------|------|--------|
-| `web_ui.enable` | 启用 Web 管理界面 | false |
-| `web_ui.port` | Web 服务端口（1024-65535） | 8089 |
-| `web_ui.access_key` | 访问密钥（留空无需认证） | "" |
-| `web_ui.host` | 监听地址 | 127.0.0.1 |
-
-**访问方式**：启用后访问 `http://127.0.0.1:8089`
-
-**功能**：
-- 记忆列表、搜索、编辑、删除
-- 知识图谱可视化与边管理
-- 用户画像查看
-- 情绪状态追踪
-- 记忆导入/导出（JSON/CSV）
+能检索到刚刚保存的内容，即表示核心链路正常。
+注：机器人会自己
 
 ---
 
-## 使用方法
+## 常用指令
 
-### 指令列表
-
-#### 基础指令
+### 基础指令
 
 | 指令 | 说明 |
 |------|------|
-| `/memory_save <内容>` | 手动保存一条记忆（置信度更高） |
-| `/memory_search <关键词>` | 搜索相关记忆，支持语义搜索 |
-| `/memory_clear` | 清除当前会话（私聊或群聊）的所有记忆 |
-| `/memory_stats` | 查看当前会话的记忆统计信息 |
-| `/activity_status` | 查看各群活跃度状态（场景自适应功能） |
+| `/memory_save <内容>` | 手动保存一条记忆（通常置信度更高） |
+| `/memory_search <关键词>` | 搜索相关记忆（支持语义检索） |
+| `/memory_clear` | 清除当前会话的所有记忆 |
+| `/memory_stats` | 查看当前会话记忆统计 |
+| `/activity_status` | 查看各群活跃度状态（场景自适应） |
 
-#### 管理员指令
+### 管理类指令
 
-##### 删除记忆
+```bash
+/memory_delete
+/memory_delete current
+/memory_delete private
+/memory_delete group [shared|private|all]
+/memory_delete all confirm
+
+/proactive_reply on
+/proactive_reply off
+/proactive_reply status
+/proactive_reply list
 ```
-/memory_delete              # 删除当前会话记忆
-/memory_delete current      # 删除当前会话记忆
-/memory_delete private      # 删除我的私聊记忆
-/memory_delete group [shared|private|all]  # 删除群聊记忆（管理员，群聊场景）
-/memory_delete all confirm  # 删除所有记忆（超管，需确认）
-```
-
-##### 主动回复控制
-```
-/proactive_reply on      # 开启当前群的主动回复
-/proactive_reply off     # 关闭当前群的主动回复
-/proactive_reply status  # 查看当前群的状态
-/proactive_reply list    # 查看所有已开启主动回复的群聊
-```
-
-### 自动捕获
-
-当开启记忆功能时，插件会自动检测并捕获以下类型的记忆：
-
-- **事实类**："我是"、"我有"、"我的工作是..."
-- **偏好类**："我喜欢"、"我讨厌"、"我想要..."
-- **情感类**："我觉得"、"感到"、"心情..."
-- **关系类**："我们是朋友"、"你对我来说是..."
-
-### 主动回复
-
-开启主动回复功能后，当检测到用户可能需要回应时（如长时间沉默后说话、表达情绪等），机器人会主动发送消息。
-
-需先在配置中开启 `proactive_reply.enable`，并可选择启用 `proactive_reply.group_whitelist_mode` 白名单模式。
 
 ---
 
-## 架构设计
+## 推荐配置（快速开始）
 
-### 目录结构
-```
+下面这套配置兼顾效果与成本，适合大多数用户：
+
+| 配置项 | 建议值 | 说明 |
+|--------|--------|------|
+| `basic.enable_memory` | `true` | 开启记忆功能 |
+| `basic.enable_inject` | `true` | 自动注入记忆 |
+| `memory.use_llm` | `true` | 提升升级与摘要质量（消耗 token） |
+| `memory.upgrade_mode` | `hybrid` | 规则 + LLM 平衡方案 |
+| `memory.max_context_memories` | `3～8` | 注入太多会影响上下文长度 |
+| `embedding.source` | `auto` | 自动选择 embedding 来源 |
+| `proactive_reply.enable` | `false`（默认） | 建议先稳定记忆再开启 |
+| `web_ui.enable` | 按需 | 仅在需要可视化管理时开启 |
+
+---
+
+## 配置说明（v1.7+）
+
+> v1.7 起配置结构有调整：日志与 provider 配置已集中，旧路径请按本节更新。
+
+### 基础与日志
+
+| 配置项 | 说明 | 默认值 |
+|--------|------|--------|
+| `basic.enable_memory` | 启用记忆功能 | `true` |
+| `basic.enable_inject` | 自动注入记忆 | `true` |
+| `logging.log_level` | 日志级别（DEBUG/INFO/WARNING/ERROR） | `INFO` |
+
+### LLM 提供者（集中配置）
+
+| 配置项 | 说明 | 默认值 |
+|--------|------|--------|
+| `llm_providers.default_provider_id` | 默认 LLM 提供者 | `""` |
+| `llm_providers.memory_provider_id` | 记忆相关任务提供者 | `""` |
+| `llm_providers.persona_provider_id` | 用户画像任务提供者 | `""` |
+| `llm_providers.knowledge_graph_provider_id` | 图谱任务提供者 | `""` |
+| `llm_providers.image_analysis_provider_id` | 图片分析提供者 | `""` |
+| `llm_providers.enhanced_provider_id` | 智能增强任务提供者 | `""` |
+
+### 记忆核心
+
+| 配置项 | 说明 | 默认值 |
+|--------|------|--------|
+| `memory.max_context_memories` | 每次注入记忆数量（1-10） | `5` |
+| `memory.max_working_memory` | 工作记忆上限 | `20` |
+| `memory.upgrade_mode` | 升级模式（rule/llm/hybrid） | `rule` |
+| `memory.use_llm` | 启用 LLM 增强处理 | `false` |
+
+### 智能增强与扩展功能
+
+| 配置组 | 关键项 | 默认值 |
+|--------|--------|--------|
+| `llm_enhanced` | `sensitivity_mode` / `trigger_mode` / `emotion_mode` / `proactive_mode` / `conflict_mode` / `retrieval_mode` | `rule` |
+| `knowledge_graph` | `enabled` / `extraction_mode` / `max_depth` / `max_facts` | `true` / `rule` / `3` / `8` |
+| `persona` | `extraction_mode` | `rule` |
+| `embedding` | `source` / `fallback_to_local` / `local_model` | `auto` / `true` / `BAAI/bge-small-zh-v1.5` |
+| `image_analysis` | `enable` / `mode` / `daily_budget` | `true` / `auto` / `100` |
+| `proactive_reply` | `enable` / `group_whitelist_mode` | `false` / `false` |
+| `activity_adaptive` | `enable` | `true` |
+| `error_friendly` | `enable` | `true` |
+| `web_ui` | `enable` / `host` / `port` / `access_key` | `false` / `127.0.0.1` / `8089` / `""` |
+
+Web UI 启用后默认访问：`http://127.0.0.1:8089`
+
+---
+
+## 常见问题（FAQ）
+
+### 1. 为什么“记不住”或记忆效果很硬？
+
+- 默认 `memory.use_llm=false`，只用规则时效果会更“机械”。
+- 建议开启 `memory.use_llm=true`，并将 `memory.upgrade_mode` 设为 `hybrid`。
+注：注意LLM在活跃的群聊会消耗相对大量的token
+
+### 2. 为什么会出现回复冲突或重复发言？
+
+- 常见原因是与 AstrBot 自带主动回复/上下文功能重叠。
+- 建议关闭 AstrBot 同类能力，只保留本插件对应功能。
+
+### 3. 搜索不到刚保存的记忆？
+
+- 先用 `/memory_stats` 看当前会话是否有记录。
+- 再确认你查询的是同一会话（私聊与群聊是隔离的）。
+- 可尝试更语义化关键词，而不是只搜原句片段。
+
+### 4. 开启 LLM 后 token 消耗太高怎么办？
+
+- 降低 `memory.max_context_memories`（如 3）。
+- 将部分 `llm_enhanced.*_mode` 切回 `rule`。
+- 仅保留关键能力的 LLM 模式（如 `retrieval_mode=hybrid`）。
+
+### 5. 切换 embedding 模型后检索变差或报维度问题？
+
+- 不同模型维度可能不同（512/768/1024）。
+- 请同步检查 `embedding.local_dimension`，必要时重建向量集合。
+
+### 6. Web 管理页面打不开？
+
+- 确认 `web_ui.enable=true`。
+- 确认端口未被占用（默认 `8089`）。
+- 若在远程访问，检查 `web_ui.host` 是否为 `0.0.0.0`。
+
+### 7. 主动回复没反应？
+
+- 需先开启 `proactive_reply.enable=true`。
+- 若开了白名单模式，还需要在群里执行 `/proactive_reply on`。
+
+### 8. 数据会上传到云端吗？
+
+- 默认存储在本地（Chroma/SQLite）。
+- 仅在你配置并调用外部 LLM 时，会向所选 provider 发送必要文本。
+
+---
+
+## 开发者参考（后置）
+
+### 项目结构
+
+```text
 iris_memory/
-├── core/                    # 核心模块：类型定义、常量、配置管理、场景自适应
-├── models/                  # 数据模型：Memory、UserPersona、EmotionalState
-├── storage/                 # 存储模块：ChromaDB、缓存、会话管理、生命周期管理
-├── capture/                 # 捕获模块：触发器检测、分类、冲突解决、批量处理
-├── retrieval/               # 检索模块：路由、重排序、LLM 检索
-├── analysis/                # 分析模块：情感分析、RIF 评分、实体提取、用户画像
-├── embedding/               # 嵌入向量：策略模式 + 降级（AstrBot/本地/fallback）
-├── knowledge_graph/         # 知识图谱：三元组提取、SQLite 存储、多跳推理
-├── multimodal/              # 多模态：图片分析器与缓存
-├── proactive/               # 主动回复：管理器、检测器、事件
-├── processing/              # LLM 处理：分类/摘要（含熔断器）
-├── services/                # 服务层：业务逻辑封装（Feature Module 模式）
-├── web/                     # Web 管理：API 路由、独立服务、仪表盘（v1.6+）
-└── utils/                   # 工具函数：指令解析、事件工具、LLM 帮助、Token 管理等
+├── core/                    # 类型定义、常量、配置管理
+├── models/                  # Memory / UserPersona / EmotionalState
+├── storage/                 # ChromaDB、缓存、会话管理
+├── capture/                 # 触发器检测、分类、冲突解决
+├── retrieval/               # 路由、重排序、LLM 检索
+├── analysis/                # 情感分析、RIF、实体与画像
+├── embedding/               # AstrBot/本地/fallback 向量策略
+├── knowledge_graph/         # 三元组提取、存储、推理
+├── multimodal/              # 图片分析与缓存
+├── proactive/               # 主动回复管理与检测
+├── processing/              # LLM 处理流程
+├── services/                # 业务服务层
+├── web/                     # Web UI 与 API
+└── utils/                   # 通用工具
 ```
 
-### 数据流
+### 数据流（摘要）
 
-1. **捕获流程**
-   ```
-   用户消息 → 触发器检测 → 情感分析 → 敏感度检测
-   → 质量评估 → RIF 评分 → 存储到 Chroma
-   ```
+1. 捕获：消息 → 触发检测 → 质量评估 → 存储
+2. 检索：查询 → 路由 → 混合召回 → 重排 → 注入上下文
+3. 图谱：消息 → 三元组提取 → 图谱存储 → 多跳推理
 
-2. **检索流程**
-   ```
-   用户查询 → 检索路由 → 混合检索 → 情感过滤
-   → 结果重排序 → 注入 LLM 上下文（记忆 + 知识图谱 + 聊天历史）
-   ```
+### 技术栈
 
-3. **知识图谱流程**
-   ```
-   用户消息 → 三元组提取 (规则/LLM) → SQLite 存储
-   → 多跳推理 → 构建上下文 → 注入 LLM
-   ```
-
----
-
-## 技术栈
-
-- **开发语言**：Python 3.12+
-- **插件框架**：AstrBot Plugin API (Star 类)
-- **向量数据库**：Chroma（本地存储）
-- **嵌入模型**：sentence-transformers（可选，BGE 系列）
-- **知识图谱**：SQLite + FTS5 全文检索
-- **情感分析**：混合模型（词典 + 规则 + LLM）
-- **Web 框架**：aiohttp（独立服务）
-- **数据处理**：numpy, python-dateutil, aiofiles
-
----
-
-## 记忆质量等级
-
-| 等级 | 分值 | 置信度 | 说明 |
-|------|------|--------|------|
-| CONFIRMED | 5 | 0.9-1.0 | 用户明确确认的信息 |
-| HIGH_CONFIDENCE | 4 | 0.75-0.9 | 多次提及且一致 |
-| MODERATE | 3 | 0.5-0.75 | 提及过但未验证 |
-| LOW_CONFIDENCE | 2 | 0.3-0.5 | 推测或间接获取 |
-| UNCERTAIN | 1 | 0.0-0.3 | 高度不确定 |
-
----
-
-## 存储层自动切换
-
-### 提升触发
-- **工作→情景**：访问≥3 次 且 重要性>0.6，或 情感强度>0.7
-- **情景→语义**：访问≥10 次 且 置信度>0.8，或 质量=CONFIRMED
-
-### 降级触发
-- **情景归档**：RIF 评分<0.4 且 30 天未访问
-- **工作清除**：会话结束 24 小时后
+- Python 3.12+
+- AstrBot Plugin API
+- Chroma（向量检索）
+- SQLite + FTS5（知识图谱）
+- sentence-transformers（本地 embedding）
+- aiohttp（Web 管理服务）
 
 ---
 
 ## 注意事项
 
-1. **会话隔离**：私聊和群聊的记忆完全隔离，不会互相影响
-2. **敏感信息**：CRITICAL 级别信息（身份证号、密码等）默认不存储
-3. **隐私保护**：所有数据存储在本地，不上传到云端
-4. **性能优化**：工作记忆使用 LRU 缓存，自动清理过期记忆
-5. **维度适配**：切换嵌入模型时自动检测维度冲突并重建 Collection
-6. **输入安全**：保存记忆前自动过滤 HTML 标签和危险内容
+1. 私聊和群聊记忆严格隔离。
+2. 敏感信息会进行过滤与风险控制。
+3. 记忆写入前会进行输入清理（HTML/危险片段）。
+4. 切换 embedding 时请关注维度兼容性。
 
 ---
 
-## 开发参考
+## 文档与链接
 
-- [AstrBot 插件开发文档](https://docs.astrbot.app/dev/star/plugin-new.html)
-- [companion-memory 框架文档](./framework.md)
-- [Chroma 文档](https://docs.trychroma.com/)
-- [功能特性详解](./FEATURES.md)
+- [功能详解](./FEATURES.md)
 - [更新日志](./CHANGELOG.md)
+- [框架文档](./framework.md)
+- [AstrBot 插件开发文档](https://docs.astrbot.app/dev/star/plugin-new.html)
+- [Chroma 文档](https://docs.trychroma.com/)
 
 ---
 
-## 未来计划
+## License 与贡献
 
-- [ ] 支持多模态记忆（语音）
+本插件基于 [companion-memory](./framework.md) 框架开发，欢迎提交 Issue 和 Pull Request。
 
----
-
-## License
-
-本插件基于 [companion-memory](./framework.md) 框架开发。
-
----
-
-## 贡献
-
-欢迎提交 Issue 和 Pull Request！
-
-**仓库地址**: https://github.com/leafliber/astrbot_plugin_iris_memory
+仓库地址：https://github.com/leafliber/astrbot_plugin_iris_memory

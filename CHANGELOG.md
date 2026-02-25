@@ -3,6 +3,34 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.7.2] - 2026-02-25
+
+### Added
+- **UserPersona v2 维度体系** (`iris_memory/models/user_persona.py`, `iris_memory/analysis/persona/`)
+  - 全新 v2 用户画像数据模型，新增 7 大维度：工作 (work)、生活 (life)、情绪 (emotional)、社交 (social)、人格 (personality)、交互 (interaction)、行为 (behavior)
+  - 大五人格维度扩展：新增外向性 (extraversion) 维度及其规则提取器
+  - 实现 RuleExtractor、LLMExtractor 和混合模式的完整提取逻辑
+  - 新增 PersonaCoordinator 协调器，统一管理规则、LLM和混合模式
+  - 新增 `keyword_maps.yaml` 关键词映射配置，支持细粒度的人格特征提取
+- **PersonaBatchProcessor** (`iris_memory/analysis/persona/persona_coordinator.py`)：批量处理用户画像提取，支持异步批量更新
+- **LLM 路由复杂查询检测** (`iris_memory/analysis/llm_router.py`)：增强 LLM 检索路由，新增复杂查询检测能力
+- **无登录访问 check-auth 端点** (`iris_memory/web/web_routes.py`)：允许未认证访问 `/api/check-auth` 端点
+
+### Changed
+- **独立服务器端口复用** (`iris_memory/web/standalone_server.py`)：启用 `SO_REUSEADDR` 和 `SO_REUSEPORT`，改善服务器重启体验
+- **插件终止流程优化** (`main.py`)：改进插件终止过程，确保资源正确释放
+- **记忆升级策略优化** (`iris_memory/capture/memory_upgrader.py`)：优化记忆升级判断标准和访问统计处理
+- **Web UI 样式更新** (`iris_memory/web/static/index.html`)：优化图标和样式，提升视觉体验
+- **日志增强** (`iris_memory/utils/llm_utils.py`)：增强 LLM 提供者解析和配置检索的日志记录
+- **image_analysis_provider_id 描述更新** (`_conf_schema.json`)：明确视觉模型要求
+
+### Fixed
+- 修复独立服务器地址复用问题，确保服务器可快速重启
+- 修复 README 中 LLM 分析警告信息
+
+### Test
+- 新增 UserPersona v2 维度全面测试 (`tests/models/test_persona_v2_dimensions.py`)：覆盖规则提取、LLM提取、混合模式，验证 7 大维度的提取和更新逻辑，包含端到端集成测试
+
 ## [v1.7.1] - 2026-02-24
 
 ### Fixed

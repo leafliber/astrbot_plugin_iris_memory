@@ -135,7 +135,7 @@
       "max_working_memory": {
         "description": "工作记忆数量上限",
         "type": "int",
-        "default": 10,
+        "default": 20,
         "hint": "会话内临时记忆数量上限，超过会触发升级"
       },
       "upgrade_mode": {

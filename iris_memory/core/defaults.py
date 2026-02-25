@@ -356,7 +356,7 @@ class KnowledgeGraphDefaults:
 class WebUIDefaults:
     """Web管理界面默认配置"""
     enable: bool = False                   # 是否启用Web管理界面
-    port: int = 8088                       # Web服务端口
+    port: int = 8089                       # Web服务端口
     access_key: str = ""                   # 访问密钥（空表示无需认证）
     host: str = "127.0.0.1"                # 监听地址
 
