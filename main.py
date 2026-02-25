@@ -555,11 +555,25 @@ class IrisMemoryPlugin(Star):
         
         # 检测是否为框架错误消息
         if self._is_framework_error(text):
-            friendly_msg = ErrorFriendlyMessages.DEFAULT_FRIENDLY_MSG
+            friendly_msg = self._get_friendly_error_message(text)
             result.chain.clear()
             result.message(friendly_msg)
-            self._service.logger.info("Replaced framework error message with friendly text")
-            # 注意：不调用 event.stop()，允许其他插件继续处理
+            self._service.logger.info(f"Replaced framework error message with friendly text: {friendly_msg}")
+    
+    def _get_friendly_error_message(self, text: str) -> str:
+        """根据错误内容返回合适的友好消息"""
+        text_lower = text.lower()
+        
+        if "400" in text or "bad request" in text_lower:
+            return ErrorFriendlyMessages.BAD_REQUEST_MSG
+        
+        if any(kw in text_lower for kw in ["network", "timeout", "连接", "网络", "timeout"]):
+            return ErrorFriendlyMessages.NETWORK_ERROR_MSG
+        
+        if any(kw in text_lower for kw in ["rate", "limit", "限流", "频率", "频繁"]):
+            return ErrorFriendlyMessages.RATE_LIMIT_MSG
+        
+        return ErrorFriendlyMessages.DEFAULT_FRIENDLY_MSG
     
     def _is_error_friendly_enabled(self) -> bool:
         """检查错误消息友好化功能是否启用"""
@@ -593,13 +607,34 @@ class IrisMemoryPlugin(Star):
             是否为框架错误消息
         """
         text_lower = text.lower()
-        # 检查是否包含多个错误特征
+        
+        # 检查标准框架错误模式（至少匹配2个特征）
         match_count = sum(
             1 for pattern in ErrorFriendlyMessages.ERROR_PATTERNS
             if pattern.lower() in text_lower
         )
-        # 至少匹配2个特征才判定为框架错误消息
-        return match_count >= 2
+        if match_count >= 2:
+            return True
+        
+        # 检查400错误模式
+        if "400" in text or "bad request" in text_lower:
+            if any(keyword in text_lower for keyword in ["请求", "request", "error", "failed"]):
+                return True
+        
+        # 检查其他常见框架错误关键词
+        error_keywords = [
+            "error", "failed", "exception", "traceback",
+            "请求失败", "错误", "异常"
+        ]
+        framework_indicators = [
+            "platform", "api", "http", "status code",
+            "平台", "框架"
+        ]
+        
+        has_error_keyword = any(kw in text_lower for kw in error_keywords)
+        has_framework_indicator = any(ind in text_lower for ind in framework_indicators)
+        
+        return has_error_keyword and has_framework_indicator
     
     # ========== LLM Hook ==========
     
