@@ -1065,12 +1065,24 @@ class IrisMemoryPlugin(Star):
             self._service._user_emotional_states.clear()
             self._service._recently_injected.clear()
 
+            # 删除数据库中的所有记忆和知识图谱
+            db_deleted_count = 0
+            kg_deleted = False
+            try:
+                success, db_deleted_count = await self._service.delete_all_memories()
+                if not success:
+                    failed_keys.append("chroma_memories: delete_all_memories returned False")
+            except Exception as e:
+                failed_keys.append(f"chroma_memories: {e}")
+                self._service.logger.warning(f"Failed to delete all memories: {e}")
+
             # 构建响应消息
             result_msg = f"✅ 已重置 Iris Memory 数据\n"
             result_msg += f"- 成功清理 {deleted_count}/{len(keys_to_delete)} 个存储键\n"
+            result_msg += f"- 成功清理 {db_deleted_count} 条数据库记忆\n"
 
             if failed_keys:
-                result_msg += f"- 失败 {len(failed_keys)} 个键（查看日志了解详情）\n"
+                result_msg += f"- 失败 {len(failed_keys)} 项（查看日志了解详情）\n"
 
             result_msg += "\n📌 建议操作：\n"
             result_msg += "1. 重启 AstrBot 以确保所有缓存已清空\n"
