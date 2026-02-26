@@ -3,6 +3,20 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.8.0] - 2026-02-26
+
+### Added
+- **用户画像 Web 端搜索功能** (`iris_memory/web/`)
+  - 新增用户画像搜索接口，支持按用户ID、兴趣、工作风格、生活方式等多字段搜索
+  - 前端添加搜索框、分页组件和每页数量选择器
+  - 搜索结果支持关键词高亮显示
+- **记忆 confidence 字段持久化** (`iris_memory/storage/`)
+  - 修复 ChromaDB 存储时 confidence 字段丢失的问题
+  - 新增 confidence 字段的存储和读取支持
+
+### Fixed
+- **Web 界面置信度显示为0的问题** - 修复后新保存的记忆将正确显示 confidence 值（默认 0.5）
+
 ## [v1.7.3] - 2026-02-26
 
 ### Changed
