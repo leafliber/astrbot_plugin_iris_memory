@@ -774,16 +774,16 @@ class MemoryService:
         sender_name: Optional[str] = None
     ) -> Optional[Any]:
         """捕获并存储记忆"""
-        if self._business:
-            return await self._business.capture_and_store_memory(
-                message=message,
-                user_id=user_id,
-                group_id=group_id,
-                is_user_requested=is_user_requested,
-                context=context,
-                sender_name=sender_name
-            )
-        return None
+        if not self._is_initialized or not self._business:
+            return None
+        return await self._business.capture_and_store_memory(
+            message=message,
+            user_id=user_id,
+            group_id=group_id,
+            is_user_requested=is_user_requested,
+            context=context,
+            sender_name=sender_name
+        )
 
     async def search_memories(
         self,
@@ -793,23 +793,23 @@ class MemoryService:
         top_k: int = 5
     ) -> List[Any]:
         """搜索记忆"""
-        if self._business:
-            return await self._business.search_memories(
-                query=query, user_id=user_id, group_id=group_id, top_k=top_k
-            )
-        return []
+        if not self._is_initialized or not self._business:
+            return []
+        return await self._business.search_memories(
+            query=query, user_id=user_id, group_id=group_id, top_k=top_k
+        )
 
     async def clear_memories(self, user_id: str, group_id: Optional[str]) -> bool:
         """清除用户记忆"""
-        if self._business:
-            return await self._business.clear_memories(user_id, group_id)
-        return False
+        if not self._is_initialized or not self._business:
+            return False
+        return await self._business.clear_memories(user_id, group_id)
 
     async def delete_private_memories(self, user_id: str) -> Tuple[bool, int]:
         """删除用户私聊记忆"""
-        if self._business:
-            return await self._business.delete_private_memories(user_id)
-        return False, 0
+        if not self._is_initialized or not self._business:
+            return False, 0
+        return await self._business.delete_private_memories(user_id)
 
     async def delete_group_memories(
         self,
@@ -818,17 +818,17 @@ class MemoryService:
         user_id: Optional[str] = None
     ) -> Tuple[bool, int]:
         """删除群聊记忆"""
-        if self._business:
-            return await self._business.delete_group_memories(
-                group_id, scope_filter, user_id
-            )
-        return False, 0
+        if not self._is_initialized or not self._business:
+            return False, 0
+        return await self._business.delete_group_memories(
+            group_id, scope_filter, user_id
+        )
 
     async def delete_all_memories(self) -> Tuple[bool, int]:
         """删除所有记忆"""
-        if self._business:
-            return await self._business.delete_all_memories()
-        return False, 0
+        if not self._is_initialized or not self._business:
+            return False, 0
+        return await self._business.delete_all_memories()
 
     async def get_memory_stats(
         self,
@@ -836,9 +836,9 @@ class MemoryService:
         group_id: Optional[str]
     ) -> Dict[str, Any]:
         """获取记忆统计"""
-        if self._business:
-            return await self._business.get_memory_stats(user_id, group_id)
-        return {}
+        if not self._is_initialized or not self._business:
+            return {}
+        return await self._business.get_memory_stats(user_id, group_id)
 
     async def prepare_llm_context(
         self,
@@ -850,16 +850,16 @@ class MemoryService:
         reply_context: Optional[str] = None,
     ) -> str:
         """准备 LLM 上下文"""
-        if self._business:
-            return await self._business.prepare_llm_context(
-                query=query,
-                user_id=user_id,
-                group_id=group_id,
-                image_context=image_context,
-                sender_name=sender_name,
-                reply_context=reply_context,
-            )
-        return ""
+        if not self._is_initialized or not self._business:
+            return ""
+        return await self._business.prepare_llm_context(
+            query=query,
+            user_id=user_id,
+            group_id=group_id,
+            image_context=image_context,
+            sender_name=sender_name,
+            reply_context=reply_context,
+        )
 
     async def analyze_images(
         self,
@@ -871,16 +871,16 @@ class MemoryService:
         session_id: str
     ) -> Tuple[str, str]:
         """分析图片"""
-        if self._business:
-            return await self._business.analyze_images(
-                message_chain=message_chain,
-                user_id=user_id,
-                group_id=group_id,
-                context_text=context_text,
-                umo=umo,
-                session_id=session_id,
-            )
-        return "", ""
+        if not self._is_initialized or not self._business:
+            return "", ""
+        return await self._business.analyze_images(
+            message_chain=message_chain,
+            user_id=user_id,
+            group_id=group_id,
+            context_text=context_text,
+            umo=umo,
+            session_id=session_id,
+        )
 
     async def process_message_batch(
         self,
@@ -892,15 +892,16 @@ class MemoryService:
         image_description: str = ""
     ) -> None:
         """处理消息批次"""
-        if self._business:
-            await self._business.process_message_batch(
-                message=message,
-                user_id=user_id,
-                group_id=group_id,
-                context=context,
-                umo=umo,
-                image_description=image_description,
-            )
+        if not self._is_initialized or not self._business:
+            return
+        await self._business.process_message_batch(
+            message=message,
+            user_id=user_id,
+            group_id=group_id,
+            context=context,
+            umo=umo,
+            image_description=image_description,
+        )
 
     async def record_chat_message(
         self,
@@ -915,28 +916,31 @@ class MemoryService:
         reply_content: Optional[str] = None,
     ) -> None:
         """记录一条聊天消息到缓冲区"""
-        if self._business:
-            await self._business.record_chat_message(
-                sender_id=sender_id,
-                sender_name=sender_name,
-                content=content,
-                group_id=group_id,
-                is_bot=is_bot,
-                session_user_id=session_user_id,
-                reply_sender_name=reply_sender_name,
-                reply_sender_id=reply_sender_id,
-                reply_content=reply_content,
-            )
+        if not self._is_initialized or not self._business:
+            return
+        await self._business.record_chat_message(
+            sender_id=sender_id,
+            sender_name=sender_name,
+            content=content,
+            group_id=group_id,
+            is_bot=is_bot,
+            session_user_id=session_user_id,
+            reply_sender_name=reply_sender_name,
+            reply_sender_id=reply_sender_id,
+            reply_content=reply_content,
+        )
 
     def update_session_activity(self, user_id: str, group_id: Optional[str]) -> None:
         """更新会话活动"""
-        if self._business:
-            self._business.update_session_activity(user_id, group_id)
+        if not self._is_initialized or not self._business:
+            return
+        self._business.update_session_activity(user_id, group_id)
 
     async def activate_session(self, user_id: str, group_id: Optional[str]) -> None:
         """激活会话"""
-        if self._business:
-            await self._business.activate_session(user_id, group_id)
+        if not self._is_initialized or not self._business:
+            return
+        await self._business.activate_session(user_id, group_id)
 
     def get_or_create_user_persona(self, user_id: str):
         """获取或创建用户画像"""
@@ -952,13 +956,15 @@ class MemoryService:
 
     async def load_from_kv(self, get_kv_data) -> None:
         """从 KV 存储加载数据"""
-        if self._persistence:
-            await self._persistence.load_from_kv(get_kv_data)
+        if not self._is_initialized or not self._persistence:
+            return
+        await self._persistence.load_from_kv(get_kv_data)
 
     async def save_to_kv(self, put_kv_data) -> None:
         """保存到 KV 存储"""
-        if self._persistence:
-            await self._persistence.save_to_kv(put_kv_data)
+        if not self._is_initialized or not self._persistence:
+            return
+        await self._persistence.save_to_kv(put_kv_data)
 
     async def terminate(self) -> None:
         """销毁服务
