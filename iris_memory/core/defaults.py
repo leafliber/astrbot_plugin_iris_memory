@@ -278,6 +278,7 @@ class LogDefaults:
 @dataclass
 class PersonaDefaults:
     """用户画像默认配置"""
+    enabled: bool = True
     enable_auto_update: bool = True
     max_change_log: int = 200
     snapshot_interval: int = 10

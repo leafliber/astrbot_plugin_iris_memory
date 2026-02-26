@@ -215,6 +215,14 @@ def _build_registry() -> Dict[str, ConfigDefinition]:
 
         # ── 画像提取 ──
         ConfigDefinition(
+            key="persona.enabled",
+            section="persona",
+            attr="enabled",
+            default=True,
+            description="是否启用用户画像功能",
+            value_type=bool,
+        ),
+        ConfigDefinition(
             key="persona.extraction_mode",
             section="persona",
             attr="extraction_mode",

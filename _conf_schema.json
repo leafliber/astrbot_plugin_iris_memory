@@ -149,7 +149,7 @@
         "description": "启用LLM增强记忆处理",
         "type": "bool",
         "default": false,
-        "hint": "开启后使用LLM进行消息批量摘要和智能分类（质量更高但消耗token）"
+        "hint": "开启后使用LLM进行消息批量摘要、智能分类（质量更高但消耗token）"
       }
     }
   },
@@ -157,6 +157,12 @@
     "description": "用户画像提取设置",
     "type": "object",
     "items": {
+      "enabled": {
+        "description": "启用用户画像",
+        "type": "bool",
+        "default": true,
+        "hint": "开启后自动分析用户兴趣、风格、偏好，构建用户画像并注入对话上下文"
+      },
       "extraction_mode": {
         "description": "画像提取模式",
         "type": "string",
