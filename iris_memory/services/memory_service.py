@@ -285,6 +285,18 @@ class MemoryService(
                 self._module_init_status["core"] = True
 
                 # ── 阶段2: 增强组件（失败则降级运行） ──
+
+                # 初始化记忆升级评估器
+                try:
+                    await self._init_upgrade_evaluator()
+                    self._module_init_status["upgrade_evaluator"] = True
+                except Exception as e:
+                    self._module_init_status["upgrade_evaluator"] = False
+                    self.logger.warning(
+                        f"Upgrade evaluator initialization failed, using rule mode: {e}",
+                        exc_info=True,
+                    )
+
                 for name, init_fn in [
                     ("knowledge_graph", self._init_knowledge_graph),
                     ("activity_adaptive", self._init_activity_adaptive),

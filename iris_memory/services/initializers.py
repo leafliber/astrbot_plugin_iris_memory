@@ -141,11 +141,12 @@ class ServiceInitializer:
             logger.debug(LogTemplates.COMPONENT_INIT_DISABLED.format(component="Batch processing"))
             return
 
-        if use_llm:
+        if use_llm and not self.llm_enhanced.llm_processor:
+            # 避免重复初始化：如果 upgrade_mode=llm/hybrid 已经创建了 processor，则复用
             await self.llm_enhanced.init_llm_processor(
                 context=self.context,
                 cfg=self.cfg,
-                lifecycle_manager=self.storage.lifecycle_manager,
+                lifecycle_manager=None,  # 不再通过这里设置 lifecycle_manager 的 provider
             )
 
         self.capture.init_message_classifier(
@@ -154,6 +155,35 @@ class ServiceInitializer:
         )
 
         logger.debug("Message classifier initialized")
+
+    # ── 记忆升级评估器初始化（独立于 use_llm） ──
+
+    async def _init_upgrade_evaluator(self) -> None:
+        """初始化记忆升级评估器的 LLM provider"""
+        from iris_memory.core.upgrade_evaluator import UpgradeMode
+
+        upgrade_mode = self.cfg.upgrade_mode
+
+        # 只有当升级模式需要 LLM 时才初始化 provider
+        if upgrade_mode in ("llm", "hybrid"):
+            logger.debug(f"Initializing upgrade evaluator LLM provider (mode={upgrade_mode})")
+
+            # 复用已有的 llm_processor 或创建新的
+            if not self.llm_enhanced.llm_processor:
+                await self.llm_enhanced.init_llm_processor(
+                    context=self.context,
+                    cfg=self.cfg,
+                    lifecycle_manager=None,
+                )
+
+            # 设置 lifecycle_manager 的 LLM provider
+            if self.llm_enhanced.llm_processor and self.storage.lifecycle_manager:
+                self.storage.lifecycle_manager.set_llm_provider(
+                    self.llm_enhanced.llm_processor
+                )
+                logger.debug("Upgrade evaluator LLM provider set")
+        else:
+            logger.debug("Upgrade evaluator using rule mode (no LLM needed)")
 
     # ── 画像提取 ──
 
