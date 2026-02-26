@@ -1,13 +1,12 @@
 """
-嵌入管理器 - 简化的源选择与降级管理
+嵌入管理器 - 简化的源选择
 
-用户通过 embedding.source 选择嵌入源（auto / astrbot / local），
-管理器按用户配置为主逻辑初始化对应的提供者。
-
-降级策略：
-- auto: AstrBot → Local（需 fallback_to_local 且维度兼容）→ Fallback
+用户通过 embedding.source 选择嵌入源（auto / astrbot / local）：
+- auto: AstrBot → Local → Fallback
 - astrbot: AstrBot → Fallback
 - local: Local → Fallback
+
+选择 local 时自动启用本地模型，无需额外配置。
 """
 
 from enum import Enum
@@ -215,7 +214,7 @@ class EmbeddingManager:
         return await self._init_fallback_as_last_resort()
 
     async def _init_auto(self, cfg: Any) -> bool:
-        """AUTO 模式：AstrBot 优先 → Local（如果 fallback_to_local）→ Fallback
+        """AUTO 模式：AstrBot 优先 → Local → Fallback
 
         Args:
             cfg: 配置管理器
@@ -233,27 +232,23 @@ class EmbeddingManager:
             )
             return True
 
-        # 2. AstrBot 失败，尝试 Local（如果配置允许）
-        if cfg.embedding_fallback_to_local and cfg.enable_local_provider:
-            local_ok = await self._try_init_local(cfg)
-            if local_ok:
-                self.current_provider = self.providers["local"]
-                if self.current_provider.is_ready:
-                    logger.debug(
-                        f"AstrBot unavailable, using local provider "
-                        f"(model={self.current_provider.model}, dimension={self.get_dimension()})"
-                    )
-                else:
-                    logger.debug(
-                        f"AstrBot unavailable, using local provider "
-                        f"(model={self.current_provider.model}, dimension=loading...)"
-                    )
-                return True
-            logger.warning("Local provider initialization also failed")
-        elif not cfg.embedding_fallback_to_local:
-            logger.debug("AstrBot unavailable and fallback_to_local is disabled")
-        elif not cfg.enable_local_provider:
-            logger.debug("AstrBot unavailable and local provider is disabled")
+        # 2. AstrBot 失败，尝试 Local
+        logger.debug("AstrBot unavailable, trying local provider")
+        local_ok = await self._try_init_local(cfg)
+        if local_ok:
+            self.current_provider = self.providers["local"]
+            if self.current_provider.is_ready:
+                logger.debug(
+                    f"AstrBot unavailable, using local provider "
+                    f"(model={self.current_provider.model}, dimension={self.get_dimension()})"
+                )
+            else:
+                logger.debug(
+                    f"AstrBot unavailable, using local provider "
+                    f"(model={self.current_provider.model}, dimension=loading...)"
+                )
+            return True
+        logger.warning("Local provider initialization also failed")
 
         # 3. 都失败，使用 Fallback
         return await self._init_fallback_as_last_resort()
@@ -288,10 +283,6 @@ class EmbeddingManager:
         Returns:
             bool: 是否初始化成功
         """
-        if not cfg.enable_local_provider:
-            logger.warning("Local provider is disabled in configuration")
-            return await self._init_fallback_as_last_resort()
-
         local_ok = await self._try_init_local(cfg)
         if local_ok:
             self.current_provider = self.providers["local"]
