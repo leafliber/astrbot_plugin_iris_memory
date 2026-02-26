@@ -111,6 +111,10 @@ input[type="checkbox"] { width:16px; height:16px; accent-color:var(--accent); }
 .modal-actions { display:flex; gap:10px; justify-content:flex-end; margin-top:20px; }
 .modal-close { position:absolute; top:12px; right:16px; background:none; border:none; color:var(--text2); font-size:24px; cursor:pointer; }
 .modal-body { position:relative; }
+.modal-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; padding-bottom:12px; border-bottom:1px solid var(--border); }
+.modal-header h3 { margin:0; }
+.modal-close-btn { background:none; border:none; color:var(--text2); font-size:24px; cursor:pointer; width:32px; height:32px; display:flex; align-items:center; justify-content:center; border-radius:var(--radius); transition:all 0.2s; }
+.modal-close-btn:hover { background:var(--bg3); color:var(--text); }
 
 /* Detail Section */
 .detail-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px 16px; margin-bottom:16px; }

@@ -233,12 +233,15 @@ class MemoryRepositoryImpl:
 
             success = await chroma.delete_memory(memory_id)
             if success:
+                # 删除关联的知识图谱边
                 kg = self._service.kg
-                if kg and kg.enabled:
+                if kg and kg.enabled and kg.storage:
                     try:
-                        await kg.storage.delete_by_memory_id(memory_id)
-                    except Exception:
-                        pass
+                        edge_count = await kg.storage.delete_by_memory_id(memory_id)
+                        if edge_count > 0:
+                            logger.debug(f"Deleted {edge_count} KG edges for memory {memory_id}")
+                    except Exception as e:
+                        logger.warning(f"Failed to delete KG edges for memory {memory_id}: {e}")
                 return True, "删除成功"
             return False, "记忆不存在或删除失败"
 

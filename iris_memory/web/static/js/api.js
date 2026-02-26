@@ -124,7 +124,17 @@ function showConfirm(title, message, callback) {
   document.getElementById('confirm-message').textContent = message;
   document.getElementById('confirm-modal').classList.add('show');
   modalCallback = callback;
-  document.getElementById('confirm-btn').onclick = () => { closeModal('confirm-modal'); if(modalCallback) modalCallback(); };
+  document.getElementById('confirm-btn').onclick = async () => {
+    closeModal('confirm-modal');
+    if(modalCallback) {
+      try {
+        await modalCallback();
+      } catch (e) {
+        console.error('Confirm callback error:', e);
+        toast('操作失败: ' + (e.message || '未知错误'), 'error');
+      }
+    }
+  };
 }
 
 function closeModal(id) {

@@ -84,6 +84,8 @@ PERSONA_EXTRACTION_PROMPT = """分析以下用户消息，提取用户的画像�
 8. 社交边界
 9. 人格特质倾向（开放性、尽责性、外向性、亲和性、神经质）
 10. 对被主动联系的态度
+11. 用户对AI的信任程度表达
+12. 用户与AI的亲密程度表达
 
 用户消息：
 {content}
@@ -114,6 +116,8 @@ PERSONA_EXTRACTION_PROMPT = """分析以下用户消息，提取用户的画像�
     "neuroticism": -0.1到0.1的调整量或0
   }},
   "proactive_reply": -0.1到0.1的调整量或0,
+  "trust_delta": 0.0到0.1的信任度增量或0,
+  "intimacy_delta": 0.0到0.1的亲密度增量或0,
   "confidence": 0.0到1.0
 }}"""
 

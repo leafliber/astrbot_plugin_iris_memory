@@ -433,13 +433,13 @@
 </div>
 
 <!-- Persona Detail Modal -->
-<div class="modal-overlay" id="persona-modal">
+<div class="modal-overlay" id="persona-modal" onclick="if(event.target===this)closeModal('persona-modal')">
   <div class="modal modal-lg">
-    <h3>◉ 用户画像详情</h3>
-    <div id="persona-detail-content"></div>
-    <div class="modal-actions">
-      <button class="btn btn-outline" onclick="closeModal('persona-modal')">关闭</button>
+    <div class="modal-header">
+      <h3>◉ 用户画像详情</h3>
+      <button class="modal-close-btn" onclick="closeModal('persona-modal')">×</button>
     </div>
+    <div id="persona-detail-content"></div>
   </div>
 </div>
 

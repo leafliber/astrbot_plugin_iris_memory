@@ -408,8 +408,9 @@ function deleteKgNode(id, name) {
     const resp = await api('/kg/node/delete', { method:'POST', body:JSON.stringify({id}) });
     if (resp && resp.status === 'ok') {
       toast(resp.message || '删除成功', 'success');
-      searchKgNodes();
-      if (currentKgTab === 'edges') searchKgEdges();
+      if (currentKgTab === 'graph') loadKgGraph();
+      else if (currentKgTab === 'nodes') searchKgNodes();
+      else if (currentKgTab === 'edges') searchKgEdges();
     } else {
       toast(resp?.message || '删除失败', 'error');
     }
@@ -421,7 +422,8 @@ function deleteKgEdge(id, label) {
     const resp = await api('/kg/edge/delete', { method:'POST', body:JSON.stringify({id}) });
     if (resp && resp.status === 'ok') {
       toast('删除成功', 'success');
-      searchKgEdges();
+      if (currentKgTab === 'graph') loadKgGraph();
+      else if (currentKgTab === 'edges') searchKgEdges();
     } else {
       toast(resp?.message || '删除失败', 'error');
     }

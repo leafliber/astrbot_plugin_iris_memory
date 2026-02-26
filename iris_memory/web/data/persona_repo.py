@@ -139,6 +139,7 @@ class PersonaRepositoryImpl:
                 # 构建画像数据
                 persona_data = {
                     "user_id": uid,
+                    "display_name": getattr(persona, "display_name", None),
                     "update_count": getattr(persona, "update_count", 0),
                     "last_updated": persona.last_updated.isoformat() if hasattr(persona.last_updated, "isoformat") else str(persona.last_updated),
                     "interests": top_interests,
@@ -166,6 +167,9 @@ class PersonaRepositoryImpl:
                     match = False
                     # 搜索用户ID
                     if query_lower in uid.lower():
+                        match = True
+                    # 搜索显示名称
+                    elif persona_data["display_name"] and query_lower in persona_data["display_name"].lower():
                         match = True
                     # 搜索兴趣
                     elif any(query_lower in k.lower() for k in interests.keys()):
