@@ -1,25 +1,45 @@
 // ========== User Personas Section ==========
 
-async function loadPersonas() {
+const personaState = { page: 1, pageSize: 12, loaded: false, currentQuery: '' };
+
+async function searchPersonas() {
+  const query = document.getElementById('persona-query').value;
+  personaState.currentQuery = query;
+
+  let path = `/personas?page=${personaState.page}&page_size=${personaState.pageSize}`;
+  if (query) {
+    path += `&q=${encodeURIComponent(query)}`;
+  }
+
   const container = document.getElementById('personas-container');
   container.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
 
-  const resp = await api('/personas');
+  const resp = await api(path);
+  personaState.loaded = true;
+
   if (!resp || resp.status !== 'ok') {
     container.innerHTML = '<div style="color:var(--text2);text-align:center;padding:40px;">获取画像失败</div>';
     return;
   }
 
-  const personas = Array.isArray(resp.data) ? resp.data : (resp.data?.items || []);
+  const data = resp.data;
+  const personas = data.items || [];
+
+  document.getElementById('persona-total-info').textContent = `共 ${data.total} 个用户画像`;
+
   if (personas.length === 0) {
-    container.innerHTML = '<div style="color:var(--text2);text-align:center;padding:40px;">暂无用户画像数据<br><span style="font-size:13px;">当用户与 Bot 交互后将自动生成画像</span></div>';
+    const emptyMsg = query
+      ? `未找到匹配 "${escHtml(query)}" 的用户画像`
+      : '暂无用户画像数据<br><span style="font-size:13px;">当用户与 Bot 交互后将自动生成画像</span>';
+    container.innerHTML = `<div style="color:var(--text2);text-align:center;padding:40px;">${emptyMsg}</div>`;
+    document.getElementById('persona-pagination').innerHTML = '';
     return;
   }
 
   container.innerHTML = personas.map(p => `
     <div class="persona-card" onclick="showPersonaDetail('${escHtml(p.user_id)}')">
       <div class="persona-header">
-        <span class="persona-uid">◉ ${escHtml(p.user_id)}</span>
+        <span class="persona-uid">◉ ${highlightText(p.user_id, query)}</span>
         <span class="persona-meta">更新 ${p.update_count} 次</span>
       </div>
       <div style="font-size:12px;color:var(--text2);margin-bottom:8px;">
@@ -33,15 +53,52 @@ async function loadPersonas() {
         <div style="font-size:12px;color:var(--text2);margin-bottom:4px;">亲密度</div>
         <div class="persona-bar"><div class="persona-bar-fill" style="width:${(p.intimacy_level||0.5)*100}%;background:var(--success);"></div></div>
       </div>
-      ${p.work_style ? `<div style="font-size:12px;"><strong>工作风格:</strong> ${escHtml(p.work_style)}</div>` : ''}
-      ${p.lifestyle ? `<div style="font-size:12px;"><strong>生活方式:</strong> ${escHtml(p.lifestyle)}</div>` : ''}
+      ${p.work_style ? `<div style="font-size:12px;"><strong>工作风格:</strong> ${highlightText(p.work_style, query)}</div>` : ''}
+      ${p.lifestyle ? `<div style="font-size:12px;"><strong>生活方式:</strong> ${highlightText(p.lifestyle, query)}</div>` : ''}
       ${Object.keys(p.interests || {}).length > 0 ? `
         <div class="persona-traits">
-          ${Object.entries(p.interests).slice(0,5).map(([k,v]) => `<span class="persona-trait">${escHtml(k)}</span>`).join('')}
+          ${Object.entries(p.interests).slice(0,5).map(([k,v]) => `<span class="persona-trait">${highlightText(k, query)}</span>`).join('')}
         </div>
       ` : ''}
     </div>
   `).join('');
+
+  // Pagination
+  const totalPages = Math.ceil(data.total / personaState.pageSize);
+  let pagHtml = '';
+  if (totalPages > 1) {
+    pagHtml += `<button class="btn btn-outline btn-sm" ${personaState.page<=1?'disabled':''} onclick="personaPage(1)">首页</button>`;
+    pagHtml += `<button class="btn btn-outline btn-sm" ${personaState.page<=1?'disabled':''} onclick="personaPage(${personaState.page-1})">上一页</button>`;
+    pagHtml += `<span class="page-info">${personaState.page} / ${totalPages}</span>`;
+    pagHtml += `<button class="btn btn-outline btn-sm" ${personaState.page>=totalPages?'disabled':''} onclick="personaPage(${personaState.page+1})">下一页</button>`;
+    pagHtml += `<button class="btn btn-outline btn-sm" ${personaState.page>=totalPages?'disabled':''} onclick="personaPage(${totalPages})">末页</button>`;
+  }
+  document.getElementById('persona-pagination').innerHTML = pagHtml;
+}
+
+function personaPage(p) {
+  personaState.page = p;
+  searchPersonas();
+}
+
+function resetPersonaFilters() {
+  document.getElementById('persona-query').value = '';
+  personaState.page = 1;
+  searchPersonas();
+}
+
+function highlightText(text, query) {
+  if (!query || !text) return escHtml(text);
+  const escaped = escHtml(text);
+  const queryEsc = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  try {
+    return escaped.replace(new RegExp(`(${queryEsc})`, 'gi'), '<span class="highlight">$1</span>');
+  } catch(e) { return escaped; }
+}
+
+// 保持向后兼容
+async function loadPersonas() {
+  await searchPersonas();
 }
 
 async function showPersonaDetail(userId) {

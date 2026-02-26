@@ -24,6 +24,7 @@ def register_persona_routes(app: Any, persona_service: Any) -> None:
     async def personas_list():
         try:
             personas = await persona_service.list_personas(
+                query=request.args.get("q", ""),
                 page=safe_int(request.args.get("page"), 1, 1, 10000),
                 page_size=safe_int(request.args.get("page_size"), 20, 1, 100),
             )

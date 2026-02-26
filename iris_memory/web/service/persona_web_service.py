@@ -22,10 +22,24 @@ class PersonaWebService:
 
     async def list_personas(
         self,
+        query: str = "",
         page: int = 1,
         page_size: int = 20,
     ) -> Dict[str, Any]:
-        """获取用户画像分页列表"""
+        """获取用户画像分页列表
+
+        Args:
+            query: 搜索关键词（可选）
+            page: 页码
+            page_size: 每页数量
+
+        Returns:
+            {items: [...], total: N, page: N, page_size: N}
+        """
+        if query:
+            return await self._persona_repo.search_personas(
+                query=query, page=page, page_size=page_size
+            )
         return await self._persona_repo.list_all(page=page, page_size=page_size)
 
     async def get_persona_detail(self, user_id: str) -> Optional[Dict[str, Any]]:

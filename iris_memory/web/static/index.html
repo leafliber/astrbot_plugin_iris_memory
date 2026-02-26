@@ -256,9 +256,26 @@
         <div class="spacer"></div>
         <button class="btn-icon" onclick="loadPersonas()" title="刷新">↻</button>
       </div>
+      <div class="filter-bar">
+        <input type="text" id="persona-query" placeholder="搜索用户ID、兴趣、工作风格、生活方式..." onkeydown="if(event.key==='Enter')searchPersonas()">
+        <button class="btn btn-primary" onclick="searchPersonas()">搜索</button>
+        <button class="btn btn-outline" onclick="resetPersonaFilters()">重置</button>
+      </div>
+      <div style="margin-bottom:10px;display:flex;gap:10px;align-items:center;">
+        <span class="page-info" id="persona-total-info"></span>
+        <div class="spacer" style="flex:1;"></div>
+        <label style="font-size:12px;color:var(--text2);">每页</label>
+        <select class="page-size-select" id="persona-page-size" onchange="personaState.pageSize=+this.value;personaState.page=1;searchPersonas();">
+          <option value="8">8</option>
+          <option value="12" selected>12</option>
+          <option value="20">20</option>
+          <option value="40">40</option>
+        </select>
+      </div>
       <div id="personas-container" class="persona-grid">
         <div class="loading"><div class="spinner"></div></div>
       </div>
+      <div class="pagination" id="persona-pagination"></div>
     </div>
 
     <!-- ======== Import/Export Section ======== -->
