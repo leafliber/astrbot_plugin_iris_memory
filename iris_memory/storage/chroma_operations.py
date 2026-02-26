@@ -82,6 +82,7 @@ class ChromaOperations:
             "created_time": memory.created_time.isoformat(),
             "last_access_time": memory.last_access_time.isoformat(),
             "access_count": memory.access_count,
+            "confidence": memory.confidence,
             "rif_score": memory.rif_score,
             "importance_score": memory.importance_score,
             "is_user_requested": memory.is_user_requested,

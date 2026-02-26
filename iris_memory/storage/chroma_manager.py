@@ -408,6 +408,7 @@ class ChromaManager(ChromaQueries, ChromaOperations):
             sensitivity_level=SensitivityLevel(metadata.get('sensitivity_level', 0)),
             storage_layer=StorageLayer(metadata.get('storage_layer', 'episodic')),
             access_count=metadata.get('access_count', 0),
+            confidence=metadata.get('confidence', 0.5),
             rif_score=metadata.get('rif_score', 0.5),
             importance_score=metadata.get('importance_score', 0.5),
             is_user_requested=metadata.get('is_user_requested', False),
@@ -421,7 +422,7 @@ class ChromaManager(ChromaQueries, ChromaOperations):
         system_keys = {
             'user_id', 'sender_name', 'group_id', 'scope', 'type', 'modality', 'quality_level',
             'sensitivity_level', 'storage_layer', 'created_time', 'last_access_time',
-            'access_count', 'rif_score', 'importance_score', 'is_user_requested'
+            'access_count', 'confidence', 'rif_score', 'importance_score', 'is_user_requested'
         }
         memory.metadata = {k: v for k, v in metadata.items() if k not in system_keys}
         
