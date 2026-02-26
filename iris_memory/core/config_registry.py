@@ -197,14 +197,6 @@ def _build_registry() -> Dict[str, ConfigDefinition]:
             value_type=str,
         ),
         ConfigDefinition(
-            key="embedding.fallback_to_local",
-            section="embedding",
-            attr="fallback_to_local",
-            default=True,
-            description="AstrBot provider 不可用时是否降级到本地模型",
-            value_type=bool,
-        ),
-        ConfigDefinition(
             key="embedding.local_model",
             section="embedding",
             attr="local_model",
@@ -219,14 +211,6 @@ def _build_registry() -> Dict[str, ConfigDefinition]:
             default=512,
             description="本地嵌入模型维度",
             value_type=int,
-        ),
-        ConfigDefinition(
-            key="embedding.enable_local_provider",
-            section="embedding",
-            attr="enable_local_provider",
-            default=True,
-            description="是否启用本地embedding提供者",
-            value_type=bool,
         ),
 
         # ── 画像提取 ──

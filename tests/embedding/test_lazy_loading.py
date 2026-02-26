@@ -19,16 +19,14 @@ from iris_memory.core.config_manager import init_config_manager, reset_config_ma
 
 class MockConfig:
     """模拟配置对象"""
-    def __init__(self, source="auto", enable_local_provider=True):
+    def __init__(self, source="auto"):
         self._data = {
             "embedding": {
                 "source": source,
                 "astrbot_provider_id": "",
-                "fallback_to_local": True,
                 "local_model": "BAAI/bge-small-zh-v1.5",
                 "local_dimension": 512,
                 "auto_detect_dimension": True,
-                "enable_local_provider": enable_local_provider,
             }
         }
         self._plugin_context = None
@@ -153,16 +151,6 @@ class TestLocalProviderBackgroundLoading:
                 await provider.initialize()
 
             mock_start.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_initialize_returns_false_when_disabled(self):
-        """配置禁用时 initialize() 应返回 False"""
-        init_config_manager(MockConfig(enable_local_provider=False))
-        provider = LocalProvider(MockConfig(enable_local_provider=False))
-
-        result = await provider.initialize()
-
-        assert result is False
 
     @pytest.mark.asyncio
     async def test_initialize_returns_false_without_dependencies(self):
@@ -314,27 +302,6 @@ class TestEmbeddingManagerIsReady:
         assert manager.is_ready is True
 
     @pytest.mark.asyncio
-    async def test_initialization_logs_loading_status(self):
-        """初始化日志应正确显示 loading 状态"""
-        init_config_manager(MockConfig(enable_local_provider=False))
-        manager = EmbeddingManager(MockConfig(source="local", enable_local_provider=False))
-
-        with patch('iris_memory.embedding.manager.logger') as mock_logger:
-            await manager.initialize()
-
-            # 检查日志包含提供者信息（local 被禁用时会降级到 fallback）
-            all_calls = (
-                [str(call) for call in mock_logger.info.call_args_list] +
-                [str(call) for call in mock_logger.warning.call_args_list]
-            )
-            assert any(
-                "Fallback" in call or "fallback" in call or
-                "Selected" in call or "Initialized" in call or
-                "disabled" in call
-                for call in all_calls
-            )
-
-    @pytest.mark.asyncio
     async def test_embed_fallback_when_local_load_failed(self):
         """当前 provider 为 local 且加载失败时，应自动降级到 fallback"""
         manager = EmbeddingManager(MockConfig())
@@ -356,36 +323,6 @@ class TestEmbeddingManagerIsReady:
 
         assert len(embedding) == 128
         assert manager.current_provider is fallback_provider
-
-
-# ==================== 配置禁用测试 ====================
-
-class TestLocalProviderDisableConfig:
-    """测试配置禁用本地提供者"""
-
-    @pytest.mark.asyncio
-    async def test_disabled_provider_not_initialized(self):
-        """配置禁用时不应初始化"""
-        init_config_manager(MockConfig(enable_local_provider=False))
-        provider = LocalProvider(MockConfig(enable_local_provider=False))
-
-        result = await provider.initialize()
-
-        assert result is False
-
-    @pytest.mark.asyncio
-    async def test_auto_strategy_skips_disabled_local(self):
-        """AUTO 策略应跳过被禁用的 LocalProvider"""
-        init_config_manager(MockConfig(enable_local_provider=False))
-        config = MockConfig(enable_local_provider=False)
-        manager = EmbeddingManager(config)
-
-        await manager.initialize()
-
-        # 应该没有 local 提供者
-        assert "local" not in manager.providers
-        # 应该有 fallback 作为后备
-        assert "fallback" in manager.providers
 
 
 # ==================== 状态转换测试 ====================
