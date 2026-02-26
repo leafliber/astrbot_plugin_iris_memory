@@ -8,10 +8,9 @@
 4. 增加采样率限制，批量处理时每批最多处理5条
 """
 from enum import Enum
-from typing import Dict, Any, Optional, Final
-from dataclasses import dataclass, field
+from typing import Dict, Any, List, Optional, Final
+from dataclasses import dataclass
 import time
-import hashlib
 
 from iris_memory.utils.logger import get_logger
 from iris_memory.utils.rate_limiter import CooldownTracker
@@ -483,5 +482,5 @@ class MessageClassifier:
         清除缓存（用于测试或重置）
         """
         self._fingerprint_cache.clear()
-        self._last_llm_call.clear()
+        self._llm_cooldown.clear()
         logger.debug("Message classifier cache cleared")
