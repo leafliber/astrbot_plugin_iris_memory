@@ -139,6 +139,12 @@ class LLMEnhancedModule:
         """初始化 LLM 消息处理器"""
         from iris_memory.processing.llm_processor import LLMMessageProcessor
 
+        # 检查 context 是否为 None
+        if context is None:
+            logger.warning("AstrBot context is None, LLM features disabled")
+            self._llm_processor = None
+            return
+
         self._llm_processor = LLMMessageProcessor(
             astrbot_context=context,
             max_tokens=cfg.get(
@@ -151,6 +157,6 @@ class LLMEnhancedModule:
         if llm_ready and lifecycle_manager:
             lifecycle_manager.set_llm_provider(self._llm_processor)
             logger.debug("LLM processor ready")
-        else:
+        elif not llm_ready:
             logger.warning("LLM context not available, LLM features disabled")
             self._llm_processor = None

@@ -122,17 +122,17 @@ class LLMMessageProcessor:
     
     async def initialize(self) -> bool:
         """初始化LLM API（延迟初始化策略）
-        
+
         由于 AstrBot 的 provider 在插件加载后才初始化，
         此方法仅标记处理器已准备好，实际 provider 获取延迟到第一次使用时。
-        
+
         Returns:
             bool: 始终返回 True（处理器已准备好，provider 将在使用时按需获取）
         """
-        if not self.astrbot_context:
-            logger.info("AstrBot context not available, LLM features disabled")
+        if self.astrbot_context is None:
+            logger.warning("LLM processor initialize failed: astrbot_context is None")
             return False
-        
+
         logger.debug("LLM processor initialized (provider will be loaded on first use)")
         return True
     
