@@ -46,7 +46,7 @@ from iris_memory.services.modules.proactive_module import ProactiveModule
 from iris_memory.services.modules.kg_module import KnowledgeGraphModule
 
 from iris_memory.services.shared_state import SharedState
-from iris_memory.services.business_service import BusinessService
+from iris_memory.services.business_service import BusinessService, BusinessServiceDeps
 from iris_memory.services.persistence_service import PersistenceService
 
 
@@ -395,7 +395,7 @@ class MemoryService:
         BusinessService 和 PersistenceService 通过构造函数显式接收依赖，
         取代原 Mixin 模式下的 self.xxx 隐式访问。
         """
-        self._business = BusinessService(
+        business_deps = BusinessServiceDeps(
             shared_state=self._shared_state,
             cfg=self.cfg,
             storage=self.storage,
@@ -408,6 +408,7 @@ class MemoryService:
             member_identity=self._member_identity,
             activity_tracker=self._activity_tracker,
         )
+        self._business = BusinessService(deps=business_deps)
 
         self._persistence = PersistenceService(
             shared_state=self._shared_state,
