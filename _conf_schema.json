@@ -46,13 +46,7 @@
         "type": "string",
         "_special": "select_embedding_provider",
         "default": "",
-        "hint": "留空使用第一个可用provider，可指定特定提供者"
-      },
-      "fallback_to_local": {
-        "description": "AstrBot不可用时降级到本地模型",
-        "type": "bool",
-        "default": true,
-        "hint": "开启后，当AstrBot embedding服务不可用时自动使用本地模型（注意维度需匹配）"
+        "hint": "留空使用第一个可用provider，可指定特定提供者（仅在嵌入源为auto或astrbot时生效）"
       },
       "local_model": {
         "description": "本地嵌入模型",
@@ -64,13 +58,13 @@
         "description": "本地模型嵌入维度",
         "type": "int",
         "default": 512,
-        "hint": "本地模型的向量维度，留空自动检测。常见值：512（bge-small）, 768（bge-base）, 1024（bge-large/m3）"
+        "hint": "本地模型的向量维度，留空自动检测。常见值：512（bge-small）, 768（bge-base）, 1024（bge-large/m3）（仅在嵌入源为auto或local时生效）"
       },
-      "enable_local_provider": {
-        "description": "启用本地嵌入模型",
+      "reimport_on_dimension_conflict": {
+        "description": "维度冲突后自动导入原记忆",
         "type": "bool",
         "default": true,
-        "hint": "启用后可在 AstrBot 无 embedding 服务时使用本地模型（首次加载约需10-30秒，不会阻塞启动）"
+        "hint": "更换嵌入模型后，开启此选项会自动将原记忆用新模型重新生成向量并导入。注意：这会导致所有记忆重新调用embedding服务，可能产生额外费用"
       }
     }
   },

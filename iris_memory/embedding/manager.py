@@ -1,12 +1,12 @@
 """
-嵌入管理器 - 简化的源选择
+嵌入管理器 - 源选择
 
 用户通过 embedding.source 选择嵌入源（auto / astrbot / local）：
-- auto: AstrBot → Local → Fallback
-- astrbot: AstrBot → Fallback
-- local: Local → Fallback
+- auto: 优先使用 AstrBot API，不可用时自动切换到本地模型，最后使用 Fallback
+- astrbot: 仅使用 AstrBot API，不可用时使用 Fallback
+- local: 仅使用本地模型，不可用时使用 Fallback
 
-选择 local 时自动启用本地模型，无需额外配置。
+所有模式均由 embedding.source 控制，不再支持额外的降级配置选项。
 """
 
 from enum import Enum
@@ -214,7 +214,9 @@ class EmbeddingManager:
         return await self._init_fallback_as_last_resort()
 
     async def _init_auto(self, cfg: Any) -> bool:
-        """AUTO 模式：AstrBot 优先 → Local → Fallback
+        """AUTO 模式：AstrBot API 优先 → 本地模型 → Fallback
+
+        当 AstrBot API 不可用时，自动降级到本地模型。
 
         Args:
             cfg: 配置管理器
@@ -222,7 +224,7 @@ class EmbeddingManager:
         Returns:
             bool: 是否初始化成功
         """
-        # 1. 尝试 AstrBot
+        # 1. 尝试 AstrBot API
         astrbot_ok = await self._try_init_astrbot(cfg)
         if astrbot_ok:
             self.current_provider = self.providers["astrbot"]
@@ -254,7 +256,9 @@ class EmbeddingManager:
         return await self._init_fallback_as_last_resort()
 
     async def _init_astrbot(self, cfg: Any) -> bool:
-        """ASTRBOT 模式：仅使用 AstrBot
+        """ASTRBOT 模式：仅使用 AstrBot API
+
+        严格使用 AstrBot API，不可用时直接使用 Fallback，不尝试本地模型。
 
         Args:
             cfg: 配置管理器
@@ -276,6 +280,8 @@ class EmbeddingManager:
 
     async def _init_local(self, cfg: Any) -> bool:
         """LOCAL 模式：仅使用本地模型
+
+        严格使用本地模型，不尝试 AstrBot API。
 
         Args:
             cfg: 配置管理器

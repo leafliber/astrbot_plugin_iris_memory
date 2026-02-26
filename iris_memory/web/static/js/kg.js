@@ -169,7 +169,7 @@ function setupGraphInteraction(canvas, ctx, W, H) {
     canvas.style.cursor = 'default';
   };
 
-  canvas.onmouseleave = () => { dragNode = null; isPanning = false; hideNodePopup(); };
+  canvas.onmouseleave = () => { dragNode = null; isPanning = false; };
 
   // Zoom with scroll wheel
   canvas.onwheel = (ev) => {
@@ -202,6 +202,17 @@ function setupGraphInteraction(canvas, ctx, W, H) {
       hideNodePopup();
     }
   };
+
+  // Click outside to hide popup
+  const container = canvas.parentElement;
+  const originalOnClick = container.onclick;
+  container.onclick = (ev) => {
+    if (originalOnClick) originalOnClick.call(container, ev);
+    const popup = document.getElementById('node-popup');
+    if (popup.style.display === 'block' && !popup.contains(ev.target) && ev.target !== canvas) {
+      hideNodePopup();
+    }
+  };
 }
 
 function showNodePopup(node, x, y) {
@@ -209,10 +220,13 @@ function showNodePopup(node, x, y) {
   const connectedEdges = graphData.edges.filter(e => e.source === node.id || e.target === node.id);
 
   popup.innerHTML = `
-    <h4 style="display:flex;align-items:center;gap:8px;">
-      <span style="width:12px;height:12px;border-radius:50%;background:${nodeColors[node.type]||nodeColors.unknown};display:inline-block;"></span>
-      ${escHtml(node.label || node.id)}
-    </h4>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+      <h4 style="display:flex;align-items:center;gap:8px;margin:0;">
+        <span style="width:12px;height:12px;border-radius:50%;background:${nodeColors[node.type]||nodeColors.unknown};display:inline-block;"></span>
+        ${escHtml(node.label || node.id)}
+      </h4>
+      <button class="btn btn-sm" onclick="hideNodePopup()" style="padding:2px 6px;font-size:12px;">✕</button>
+    </div>
     <div class="detail-item"><div class="detail-label">类型</div><div class="detail-value">${nodeTypeLabels[node.type] || node.type}</div></div>
     <div class="detail-item"><div class="detail-label">置信度</div><div class="detail-value">${(node.confidence || 0).toFixed(2)}</div></div>
     <div class="detail-item"><div class="detail-label">连接数</div><div class="detail-value">${connectedEdges.length} 条边</div></div>

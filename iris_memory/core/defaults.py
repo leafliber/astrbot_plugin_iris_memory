@@ -160,6 +160,9 @@ class EmbeddingDefaults:
     collection_name: str = "iris_memory"
     auto_detect_dimension: bool = True
 
+    # 维度冲突处理
+    reimport_on_dimension_conflict: bool = True  # 维度冲突时重新导入原记忆
+
 
 @dataclass
 class LLMIntegrationDefaults:

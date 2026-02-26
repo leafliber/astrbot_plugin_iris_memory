@@ -151,7 +151,7 @@
 | `llm_enhanced` | `sensitivity_mode` / `trigger_mode` / `emotion_mode` / `proactive_mode` / `conflict_mode` / `retrieval_mode` | `rule` |
 | `knowledge_graph` | `enabled` / `extraction_mode` / `max_depth` / `max_facts` | `true` / `rule` / `3` / `8` |
 | `persona` | `extraction_mode` | `rule` |
-| `embedding` | `source` / `fallback_to_local` / `local_model` | `auto` / `true` / `BAAI/bge-small-zh-v1.5` |
+| `embedding` | `source` / `local_model` | `auto` / `BAAI/bge-small-zh-v1.5` |
 | `image_analysis` | `enable` / `mode` / `daily_budget` | `true` / `auto` / `100` |
 | `proactive_reply` | `enable` / `group_whitelist_mode` | `false` / `false` |
 | `activity_adaptive` | `enable` | `true` |

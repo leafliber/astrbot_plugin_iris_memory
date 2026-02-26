@@ -212,6 +212,14 @@ def _build_registry() -> Dict[str, ConfigDefinition]:
             description="本地嵌入模型维度",
             value_type=int,
         ),
+        ConfigDefinition(
+            key="embedding.reimport_on_dimension_conflict",
+            section="embedding",
+            attr="reimport_on_dimension_conflict",
+            default=True,
+            description="维度冲突时重新导入原记忆（会增加embedding使用量）",
+            value_type=bool,
+        ),
 
         # ── 画像提取 ──
         ConfigDefinition(
