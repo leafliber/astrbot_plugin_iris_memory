@@ -89,6 +89,8 @@
 /proactive_reply off
 /proactive_reply status
 /proactive_reply list
+
+/iris_reset confirm          # 超管：重置所有插件数据（谨慎使用）
 ```
 
 ---
@@ -149,7 +151,7 @@
 | `llm_enhanced` | `sensitivity_mode` / `trigger_mode` / `emotion_mode` / `proactive_mode` / `conflict_mode` / `retrieval_mode` | `rule` |
 | `knowledge_graph` | `enabled` / `extraction_mode` / `max_depth` / `max_facts` | `true` / `rule` / `3` / `8` |
 | `persona` | `extraction_mode` | `rule` |
-| `embedding` | `source` / `fallback_to_local` / `local_model` | `auto` / `true` / `BAAI/bge-small-zh-v1.5` |
+| `embedding` | `source` / `local_model` | `auto` / `BAAI/bge-small-zh-v1.5` |
 | `image_analysis` | `enable` / `mode` / `daily_budget` | `true` / `auto` / `100` |
 | `proactive_reply` | `enable` / `group_whitelist_mode` | `false` / `false` |
 | `activity_adaptive` | `enable` | `true` |
@@ -205,6 +207,24 @@ Web UI 启用后默认访问：`http://127.0.0.1:8089`
 
 - 默认存储在本地（Chroma/SQLite）。
 - 仅在你配置并调用外部 LLM 时，会向所选 provider 发送必要文本。
+
+### 9. 如何彻底清空所有插件数据？
+
+使用超管指令：
+```
+/iris_reset confirm
+```
+
+这会删除：
+- 所有用户画像 (`user_personas`)
+- 会话数据 (`sessions`)
+- 聊天记录 (`chat_history`)
+- 群成员信息 (`member_identity`)
+- 批量处理队列 (`batch_queues`)
+- 主动回复白名单 (`proactive_reply_whitelist`)
+- 其他所有插件产生的 KV 存储数据
+
+**注意**：执行后建议重启 AstrBot 以确保所有缓存已清空。
 
 ---
 

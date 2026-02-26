@@ -82,6 +82,7 @@ class ChromaOperations:
             "created_time": memory.created_time.isoformat(),
             "last_access_time": memory.last_access_time.isoformat(),
             "access_count": memory.access_count,
+            "confidence": memory.confidence,
             "rif_score": memory.rif_score,
             "importance_score": memory.importance_score,
             "is_user_requested": memory.is_user_requested,
@@ -199,19 +200,34 @@ class ChromaOperations:
 
     async def delete_memory(self, memory_id: str) -> bool:
         """删除记忆
-        
+
         Args:
             memory_id: 记忆ID
-            
+
         Returns:
             bool: 是否删除成功
         """
         try:
             self._ensure_ready()
+
+            # 先检查记忆是否存在
+            check = self.collection.get(ids=[memory_id], include=["metadatas"])
+            if not check or not check.get("ids"):
+                logger.warning(f"Memory not found for deletion: {memory_id}")
+                return False
+
+            # 执行删除
             self.collection.delete(ids=[memory_id])
+
+            # 验证删除是否成功
+            verify = self.collection.get(ids=[memory_id], include=["metadatas"])
+            if verify and verify.get("ids"):
+                logger.error(f"Memory deletion failed - still exists: {memory_id}")
+                return False
+
             logger.debug(f"Memory deleted from Chroma: {memory_id}")
             return True
-            
+
         except Exception as e:
             logger.error(f"Failed to delete memory: {e}")
             return False

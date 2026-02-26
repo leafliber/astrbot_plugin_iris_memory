@@ -41,6 +41,7 @@ class PersonaQueuedMessage:
     memory_id: Optional[str] = None
     user_id: str = ""
     group_id: Optional[str] = None
+    sender_name: Optional[str] = None  # 发送者昵称/姓名
     enqueue_time: float = field(default_factory=time.time)
 
     # 内容自动截断
@@ -59,6 +60,7 @@ class PersonaQueuedMessage:
             "memory_id": self.memory_id,
             "user_id": self.user_id,
             "group_id": self.group_id,
+            "sender_name": self.sender_name,
             "enqueue_time": self.enqueue_time,
         }
 
@@ -72,6 +74,7 @@ class PersonaQueuedMessage:
             memory_id=data.get("memory_id"),
             user_id=data.get("user_id", ""),
             group_id=data.get("group_id"),
+            sender_name=data.get("sender_name"),
             enqueue_time=data.get("enqueue_time", time.time()),
         )
 
@@ -86,10 +89,12 @@ class PersonaBatchProcessor:
     - 数量触发器: 队列消息数达到阈值时立即触发处理
     - 时间触发器: 后台定时任务按固定间隔扫描所有非空队列
     - 会话隔离: 通过 SessionKeyBuilder 构建的复合键隔离不同会话
+    - 工作记忆查询: 支持查询工作记忆获取额外上下文
 
     与现有组件的关系：
     - 完全复用 PersonaExtractor.extract() 接口
     - 通过回调函数 apply_result_callback 将结果应用到 UserPersona
+    - 通过回调函数 working_memory_callback 查询工作记忆
     - 不改变 PersonaExtractor 和 UserPersona 的任何逻辑
     """
 
@@ -109,6 +114,9 @@ class PersonaBatchProcessor:
                 Any,
             ]
         ] = None,
+        working_memory_callback: Optional[
+            Callable[[str, Optional[str]], Any]
+        ] = None,
     ) -> None:
         """
         初始化画像批量处理器
@@ -119,12 +127,14 @@ class PersonaBatchProcessor:
             flush_interval: 定时刷新的时间间隔（秒）
             batch_max_size: 单次批量处理的最大消息数
             apply_result_callback: 结果应用回调 (user_id, session_key, result, msg)
+            working_memory_callback: 工作记忆查询回调 (user_id, group_id) -> List[Memory]
         """
         self._extractor = persona_extractor
         self._batch_threshold = batch_threshold
         self._flush_interval = flush_interval
         self._batch_max_size = batch_max_size
         self._apply_result_callback = apply_result_callback
+        self._working_memory_callback = working_memory_callback
 
         # 会话队列: session_key -> List[PersonaQueuedMessage]
         self._queues: Dict[str, List[PersonaQueuedMessage]] = {}
@@ -198,6 +208,7 @@ class PersonaBatchProcessor:
         memory_type: str = "",
         confidence: float = 0.5,
         memory_id: Optional[str] = None,
+        sender_name: Optional[str] = None,
     ) -> bool:
         """将消息加入画像提取队列
 
@@ -209,6 +220,7 @@ class PersonaBatchProcessor:
             memory_type: 记忆类型
             confidence: 置信度
             memory_id: 来源记忆 ID
+            sender_name: 发送者昵称/姓名
 
         Returns:
             True 如果触发了批量处理
@@ -223,6 +235,7 @@ class PersonaBatchProcessor:
             memory_id=memory_id,
             user_id=user_id,
             group_id=group_id,
+            sender_name=sender_name,
         )
 
         async with self._lock:
@@ -428,6 +441,82 @@ class PersonaBatchProcessor:
 
             # 确保队列干净
             self._queues.clear()
+
+    # ------------------------------------------------------------------
+    # 工作记忆查询
+    # ------------------------------------------------------------------
+
+    async def get_working_memory_for_session(
+        self,
+        user_id: str,
+        group_id: Optional[str] = None,
+    ) -> List[Any]:
+        """查询指定会话的工作记忆
+
+        通过回调函数从 SessionManager 获取工作记忆，
+        用于批量处理画像提取时提供额外上下文。
+
+        Args:
+            user_id: 用户 ID
+            group_id: 群组 ID（私聊时为 None）
+
+        Returns:
+            List[Memory]: 工作记忆列表，回调未设置时返回空列表
+        """
+        if self._working_memory_callback is None:
+            return []
+
+        try:
+            result = self._working_memory_callback(user_id, group_id)
+            if asyncio.iscoroutine(result):
+                return await result
+            return result
+        except Exception as e:
+            logger.warning(f"Failed to get working memory for persona batch: {e}")
+            return []
+
+    async def get_working_memory_context(
+        self,
+        user_id: str,
+        group_id: Optional[str] = None,
+        max_memories: int = 5,
+    ) -> str:
+        """获取工作记忆上下文文本
+
+        将工作记忆格式化为文本，用于增强画像提取的上下文。
+
+        Args:
+            user_id: 用户 ID
+            group_id: 群组 ID（私聊时为 None）
+            max_memories: 最大记忆数量
+
+        Returns:
+            str: 格式化的工作记忆上下文，无记忆时返回空字符串
+        """
+        memories = await self.get_working_memory_for_session(user_id, group_id)
+        if not memories:
+            return ""
+
+        # 限制数量并按时间排序（最新的在前）
+        memories = sorted(
+            memories,
+            key=lambda m: getattr(m, "created_time", 0),
+            reverse=True,
+        )[:max_memories]
+
+        parts = []
+        for i, mem in enumerate(memories, 1):
+            content = getattr(mem, "content", "")
+            summary = getattr(mem, "summary", None)
+            mem_type = getattr(mem, "type", "unknown")
+            if hasattr(mem_type, "value"):
+                mem_type = mem_type.value
+
+            text = summary if summary else content
+            if text:
+                parts.append(f"[{i}] [{mem_type}] {text[:100]}")
+
+        return "\n".join(parts) if parts else ""
 
     # ------------------------------------------------------------------
     # 统计与健康检查

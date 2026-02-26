@@ -325,24 +325,14 @@ class ConfigManager:
         return normalize_provider_id(self.get("embedding.astrbot_provider_id", DEFAULTS.embedding.astrbot_provider_id))
     
     @property
-    def embedding_fallback_to_local(self) -> bool:
-        """是否在 AstrBot provider 不可用时降级到本地模型"""
-        return self.get("embedding.fallback_to_local", DEFAULTS.embedding.fallback_to_local)
-    
-    @property
     def embedding_local_model(self) -> str:
         """本地嵌入模型名称"""
         return self.get("embedding.local_model", DEFAULTS.embedding.local_model)
-    
+
     @property
     def embedding_local_dimension(self) -> int:
         """本地嵌入模型维度"""
         return self.get("embedding.local_dimension", DEFAULTS.embedding.local_dimension)
-    
-    @property
-    def enable_local_provider(self) -> bool:
-        """是否启用本地 embedding 提供者"""
-        return self.get("embedding.enable_local_provider", DEFAULTS.embedding.enable_local_provider)
     
     # 画像配置
     @property

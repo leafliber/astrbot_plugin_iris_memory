@@ -45,7 +45,10 @@ class TriggerDetector:
             TriggerType.RELATIONSHIP: [
                 r"我们是", r"我们算是", r"你对我来说是", r"我们关系是",
                 r"我们是朋友", r"我们是家人", r"关系", r"对我来说",
-                r"we are", r"you're like", r"relationship"
+                r"信任", r"相信你", r"信任你", r"靠谱", r"可靠",
+                r"亲密", r"好朋友", r"知己", r"闺蜜", r"哥们", r"兄弟",
+                r"we are", r"you're like", r"relationship", r"trust",
+                r"close friend", r"best friend"
             ],
             TriggerType.FACT: [
                 r"我是", r"我有", r"我做", r"我在", r"我叫",

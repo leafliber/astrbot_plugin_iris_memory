@@ -1,6 +1,12 @@
 """
 Web 模块 - 提供 Iris Memory 的 Web 管理界面
 
+架构层次：
+- api/          响应辅助 + 路由蓝图（dashboard / memories / kg / personas / io）
+- service/      领域子服务（DashboardService / MemoryWebService / KgWebService …）
+- data/         仓储实现（MemoryRepo / KgRepo / PersonaRepo / SessionRepo）
+- static/       前端资源（HTML shell + CSS + JS 模块）
+
 功能模块：
 1. 统计面板：数据可视化、趋势分析
 2. 记忆管理：查询检索、单条/批量删除
@@ -11,5 +17,9 @@ Web 模块 - 提供 Iris Memory 的 Web 管理界面
 """
 
 from iris_memory.web.standalone_server import StandaloneWebServer
+from iris_memory.web.web_service import WebService
 
-__all__ = ["StandaloneWebServer"]
+__all__ = [
+    "StandaloneWebServer",
+    "WebService",
+]

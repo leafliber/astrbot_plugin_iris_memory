@@ -1,0 +1,44 @@
+# AstrBot Iris Memory Plugin 本地测试环境
+# 使用方法:
+#   docker-compose up -d    # 启动服务
+#   docker-compose down     # 停止服务
+#   docker-compose logs -f  # 查看日志
+
+services:
+  astrbot:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: astrbot-iris-memory-test
+    restart: unless-stopped
+    ports:
+      - "6185:6185"  # AstrBot Web UI
+      - "6186:6186"  # AstrBot API
+    volumes:
+      # 挂载插件代码（开发模式，实时同步）
+      - ../iris_memory:/AstrBot/data/plugins/astrbot_plugin_iris_memory/iris_memory:ro
+      - ../main.py:/AstrBot/data/plugins/astrbot_plugin_iris_memory/main.py:ro
+      - ../metadata.yaml:/AstrBot/data/plugins/astrbot_plugin_iris_memory/metadata.yaml:ro
+      - ../_conf_schema.json:/AstrBot/data/plugins/astrbot_plugin_iris_memory/_conf_schema.json:ro
+      - ../requirements.txt:/AstrBot/data/plugins/astrbot_plugin_iris_memory/requirements.txt:ro
+      # 持久化数据
+      - astrbot_data:/AstrBot/data
+    environment:
+      - PYTHONUNBUFFERED=1
+      - ASTRBOT_PLUGIN_DEV_MODE=true
+    networks:
+      - astrbot-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6185"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+volumes:
+  astrbot_data:
+    driver: local
+
+networks:
+  astrbot-network:
+    driver: bridge

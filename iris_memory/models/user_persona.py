@@ -75,6 +75,7 @@ class UserPersona:
 
     # ========== 基础信息 ==========
     user_id: str = ""
+    display_name: Optional[str] = None  # 用户昵称/姓名
     version: int = 2
     last_updated: datetime = field(default_factory=datetime.now)
     update_count: int = 0  # 累计更新次数

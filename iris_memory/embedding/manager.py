@@ -1,13 +1,12 @@
 """
-嵌入管理器 - 简化的源选择与降级管理
+嵌入管理器 - 源选择
 
-用户通过 embedding.source 选择嵌入源（auto / astrbot / local），
-管理器按用户配置为主逻辑初始化对应的提供者。
+用户通过 embedding.source 选择嵌入源（auto / astrbot / local）：
+- auto: 优先使用 AstrBot API，不可用时自动切换到本地模型，最后使用 Fallback
+- astrbot: 仅使用 AstrBot API，不可用时使用 Fallback
+- local: 仅使用本地模型，不可用时使用 Fallback
 
-降级策略：
-- auto: AstrBot → Local（需 fallback_to_local 且维度兼容）→ Fallback
-- astrbot: AstrBot → Fallback
-- local: Local → Fallback
+所有模式均由 embedding.source 控制，不再支持额外的降级配置选项。
 """
 
 from enum import Enum
@@ -215,7 +214,9 @@ class EmbeddingManager:
         return await self._init_fallback_as_last_resort()
 
     async def _init_auto(self, cfg: Any) -> bool:
-        """AUTO 模式：AstrBot 优先 → Local（如果 fallback_to_local）→ Fallback
+        """AUTO 模式：AstrBot API 优先 → 本地模型 → Fallback
+
+        当 AstrBot API 不可用时，自动降级到本地模型。
 
         Args:
             cfg: 配置管理器
@@ -223,7 +224,7 @@ class EmbeddingManager:
         Returns:
             bool: 是否初始化成功
         """
-        # 1. 尝试 AstrBot
+        # 1. 尝试 AstrBot API
         astrbot_ok = await self._try_init_astrbot(cfg)
         if astrbot_ok:
             self.current_provider = self.providers["astrbot"]
@@ -233,33 +234,31 @@ class EmbeddingManager:
             )
             return True
 
-        # 2. AstrBot 失败，尝试 Local（如果配置允许）
-        if cfg.embedding_fallback_to_local and cfg.enable_local_provider:
-            local_ok = await self._try_init_local(cfg)
-            if local_ok:
-                self.current_provider = self.providers["local"]
-                if self.current_provider.is_ready:
-                    logger.debug(
-                        f"AstrBot unavailable, using local provider "
-                        f"(model={self.current_provider.model}, dimension={self.get_dimension()})"
-                    )
-                else:
-                    logger.debug(
-                        f"AstrBot unavailable, using local provider "
-                        f"(model={self.current_provider.model}, dimension=loading...)"
-                    )
-                return True
-            logger.warning("Local provider initialization also failed")
-        elif not cfg.embedding_fallback_to_local:
-            logger.debug("AstrBot unavailable and fallback_to_local is disabled")
-        elif not cfg.enable_local_provider:
-            logger.debug("AstrBot unavailable and local provider is disabled")
+        # 2. AstrBot 失败，尝试 Local
+        logger.debug("AstrBot unavailable, trying local provider")
+        local_ok = await self._try_init_local(cfg)
+        if local_ok:
+            self.current_provider = self.providers["local"]
+            if self.current_provider.is_ready:
+                logger.debug(
+                    f"AstrBot unavailable, using local provider "
+                    f"(model={self.current_provider.model}, dimension={self.get_dimension()})"
+                )
+            else:
+                logger.debug(
+                    f"AstrBot unavailable, using local provider "
+                    f"(model={self.current_provider.model}, dimension=loading...)"
+                )
+            return True
+        logger.warning("Local provider initialization also failed")
 
         # 3. 都失败，使用 Fallback
         return await self._init_fallback_as_last_resort()
 
     async def _init_astrbot(self, cfg: Any) -> bool:
-        """ASTRBOT 模式：仅使用 AstrBot
+        """ASTRBOT 模式：仅使用 AstrBot API
+
+        严格使用 AstrBot API，不可用时直接使用 Fallback，不尝试本地模型。
 
         Args:
             cfg: 配置管理器
@@ -282,16 +281,14 @@ class EmbeddingManager:
     async def _init_local(self, cfg: Any) -> bool:
         """LOCAL 模式：仅使用本地模型
 
+        严格使用本地模型，不尝试 AstrBot API。
+
         Args:
             cfg: 配置管理器
 
         Returns:
             bool: 是否初始化成功
         """
-        if not cfg.enable_local_provider:
-            logger.warning("Local provider is disabled in configuration")
-            return await self._init_fallback_as_last_resort()
-
         local_ok = await self._try_init_local(cfg)
         if local_ok:
             self.current_provider = self.providers["local"]

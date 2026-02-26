@@ -68,14 +68,15 @@ class ChromaManager(ChromaQueries, ChromaOperations):
         
         from iris_memory.core.config_manager import get_config_manager
         from iris_memory.core.defaults import DEFAULTS
-        
+
         cfg = get_config_manager()
-        
+
         self.embedding_model_name = cfg.embedding_local_model
         self.embedding_dimension = cfg.embedding_local_dimension
         self.collection_name = DEFAULTS.embedding.collection_name
         self.auto_detect_dimension = DEFAULTS.embedding.auto_detect_dimension
-        
+        self.reimport_on_dimension_conflict = cfg.get("embedding.reimport_on_dimension_conflict", True)
+
         from iris_memory.embedding.manager import EmbeddingManager
         self.embedding_manager = EmbeddingManager(config, data_path)
         if plugin_context:
@@ -98,14 +99,14 @@ class ChromaManager(ChromaQueries, ChromaOperations):
         """异步初始化Chroma客户端和集合"""
         try:
             logger.debug("Initializing ChromaManager...")
-            
+
             if chromadb is None:
                 raise ImportError("chromadb is not installed. Please install it with: pip install chromadb")
-            
+
             chroma_path = self.data_path / "chroma"
             chroma_path.mkdir(parents=True, exist_ok=True)
             logger.debug(f"Chroma data path: {chroma_path}")
-            
+
             logger.debug("Creating Chroma persistent client...")
             self.client = chromadb.PersistentClient(
                 path=str(chroma_path),
@@ -114,24 +115,33 @@ class ChromaManager(ChromaQueries, ChromaOperations):
                     allow_reset=True
                 )
             )
-            
+
             existing_collection = self._get_or_check_collection()
-            
+
             detected_dimension = await self._detect_and_init_embedding(existing_collection)
-            
-            self._handle_dimension_conflict(existing_collection, detected_dimension)
-            
+
+            backup_data = self._handle_dimension_conflict(existing_collection, detected_dimension)
+
             self._create_or_use_collection(existing_collection)
-            
+
+            # 如果有备份数据（维度变更）且配置允许，重新导入到新集合
+            if backup_data and self.reimport_on_dimension_conflict:
+                await self._reimport_memories_with_new_embeddings(backup_data)
+            elif backup_data and not self.reimport_on_dimension_conflict:
+                logger.warning(
+                    f"维度冲突处理：配置禁用了自动重新导入，{len(backup_data.get('ids', []))} 条记忆已备份但未导入。"
+                    f"您可以在备份集合中找到这些记忆。"
+                )
+
             logger.debug(
                 f"Chroma manager initialized successfully. "
                 f"Collection: {self.collection_name}, "
                 f"Model: {self.embedding_manager.get_model()}, "
                 f"Dimension: {self.embedding_dimension}"
             )
-            
+
             self._is_ready = True
-            
+
         except Exception as e:
             self._is_ready = False
             logger.error(f"Failed to initialize Chroma manager: {e}", exc_info=True)
@@ -199,66 +209,85 @@ class ChromaManager(ChromaQueries, ChromaOperations):
             logger.debug(f"Failed to get dimension from collection metadata: {e}")
         return None
 
-    def _handle_dimension_conflict(self, existing_collection, detected_dimension: Optional[int]) -> None:
+    def _handle_dimension_conflict(
+        self, existing_collection, detected_dimension: Optional[int]
+    ) -> Optional[Dict[str, Any]]:
         """处理维度冲突
 
-        当嵌入模型更换导致维度不匹配时，先尝试备份旧集合再删除。
-        如果备份也失败，仍会删除旧集合（但会输出 ERROR 级别日志）。
+        当嵌入模型更换导致维度不匹配时，备份旧集合数据并返回，
+        供后续重新导入到新维度的集合中。
 
         Args:
             existing_collection: 现有的 ChromaDB 集合实例，为 None 时直接返回
             detected_dimension: 从现有集合检测到的嵌入维度，为 None 时尝试从元数据获取
 
-        Raises:
-            不会抛出异常，失败时通过日志记录
+        Returns:
+            Optional[Dict[str, Any]]: 备份的数据，包含 ids/documents/metadatas，
+                                     无冲突或无需迁移时返回 None
         """
         if not existing_collection:
-            return
-        
+            return None
+
         collection_dimension = detected_dimension
         if collection_dimension is None:
             collection_dimension = self._get_dimension_from_metadata(existing_collection)
-        
+
         if collection_dimension is None:
             logger.debug("Could not determine existing collection dimension, skipping conflict check")
-            return
-        
+            return None
+
         actual_dimension = self.embedding_manager.get_dimension()
         if collection_dimension == actual_dimension:
-            return
-        
+            return None
+
         old_count = existing_collection.count()
         logger.error(
             f"⚠️ CRITICAL: Embedding dimension conflict detected! "
             f"Collection has {collection_dimension}-dim vectors but provider outputs {actual_dimension}-dim. "
             f"Old memories count: {old_count}. "
             f"This usually happens when the embedding model/provider changes. "
-            f"The old collection will be backed up and then deleted."
+            f"The old collection will be backed up and re-imported with new embeddings."
         )
 
-        # 尝试将旧集合备份为带时间戳的副本
-        backup_ok = False
+        # 备份旧集合数据
+        backup_data = None
         if old_count > 0:
-            backup_ok = self._backup_collection_before_delete(existing_collection, old_count)
-        
-        if old_count > 0 and not backup_ok:
-            logger.error(
-                f"⚠️ DATA LOSS BLOCKED: Backup FAILED for {old_count} memories in "
-                f"collection '{self.collection_name}'. Refusing to delete the old "
-                f"collection to prevent permanent data loss. "
-                f"Please manually export the data or fix the backup target, "
-                f"then restart the plugin."
-            )
-            raise RuntimeError(
-                f"Dimension conflict detected but backup failed for {old_count} memories. "
-                f"Aborting to prevent data loss. Please manually resolve the conflict."
-            )
+            backup_data = self._backup_collection_data(existing_collection, old_count)
 
+        # 删除旧集合
         self.client.delete_collection(name=self.collection_name)
         logger.warning(
             f"Old collection '{self.collection_name}' deleted after dimension conflict. "
-            f"{old_count} memories were backed up. Check backup collection for recovery."
+            f"{old_count} memories will be re-imported with new embeddings."
         )
+
+        return backup_data
+
+    def _backup_collection_data(self, existing_collection, old_count: int) -> Optional[Dict[str, Any]]:
+        """备份集合数据供后续重新导入
+
+        Args:
+            existing_collection: 现有的 ChromaDB 集合实例
+            old_count: 集合中的记忆数量
+
+        Returns:
+            Optional[Dict[str, Any]]: 备份的数据，包含 ids/documents/metadatas，失败返回 None
+        """
+        try:
+            all_data = existing_collection.get(include=["documents", "metadatas"])
+            if not all_data or not all_data.get("ids"):
+                logger.debug("No data in old collection to backup.")
+                return None
+
+            logger.info(f"Backed up {old_count} memories for re-import with new embeddings.")
+            return {
+                "ids": all_data.get("ids", []),
+                "documents": all_data.get("documents", []),
+                "metadatas": all_data.get("metadatas", []),
+            }
+        except Exception as e:
+            logger.error(f"Failed to backup collection data: {e}", exc_info=True)
+            return None
 
     def _backup_collection_before_delete(self, existing_collection, old_count: int) -> bool:
         """在删除集合前尝试备份数据到新集合，并额外导出 JSON 文件
@@ -352,12 +381,122 @@ class ChromaManager(ChromaQueries, ChromaOperations):
             )
             logger.debug(f"Created new collection: {self.collection_name}")
 
+    async def _reimport_memories_with_new_embeddings(self, backup_data: Dict[str, Any]) -> Dict[str, Any]:
+        """使用新的嵌入模型重新导入备份的记忆数据
+
+        Args:
+            backup_data: 备份的数据，包含 ids/documents/metadatas
+
+        Returns:
+            Dict 包含:
+                - success_count: 成功导入数量
+                - failed_count: 失败数量
+                - failed_ids: 失败的记忆ID列表
+                - failed_details: 失败的详细信息列表
+        """
+        ids = backup_data.get("ids", [])
+        documents = backup_data.get("documents", [])
+        metadatas = backup_data.get("metadatas", [])
+
+        if not ids:
+            logger.warning("No memories to re-import.")
+            return {"success_count": 0, "failed_count": 0, "failed_ids": [], "failed_details": []}
+
+        total = len(ids)
+        logger.info(f"Starting to re-import {total} memories with new embeddings...")
+
+        success_count = 0
+        failed_count = 0
+        failed_ids: List[str] = []
+        failed_details: List[Dict[str, Any]] = []
+        batch_size = 50
+
+        for i in range(0, total, batch_size):
+            batch_ids = ids[i:i + batch_size]
+            batch_docs = documents[i:i + batch_size] if documents else []
+            batch_metas = metadatas[i:i + batch_size] if metadatas else []
+
+            batch_embeddings = []
+            batch_valid_ids = []
+            batch_valid_docs = []
+            batch_valid_metas = []
+            batch_failed_ids: List[str] = []
+
+            # 阶段1: 生成嵌入向量
+            for j, doc in enumerate(batch_docs):
+                mem_id = batch_ids[j]
+                if not doc:
+                    failed_count += 1
+                    failed_ids.append(mem_id)
+                    failed_details.append({"id": mem_id, "reason": "empty_document", "stage": "embedding"})
+                    batch_failed_ids.append(mem_id)
+                    continue
+                try:
+                    embedding = await self._generate_embedding(doc)
+                    if embedding:
+                        batch_embeddings.append(embedding)
+                        batch_valid_ids.append(mem_id)
+                        batch_valid_docs.append(doc)
+                        if batch_metas and j < len(batch_metas):
+                            batch_valid_metas.append(batch_metas[j])
+                        else:
+                            batch_valid_metas.append({})
+                    else:
+                        failed_count += 1
+                        failed_ids.append(mem_id)
+                        failed_details.append({"id": mem_id, "reason": "embedding_generation_failed", "stage": "embedding"})
+                        batch_failed_ids.append(mem_id)
+                        logger.warning(f"Failed to generate embedding for memory {mem_id}")
+                except Exception as e:
+                    failed_count += 1
+                    failed_ids.append(mem_id)
+                    failed_details.append({"id": mem_id, "reason": str(e), "stage": "embedding", "error_type": type(e).__name__})
+                    batch_failed_ids.append(mem_id)
+                    logger.error(f"Error generating embedding for memory {mem_id}: {e}")
+
+            # 阶段2: 批量导入（带事务性回滚保护）
+            if batch_embeddings:
+                try:
+                    self.collection.add(
+                        ids=batch_valid_ids,
+                        embeddings=batch_embeddings,
+                        documents=batch_valid_docs,
+                        metadatas=batch_valid_metas
+                    )
+                    success_count += len(batch_embeddings)
+                    logger.debug(f"Re-imported batch {i // batch_size + 1}/{(total - 1) // batch_size + 1}: {len(batch_embeddings)} memories")
+                except Exception as e:
+                    # 批量导入失败，记录所有该批次有效ID为失败
+                    logger.error(f"Failed to add batch to collection: {e}. Marking {len(batch_valid_ids)} memories as failed.")
+                    failed_count += len(batch_valid_ids)
+                    for mem_id in batch_valid_ids:
+                        if mem_id not in failed_ids:
+                            failed_ids.append(mem_id)
+                            failed_details.append({"id": mem_id, "reason": str(e), "stage": "import", "error_type": type(e).__name__})
+                    # 从成功计数中减去（如果之前有成功的）
+                    success_count = max(0, success_count - len(batch_embeddings))
+
+        logger.info(
+            f"Memory re-import completed: {success_count} succeeded, {failed_count} failed. "
+            f"Total: {total}"
+        )
+
+        if failed_ids:
+            logger.warning(f"Failed memory IDs ({len(failed_ids)}): {failed_ids[:10]}{'...' if len(failed_ids) > 10 else ''}")
+
+        return {
+            "success_count": success_count,
+            "failed_count": failed_count,
+            "failed_ids": failed_ids,
+            "failed_details": failed_details
+        }
+
     async def _generate_embedding(self, text: str) -> Optional[List[float]]:
         """生成文本嵌入向量（使用策略模式的嵌入管理器）
-        
+
         Args:
             text: 文本内容
-            
+
         Returns:
             Optional[List[float]]: 嵌入向量，如果生成失败则返回None
         """
@@ -408,6 +547,7 @@ class ChromaManager(ChromaQueries, ChromaOperations):
             sensitivity_level=SensitivityLevel(metadata.get('sensitivity_level', 0)),
             storage_layer=StorageLayer(metadata.get('storage_layer', 'episodic')),
             access_count=metadata.get('access_count', 0),
+            confidence=metadata.get('confidence', 0.5),
             rif_score=metadata.get('rif_score', 0.5),
             importance_score=metadata.get('importance_score', 0.5),
             is_user_requested=metadata.get('is_user_requested', False),
@@ -421,7 +561,7 @@ class ChromaManager(ChromaQueries, ChromaOperations):
         system_keys = {
             'user_id', 'sender_name', 'group_id', 'scope', 'type', 'modality', 'quality_level',
             'sensitivity_level', 'storage_layer', 'created_time', 'last_access_time',
-            'access_count', 'rif_score', 'importance_score', 'is_user_requested'
+            'access_count', 'confidence', 'rif_score', 'importance_score', 'is_user_requested'
         }
         memory.metadata = {k: v for k, v in metadata.items() if k not in system_keys}
         

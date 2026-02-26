@@ -212,6 +212,16 @@ class LLMExtractor:
         if pr is not None and isinstance(pr, (int, float)):
             result.proactive_reply_delta = max(-0.1, min(0.1, float(pr)))
 
+        # trust_delta - 信任度增量
+        td = raw.get("trust_delta")
+        if td is not None and isinstance(td, (int, float)):
+            result.trust_delta = max(0.0, min(0.1, float(td)))
+
+        # intimacy_delta - 亲密度增量
+        id_ = raw.get("intimacy_delta")
+        if id_ is not None and isinstance(id_, (int, float)):
+            result.intimacy_delta = max(0.0, min(0.1, float(id_)))
+
         return result
 
     @property
