@@ -179,6 +179,8 @@ class BusinessService:
         - emotion 类型消息 → 即时处理（情感时效性要求高）
         - 其他消息 → 若启用 persona_batch_processor 则入队批量处理
         - 批量处理器不可用时 → 自动降级到即时处理
+
+        同时同步 sender_name 到 persona.display_name
         """
         if not self._cfg.get("persona.enabled", True):
             return
@@ -195,6 +197,12 @@ class BusinessService:
             mem_type = mem_type_raw.value if hasattr(mem_type_raw, "value") else str(mem_type_raw)
             confidence = getattr(memory, "confidence", 0.5)
             group_id = getattr(memory, "group_id", None)
+            sender_name = getattr(memory, "sender_name", None)
+
+            # 同步 sender_name 到 display_name（如果提供了且当前为空）
+            if sender_name and not persona.display_name:
+                persona.display_name = sender_name
+                logger.debug(f"Updated display_name for user={user_id}: {sender_name}")
 
             # 情感类记忆保持即时处理
             if mem_type in ("emotion",):
@@ -212,6 +220,7 @@ class BusinessService:
                         memory_type=mem_type,
                         confidence=confidence,
                         memory_id=mem_id,
+                        sender_name=sender_name,
                     )
                     persona_log.update_skipped(user_id, "queued_for_batch")
                     logger.debug(

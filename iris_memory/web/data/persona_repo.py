@@ -49,6 +49,7 @@ class PersonaRepositoryImpl:
 
                 all_items.append({
                     "user_id": uid,
+                    "display_name": getattr(persona, "display_name", None),
                     "update_count": getattr(persona, "update_count", 0),
                     "last_updated": persona.last_updated.isoformat() if hasattr(persona.last_updated, "isoformat") else str(persona.last_updated),
                     "interests": top_interests,

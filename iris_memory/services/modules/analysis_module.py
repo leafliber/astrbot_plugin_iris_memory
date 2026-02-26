@@ -113,10 +113,16 @@ class AnalysisModule:
         self,
         cfg: Any,
         apply_result_callback: Optional[Callable] = None,
+        working_memory_callback: Optional[Callable] = None,
     ) -> None:
         """初始化画像批量处理器
 
         依赖 persona_extractor 已初始化。若未启用或提取器不可用，则跳过。
+
+        Args:
+            cfg: 配置管理器
+            apply_result_callback: 结果应用回调
+            working_memory_callback: 工作记忆查询回调 (user_id, group_id) -> List[Memory]
         """
         if not cfg.persona_batch_enabled:
             logger.debug("Persona batch processor disabled by config")
@@ -136,12 +142,14 @@ class AnalysisModule:
             flush_interval=cfg.persona_batch_flush_interval,
             batch_max_size=cfg.persona_batch_max_size,
             apply_result_callback=apply_result_callback,
+            working_memory_callback=working_memory_callback,
         )
         await self._persona_batch_processor.start()
         logger.debug(
             f"Persona batch processor initialized "
             f"(threshold={cfg.persona_batch_threshold}, "
-            f"interval={cfg.persona_batch_flush_interval}s)"
+            f"interval={cfg.persona_batch_flush_interval}s, "
+            f"working_memory={'enabled' if working_memory_callback else 'disabled'})"
         )
 
     async def stop(self) -> None:

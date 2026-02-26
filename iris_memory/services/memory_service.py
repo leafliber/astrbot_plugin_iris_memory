@@ -425,6 +425,10 @@ class MemoryService:
             activity_provider=self._activity_provider,
         )
 
+        # 重新绑定批量处理器的保存回调，确保回调指向有效的 PersistenceService
+        if self.capture.batch_processor:
+            self.capture.batch_processor.on_save_callback = self._deferred_save_batch_queues
+
     # ── 初始化子方法（整合自原 ServiceInitializer） ──
 
     async def _init_core_components(self) -> None:
@@ -584,6 +588,7 @@ class MemoryService:
         """初始化画像批量处理器（依赖 persona_extractor）
 
         回调直接使用 SharedState，不再跨 Mixin 调用 BusinessOperations 方法。
+        同时注入工作记忆查询回调，使后台处理能够获取会话上下文。
         """
         if not self.cfg.get("persona.enabled", True):
             self.logger.debug("Persona batch processor skipped (disabled)")
@@ -592,7 +597,37 @@ class MemoryService:
         await self.analysis.init_persona_batch_processor(
             cfg=self.cfg,
             apply_result_callback=self._apply_batch_persona_result,
+            working_memory_callback=self._get_working_memory_for_batch_processor,
         )
+
+    async def _get_working_memory_for_batch_processor(
+        self,
+        user_id: str,
+        group_id: Optional[str] = None,
+    ) -> List[Any]:
+        """为画像批量处理器查询工作记忆
+
+        这是后台记忆管理查询工作记忆的接口，使批量画像提取
+        能够获取会话的近期工作记忆作为上下文。
+
+        Args:
+            user_id: 用户 ID
+            group_id: 群组 ID（私聊时为 None）
+
+        Returns:
+            List[Memory]: 工作记忆列表
+        """
+        try:
+            if not self.storage.session_manager:
+                return []
+            return await self.storage.session_manager.get_working_memory(
+                user_id=user_id,
+                group_id=group_id,
+                update_access=False,  # 后台查询不更新访问计数
+            )
+        except Exception as e:
+            self.logger.debug(f"Failed to get working memory for batch processor: {e}")
+            return []
 
     def _apply_batch_persona_result(
         self, user_id: str, session_key: str, result: Any, msg: Any
@@ -601,11 +636,19 @@ class MemoryService:
 
         此回调由 PersonaBatchProcessor 在完成批量提取后调用。
         直接使用 SharedState 访问用户画像，不再依赖 BusinessOperations Mixin。
+        同时同步 sender_name 到 display_name。
         """
         from iris_memory.analysis.persona.persona_logger import persona_log
 
         try:
             persona = self._shared_state.get_or_create_user_persona(user_id)
+
+            # 同步 sender_name 到 display_name（如果提供了且当前为空）
+            sender_name = getattr(msg, "sender_name", None)
+            if sender_name and not persona.display_name:
+                persona.display_name = sender_name
+                self.logger.debug(f"Batch update: display_name for user={user_id}: {sender_name}")
+
             changes = persona.apply_extraction_result(
                 result,
                 source_memory_id=msg.memory_id,

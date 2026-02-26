@@ -36,10 +36,13 @@ async function searchPersonas() {
     return;
   }
 
-  container.innerHTML = personas.map(p => `
+  container.innerHTML = personas.map(p => {
+    const displayName = p.display_name || p.user_id;
+    const showUserId = p.display_name ? `<span style="font-size:11px;color:var(--text2);margin-left:4px;">(${highlightText(p.user_id, query)})</span>` : '';
+    return `
     <div class="persona-card" onclick="showPersonaDetail('${escHtml(p.user_id)}')">
       <div class="persona-header">
-        <span class="persona-uid">◉ ${highlightText(p.user_id, query)}</span>
+        <span class="persona-uid">◉ ${highlightText(displayName, query)}${showUserId}</span>
         <span class="persona-meta">更新 ${p.update_count} 次</span>
       </div>
       <div style="font-size:12px;color:var(--text2);margin-bottom:8px;">
@@ -61,7 +64,8 @@ async function searchPersonas() {
         </div>
       ` : ''}
     </div>
-  `).join('');
+    `;
+  }).join('');
 
   // Pagination
   const totalPages = Math.ceil(data.total / personaState.pageSize);
@@ -112,7 +116,9 @@ async function showPersonaDetail(userId) {
   const emotionResp = await api(`/emotions?user_id=${encodeURIComponent(userId)}`);
   const emotion = (emotionResp && emotionResp.status === 'ok') ? emotionResp.data : null;
 
-  let html = `<div style="margin-bottom:16px;font-size:14px;color:var(--text2);">用户: <strong style="color:var(--text);">${escHtml(userId)}</strong></div>`;
+  const displayName = p.display_name || userId;
+  const displayUserId = p.display_name ? `<span style="font-size:12px;color:var(--text2);margin-left:8px;">(${escHtml(userId)})</span>` : '';
+  let html = `<div style="margin-bottom:16px;font-size:14px;color:var(--text2);">用户: <strong style="color:var(--text);font-size:16px;">${escHtml(displayName)}</strong>${displayUserId}</div>`;
 
   // Big Five personality
   html += `<div class="card" style="margin-bottom:12px;">
