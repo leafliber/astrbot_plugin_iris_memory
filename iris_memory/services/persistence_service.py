@@ -48,6 +48,7 @@ class PersistenceService:
         self,
         *,
         shared_state: SharedState,
+        cfg: Any,
         storage: Any,
         analysis: Any,
         capture: Any,
@@ -61,6 +62,7 @@ class PersistenceService:
         activity_provider: Any = None,
     ) -> None:
         self._state = shared_state
+        self._cfg = cfg
         self._storage = storage
         self._analysis = analysis
         self._capture = capture

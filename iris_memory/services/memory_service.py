@@ -411,6 +411,7 @@ class MemoryService:
 
         self._persistence = PersistenceService(
             shared_state=self._shared_state,
+            cfg=self.cfg,
             storage=self.storage,
             analysis=self.analysis,
             capture=self.capture,

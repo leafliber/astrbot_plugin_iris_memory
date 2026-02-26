@@ -3,6 +3,28 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.7.3] - 2026-02-26
+
+### Changed
+- **Service 层架构重构** (`iris_memory/services/`)
+  - 将 `MemoryService` 从 Mixin 继承模式重构为组合 + 依赖注入模式
+  - 拆分 `BusinessOperations` Mixin 为独立的 `BusinessService` 类
+  - 拆分 `PersistenceOperations` Mixin 为独立的 `PersistenceService` 类
+  - 拆分 `ServiceInitializer` Mixin 逻辑内联到 `MemoryService`
+  - 新增 `SharedState` 类集中管理跨服务共享状态（用户画像、情感状态、注入记录等）
+  - 所有依赖通过构造函数显式注入，消除隐式循环依赖
+  - `MemoryService` 转型为薄 Facade，负责协调初始化并委托操作
+
+### Architecture Improvements
+- **消除上帝类**: `MemoryService` 从 1800+ 行分散在 Mixin 中，重构为 3 个独立服务类
+- **依赖关系显式化**: 所有依赖通过构造函数注入，可独立测试
+- **向后兼容**: 保留所有原有属性和方法代理，`main.py` 无需修改
+
+### Code Quality
+- 提升测试性：各 Service 可独立实例化进行单元测试
+- 降低耦合度：模块间依赖关系清晰可追踪
+- 改善可维护性：业务逻辑、持久化逻辑、初始化逻辑分离
+
 ## [v1.7.2] - 2026-02-25
 
 ### Added
