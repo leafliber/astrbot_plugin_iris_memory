@@ -381,11 +381,18 @@ class ChromaManager(ChromaQueries, ChromaOperations):
             )
             logger.debug(f"Created new collection: {self.collection_name}")
 
-    async def _reimport_memories_with_new_embeddings(self, backup_data: Dict[str, Any]) -> None:
+    async def _reimport_memories_with_new_embeddings(self, backup_data: Dict[str, Any]) -> Dict[str, Any]:
         """使用新的嵌入模型重新导入备份的记忆数据
 
         Args:
             backup_data: 备份的数据，包含 ids/documents/metadatas
+
+        Returns:
+            Dict 包含:
+                - success_count: 成功导入数量
+                - failed_count: 失败数量
+                - failed_ids: 失败的记忆ID列表
+                - failed_details: 失败的详细信息列表
         """
         ids = backup_data.get("ids", [])
         documents = backup_data.get("documents", [])
@@ -393,13 +400,15 @@ class ChromaManager(ChromaQueries, ChromaOperations):
 
         if not ids:
             logger.warning("No memories to re-import.")
-            return
+            return {"success_count": 0, "failed_count": 0, "failed_ids": [], "failed_details": []}
 
         total = len(ids)
         logger.info(f"Starting to re-import {total} memories with new embeddings...")
 
         success_count = 0
         failed_count = 0
+        failed_ids: List[str] = []
+        failed_details: List[Dict[str, Any]] = []
         batch_size = 50
 
         for i in range(0, total, batch_size):
@@ -411,15 +420,22 @@ class ChromaManager(ChromaQueries, ChromaOperations):
             batch_valid_ids = []
             batch_valid_docs = []
             batch_valid_metas = []
+            batch_failed_ids: List[str] = []
 
+            # 阶段1: 生成嵌入向量
             for j, doc in enumerate(batch_docs):
+                mem_id = batch_ids[j]
                 if not doc:
+                    failed_count += 1
+                    failed_ids.append(mem_id)
+                    failed_details.append({"id": mem_id, "reason": "empty_document", "stage": "embedding"})
+                    batch_failed_ids.append(mem_id)
                     continue
                 try:
                     embedding = await self._generate_embedding(doc)
                     if embedding:
                         batch_embeddings.append(embedding)
-                        batch_valid_ids.append(batch_ids[j])
+                        batch_valid_ids.append(mem_id)
                         batch_valid_docs.append(doc)
                         if batch_metas and j < len(batch_metas):
                             batch_valid_metas.append(batch_metas[j])
@@ -427,11 +443,18 @@ class ChromaManager(ChromaQueries, ChromaOperations):
                             batch_valid_metas.append({})
                     else:
                         failed_count += 1
-                        logger.warning(f"Failed to generate embedding for memory {batch_ids[j]}")
+                        failed_ids.append(mem_id)
+                        failed_details.append({"id": mem_id, "reason": "embedding_generation_failed", "stage": "embedding"})
+                        batch_failed_ids.append(mem_id)
+                        logger.warning(f"Failed to generate embedding for memory {mem_id}")
                 except Exception as e:
                     failed_count += 1
-                    logger.error(f"Error generating embedding for memory {batch_ids[j]}: {e}")
+                    failed_ids.append(mem_id)
+                    failed_details.append({"id": mem_id, "reason": str(e), "stage": "embedding", "error_type": type(e).__name__})
+                    batch_failed_ids.append(mem_id)
+                    logger.error(f"Error generating embedding for memory {mem_id}: {e}")
 
+            # 阶段2: 批量导入（带事务性回滚保护）
             if batch_embeddings:
                 try:
                     self.collection.add(
@@ -443,13 +466,30 @@ class ChromaManager(ChromaQueries, ChromaOperations):
                     success_count += len(batch_embeddings)
                     logger.debug(f"Re-imported batch {i // batch_size + 1}/{(total - 1) // batch_size + 1}: {len(batch_embeddings)} memories")
                 except Exception as e:
-                    failed_count += len(batch_embeddings)
-                    logger.error(f"Failed to add batch to collection: {e}")
+                    # 批量导入失败，记录所有该批次有效ID为失败
+                    logger.error(f"Failed to add batch to collection: {e}. Marking {len(batch_valid_ids)} memories as failed.")
+                    failed_count += len(batch_valid_ids)
+                    for mem_id in batch_valid_ids:
+                        if mem_id not in failed_ids:
+                            failed_ids.append(mem_id)
+                            failed_details.append({"id": mem_id, "reason": str(e), "stage": "import", "error_type": type(e).__name__})
+                    # 从成功计数中减去（如果之前有成功的）
+                    success_count = max(0, success_count - len(batch_embeddings))
 
         logger.info(
             f"Memory re-import completed: {success_count} succeeded, {failed_count} failed. "
             f"Total: {total}"
         )
+
+        if failed_ids:
+            logger.warning(f"Failed memory IDs ({len(failed_ids)}): {failed_ids[:10]}{'...' if len(failed_ids) > 10 else ''}")
+
+        return {
+            "success_count": success_count,
+            "failed_count": failed_count,
+            "failed_ids": failed_ids,
+            "failed_details": failed_details
+        }
 
     async def _generate_embedding(self, text: str) -> Optional[List[float]]:
         """生成文本嵌入向量（使用策略模式的嵌入管理器）

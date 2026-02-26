@@ -12,6 +12,7 @@
 """
 
 import asyncio
+from dataclasses import dataclass
 from typing import Optional, List, Dict, Any, Tuple, TYPE_CHECKING
 from datetime import datetime
 
@@ -19,11 +20,6 @@ from iris_memory.utils.logger import get_logger
 from iris_memory.core.constants import (
     SessionScope, PersonaStyle, NumericDefaults, LogTemplates, UNLIMITED_BUDGET
 )
-from iris_memory.core.types import StorageLayer
-from iris_memory.utils.command_utils import SessionKeyBuilder
-from iris_memory.utils.member_utils import format_member_tag
-from iris_memory.analysis.persona.persona_logger import persona_log
-from iris_memory.services.shared_state import SharedState
 
 if TYPE_CHECKING:
     from iris_memory.services.modules.storage_module import StorageModule
@@ -32,6 +28,37 @@ if TYPE_CHECKING:
     from iris_memory.services.modules.capture_module import CaptureModule
     from iris_memory.services.modules.retrieval_module import RetrievalModule
     from iris_memory.services.modules.kg_module import KnowledgeGraphModule
+
+
+@dataclass
+class BusinessServiceDeps:
+    """BusinessService 依赖配置对象
+
+    将相关依赖分组，减少构造函数参数数量，提高可维护性。
+
+    Attributes:
+        shared_state: 跨服务共享状态
+        cfg: 配置管理器
+        core_modules: 核心模块组（storage, analysis, llm_enhanced, capture, retrieval）
+        kg: 知识图谱模块
+        optional_services: 可选服务组（image_analyzer, member_identity, activity_tracker）
+    """
+    shared_state: "SharedState"
+    cfg: Any
+    storage: "StorageModule"
+    analysis: "AnalysisModule"
+    llm_enhanced: "LLMEnhancedModule"
+    capture: "CaptureModule"
+    retrieval: "RetrievalModule"
+    kg: "KnowledgeGraphModule"
+    image_analyzer: Any = None
+    member_identity: Any = None
+    activity_tracker: Any = None
+from iris_memory.core.types import StorageLayer
+from iris_memory.utils.command_utils import SessionKeyBuilder
+from iris_memory.utils.member_utils import format_member_tag
+from iris_memory.analysis.persona.persona_logger import persona_log
+from iris_memory.services.shared_state import SharedState
 
 logger = get_logger("memory_service.business")
 
@@ -49,45 +76,21 @@ class BusinessService:
     5. 会话管理
 
     Args:
-        shared_state: 跨服务共享状态
-        cfg: 配置管理器
-        storage: 存储模块
-        analysis: 分析模块
-        llm_enhanced: LLM 增强模块
-        capture: 捕获模块
-        retrieval: 检索模块
-        kg: 知识图谱模块
-        image_analyzer: 图片分析器（可选，启用时注入）
-        member_identity: 成员身份服务（可选）
-        activity_tracker: 群活跃度跟踪器（可选）
+        deps: 依赖配置对象，包含所有必需的依赖
     """
 
-    def __init__(
-        self,
-        *,
-        shared_state: SharedState,
-        cfg: Any,
-        storage: "StorageModule",
-        analysis: "AnalysisModule",
-        llm_enhanced: "LLMEnhancedModule",
-        capture: "CaptureModule",
-        retrieval: "RetrievalModule",
-        kg: "KnowledgeGraphModule",
-        image_analyzer: Any = None,
-        member_identity: Any = None,
-        activity_tracker: Any = None,
-    ) -> None:
-        self._state = shared_state
-        self._cfg = cfg
-        self._storage = storage
-        self._analysis = analysis
-        self._llm_enhanced = llm_enhanced
-        self._capture = capture
-        self._retrieval = retrieval
-        self._kg = kg
-        self._image_analyzer = image_analyzer
-        self._member_identity = member_identity
-        self._activity_tracker = activity_tracker
+    def __init__(self, deps: BusinessServiceDeps) -> None:
+        self._state = deps.shared_state
+        self._cfg = deps.cfg
+        self._storage = deps.storage
+        self._analysis = deps.analysis
+        self._llm_enhanced = deps.llm_enhanced
+        self._capture = deps.capture
+        self._retrieval = deps.retrieval
+        self._kg = deps.kg
+        self._image_analyzer = deps.image_analyzer
+        self._member_identity = deps.member_identity
+        self._activity_tracker = deps.activity_tracker
 
     # ── 可选组件更新（初始化后注入） ──
 
