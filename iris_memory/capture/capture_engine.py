@@ -53,6 +53,12 @@ class MemoryCaptureEngine:
         llm_sensitivity_detector=None,
         llm_trigger_detector=None,
         llm_conflict_resolver=None,
+        *,
+        min_confidence: Optional[float] = None,
+        rif_threshold: Optional[float] = None,
+        enable_duplicate_check: Optional[bool] = None,
+        enable_conflict_check: Optional[bool] = None,
+        enable_entity_extraction: Optional[bool] = None,
     ):
         """初始化记忆捕获引擎
         
@@ -63,6 +69,11 @@ class MemoryCaptureEngine:
             llm_sensitivity_detector: LLM敏感度检测器（可选）
             llm_trigger_detector: LLM触发器检测器（可选）
             llm_conflict_resolver: LLM冲突解决器（可选）
+            min_confidence: 最小置信度阈值（默认从 DEFAULTS 获取）
+            rif_threshold: RIF 评分阈值（默认从 DEFAULTS 获取）
+            enable_duplicate_check: 是否启用去重检查（默认从 DEFAULTS 获取）
+            enable_conflict_check: 是否启用冲突检测（默认从 DEFAULTS 获取）
+            enable_entity_extraction: 是否启用实体提取（默认从 DEFAULTS 获取）
         """
         self.chroma_manager = chroma_manager
         self.emotion_analyzer = emotion_analyzer or EmotionAnalyzer()
@@ -77,13 +88,13 @@ class MemoryCaptureEngine:
         self._llm_trigger_detector = llm_trigger_detector
         self._llm_conflict_resolver = llm_conflict_resolver
         
-        # 配置
+        # 配置（优先使用注入值，否则回退到 DEFAULTS）
         self.auto_capture = True
-        self.min_confidence = DEFAULTS.memory.min_confidence
-        self.rif_threshold = DEFAULTS.memory.rif_threshold
-        self.enable_duplicate_check = DEFAULTS.memory.enable_duplicate_check
-        self.enable_conflict_check = DEFAULTS.memory.enable_conflict_check
-        self.enable_entity_extraction = DEFAULTS.memory.enable_entity_extraction
+        self.min_confidence = min_confidence if min_confidence is not None else DEFAULTS.memory.min_confidence
+        self.rif_threshold = rif_threshold if rif_threshold is not None else DEFAULTS.memory.rif_threshold
+        self.enable_duplicate_check = enable_duplicate_check if enable_duplicate_check is not None else DEFAULTS.memory.enable_duplicate_check
+        self.enable_conflict_check = enable_conflict_check if enable_conflict_check is not None else DEFAULTS.memory.enable_conflict_check
+        self.enable_entity_extraction = enable_entity_extraction if enable_entity_extraction is not None else DEFAULTS.memory.enable_entity_extraction
     
     async def capture_memory(
         self,
