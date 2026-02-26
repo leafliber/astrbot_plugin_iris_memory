@@ -1008,20 +1008,93 @@ class IrisMemoryPlugin(Star):
         )
         
         return directive
-    
+
+    # ========== 重置指令 ==========
+
+    @filter.command("iris_reset")
+    async def iris_reset(self, event: AstrMessageEvent) -> AsyncGenerator[Any, None]:
+        """
+        重置 Iris Memory 所有数据（超管命令）
+
+        用法：/iris_reset confirm
+        警告：这将删除所有记忆、用户画像、会话数据、聊天记录等，不可恢复！
+        """
+        # 权限检查：仅超管
+        if not self._is_admin(event):
+            yield event.plain_result(ErrorMessages.ADMIN_REQUIRED)
+            return
+
+        # 解析参数
+        parsed = CommandParser.parse_with_slash(event.message_str, "iris_reset")
+        if "confirm" not in parsed.args:
+            yield event.plain_result(
+                "⚠️ 警告：此操作将永久删除所有 Iris Memory 数据！\n"
+                "包括：记忆、用户画像、会话记录、群成员信息、聊天记录等\n"
+                "请使用 '/iris_reset confirm' 确认操作"
+            )
+            return
+
+        try:
+            # 删除所有 KV 存储键
+            from iris_memory.core.constants import KVStoreKeys
+
+            keys_to_delete = [
+                KVStoreKeys.SESSIONS,
+                KVStoreKeys.LIFECYCLE_STATE,
+                KVStoreKeys.BATCH_QUEUES,
+                KVStoreKeys.CHAT_HISTORY,
+                KVStoreKeys.USER_PERSONAS,
+                KVStoreKeys.MEMBER_IDENTITY,
+                KVStoreKeys.GROUP_ACTIVITY,
+                KVStoreKeys.PROACTIVE_REPLY_WHITELIST,
+                KVStoreKeys.PERSONA_BATCH_QUEUES,
+            ]
+
+            deleted_count = 0
+            failed_keys = []
+            for key in keys_to_delete:
+                try:
+                    await self.delete_kv_data(key)
+                    deleted_count += 1
+                except Exception as e:
+                    failed_keys.append(f"{key}: {e}")
+                    self._service.logger.warning(f"Failed to delete KV key {key}: {e}")
+
+            # 清空内存中的数据
+            self._service._user_personas.clear()
+            self._service._user_emotional_states.clear()
+            self._service._recently_injected.clear()
+
+            # 构建响应消息
+            result_msg = f"✅ 已重置 Iris Memory 数据\n"
+            result_msg += f"- 成功清理 {deleted_count}/{len(keys_to_delete)} 个存储键\n"
+
+            if failed_keys:
+                result_msg += f"- 失败 {len(failed_keys)} 个键（查看日志了解详情）\n"
+
+            result_msg += "\n📌 建议操作：\n"
+            result_msg += "1. 重启 AstrBot 以确保所有缓存已清空\n"
+            result_msg += "2. 重新初始化插件以开始使用"
+
+            yield event.plain_result(result_msg)
+
+        except Exception as e:
+            self._service.logger.error(f"Iris reset failed: {e}", exc_info=True)
+            yield event.plain_result(f"❌ 重置失败：{e}")
+
     # ========== 生命周期方法 ==========
-    
+
     async def terminate(self) -> None:
         """插件销毁"""
         # 停止 Web 服务器
         if hasattr(self, '_standalone_web') and self._standalone_web:
             await self._standalone_web.stop()
-        
+
         # 保存数据
         try:
             await self._service.save_to_kv(self.put_kv_data)
         except Exception as e:
             self._service.logger.warning(f"[Hot-Reload] Error saving KV data: {e}")
-        
+
         # 销毁服务
         await self._service.terminate()
