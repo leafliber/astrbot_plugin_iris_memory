@@ -125,10 +125,11 @@ function showConfirm(title, message, callback) {
   document.getElementById('confirm-modal').classList.add('show');
   modalCallback = callback;
   document.getElementById('confirm-btn').onclick = async () => {
+    const cb = modalCallback;
     closeModal('confirm-modal');
-    if(modalCallback) {
+    if(cb) {
       try {
-        await modalCallback();
+        await cb();
       } catch (e) {
         console.error('Confirm callback error:', e);
         toast('操作失败: ' + (e.message || '未知错误'), 'error');
