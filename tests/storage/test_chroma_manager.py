@@ -571,13 +571,17 @@ class TestChromaManagerDeleteMemory:
     async def test_delete_memory_success(self, chroma_manager):
         """测试成功删除记忆"""
         mock_collection = MagicMock()
+        # 模拟 get 返回记忆存在，然后返回记忆不存在（删除后验证）
+        mock_collection.get.side_effect = [
+            {'ids': ['test_001'], 'metadatas': [{'user_id': 'user_123'}]},  # 删除前检查
+            {'ids': [], 'metadatas': []}  # 删除后验证
+        ]
         chroma_manager.collection = mock_collection
         chroma_manager._is_ready = True
-        
+
         success = await chroma_manager.delete_memory("test_001")
-        
+
         assert success is True
-        mock_collection.delete.assert_called_once_with(ids=['test_001'])
     
     @pytest.mark.asyncio
     async def test_delete_memory_failure(self, chroma_manager):

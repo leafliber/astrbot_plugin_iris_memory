@@ -45,6 +45,7 @@ class MockChromaManager:
     def __init__(self, data: Optional[Dict] = None):
         self.collection = MockCollection(data)
         self._is_ready = True
+        self._data = data or {"ids": [], "documents": [], "metadatas": []}
 
     @property
     def is_ready(self):
@@ -63,7 +64,8 @@ class MockChromaManager:
         return self.collection.count()
 
     async def delete_memory(self, memory_id: str) -> bool:
-        return True
+        """只有当记忆存在于 ChromaDB 时才返回 True"""
+        return memory_id in self._data.get("ids", [])
 
     async def add_memory(self, memory) -> str:
         return getattr(memory, "id", "test-id")
@@ -114,14 +116,49 @@ class MockKGModule:
         return 5
 
 
+class MockMemory:
+    """Mock Memory 对象 - 模拟 iris_memory.models.memory.Memory"""
+
+    def __init__(self, memory_id: str = "wm-1", content: str = "工作记忆内容"):
+        self.id = memory_id
+        self.content = content
+        self.user_id = "user1"
+        self.group_id = None
+        self.sender_name = "User1"
+        # 使用简单属性而不是 Mock 对象，以便 _memory_to_dict 正确处理
+        self.type = Mock()
+        self.type.value = "fact"
+        self.storage_layer = Mock()
+        self.storage_layer.value = "working"
+        self.scope = Mock()
+        self.scope.value = "user_private"
+        self.confidence = 0.8
+        self.importance_score = 0.6
+        self.created_time = datetime.now()
+        self.summary = "工作记忆摘要"
+
+
 class MockSessionManager:
     """Mock SessionManager"""
 
     def __init__(self):
-        self.working_memory_cache = {"user1:private": [Mock()]}
+        # 使用 MockMemory 而不是普通的 Mock
+        self.working_memory_cache = {"user1:private": [MockMemory("wm-1", "工作记忆1")]}
 
     def get_all_sessions(self):
         return {"user1:private": {"created": "2024-01-01"}, "user2:group1": {"created": "2024-01-02"}}
+
+    async def remove_working_memory(self, user_id: str, group_id: str, memory_id: str) -> bool:
+        """模拟删除工作记忆"""
+        session_key = f"{user_id}:{group_id or 'private'}"
+        if session_key in self.working_memory_cache:
+            memories = self.working_memory_cache[session_key]
+            original_count = len(memories)
+            self.working_memory_cache[session_key] = [
+                m for m in memories if m.id != memory_id
+            ]
+            return len(memories) > len(self.working_memory_cache[session_key])
+        return False
 
 
 @pytest.fixture
@@ -246,11 +283,12 @@ class TestMemoryManagement:
 
     @pytest.mark.asyncio
     async def test_search_memories_web_no_query(self, web_service):
-        """测试无搜索词的记忆列表"""
+        """测试无搜索词的记忆列表 - 包含 ChromaDB 记忆和工作记忆"""
         result = await web_service.search_memories_web()
         assert "items" in result
         assert "total" in result
-        assert result["total"] == 3
+        # 3 from ChromaDB + 1 from working memory
+        assert result["total"] == 4
 
     @pytest.mark.asyncio
     async def test_search_memories_web_with_user(self, web_service):
@@ -276,18 +314,134 @@ class TestMemoryManagement:
 
     @pytest.mark.asyncio
     async def test_delete_memory_no_storage(self, mock_service):
-        """测试存储未就绪时删除"""
+        """测试存储未就绪时删除 - 会尝试删除工作记忆"""
         mock_service.chroma_manager = None
         ws = WebService(mock_service)
-        success, msg = await ws.delete_memory_by_id("mem-1")
+        # wm-1 存在于工作记忆中，应该删除成功
+        success, msg = await ws.delete_memory_by_id("wm-1")
+        assert success is True
+        assert "成功" in msg
+
+    @pytest.mark.asyncio
+    async def test_delete_memory_not_found_anywhere(self, mock_service):
+        """测试记忆在任何地方都不存在时删除"""
+        mock_service.chroma_manager = None
+        # 清空工作记忆
+        mock_service.session_manager.working_memory_cache = {}
+        ws = WebService(mock_service)
+        success, msg = await ws.delete_memory_by_id("non-existent")
         assert success is False
-        assert "未就绪" in msg
+        assert "不存在" in msg or "删除失败" in msg
 
     @pytest.mark.asyncio
     async def test_batch_delete(self, web_service):
         """测试批量删除"""
         result = await web_service.batch_delete_memories(["mem-1", "mem-2"])
         assert result["success_count"] == 2
+        assert result["fail_count"] == 0
+
+    @pytest.mark.asyncio
+    async def test_delete_working_memory_success(self, web_service):
+        """测试删除工作记忆成功"""
+        # 先验证工作记忆存在
+        result = await web_service.search_memories_web(storage_layer="working")
+        initial_count = result["total"]
+        assert initial_count >= 1
+
+        # 删除工作记忆
+        success, msg = await web_service.delete_memory_by_id("wm-1")
+        assert success is True
+        assert "成功" in msg
+
+    @pytest.mark.asyncio
+    async def test_delete_working_memory_not_found(self, web_service):
+        """测试删除不存在的工作记忆"""
+        success, msg = await web_service.delete_memory_by_id("non-existent-id")
+        assert success is False
+        assert "不存在" in msg or "删除失败" in msg
+
+    @pytest.mark.asyncio
+    async def test_batch_delete_includes_working_memory(self, web_service):
+        """测试批量删除包含工作记忆"""
+        # 包含 ChromaDB 记忆和工作记忆
+        result = await web_service.batch_delete_memories(["mem-1", "wm-1"])
+        assert result["success_count"] == 2
+        assert result["fail_count"] == 0
+
+    @pytest.mark.asyncio
+    async def test_delete_chromadb_memory_first(self, mock_service):
+        """测试优先删除 ChromaDB 记忆"""
+        ws = WebService(mock_service)
+        # mem-1 存在于 ChromaDB，应该优先从 ChromaDB 删除
+        success, msg = await ws.delete_memory_by_id("mem-1")
+        assert success is True
+        assert "成功" in msg
+
+
+# ================================================================
+# Working Memory Repository Tests
+# ================================================================
+
+class TestWorkingMemoryRepository:
+    """工作记忆仓库测试"""
+
+    @pytest.mark.asyncio
+    async def test_list_all_includes_working_memory(self, mock_service):
+        """测试 list_all 包含工作记忆"""
+        from iris_memory.web.data.memory_repo import MemoryRepositoryImpl
+
+        repo = MemoryRepositoryImpl(mock_service)
+        result = await repo.list_all()
+
+        # 应该包含 ChromaDB 的 3 条 + 工作记忆的 1 条
+        assert result["total"] == 4
+
+    @pytest.mark.asyncio
+    async def test_list_all_filter_by_working_layer(self, mock_service):
+        """测试按 working 层过滤"""
+        from iris_memory.web.data.memory_repo import MemoryRepositoryImpl
+
+        repo = MemoryRepositoryImpl(mock_service)
+        result = await repo.list_all(storage_layer="working")
+
+        # 应该只返回工作记忆
+        assert result["total"] == 1
+        assert result["items"][0]["storage_layer"] == "working"
+
+    @pytest.mark.asyncio
+    async def test_delete_working_memory_via_repo(self, mock_service):
+        """测试通过仓库删除工作记忆"""
+        from iris_memory.web.data.memory_repo import MemoryRepositoryImpl
+
+        repo = MemoryRepositoryImpl(mock_service)
+
+        # 删除工作记忆
+        success, msg = await repo.delete("wm-1")
+        assert success is True
+        assert "成功" in msg
+
+    @pytest.mark.asyncio
+    async def test_delete_chromadb_memory_via_repo(self, mock_service):
+        """测试通过仓库删除 ChromaDB 记忆"""
+        from iris_memory.web.data.memory_repo import MemoryRepositoryImpl
+
+        repo = MemoryRepositoryImpl(mock_service)
+
+        # 删除 ChromaDB 记忆
+        success, msg = await repo.delete("mem-1")
+        assert success is True
+        assert "成功" in msg
+
+    @pytest.mark.asyncio
+    async def test_batch_delete_mixed_memories(self, mock_service):
+        """测试批量删除混合记忆（ChromaDB + 工作记忆）"""
+        from iris_memory.web.data.memory_repo import MemoryRepositoryImpl
+
+        repo = MemoryRepositoryImpl(mock_service)
+
+        # 批量删除包含两种类型的记忆
+        result = await repo.batch_delete(["mem-1", "mem-2", "wm-1"])
+        assert result["success_count"] == 3
         assert result["fail_count"] == 0
 
 

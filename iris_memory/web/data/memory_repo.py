@@ -93,44 +93,67 @@ class MemoryRepositoryImpl:
         page_size = max(1, min(page_size, 100))
         result: Dict[str, Any] = {"items": [], "total": 0, "page": page, "page_size": page_size}
 
-        try:
-            chroma = self._service.chroma_manager
-            if not chroma or not chroma.is_ready:
-                return result
+        all_items: List[Dict[str, Any]] = []
 
-            collection = chroma.collection
-            where_clause: Dict[str, Any] = {}
+        # 获取工作记忆（从内存缓存）
+        if not storage_layer or storage_layer == "working":
+            try:
+                session_mgr = self._service.session_manager
+                if session_mgr and hasattr(session_mgr, "working_memory_cache"):
+                    for session_key, memories in session_mgr.working_memory_cache.items():
+                        # 解析 session_key: "user_id:group_id" 或 "user_id:private"
+                        key_parts = session_key.split(":")
+                        session_user_id = key_parts[0] if key_parts else ""
+                        session_group_id = key_parts[1] if len(key_parts) > 1 else None
 
-            if user_id:
-                where_clause["user_id"] = user_id
-            if group_id:
-                where_clause["group_id"] = group_id
-            if storage_layer:
-                where_clause["storage_layer"] = storage_layer
-            if memory_type:
-                where_clause["type"] = memory_type
+                        # 过滤条件
+                        if user_id and session_user_id != user_id:
+                            continue
+                        if group_id and session_group_id != group_id:
+                            continue
 
-            if where_clause:
-                built = chroma._build_where_clause(where_clause)
-                res = collection.get(where=built, include=["documents", "metadatas"])
-            else:
-                res = collection.get(include=["documents", "metadatas"])
+                        for memory in memories or []:
+                            item = self._memory_to_dict(memory)
+                            if memory_type and item.get("type") != memory_type:
+                                continue
+                            all_items.append(item)
+            except Exception as e:
+                logger.debug(f"Working memory list error: {e}")
 
-            if not res["ids"]:
-                return result
+        # 获取持久化记忆（从 ChromaDB）
+        if not storage_layer or storage_layer != "working":
+            try:
+                chroma = self._service.chroma_manager
+                if chroma and chroma.is_ready:
+                    collection = chroma.collection
+                    where_clause: Dict[str, Any] = {}
 
-            all_items = []
-            for i in range(len(res["ids"])):
-                item = self._dict_from_chroma(res, i)
-                all_items.append(item)
+                    if user_id:
+                        where_clause["user_id"] = user_id
+                    if group_id:
+                        where_clause["group_id"] = group_id
+                    if storage_layer:
+                        where_clause["storage_layer"] = storage_layer
+                    if memory_type:
+                        where_clause["type"] = memory_type
 
-            all_items.sort(key=lambda x: x.get("created_time", ""), reverse=True)
-            result["total"] = len(all_items)
-            start = (page - 1) * page_size
-            result["items"] = all_items[start:start + page_size]
+                    if where_clause:
+                        built = chroma._build_where_clause(where_clause)
+                        res = collection.get(where=built, include=["documents", "metadatas"])
+                    else:
+                        res = collection.get(include=["documents", "metadatas"])
 
-        except Exception as e:
-            logger.warning(f"List memories error: {e}")
+                    if res["ids"]:
+                        for i in range(len(res["ids"])):
+                            item = self._dict_from_chroma(res, i)
+                            all_items.append(item)
+            except Exception as e:
+                logger.warning(f"List memories error: {e}")
+
+        all_items.sort(key=lambda x: x.get("created_time", ""), reverse=True)
+        result["total"] = len(all_items)
+        start = (page - 1) * page_size
+        result["items"] = all_items[start:start + page_size]
 
         return result
 
@@ -225,29 +248,86 @@ class MemoryRepositoryImpl:
             return False, f"更新失败: {e}"
 
     async def delete(self, memory_id: str) -> Tuple[bool, str]:
-        """删除记忆"""
+        """删除记忆
+
+        优先尝试从 ChromaDB 删除持久化记忆，如果失败则尝试从工作记忆缓存中删除。
+        """
+        # 首先尝试从 ChromaDB 删除
+        chroma = self._service.chroma_manager
+        if chroma and chroma.is_ready:
+            try:
+                success = await chroma.delete_memory(memory_id)
+                if success:
+                    # 删除关联的知识图谱边
+                    kg = self._service.kg
+                    if kg and kg.enabled and kg.storage:
+                        try:
+                            edge_count = await kg.storage.delete_by_memory_id(memory_id)
+                            if edge_count > 0:
+                                logger.debug(f"Deleted {edge_count} KG edges for memory {memory_id}")
+                        except Exception as e:
+                            logger.warning(f"Failed to delete KG edges for memory {memory_id}: {e}")
+                    return True, "删除成功"
+            except Exception as e:
+                logger.debug(f"ChromaDB delete failed for {memory_id}: {e}")
+
+        # 如果 ChromaDB 删除失败或记忆不存在，尝试从工作记忆删除
+        session_mgr = self._service.session_manager
+        if session_mgr and hasattr(session_mgr, "working_memory_cache"):
+            try:
+                # 遍历所有会话查找并删除工作记忆
+                for session_key, memories in session_mgr.working_memory_cache.items():
+                    for memory in memories or []:
+                        if memory.id == memory_id:
+                            # 解析 session_key 获取 user_id 和 group_id
+                            key_parts = session_key.split(":")
+                            user_id = key_parts[0] if key_parts else ""
+                            group_id = key_parts[1] if len(key_parts) > 1 else None
+
+                            # 使用 session_manager 的方法删除工作记忆
+                            removed = await session_mgr.remove_working_memory(
+                                user_id=user_id,
+                                group_id=group_id,
+                                memory_id=memory_id
+                            )
+                            if removed:
+                                logger.debug(f"Deleted working memory {memory_id} from session {session_key}")
+                                return True, "删除成功"
+            except Exception as e:
+                logger.error(f"Working memory delete error: {e}")
+
+        return False, "记忆不存在或删除失败"
+
+    async def _delete_from_working_memory(self, memory_id: str) -> bool:
+        """从工作记忆缓存中删除指定记忆
+
+        Args:
+            memory_id: 记忆 ID
+
+        Returns:
+            是否成功删除
+        """
+        session_mgr = self._service.session_manager
+        if not session_mgr or not hasattr(session_mgr, "working_memory_cache"):
+            return False
+
         try:
-            chroma = self._service.chroma_manager
-            if not chroma or not chroma.is_ready:
-                return False, "存储服务未就绪"
+            for session_key, memories in session_mgr.working_memory_cache.items():
+                for memory in memories or []:
+                    if memory.id == memory_id:
+                        key_parts = session_key.split(":")
+                        user_id = key_parts[0] if key_parts else ""
+                        group_id = key_parts[1] if len(key_parts) > 1 else None
 
-            success = await chroma.delete_memory(memory_id)
-            if success:
-                # 删除关联的知识图谱边
-                kg = self._service.kg
-                if kg and kg.enabled and kg.storage:
-                    try:
-                        edge_count = await kg.storage.delete_by_memory_id(memory_id)
-                        if edge_count > 0:
-                            logger.debug(f"Deleted {edge_count} KG edges for memory {memory_id}")
-                    except Exception as e:
-                        logger.warning(f"Failed to delete KG edges for memory {memory_id}: {e}")
-                return True, "删除成功"
-            return False, "记忆不存在或删除失败"
-
+                        return await session_mgr.remove_working_memory(
+                            user_id=user_id,
+                            group_id=group_id,
+                            memory_id=memory_id
+                        )
         except Exception as e:
-            logger.error(f"Delete memory error: {e}")
-            return False, f"删除失败: {e}"
+            logger.debug(f"Delete from working memory error: {e}")
+
+        return False
 
     async def batch_delete(self, memory_ids: List[str]) -> Dict[str, Any]:
         """批量删除"""
