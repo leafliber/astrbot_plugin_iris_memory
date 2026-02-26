@@ -89,7 +89,14 @@
 /proactive_reply off
 /proactive_reply status
 /proactive_reply list
+
+/iris_reset confirm          # 超管：重置所有插件数据（谨慎使用）
 ```
+
+**⚠️ `/iris_reset confirm` 警告**：
+- 仅超管可用，需要 `confirm` 参数确认
+- 会永久删除所有记忆、用户画像、会话记录、群成员信息等
+- 执行后建议重启 AstrBot 并重新初始化插件
 
 ---
 
@@ -205,6 +212,24 @@ Web UI 启用后默认访问：`http://127.0.0.1:8089`
 
 - 默认存储在本地（Chroma/SQLite）。
 - 仅在你配置并调用外部 LLM 时，会向所选 provider 发送必要文本。
+
+### 9. 如何彻底清空所有插件数据？
+
+使用超管指令：
+```
+/iris_reset confirm
+```
+
+这会删除：
+- 所有用户画像 (`user_personas`)
+- 会话数据 (`sessions`)
+- 聊天记录 (`chat_history`)
+- 群成员信息 (`member_identity`)
+- 批量处理队列 (`batch_queues`)
+- 主动回复白名单 (`proactive_reply_whitelist`)
+- 其他所有插件产生的 KV 存储数据
+
+**注意**：执行后建议重启 AstrBot 以确保所有缓存已清空。
 
 ---
 

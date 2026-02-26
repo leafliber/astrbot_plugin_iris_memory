@@ -83,14 +83,14 @@
         "type": "string",
         "_special": "select_provider",
         "default": "",
-        "hint": "留空使用AstrBot默认提供者，或选择其他模型用于摘要/升级等任务"
+        "hint": "留空使用AstrBot默认提供者"
       },
       "memory_provider_id": {
         "description": "记忆功能LLM提供者",
         "type": "string",
         "_special": "select_provider",
         "default": "",
-        "hint": "用于记忆摘要、升级等任务，留空使用默认提供者"
+        "hint": "用于记忆摘要、升级等任务，使用留空使用默认提供者"
       },
       "persona_provider_id": {
         "description": "用户画像LLM提供者",
@@ -118,7 +118,7 @@
         "type": "string",
         "_special": "select_provider",
         "default": "",
-        "hint": "用于敏感度检测、触发器检测等智能增强功能，留空使用默认提供者"
+        "hint": "用于敏感度检测等智能增强功能，调用量大，推荐使用token计费小模型，留空使用默认提供者"
       }
     }
   },
@@ -146,10 +146,10 @@
         "hint": "rule-仅规则（省token），llm-LLM判断，hybrid-混合（推荐）"
       },
       "use_llm": {
-        "description": "启用LLM增强处理",
+        "description": "启用LLM增强记忆处理",
         "type": "bool",
         "default": false,
-        "hint": "开启后使用LLM进行消息摘要、记忆升级等（质量更高但消耗token）"
+        "hint": "开启后使用LLM进行消息批量摘要和智能分类（质量更高但消耗token）"
       }
     }
   },
