@@ -3,6 +3,70 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.8.0] - 2026-02-26
+
+### Added
+- **维度冲突后自动重新导入原记忆** (`iris_memory/storage/chroma_manager.py`, `_conf_schema.json`)
+  - 新增配置项 `embedding.reimport_on_dimension_conflict`，默认开启
+  - 更换嵌入模型后，自动将原记忆用新模型重新生成向量并导入
+  - 配置提示明确说明会增加 embedding 使用量，可能产生额外费用
+  - 可选择关闭此功能，关闭后记忆将备份到备份集合但不自动导入
+- **用户画像 Web 端搜索功能** (`iris_memory/web/`)
+  - 新增用户画像搜索接口，支持按用户ID、兴趣、工作风格、生活方式等多字段搜索
+  - 前端添加搜索框、分页组件和每页数量选择器
+  - 搜索结果支持关键词高亮显示
+- **用户画像显示用户昵称** (`iris_memory/models/`, `iris_memory/web/`)
+  - `UserPersona` 模型新增 `display_name` 字段存储用户昵称
+  - 记忆捕获时记录 `sender_name`，同步更新到用户画像
+  - Web 界面列表和详情页显示用户昵称（带 user_id 提示）
+  - 完全向后兼容，旧数据无昵称时显示 user_id
+- **后台记忆管理查询工作记忆** (`iris_memory/analysis/persona/`)
+  - `PersonaBatchProcessor` 新增 `working_memory_callback` 回调机制
+  - 支持后台批量处理时查询工作记忆获取额外上下文
+  - 提供 `get_working_memory_context()` 方法格式化工作记忆为文本
+- **记忆 confidence 字段持久化** (`iris_memory/storage/`)
+  - 修复 ChromaDB 存储时 confidence 字段丢失的问题
+  - 新增 confidence 字段的存储和读取支持
+
+### Changed
+- **简化嵌入向量配置** (`_conf_schema.json`, `iris_memory/embedding/manager.py`, `README.md`)
+  - 删除 `fallback_to_local` 配置项，降级行为完全由 `embedding.source` 控制
+  - 删除 `enable_local_provider` 配置项，本地模型启用由 `embedding.source` 自动决定
+  - 统一嵌入源选择逻辑：
+    - `auto`: AstrBot API 优先，不可用时自动切换到本地模型
+    - `astrbot`: 仅使用 AstrBot API，不可用时使用 Fallback
+    - `local`: 仅使用本地模型，不可用时使用 Fallback
+  - 更新配置描述，明确各选项的行为和适用场景
+
+### Fixed
+- **Web 界面置信度显示为0的问题** - 修复后新保存的记忆将正确显示 confidence 值（默认 0.5）
+- **知识图谱节点浮动面板消失问题** (`iris_memory/web/static/js/kg.js`)
+  - 移除 `mouseleave` 时自动关闭面板的行为
+  - 新增关闭按钮和点击外部区域关闭功能
+  - 修复后"从此展开"按钮可正常点击
+
+## [v1.7.3] - 2026-02-26
+
+### Changed
+- **Service 层架构重构** (`iris_memory/services/`)
+  - 将 `MemoryService` 从 Mixin 继承模式重构为组合 + 依赖注入模式
+  - 拆分 `BusinessOperations` Mixin 为独立的 `BusinessService` 类
+  - 拆分 `PersistenceOperations` Mixin 为独立的 `PersistenceService` 类
+  - 拆分 `ServiceInitializer` Mixin 逻辑内联到 `MemoryService`
+  - 新增 `SharedState` 类集中管理跨服务共享状态（用户画像、情感状态、注入记录等）
+  - 所有依赖通过构造函数显式注入，消除隐式循环依赖
+  - `MemoryService` 转型为薄 Facade，负责协调初始化并委托操作
+
+### Architecture Improvements
+- **消除上帝类**: `MemoryService` 从 1800+ 行分散在 Mixin 中，重构为 3 个独立服务类
+- **依赖关系显式化**: 所有依赖通过构造函数注入，可独立测试
+- **向后兼容**: 保留所有原有属性和方法代理，`main.py` 无需修改
+
+### Code Quality
+- 提升测试性：各 Service 可独立实例化进行单元测试
+- 降低耦合度：模块间依赖关系清晰可追踪
+- 改善可维护性：业务逻辑、持久化逻辑、初始化逻辑分离
+
 ## [v1.7.2] - 2026-02-25
 
 ### Added

@@ -197,14 +197,6 @@ def _build_registry() -> Dict[str, ConfigDefinition]:
             value_type=str,
         ),
         ConfigDefinition(
-            key="embedding.fallback_to_local",
-            section="embedding",
-            attr="fallback_to_local",
-            default=True,
-            description="AstrBot provider 不可用时是否降级到本地模型",
-            value_type=bool,
-        ),
-        ConfigDefinition(
             key="embedding.local_model",
             section="embedding",
             attr="local_model",
@@ -221,15 +213,23 @@ def _build_registry() -> Dict[str, ConfigDefinition]:
             value_type=int,
         ),
         ConfigDefinition(
-            key="embedding.enable_local_provider",
+            key="embedding.reimport_on_dimension_conflict",
             section="embedding",
-            attr="enable_local_provider",
+            attr="reimport_on_dimension_conflict",
             default=True,
-            description="是否启用本地embedding提供者",
+            description="维度冲突时重新导入原记忆（会增加embedding使用量）",
             value_type=bool,
         ),
 
         # ── 画像提取 ──
+        ConfigDefinition(
+            key="persona.enabled",
+            section="persona",
+            attr="enabled",
+            default=True,
+            description="是否启用用户画像功能",
+            value_type=bool,
+        ),
         ConfigDefinition(
             key="persona.extraction_mode",
             section="persona",

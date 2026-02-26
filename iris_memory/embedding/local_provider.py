@@ -53,20 +53,16 @@ class LocalProvider(EmbeddingProvider):
 
     async def initialize(self) -> bool:
         """初始化本地提供者
-        
+
         仅检查依赖可用性并启动后台模型加载，不阻塞启动。
-        
+
         Returns:
             bool: 依赖检查是否通过（True 表示后台加载已启动）
         """
         try:
-            # 检查是否通过配置禁用了本地提供者
             from iris_memory.core.config_manager import get_config_manager
             cfg = get_config_manager()
-            if not cfg.enable_local_provider:
-                logger.debug("Local embedding provider disabled by configuration")
-                return False
-            
+
             # 检查依赖
             try:
                 # 在导入前设置环境变量以抑制 transformers 输出

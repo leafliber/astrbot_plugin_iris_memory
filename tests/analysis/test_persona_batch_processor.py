@@ -594,3 +594,138 @@ class TestNoCallback:
 
         assert proc.pending_count == 0
         assert proc._stats.batches_processed == 1
+
+
+class TestWorkingMemoryCallback:
+    """工作记忆查询回调测试"""
+
+    @pytest.mark.asyncio
+    async def test_working_memory_callback_sync(self, mock_extractor):
+        """测试同步工作记忆回调"""
+        # 模拟工作记忆
+        mock_memories = [
+            MagicMock(
+                content="工作记忆内容1",
+                summary="摘要1",
+                type=MagicMock(value="fact"),
+                created_time=1000,
+            ),
+            MagicMock(
+                content="工作记忆内容2",
+                summary=None,
+                type="emotion",
+                created_time=2000,
+            ),
+        ]
+
+        wm_callback = MagicMock(return_value=mock_memories)
+
+        proc = PersonaBatchProcessor(
+            persona_extractor=mock_extractor,
+            batch_threshold=2,
+            flush_interval=300,
+            working_memory_callback=wm_callback,
+        )
+
+        # 查询工作记忆
+        memories = await proc.get_working_memory_for_session("user1", "group1")
+
+        assert len(memories) == 2
+        wm_callback.assert_called_once_with("user1", "group1")
+
+    @pytest.mark.asyncio
+    async def test_working_memory_callback_async(self, mock_extractor):
+        """测试异步工作记忆回调"""
+        mock_memories = [MagicMock(content="async memory", summary=None, type="fact")]
+        wm_callback = AsyncMock(return_value=mock_memories)
+
+        proc = PersonaBatchProcessor(
+            persona_extractor=mock_extractor,
+            batch_threshold=2,
+            flush_interval=300,
+            working_memory_callback=wm_callback,
+        )
+
+        memories = await proc.get_working_memory_for_session("user1", None)
+
+        assert len(memories) == 1
+        wm_callback.assert_called_once_with("user1", None)
+
+    @pytest.mark.asyncio
+    async def test_working_memory_callback_none(self, mock_extractor):
+        """测试未设置回调时返回空列表"""
+        proc = PersonaBatchProcessor(
+            persona_extractor=mock_extractor,
+            batch_threshold=2,
+            flush_interval=300,
+        )
+
+        memories = await proc.get_working_memory_for_session("user1", None)
+
+        assert memories == []
+
+    @pytest.mark.asyncio
+    async def test_working_memory_callback_error(self, mock_extractor):
+        """测试回调异常时返回空列表"""
+        wm_callback = MagicMock(side_effect=RuntimeError("查询失败"))
+
+        proc = PersonaBatchProcessor(
+            persona_extractor=mock_extractor,
+            batch_threshold=2,
+            flush_interval=300,
+            working_memory_callback=wm_callback,
+        )
+
+        memories = await proc.get_working_memory_for_session("user1", None)
+
+        assert memories == []
+
+    @pytest.mark.asyncio
+    async def test_get_working_memory_context(self, mock_extractor):
+        """测试获取工作记忆上下文文本"""
+        mock_memories = [
+            MagicMock(
+                content="这是很长的内容" * 10,
+                summary="简短摘要",
+                type=MagicMock(value="fact"),
+                created_time=2000,
+            ),
+            MagicMock(
+                content="普通内容",
+                summary=None,
+                type="emotion",
+                created_time=1000,
+            ),
+        ]
+        wm_callback = MagicMock(return_value=mock_memories)
+
+        proc = PersonaBatchProcessor(
+            persona_extractor=mock_extractor,
+            batch_threshold=2,
+            flush_interval=300,
+            working_memory_callback=wm_callback,
+        )
+
+        context = await proc.get_working_memory_context("user1", "group1", max_memories=2)
+
+        # 验证上下文格式
+        assert "[1] [fact] 简短摘要" in context
+        assert "[2] [emotion] 普通内容" in context
+        # 验证内容被截断
+        assert len(context) < 500
+
+    @pytest.mark.asyncio
+    async def test_get_working_memory_context_empty(self, mock_extractor):
+        """测试无工作记忆时返回空字符串"""
+        wm_callback = MagicMock(return_value=[])
+
+        proc = PersonaBatchProcessor(
+            persona_extractor=mock_extractor,
+            batch_threshold=2,
+            flush_interval=300,
+            working_memory_callback=wm_callback,
+        )
+
+        context = await proc.get_working_memory_context("user1", None)
+
+        assert context == ""
