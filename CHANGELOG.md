@@ -6,6 +6,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [v1.9.0] - 2026-02-28
 
 ### ⚠️ Known Limitations
+- **本次更新后需要重启Astrbot！！**
 - **旧数据兼容性**：当用户在已有数据后开启人格隔离时，旧数据将不会被查询到。
   - **影响范围**：仅影响开启人格隔离后查询的旧数据；新数据不受开关影响
 
