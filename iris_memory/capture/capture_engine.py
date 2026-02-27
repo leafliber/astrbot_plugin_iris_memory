@@ -5,7 +5,7 @@
 
 import asyncio
 import re
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, TYPE_CHECKING
 from datetime import datetime
 
 from iris_memory.models.memory import Memory
@@ -23,6 +23,9 @@ from iris_memory.analysis.rif_scorer import RIFScorer
 from iris_memory.core.defaults import DEFAULTS
 from iris_memory.capture.capture_logger import capture_log
 from iris_memory.utils.logger import get_logger
+
+if TYPE_CHECKING:
+    from iris_memory.knowledge_graph.kg_storage import KGStorage
 
 logger = get_logger("capture_engine")
 
@@ -53,6 +56,7 @@ class MemoryCaptureEngine:
         llm_sensitivity_detector=None,
         llm_trigger_detector=None,
         llm_conflict_resolver=None,
+        kg_storage: Optional["KGStorage"] = None,
         *,
         min_confidence: Optional[float] = None,
         rif_threshold: Optional[float] = None,
@@ -87,7 +91,10 @@ class MemoryCaptureEngine:
         self._llm_sensitivity_detector = llm_sensitivity_detector
         self._llm_trigger_detector = llm_trigger_detector
         self._llm_conflict_resolver = llm_conflict_resolver
-        
+
+        # 知识图谱存储层（用于冲突解决时同步删除关联边）
+        self._kg_storage = kg_storage
+
         # 配置（优先使用注入值，否则回退到 DEFAULTS）
         self.auto_capture = True
         self.min_confidence = min_confidence if min_confidence is not None else DEFAULTS.memory.min_confidence
@@ -251,7 +258,7 @@ class MemoryCaptureEngine:
                     conflicts = self.conflict_resolver.find_conflicts_from_results(memory, similar_memories)
                     if conflicts:
                         should_store_new = await self.conflict_resolver.resolve_conflicts(
-                            memory, conflicts, self.chroma_manager
+                            memory, conflicts, self.chroma_manager, self._kg_storage
                         )
                         capture_log.conflict_detected(user_id, len(conflicts), should_store_new)
                         if not should_store_new:

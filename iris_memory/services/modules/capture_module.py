@@ -51,6 +51,7 @@ class CaptureModule:
         llm_sensitivity_detector: Any = None,
         llm_trigger_detector: Any = None,
         llm_conflict_resolver: Any = None,
+        kg_storage: Any = None,
     ) -> None:
         """初始化记忆捕获引擎"""
         from iris_memory.capture.capture_engine import MemoryCaptureEngine
@@ -62,8 +63,22 @@ class CaptureModule:
             llm_sensitivity_detector=llm_sensitivity_detector,
             llm_trigger_detector=llm_trigger_detector,
             llm_conflict_resolver=llm_conflict_resolver,
+            kg_storage=kg_storage,
         )
         logger.debug("CaptureEngine initialized")
+
+    def set_kg_storage(self, kg_storage: Any) -> None:
+        """设置知识图谱存储层
+
+        由于知识图谱在核心组件之后初始化，此方法用于延迟设置图谱引用，
+        使冲突解决时能同步删除关联边。
+
+        Args:
+            kg_storage: KGStorage 实例
+        """
+        if self._capture_engine:
+            self._capture_engine._kg_storage = kg_storage
+            logger.debug("KGStorage reference set for CaptureEngine")
 
     def init_message_classifier(
         self,

@@ -117,16 +117,12 @@ class KGStorage:
             cur.execute("CREATE INDEX IF NOT EXISTS idx_nodes_user ON kg_nodes(user_id)")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_nodes_group ON kg_nodes(group_id)")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_nodes_type ON kg_nodes(node_type)")
-            cur.execute("CREATE INDEX IF NOT EXISTS idx_nodes_persona ON kg_nodes(persona_id)")
-            cur.execute("CREATE INDEX IF NOT EXISTS idx_nodes_user_persona ON kg_nodes(user_id, persona_id)")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_edges_source ON kg_edges(source_id)")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_edges_target ON kg_edges(target_id)")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_edges_rel ON kg_edges(relation_type)")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_edges_memory ON kg_edges(memory_id)")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_edges_user ON kg_edges(user_id)")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_edges_group ON kg_edges(group_id)")
-            cur.execute("CREATE INDEX IF NOT EXISTS idx_edges_persona ON kg_edges(persona_id)")
-            cur.execute("CREATE INDEX IF NOT EXISTS idx_edges_user_persona ON kg_edges(user_id, persona_id)")
 
             # ── FTS5 虚拟表 ──
             # tokenize='unicode61' 支持中英文
@@ -211,24 +207,39 @@ class KGStorage:
             ).fetchone()
             current = int(row["value"]) if row else 1
 
-            if current >= _SCHEMA_VERSION:
-                return
+            if current < _SCHEMA_VERSION:
+                logger.info(f"KG schema migration: v{current} → v{_SCHEMA_VERSION}")
 
-            logger.info(f"KG schema migration: v{current} → v{_SCHEMA_VERSION}")
+                if current < 2:
+                    self._migrate_v1_to_v2()
 
-            if current < 2:
-                self._migrate_v1_to_v2()
+                self._conn.execute(
+                    "INSERT OR REPLACE INTO kg_meta(key, value) VALUES (?, ?)",
+                    ("schema_version", str(_SCHEMA_VERSION)),
+                )
+                self._conn.commit()
+                logger.info(f"KG schema migration completed: v{current} → v{_SCHEMA_VERSION}")
 
-            self._conn.execute(
-                "INSERT OR REPLACE INTO kg_meta(key, value) VALUES (?, ?)",
-                ("schema_version", str(_SCHEMA_VERSION)),
-            )
-            self._conn.commit()
-            logger.info(f"KG schema migration completed: v{current} → v{_SCHEMA_VERSION}")
+            self._ensure_persona_indexes()
         except Exception as e:
             self._conn.rollback()
             logger.error(f"KG schema migration failed: {e}")
             raise RuntimeError(f"Database migration failed: {e}") from e
+
+    def _ensure_persona_indexes(self) -> None:
+        """确保 persona_id 相关索引存在（新旧数据库都需要）"""
+        assert self._conn
+        try:
+            cols = {info[1] for info in self._conn.execute("PRAGMA table_info(kg_nodes)").fetchall()}
+            if "persona_id" in cols:
+                self._conn.execute("CREATE INDEX IF NOT EXISTS idx_nodes_persona ON kg_nodes(persona_id)")
+                self._conn.execute("CREATE INDEX IF NOT EXISTS idx_nodes_user_persona ON kg_nodes(user_id, persona_id)")
+            cols_e = {info[1] for info in self._conn.execute("PRAGMA table_info(kg_edges)").fetchall()}
+            if "persona_id" in cols_e:
+                self._conn.execute("CREATE INDEX IF NOT EXISTS idx_edges_persona ON kg_edges(persona_id)")
+                self._conn.execute("CREATE INDEX IF NOT EXISTS idx_edges_user_persona ON kg_edges(user_id, persona_id)")
+        except sqlite3.Error as e:
+            logger.warning(f"Failed to create persona indexes: {e}")
 
     def _migrate_v1_to_v2(self) -> None:
         """v1 → v2：添加 persona_id 列（DEFAULT 'default' 自动回填旧数据）"""

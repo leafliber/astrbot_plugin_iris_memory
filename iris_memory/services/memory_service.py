@@ -510,6 +510,9 @@ class MemoryService:
         # 注入到检索引擎
         if self.kg.enabled:
             self.retrieval.set_kg_module(self.kg)
+            # 注入到捕获引擎（用于冲突解决时同步删除关联边）
+            if self.kg.storage:
+                self.capture.set_kg_storage(self.kg.storage)
 
     async def _init_llm_enhanced(self) -> None:
         """初始化 LLM 增强组件"""
