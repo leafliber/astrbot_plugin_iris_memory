@@ -15,8 +15,14 @@ if TYPE_CHECKING:
     from iris_memory.knowledge_graph.kg_extractor import KGExtractor
     from iris_memory.knowledge_graph.kg_reasoning import KGReasoning
     from iris_memory.knowledge_graph.kg_context import KGContextFormatter
+    from iris_memory.knowledge_graph.kg_maintenance import KGMaintenanceManager
+    from iris_memory.knowledge_graph.kg_consistency import KGConsistencyDetector
+    from iris_memory.knowledge_graph.kg_quality import KGQualityReporter
     from iris_memory.knowledge_graph.kg_models import KGTriple, KGEdge, KGNode
     from iris_memory.knowledge_graph.kg_reasoning import ReasoningResult
+    from iris_memory.knowledge_graph.kg_maintenance import MaintenanceReport
+    from iris_memory.knowledge_graph.kg_consistency import ConsistencyReport
+    from iris_memory.knowledge_graph.kg_quality import QualityReport
 
 logger = get_logger("module.kg")
 
@@ -35,6 +41,9 @@ class KnowledgeGraphModule:
         self._extractor: Optional[KGExtractor] = None
         self._reasoning: Optional[KGReasoning] = None
         self._formatter: Optional[KGContextFormatter] = None
+        self._maintenance: Optional[KGMaintenanceManager] = None
+        self._consistency: Optional[KGConsistencyDetector] = None
+        self._quality: Optional[KGQualityReporter] = None
         self._enabled: bool = True
 
     # ── 属性 ──
@@ -54,6 +63,18 @@ class KnowledgeGraphModule:
     @property
     def formatter(self) -> Optional["KGContextFormatter"]:
         return self._formatter
+
+    @property
+    def maintenance(self) -> Optional["KGMaintenanceManager"]:
+        return self._maintenance
+
+    @property
+    def consistency(self) -> Optional["KGConsistencyDetector"]:
+        return self._consistency
+
+    @property
+    def quality(self) -> Optional["KGQualityReporter"]:
+        return self._quality
 
     @property
     def is_initialized(self) -> bool:
@@ -97,6 +118,9 @@ class KnowledgeGraphModule:
         from iris_memory.knowledge_graph.kg_extractor import KGExtractor
         from iris_memory.knowledge_graph.kg_reasoning import KGReasoning
         from iris_memory.knowledge_graph.kg_context import KGContextFormatter
+        from iris_memory.knowledge_graph.kg_maintenance import KGMaintenanceManager
+        from iris_memory.knowledge_graph.kg_consistency import KGConsistencyDetector
+        from iris_memory.knowledge_graph.kg_quality import KGQualityReporter
 
         # 初始化存储
         db_path = plugin_data_path / "knowledge_graph.db"
@@ -122,6 +146,11 @@ class KnowledgeGraphModule:
         self._formatter = KGContextFormatter(
             max_facts=max_facts,
         )
+
+        # 初始化维护组件
+        self._maintenance = KGMaintenanceManager(self._storage)
+        self._consistency = KGConsistencyDetector(self._storage)
+        self._quality = KGQualityReporter(self._storage)
 
         logger.debug(
             f"KnowledgeGraphModule initialized: mode={kg_mode}, "
@@ -286,3 +315,64 @@ class KnowledgeGraphModule:
         if not self._storage:
             return 0
         return await self._storage.delete_all()
+
+    # ── 维护 / 一致性 / 质量 ──
+
+    async def run_maintenance(
+        self,
+        confidence_threshold: float = 0.2,
+        staleness_days: int = 30,
+    ) -> "MaintenanceReport":
+        """执行完整图谱维护清理
+
+        Args:
+            confidence_threshold: 低置信度阈值
+            staleness_days: 过期天数
+
+        Returns:
+            维护报告
+        """
+        if not self._maintenance:
+            from iris_memory.knowledge_graph.kg_maintenance import MaintenanceReport
+            return MaintenanceReport()
+
+        return await self._maintenance.run_full_cleanup(
+            confidence_threshold=confidence_threshold,
+            staleness_days=staleness_days,
+        )
+
+    async def check_consistency(
+        self,
+        max_cycle_length: int = 3,
+    ) -> "ConsistencyReport":
+        """执行完整一致性检查
+
+        Args:
+            max_cycle_length: 循环检测最大长度
+
+        Returns:
+            一致性报告
+        """
+        if not self._consistency:
+            from iris_memory.knowledge_graph.kg_consistency import ConsistencyReport
+            return ConsistencyReport()
+
+        return await self._consistency.run_all_checks(max_cycle_length)
+
+    async def generate_quality_report(
+        self,
+        low_confidence_threshold: float = 0.3,
+    ) -> "QualityReport":
+        """生成图谱质量报告
+
+        Args:
+            low_confidence_threshold: 低置信度阈值
+
+        Returns:
+            质量报告
+        """
+        if not self._quality:
+            from iris_memory.knowledge_graph.kg_quality import QualityReport
+            return QualityReport()
+
+        return await self._quality.generate_report(low_confidence_threshold)
