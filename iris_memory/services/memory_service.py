@@ -787,7 +787,8 @@ class MemoryService:
         group_id: Optional[str],
         is_user_requested: bool = False,
         context: Optional[Dict[str, Any]] = None,
-        sender_name: Optional[str] = None
+        sender_name: Optional[str] = None,
+        persona_id: Optional[str] = None,
     ) -> Optional[Any]:
         """捕获并存储记忆"""
         if not self._is_initialized or not self._business:
@@ -798,7 +799,8 @@ class MemoryService:
             group_id=group_id,
             is_user_requested=is_user_requested,
             context=context,
-            sender_name=sender_name
+            sender_name=sender_name,
+            persona_id=persona_id,
         )
 
     async def search_memories(
@@ -905,7 +907,8 @@ class MemoryService:
         group_id: Optional[str],
         context: Dict[str, Any],
         umo: str,
-        image_description: str = ""
+        image_description: str = "",
+        persona_id: Optional[str] = None,
     ) -> None:
         """处理消息批次"""
         if not self._is_initialized or not self._business:
@@ -917,6 +920,7 @@ class MemoryService:
             context=context,
             umo=umo,
             image_description=image_description,
+            persona_id=persona_id,
         )
 
     async def record_chat_message(
