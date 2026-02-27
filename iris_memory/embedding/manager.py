@@ -548,8 +548,9 @@ class EmbeddingManager:
         try:
             results = collection.get(limit=1, include=["embeddings"])
 
-            if results.get('embeddings') and results['embeddings'][0]:
-                dimension = len(results['embeddings'][0])
+            embeddings = results.get('embeddings')
+            if embeddings and len(embeddings) > 0 and embeddings[0] is not None:
+                dimension = len(embeddings[0])
                 logger.debug(f"Detected existing collection dimension: {dimension}")
                 return dimension
 

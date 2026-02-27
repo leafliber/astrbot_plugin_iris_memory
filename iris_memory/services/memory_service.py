@@ -644,9 +644,9 @@ class MemoryService:
         try:
             persona = self._shared_state.get_or_create_user_persona(user_id)
 
-            # 同步 sender_name 到 display_name（如果提供了且当前为空）
+            # 同步 sender_name 到 display_name（如果提供了且与当前值不同）
             sender_name = getattr(msg, "sender_name", None)
-            if sender_name and not persona.display_name:
+            if sender_name and sender_name != persona.display_name:
                 persona.display_name = sender_name
                 self.logger.debug(f"Batch update: display_name for user={user_id}: {sender_name}")
 

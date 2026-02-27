@@ -143,7 +143,6 @@ class MemoryRetrievalEngine:
         chroma_memories = []
         for memory in memories:
             memory.update_access()
-            # 只有非 WORKING 层的记忆才需要同步到 ChromaDB
             if memory.storage_layer != StorageLayer.WORKING:
                 chroma_memories.append(memory)
         

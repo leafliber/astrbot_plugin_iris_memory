@@ -270,7 +270,7 @@ class PersistenceService:
 
         put_func = put_kv_data or self._cached_put_kv_data
         if put_func is None:
-            logger.debug("Skip saving batch queues: put_kv_data callback is unavailable")
+            # KV 存储尚未初始化，静默跳过（批量处理器的自动保存会在初始化后正常工作）
             return
 
         batch_queues = await self._capture.batch_processor.serialize_queues()
