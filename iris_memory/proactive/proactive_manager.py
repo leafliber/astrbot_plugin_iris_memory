@@ -244,7 +244,8 @@ class ProactiveReplyManager:
                 context=context
             )
             
-            # 应用智能增强
+            # 应用智能增强：在检测结果基础上，根据用户活跃度调整回复概率和延迟
+            # 若用户在增强窗口内（Bot 近期发送过主动回复），则提升回复概率或缩短延迟
             decision = self._apply_smart_boost(decision, user_id, group_id)
             
             if decision.should_reply:
@@ -509,8 +510,8 @@ class ProactiveReplyManager:
             self.daily_reply_count[count_key] = \
                 self.daily_reply_count.get(count_key, 0) + 1
             
-            # 智能增强：Bot 发送主动回复后开始增强窗口
-            # 这样用户在窗口内回复时，会提升再次回复的概率
+            # 智能增强：Bot 发送主动回复后记录时间戳，开启增强窗口
+            # 在窗口期内用户发言时，会提升 Bot 再次主动回复的概率
             self._record_user_message(task.user_id, task.group_id)
             
             logger.debug(
