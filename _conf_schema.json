@@ -297,6 +297,12 @@
         "type": "bool",
         "default": false,
         "hint": "开启后仅在管理员通过指令启用的群聊中触发主动回复，使用 /proactive_reply on|off 控制"
+      },
+      "smart_boost": {
+        "description": "启用主动回复智能增强",
+        "type": "bool",
+        "default": false,
+        "hint": "用户发言后短时间内提升主动回复概率（线性衰减），仅当LLM智能增强中的主动回复检测模式为llm或hybrid时生效"
       }
     }
   },

@@ -9,6 +9,7 @@
   人格注入 → 插件 Hook（记忆检索等）→ LLM 生成 → 结果装饰 → 发送
 """
 import asyncio
+import time
 from typing import Dict, Any, Optional, List, TYPE_CHECKING
 from dataclasses import dataclass
 
@@ -16,7 +17,7 @@ from iris_memory.utils.logger import get_logger
 from iris_memory.utils.command_utils import SessionKeyBuilder
 from iris_memory.utils.bounded_dict import BoundedDict
 from iris_memory.proactive.proactive_reply_detector import (
-    ProactiveReplyDetector, ProactiveReplyDecision
+    ProactiveReplyDetector, ProactiveReplyDecision, ReplyUrgency
 )
 from iris_memory.proactive.proactive_event import ProactiveMessageEvent
 
@@ -88,11 +89,20 @@ class ProactiveReplyManager:
         self.processing_task: Optional[asyncio.Task] = None
         self.is_running = False
         
+        # 智能增强：用户最后发言时间追踪
+        self._last_user_message_time: BoundedDict[str, float] = BoundedDict(max_size=2000)
+        self._smart_boost_enabled = self.config.get("smart_boost_enabled", False)
+        self._smart_boost_window = self.config.get("smart_boost_window_seconds", 300)
+        self._smart_boost_multiplier = self.config.get("smart_boost_score_multiplier", 1.5)
+        self._smart_boost_threshold = self.config.get("smart_boost_reply_threshold", 0.25)
+        
         # 统计
         self.stats = {
             "replies_sent": 0,
             "replies_skipped": 0,
-            "replies_failed": 0
+            "replies_failed": 0,
+            "smart_boost_activations": 0,
+            "smart_boost_delay_reductions": 0,
         }
     
     async def initialize(self):
@@ -170,6 +180,9 @@ class ProactiveReplyManager:
         
         session_key = SessionKeyBuilder.build(user_id, group_id)
         
+        # 注意：不在每次用户发言时记录时间
+        # 智能增强窗口只在 Bot 发送主动回复后开始，避免持续聊天导致窗口无限延长
+        
         # 检查每日限制（硬限制，不受紧急度影响）
         if self._is_daily_limit_reached(user_id, group_id):
             logger.debug(f"Daily proactive reply limit reached for {user_id}")
@@ -192,6 +205,9 @@ class ProactiveReplyManager:
                 group_id=group_id,
                 context=context
             )
+            
+            # 应用智能增强
+            decision = self._apply_smart_boost(decision, user_id, group_id)
             
             if decision.should_reply:
                 # 基于紧急度的动态冷却检查
@@ -227,6 +243,125 @@ class ProactiveReplyManager:
                 
         except Exception as e:
             logger.error(f"Error in proactive reply detection: {e}")
+    
+    # ========== 智能增强 ==========
+    
+    def _record_user_message(self, user_id: str, group_id: Optional[str] = None) -> None:
+        """记录用户发言时间（供智能增强使用）"""
+        key = SessionKeyBuilder.build(user_id, group_id)
+        self._last_user_message_time[key] = time.time()
+    
+    def is_in_boost_window(self, user_id: str, group_id: Optional[str] = None) -> bool:
+        """检查是否在智能增强窗口内"""
+        if not self._smart_boost_enabled:
+            return False
+        # 运行时检查 proactive_mode（支持动态配置更新）
+        if self._config_manager:
+            mode = self._config_manager.proactive_mode
+            if mode not in ("llm", "hybrid"):
+                return False
+        key = SessionKeyBuilder.build(user_id, group_id)
+        last_time = self._last_user_message_time.get(key)
+        if last_time is None:
+            return False
+        elapsed = time.time() - last_time
+        return elapsed < self._smart_boost_window
+    
+    def get_boost_multiplier(self, user_id: str, group_id: Optional[str] = None) -> float:
+        """获取当前智能增强乘数（线性衰减）
+        
+        Returns:
+            乘数值，不在增强窗口内返回 1.0
+        """
+        if not self.is_in_boost_window(user_id, group_id):
+            return 1.0
+        key = SessionKeyBuilder.build(user_id, group_id)
+        last_time = self._last_user_message_time.get(key)
+        if last_time is None:
+            return 1.0
+        elapsed = time.time() - last_time
+        # 线性衰减：刚发言时乘数最大，窗口结束时衰减到 1.0
+        decay = 1 - (elapsed / self._smart_boost_window)
+        return 1.0 + (self._smart_boost_multiplier - 1.0) * decay
+    
+    def _apply_smart_boost(
+        self,
+        decision: Any,
+        user_id: str,
+        group_id: Optional[str] = None
+    ) -> Any:
+        """对检测决策应用智能增强
+        
+        在检测器返回结果之后、提交任务之前调用。
+        - 若决策已为 should_reply=True：缩短建议延迟
+        - 若决策为不回复但分数可被增强到阈值以上：翻转为回复
+        
+        Args:
+            decision: 检测器返回的决策（ProactiveReplyDecision 或 LLMReplyDecision）
+            user_id: 用户 ID
+            group_id: 群聊 ID
+            
+        Returns:
+            可能被修改的决策对象（原地修改）
+        """
+        multiplier = self.get_boost_multiplier(user_id, group_id)
+        if multiplier <= 1.0:
+            return decision
+        
+        # 已经要回复 → 缩短延迟
+        if decision.should_reply:
+            original_delay = decision.suggested_delay
+            decision.suggested_delay = max(0, int(original_delay / multiplier))
+            if original_delay != decision.suggested_delay:
+                self.stats["smart_boost_delay_reductions"] += 1
+                logger.debug(
+                    f"Smart boost reduced delay: {original_delay}s → "
+                    f"{decision.suggested_delay}s (×{multiplier:.2f})"
+                )
+            return decision
+        
+        # 不回复 → 尝试增强分数
+        reply_score = 0.0
+        reply_context = getattr(decision, 'reply_context', None)
+        if isinstance(reply_context, dict):
+            reply_score = reply_context.get("reply_score", 0.0)
+        
+        # LLM 纯路径可能没有 reply_score，使用 confidence 作为回退
+        if reply_score <= 0 and hasattr(decision, 'confidence'):
+            reply_score = getattr(decision, 'confidence', 0.0) * 0.5
+        
+        if reply_score <= 0:
+            return decision
+        
+        boosted_score = reply_score * multiplier
+        
+        if boosted_score >= self._smart_boost_threshold:
+            decision.should_reply = True
+            if boosted_score >= 0.5:
+                decision.urgency = ReplyUrgency.MEDIUM
+                decision.suggested_delay = max(5, int(15 / multiplier))
+            else:
+                decision.urgency = ReplyUrgency.LOW
+                decision.suggested_delay = max(10, int(30 / multiplier))
+            
+            original_reason = decision.reason or ""
+            decision.reason = (
+                f"{original_reason} + smart_boost"
+                f"(×{multiplier:.2f}, {reply_score:.2f}→{boosted_score:.2f})"
+            )
+            
+            if isinstance(reply_context, dict):
+                reply_context["reply_score"] = boosted_score
+                reply_context["smart_boost_applied"] = True
+                reply_context["smart_boost_multiplier"] = multiplier
+            
+            logger.debug(
+                f"Smart boost activated: score {reply_score:.2f} → "
+                f"{boosted_score:.2f} (×{multiplier:.2f})"
+            )
+            self.stats["smart_boost_activations"] += 1
+        
+        return decision
     
     async def _process_loop(self):
         """处理循环"""
@@ -335,6 +470,10 @@ class ProactiveReplyManager:
             count_key = SessionKeyBuilder.build(task.user_id, task.group_id)
             self.daily_reply_count[count_key] = \
                 self.daily_reply_count.get(count_key, 0) + 1
+            
+            # 智能增强：Bot 发送主动回复后开始增强窗口
+            # 这样用户在窗口内回复时，会提升再次回复的概率
+            self._record_user_message(task.user_id, task.group_id)
             
             logger.debug(
                 f"Proactive reply event dispatched for {task.user_id}, "

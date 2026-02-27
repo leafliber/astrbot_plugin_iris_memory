@@ -134,6 +134,14 @@ def _build_registry() -> Dict[str, ConfigDefinition]:
             description="是否启用群聊白名单模式",
             value_type=bool,
         ),
+        ConfigDefinition(
+            key="proactive_reply.smart_boost",
+            section="proactive_reply",
+            attr="smart_boost_enabled",
+            default=False,
+            description="是否启用主动回复智能增强",
+            value_type=bool,
+        ),
 
         # ── 图片分析 ──
         ConfigDefinition(

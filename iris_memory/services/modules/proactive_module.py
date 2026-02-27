@@ -71,6 +71,11 @@ class ProactiveModule:
                 "reply_cooldown": DEFAULTS.proactive_reply.cooldown_seconds,
                 "max_daily_replies": cfg.proactive_reply_max_daily,
                 "group_whitelist_mode": cfg.proactive_reply_group_whitelist_mode,
+                # 智能增强配置
+                "smart_boost_enabled": cfg.smart_boost_enabled,
+                "smart_boost_window_seconds": cfg.smart_boost_window_seconds,
+                "smart_boost_score_multiplier": cfg.smart_boost_score_multiplier,
+                "smart_boost_reply_threshold": cfg.smart_boost_reply_threshold,
             },
             config_manager=cfg,
         )

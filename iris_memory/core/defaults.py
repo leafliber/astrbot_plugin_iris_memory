@@ -225,6 +225,12 @@ class ProactiveReplyDefaults:
     high_emotion_threshold: float = 0.7
     question_threshold: float = 0.8
     mention_threshold: float = 0.9
+    
+    # 智能增强配置
+    smart_boost_enabled: bool = False
+    smart_boost_window_seconds: int = 300  # 5分钟窗口
+    smart_boost_score_multiplier: float = 1.5  # 分数乘数
+    smart_boost_reply_threshold: float = 0.25  # 增强后触发回复的最低分数
 
 
 @dataclass

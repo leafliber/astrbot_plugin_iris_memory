@@ -253,6 +253,30 @@ class ConfigManager:
     def proactive_reply_group_whitelist_mode(self) -> bool:
         return self.get("proactive_reply.group_whitelist_mode", False)
     
+    @property
+    def smart_boost_enabled(self) -> bool:
+        """智能增强是否启用（需同时满足：配置开启 + proactive_mode 为 llm 或 hybrid）"""
+        enabled = self.get("proactive_reply.smart_boost", DEFAULTS.proactive_reply.smart_boost_enabled)
+        if not enabled:
+            return False
+        mode = self.proactive_mode
+        return mode in ("llm", "hybrid")
+    
+    @property
+    def smart_boost_window_seconds(self) -> int:
+        return self.get("proactive_reply.smart_boost_window_seconds",
+                        DEFAULTS.proactive_reply.smart_boost_window_seconds)
+    
+    @property
+    def smart_boost_score_multiplier(self) -> float:
+        return self.get("proactive_reply.smart_boost_score_multiplier",
+                        DEFAULTS.proactive_reply.smart_boost_score_multiplier)
+    
+    @property
+    def smart_boost_reply_threshold(self) -> float:
+        return self.get("proactive_reply.smart_boost_reply_threshold",
+                        DEFAULTS.proactive_reply.smart_boost_reply_threshold)
+    
     # 图片分析
     @property
     def image_analysis_enabled(self) -> bool:
