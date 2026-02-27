@@ -205,38 +205,46 @@ class KGStorage:
     def _auto_migrate(self) -> None:
         """自动迁移：检查 schema_version 并执行必要的 DDL 升级"""
         assert self._conn
-        row = self._conn.execute(
-            "SELECT value FROM kg_meta WHERE key = 'schema_version'"
-        ).fetchone()
-        current = int(row["value"]) if row else 1
+        try:
+            row = self._conn.execute(
+                "SELECT value FROM kg_meta WHERE key = 'schema_version'"
+            ).fetchone()
+            current = int(row["value"]) if row else 1
 
-        if current >= _SCHEMA_VERSION:
-            return
+            if current >= _SCHEMA_VERSION:
+                return
 
-        logger.info(f"KG schema migration: v{current} → v{_SCHEMA_VERSION}")
+            logger.info(f"KG schema migration: v{current} → v{_SCHEMA_VERSION}")
 
-        if current < 2:
-            self._migrate_v1_to_v2()
+            if current < 2:
+                self._migrate_v1_to_v2()
 
-        # 更新版本号
-        self._conn.execute(
-            "INSERT OR REPLACE INTO kg_meta(key, value) VALUES (?, ?)",
-            ("schema_version", str(_SCHEMA_VERSION)),
-        )
-        self._conn.commit()
+            self._conn.execute(
+                "INSERT OR REPLACE INTO kg_meta(key, value) VALUES (?, ?)",
+                ("schema_version", str(_SCHEMA_VERSION)),
+            )
+            self._conn.commit()
+            logger.info(f"KG schema migration completed: v{current} → v{_SCHEMA_VERSION}")
+        except Exception as e:
+            self._conn.rollback()
+            logger.error(f"KG schema migration failed: {e}")
+            raise RuntimeError(f"Database migration failed: {e}") from e
 
     def _migrate_v1_to_v2(self) -> None:
         """v1 → v2：添加 persona_id 列（DEFAULT 'default' 自动回填旧数据）"""
         assert self._conn
-        # 检查列是否已经存在（防止重复执行）
-        cols = {info[1] for info in self._conn.execute("PRAGMA table_info(kg_nodes)").fetchall()}
-        if "persona_id" not in cols:
-            self._conn.execute("ALTER TABLE kg_nodes ADD COLUMN persona_id TEXT DEFAULT 'default'")
-            logger.info("Migration v1→v2: added persona_id to kg_nodes")
-        cols_e = {info[1] for info in self._conn.execute("PRAGMA table_info(kg_edges)").fetchall()}
-        if "persona_id" not in cols_e:
-            self._conn.execute("ALTER TABLE kg_edges ADD COLUMN persona_id TEXT DEFAULT 'default'")
-            logger.info("Migration v1→v2: added persona_id to kg_edges")
+        try:
+            cols = {info[1] for info in self._conn.execute("PRAGMA table_info(kg_nodes)").fetchall()}
+            if "persona_id" not in cols:
+                self._conn.execute("ALTER TABLE kg_nodes ADD COLUMN persona_id TEXT DEFAULT 'default'")
+                logger.info("Migration v1→v2: added persona_id to kg_nodes")
+            cols_e = {info[1] for info in self._conn.execute("PRAGMA table_info(kg_edges)").fetchall()}
+            if "persona_id" not in cols_e:
+                self._conn.execute("ALTER TABLE kg_edges ADD COLUMN persona_id TEXT DEFAULT 'default'")
+                logger.info("Migration v1→v2: added persona_id to kg_edges")
+        except sqlite3.Error as e:
+            logger.error(f"Migration v1→v2 failed: {e}")
+            raise
 
     @contextmanager
     def _tx(self):
@@ -846,6 +854,114 @@ class KGStorage:
     def get_neighbors_sync(self, node_id: str, limit: int = 50) -> List[Tuple[KGEdge, KGNode]]:
         """同步获取邻居（供 BFS 使用）"""
         return self._get_neighbors_sync(node_id, limit)
+
+    # ================================================================
+    # 维护支持方法（供 kg_maintenance / kg_consistency / kg_quality 使用）
+    # ================================================================
+
+    async def get_all_nodes(self, limit: int = 10000) -> List[KGNode]:
+        """获取所有节点（供维护/质量检测使用）"""
+        async with self._lock:
+            assert self._conn
+            rows = self._conn.execute(
+                "SELECT * FROM kg_nodes LIMIT ?", (limit,)
+            ).fetchall()
+            return [KGNode.from_row(dict(r)) for r in rows]
+
+    async def get_all_edges(self, limit: int = 50000) -> List[KGEdge]:
+        """获取所有边（供维护/质量检测使用）"""
+        async with self._lock:
+            assert self._conn
+            rows = self._conn.execute(
+                "SELECT * FROM kg_edges LIMIT ?", (limit,)
+            ).fetchall()
+            return [KGEdge.from_row(dict(r)) for r in rows]
+
+    async def get_orphan_node_ids(self) -> List[str]:
+        """获取孤立节点 ID（无任何边连接的节点）"""
+        async with self._lock:
+            assert self._conn
+            rows = self._conn.execute(
+                """SELECT n.id FROM kg_nodes n
+                   WHERE NOT EXISTS (
+                       SELECT 1 FROM kg_edges e WHERE e.source_id = n.id
+                   )
+                   AND NOT EXISTS (
+                       SELECT 1 FROM kg_edges e WHERE e.target_id = n.id
+                   )"""
+            ).fetchall()
+            return [r[0] for r in rows]
+
+    async def get_dangling_edges(self) -> List[KGEdge]:
+        """获取悬空边（指向不存在节点的边）"""
+        async with self._lock:
+            assert self._conn
+            rows = self._conn.execute(
+                """SELECT e.* FROM kg_edges e
+                   WHERE NOT EXISTS (
+                       SELECT 1 FROM kg_nodes n WHERE n.id = e.source_id
+                   )
+                   OR NOT EXISTS (
+                       SELECT 1 FROM kg_nodes n WHERE n.id = e.target_id
+                   )"""
+            ).fetchall()
+            return [KGEdge.from_row(dict(r)) for r in rows]
+
+    async def get_self_referencing_edges(self) -> List[KGEdge]:
+        """获取自引用边（source_id == target_id）"""
+        async with self._lock:
+            assert self._conn
+            rows = self._conn.execute(
+                "SELECT * FROM kg_edges WHERE source_id = target_id"
+            ).fetchall()
+            return [KGEdge.from_row(dict(r)) for r in rows]
+
+    async def get_edges_between(self, source_id: str, target_id: str) -> List[KGEdge]:
+        """获取两个节点之间的所有边（双向）"""
+        async with self._lock:
+            assert self._conn
+            rows = self._conn.execute(
+                """SELECT * FROM kg_edges
+                   WHERE (source_id = ? AND target_id = ?)
+                      OR (source_id = ? AND target_id = ?)""",
+                (source_id, target_id, target_id, source_id),
+            ).fetchall()
+            return [KGEdge.from_row(dict(r)) for r in rows]
+
+    async def delete_nodes_by_ids(self, node_ids: List[str]) -> int:
+        """批量删除节点"""
+        if not node_ids:
+            return 0
+        async with self._lock:
+            with self._tx() as cur:
+                placeholders = ",".join("?" * len(node_ids))
+                cur.execute(
+                    f"DELETE FROM kg_nodes WHERE id IN ({placeholders})",
+                    node_ids,
+                )
+                count = cur.rowcount
+            self._invalidate_cache()
+            return count
+
+    async def delete_edges_by_ids(self, edge_ids: List[str]) -> int:
+        """批量删除边"""
+        if not edge_ids:
+            return 0
+        async with self._lock:
+            with self._tx() as cur:
+                placeholders = ",".join("?" * len(edge_ids))
+                cur.execute(
+                    f"DELETE FROM kg_edges WHERE id IN ({placeholders})",
+                    edge_ids,
+                )
+                return cur.rowcount
+
+    async def get_node_ids_set(self) -> set:
+        """获取所有节点 ID 集合（高效用于存在性检查）"""
+        async with self._lock:
+            assert self._conn
+            rows = self._conn.execute("SELECT id FROM kg_nodes").fetchall()
+            return {r[0] for r in rows}
 
     # ================================================================
     # 工具方法

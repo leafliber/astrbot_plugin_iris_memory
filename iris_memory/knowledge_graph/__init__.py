@@ -15,6 +15,9 @@ from iris_memory.knowledge_graph.kg_storage import KGStorage
 from iris_memory.knowledge_graph.kg_extractor import KGExtractor
 from iris_memory.knowledge_graph.kg_reasoning import KGReasoning
 from iris_memory.knowledge_graph.kg_context import KGContextFormatter
+from iris_memory.knowledge_graph.kg_maintenance import KGMaintenanceManager
+from iris_memory.knowledge_graph.kg_consistency import KGConsistencyDetector
+from iris_memory.knowledge_graph.kg_quality import KGQualityReporter
 
 __all__ = [
     "KGNode",
@@ -24,4 +27,7 @@ __all__ = [
     "KGExtractor",
     "KGReasoning",
     "KGContextFormatter",
+    "KGMaintenanceManager",
+    "KGConsistencyDetector",
+    "KGQualityReporter",
 ]
