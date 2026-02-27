@@ -304,7 +304,7 @@ class PersonaDefaults:
     # 批量处理配置
     batch_enabled: bool = True          # 是否启用画像批量提取
     batch_threshold: int = 20             # 触发批量处理的消息数量阈值
-    batch_flush_interval: int = 600      # 定时刷新间隔（秒）
+    batch_flush_interval: int = 21600      # 定时刷新间隔（秒）默认6小时
     batch_max_size: int = 20             # 单次批量处理的最大消息数
 
 
