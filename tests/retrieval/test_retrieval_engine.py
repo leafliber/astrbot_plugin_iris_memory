@@ -8,7 +8,7 @@ from unittest.mock import Mock, MagicMock, AsyncMock, patch
 from datetime import datetime
 
 from iris_memory.retrieval.retrieval_engine import MemoryRetrievalEngine
-from iris_memory.core.types import StorageLayer, RetrievalStrategy, EmotionType
+from iris_memory.core.types import StorageLayer, RetrievalStrategy, EmotionType, MemoryType
 from iris_memory.models.memory import Memory
 from iris_memory.models.emotion_state import EmotionalState, CurrentEmotionState, EmotionConfig, EmotionContext
 
@@ -232,7 +232,7 @@ class TestApplyEmotionFilter:
     def test_emotion_filter_positive_memories(
         self, mock_chroma_manager, mock_emotion_analyzer, sample_memories, emotional_state
     ):
-        """测试过滤高强度正面记忆"""
+        """测试负面情感状态下标记高强度正面记忆"""
         mock_emotion_analyzer.should_filter_positive_memories.return_value = True
         engine = MemoryRetrievalEngine(
             chroma_manager=mock_chroma_manager,
@@ -263,11 +263,14 @@ class TestApplyEmotionFilter:
             user_id="test_user"
         )
 
-        assert len(results) <= 3
-        assert all(
-            m.type != "emotion" or m.emotional_weight <= 0.7 or m.subtype not in ['joy', 'excitement']
-            for m in results
-        )
+        # 新行为：不再硬过滤，而是标记情感不匹配的记忆
+        assert len(results) == len(sample_memories)
+        # 检查情感不匹配的记忆被标记
+        for m in results:
+            if (m.type == MemoryType.EMOTION
+                and m.emotional_weight > 0.7
+                and hasattr(m, 'subtype') and m.subtype in ['joy', 'excitement']):
+                assert m.metadata.get("_emotion_mismatch") is True
 
     def test_emotion_filter_no_positive_memories(
         self, mock_chroma_manager, mock_emotion_analyzer, sample_memories, emotional_state

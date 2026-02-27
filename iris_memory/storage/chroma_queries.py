@@ -112,47 +112,52 @@ class ChromaQueries:
         top_k: int,
         storage_layer: Optional[StorageLayer]
     ) -> List[Dict[str, Any]]:
-        """群聊场景查询"""
-        all_results = []
-
+        """群聊场景查询（三个 scope 并行查询）"""
         where_shared = {"group_id": group_id, "scope": MemoryScope.GROUP_SHARED.value}
         if storage_layer:
             where_shared["storage_layer"] = storage_layer.value
-
-        results = await asyncio.to_thread(
-            self.collection.query,
-            query_embeddings=[query_embedding],
-            n_results=top_k,
-            where=self._build_where_clause(where_shared),
-            include=["embeddings", "documents", "metadatas", "distances"]
-        )
-        all_results.extend(self._extract_query_results(results))
 
         where_private = {"user_id": user_id, "group_id": group_id, "scope": MemoryScope.GROUP_PRIVATE.value}
         if storage_layer:
             where_private["storage_layer"] = storage_layer.value
 
-        results = await asyncio.to_thread(
-            self.collection.query,
-            query_embeddings=[query_embedding],
-            n_results=top_k,
-            where=self._build_where_clause(where_private),
-            include=["embeddings", "documents", "metadatas", "distances"]
-        )
-        all_results.extend(self._extract_query_results(results))
-
         where_global = {"scope": MemoryScope.GLOBAL.value}
         if storage_layer:
             where_global["storage_layer"] = storage_layer.value
 
-        results = await asyncio.to_thread(
+        include = ["embeddings", "documents", "metadatas", "distances"]
+
+        # 并行执行三个独立查询
+        shared_task = asyncio.to_thread(
+            self.collection.query,
+            query_embeddings=[query_embedding],
+            n_results=top_k,
+            where=self._build_where_clause(where_shared),
+            include=include,
+        )
+        private_task = asyncio.to_thread(
+            self.collection.query,
+            query_embeddings=[query_embedding],
+            n_results=top_k,
+            where=self._build_where_clause(where_private),
+            include=include,
+        )
+        global_task = asyncio.to_thread(
             self.collection.query,
             query_embeddings=[query_embedding],
             n_results=top_k,
             where=self._build_where_clause(where_global),
-            include=["embeddings", "documents", "metadatas", "distances"]
+            include=include,
         )
-        all_results.extend(self._extract_query_results(results))
+
+        results_shared, results_private, results_global = await asyncio.gather(
+            shared_task, private_task, global_task
+        )
+
+        all_results: List[Dict[str, Any]] = []
+        all_results.extend(self._extract_query_results(results_shared))
+        all_results.extend(self._extract_query_results(results_private))
+        all_results.extend(self._extract_query_results(results_global))
 
         return all_results
 
@@ -163,34 +168,37 @@ class ChromaQueries:
         top_k: int,
         storage_layer: Optional[StorageLayer]
     ) -> List[Dict[str, Any]]:
-        """私聊场景查询"""
-        all_results = []
-
+        """私聊场景查询（两个 scope 并行查询）"""
         where_user_private = {"user_id": user_id, "scope": MemoryScope.USER_PRIVATE.value}
         if storage_layer:
             where_user_private["storage_layer"] = storage_layer.value
-
-        results = await asyncio.to_thread(
-            self.collection.query,
-            query_embeddings=[query_embedding],
-            n_results=top_k,
-            where=self._build_where_clause(where_user_private),
-            include=["embeddings", "documents", "metadatas", "distances"]
-        )
-        all_results.extend(self._extract_query_results(results))
 
         where_global = {"scope": MemoryScope.GLOBAL.value}
         if storage_layer:
             where_global["storage_layer"] = storage_layer.value
 
-        results = await asyncio.to_thread(
+        include = ["embeddings", "documents", "metadatas", "distances"]
+
+        private_task = asyncio.to_thread(
+            self.collection.query,
+            query_embeddings=[query_embedding],
+            n_results=top_k,
+            where=self._build_where_clause(where_user_private),
+            include=include,
+        )
+        global_task = asyncio.to_thread(
             self.collection.query,
             query_embeddings=[query_embedding],
             n_results=top_k,
             where=self._build_where_clause(where_global),
-            include=["embeddings", "documents", "metadatas", "distances"]
+            include=include,
         )
-        all_results.extend(self._extract_query_results(results))
+
+        results_private, results_global = await asyncio.gather(private_task, global_task)
+
+        all_results: List[Dict[str, Any]] = []
+        all_results.extend(self._extract_query_results(results_private))
+        all_results.extend(self._extract_query_results(results_global))
 
         return all_results
 

@@ -185,6 +185,7 @@ class SessionLifecycleManager:
             # ========== 阶段 1: WORKING → EPISODIC ==========
             working_promoted = 0
             failed_promotions = 0
+            remove_failures: List[str] = []  # 已写入Chroma但未能从工作记忆移除的memory_id
             
             # 收集所有会话中的工作记忆及其会话上下文
             all_working_memories = []
@@ -207,6 +208,10 @@ class SessionLifecycleManager:
                     continue
                 
                 for memory in working_memories:
+                    # 跳过已处于 EPISODIC 层的记忆（上次升级成功但移除失败的残留）
+                    if memory.storage_layer == StorageLayer.EPISODIC:
+                        logger.debug(f"Skipping memory {memory.id}: already EPISODIC (likely leftover from failed remove)")
+                        continue
                     all_working_memories.append(memory)
                     memory_session_map[memory.id] = (user_id, group_id)
             
@@ -236,9 +241,11 @@ class SessionLifecycleManager:
                                     user_id, group_id, memory.id
                                 )
                             except Exception as remove_err:
-                                logger.warning(
+                                remove_failures.append(memory.id)
+                                logger.error(
                                     f"Memory {memory.id} promoted to EPISODIC but failed to "
-                                    f"remove from working memory: {remove_err}"
+                                    f"remove from working memory: {remove_err}. "
+                                    f"Memory now exists in both layers - will be skipped on next promotion cycle."
                                 )
                             logger.debug(
                                 f"Memory {memory.id} promoted WORKING→EPISODIC "
@@ -253,11 +260,26 @@ class SessionLifecycleManager:
                         memory.storage_layer = original_layer
                         logger.error(f"Error promoting memory {memory.id}: {e}")
             
-            if working_promoted > 0 or failed_promotions > 0:
+            if working_promoted > 0 or failed_promotions > 0 or remove_failures:
                 logger.debug(
                     f"Working memory promotion: {working_promoted} promoted, "
-                    f"{failed_promotions} failed (mode={self.upgrade_mode.value})"
+                    f"{failed_promotions} failed, {len(remove_failures)} remove-failures "
+                    f"(mode={self.upgrade_mode.value})"
                 )
+            
+            # 对未能从工作记忆移除的记忆进行二次清理
+            for mem_id in remove_failures:
+                try:
+                    user_id, group_id = memory_session_map[mem_id]
+                    await self.session_manager.remove_working_memory(
+                        user_id, group_id, mem_id
+                    )
+                    logger.info(f"Retry remove succeeded for memory {mem_id}")
+                except Exception:
+                    logger.warning(
+                        f"Retry remove also failed for memory {mem_id}. "
+                        f"It will be deduplicated on next promotion cycle."
+                    )
             
             # ========== 阶段 2: EPISODIC → SEMANTIC ==========
             try:
@@ -572,8 +594,8 @@ class SessionLifecycleManager:
         # 确保会话在 SessionManager 中存在
         session = self.session_manager.get_session(session_key)
         if session is None:
-            # 如果会话不存在，创建新会话
-            self.session_manager.create_session(user_id, group_id)
+            # 如果会话不存在，创建新会话（使用异步版本确保线程安全）
+            await self.session_manager.async_create_session(user_id, group_id)
         
         # 更新活动时间
         self.session_manager.update_session_activity(user_id, group_id)

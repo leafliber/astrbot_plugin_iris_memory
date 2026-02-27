@@ -217,25 +217,26 @@ class MemoryRetrievalEngine:
         emotional_state: EmotionalState,
         user_id: str = ""
     ) -> List[Memory]:
+        """对情感不匹配的记忆进行降权标记（不硬过滤）
+
+        情感一致性的最终裁决由 Reranker._calculate_emotion_score 完成，
+        此处仅做轻量级标记以辅助重排序，不直接移除記忆，避免与 Reranker 逻辑重复。
+        """
         if not emotional_state:
             return memories
         
-        # 正面情绪子类型（负面状态下过滤高强度的这些记忆）
         positive_subtypes = {'joy', 'excitement', 'calm', 'contentment', 'amusement'}
         emotion_threshold = RetrievalDefaults.EMOTION_FILTER_THRESHOLD
         
-        filtered = []
         for memory in memories:
             if emotional_state.current.primary in [EmotionType.SADNESS, EmotionType.ANGER, EmotionType.FEAR]:
                 if memory.emotional_weight > emotion_threshold and memory.type == MemoryType.EMOTION:
                     if hasattr(memory, 'subtype') and memory.subtype:
                         if memory.subtype in positive_subtypes:
-                            retrieval_log.memory_filtered(user_id, memory.id, "emotion_mismatch")
-                            continue
-            
-            filtered.append(memory)
+                            memory.metadata["_emotion_mismatch"] = True
+                            retrieval_log.memory_filtered(user_id, memory.id, "emotion_mismatch_tagged")
         
-        return filtered
+        return memories
     
     async def _route_query(self, query: str, context: Optional[Dict] = None, user_id: str = "") -> RetrievalStrategy:
         """路由查询（支持LLM增强）

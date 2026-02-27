@@ -130,6 +130,9 @@ class RIFScorer:
             new_memory_bonus = 1.0 + (24 - creation_hours) / 120  # 最大 +0.2
             modifier *= new_memory_bonus
         
+        # 限制修正因子上限，防止累积过高（理论最大约 1.85 → 限制到 1.5）
+        modifier = min(modifier, 1.5)
+        
         recency_score = base_time_score * modifier
         
         # 归一化到0-1
@@ -278,39 +281,3 @@ class RIFScorer:
             float: 衰减率（λ值）
         """
         return DecayRate.get_decay_rate(memory.type)
-    
-    def _get_detailed_time_weight(self, access_time: datetime) -> float:
-        """获取详细的时间权重
-        
-        提供更细粒度的时间权重：
-        - 1小时内：1.5（非常新鲜）
-        - 24小时内：1.3（新鲜）
-        - 7天内：1.2（新记忆）
-        - 7-30天：1.0（中期）
-        - 30-90天：0.8（旧记忆）
-        - 90-365天：0.6（远期）
-        - >365天：0.4（陈旧）
-        
-        Args:
-            access_time: 上次访问时间
-            
-        Returns:
-            float: 时间权重
-        """
-        hours = (datetime.now() - access_time).total_seconds() / 3600
-        days = hours / 24
-        
-        if hours < 1:
-            return 1.5  # 1小时内
-        elif hours < 24:
-            return 1.3  # 24小时内
-        elif days < 7:
-            return 1.2  # 7天内
-        elif days < 30:
-            return 1.0  # 7-30天
-        elif days < 90:
-            return 0.8  # 30-90天
-        elif days < 365:
-            return 0.6  # 90-365天
-        else:
-            return 0.4  # 超过一年

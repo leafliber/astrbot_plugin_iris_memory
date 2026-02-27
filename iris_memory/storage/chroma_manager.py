@@ -254,6 +254,21 @@ class ChromaManager(ChromaQueries, ChromaOperations):
         if old_count > 0:
             backup_data = self._backup_collection_data(existing_collection, old_count)
 
+            # 安全检查：如果内存备份失败，尝试文件级备份后再决定是否删除
+            if backup_data is None:
+                file_backup_ok = self._backup_collection_before_delete(existing_collection, old_count)
+                if not file_backup_ok:
+                    logger.error(
+                        f"All backup methods failed for collection '{self.collection_name}' "
+                        f"({old_count} memories). Aborting deletion to prevent data loss. "
+                        f"Please manually resolve the dimension conflict."
+                    )
+                    return None
+                logger.warning(
+                    f"In-memory backup failed but file-level backup succeeded. "
+                    f"Proceeding with collection deletion."
+                )
+
         # 删除旧集合
         self.client.delete_collection(name=self.collection_name)
         logger.warning(

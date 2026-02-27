@@ -190,6 +190,10 @@ class EmotionalState:
             "detected_at": datetime.now().isoformat()
         }
         self.triggers.append(trigger)
+        # 限制触发器列表大小，保留最新的
+        max_triggers = 100
+        if len(self.triggers) > max_triggers:
+            self.triggers = self.triggers[-max_triggers:]
     
     def add_soothe(self, soothe_type: str, description: str, emotion: EmotionType):
         """添加情感缓解因素
@@ -206,6 +210,10 @@ class EmotionalState:
             "detected_at": datetime.now().isoformat()
         }
         self.soothers.append(soothe)
+        # 限制缓解因素列表大小，保留最新的
+        max_soothers = 100
+        if len(self.soothers) > max_soothers:
+            self.soothers = self.soothers[-max_soothers:]
     
     def get_negative_ratio(self) -> float:
         """计算负面情感占比"""

@@ -248,10 +248,14 @@ class MemoryCaptureEngine:
                 if self.enable_conflict_check and similar_memories:
                     conflicts = self.conflict_resolver.find_conflicts_from_results(memory, similar_memories)
                     if conflicts:
-                        resolved = await self.conflict_resolver.resolve_conflicts(
+                        should_store_new = await self.conflict_resolver.resolve_conflicts(
                             memory, conflicts, self.chroma_manager
                         )
-                        capture_log.conflict_detected(user_id, len(conflicts), resolved)
+                        capture_log.conflict_detected(user_id, len(conflicts), should_store_new)
+                        if not should_store_new:
+                            # 冲突解决结果为合并，新记忆无需存储
+                            capture_log.duplicate_found(user_id, memory.id)
+                            return None
             
             capture_log.capture_ok(
                 user_id,

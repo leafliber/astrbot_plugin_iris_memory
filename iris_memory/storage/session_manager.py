@@ -122,10 +122,9 @@ class SessionManager:
         return session_key
 
     def create_session(self, user_id: str, group_id: Optional[str] = None, initial_data: Optional[Dict[str, Any]] = None) -> str:
-        """创建新会话
+        """创建新会话（同步版本，仅在非并发场景使用）
 
-        注意: 该方法修改共享状态。若需在异步并发场景下调用，
-        应通过 async with self._lock 保护，或使用 add_working_memory 等已加锁的方法。
+        警告: 此方法不持有锁。在异步并发场景下，应使用 async_create_session()。
 
         Args:
             user_id: 用户ID
@@ -136,6 +135,20 @@ class SessionManager:
             str: 会话标识符
         """
         return self._create_session_unlocked(user_id, group_id, initial_data)
+
+    async def async_create_session(self, user_id: str, group_id: Optional[str] = None, initial_data: Optional[Dict[str, Any]] = None) -> str:
+        """创建新会话（异步版本，线程安全）
+
+        Args:
+            user_id: 用户ID
+            group_id: 群组ID（可选）
+            initial_data: 初始会话数据（可选）
+
+        Returns:
+            str: 会话标识符
+        """
+        async with self._lock:
+            return self._create_session_unlocked(user_id, group_id, initial_data)
 
     def get_session(self, session_key: str) -> Optional[Dict[str, Any]]:
         """获取会话信息
@@ -346,13 +359,28 @@ class SessionManager:
         logger.debug(f"Session data deserialized: {len(self.session_metadata)} sessions")
     
     def set_max_working_memory(self, max_count: int):
-        """设置最大工作记忆数量
-        
+        """设置最大工作记忆数量，并清理已超限的会话
+
         Args:
             max_count: 最大数量
         """
         self.max_working_memory = max_count
-        logger.debug(f"Max working memory set to: {max_count}")
+
+        # 清理已超限的会话中的多余工作记忆
+        trimmed_total = 0
+        for session_key, memories in self.working_memory_cache.items():
+            if len(memories) > max_count:
+                excess = len(memories) - max_count
+                del memories[:excess]
+                trimmed_total += excess
+
+        if trimmed_total > 0:
+            logger.info(
+                f"Max working memory set to {max_count}, "
+                f"trimmed {trimmed_total} excess memories from existing sessions"
+            )
+        else:
+            logger.debug(f"Max working memory set to: {max_count}")
     
     def clean_expired_working_memory(self, hours: int = 24):
         """清理过期的工作记忆

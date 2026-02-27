@@ -277,7 +277,7 @@ class ConflictResolver:
             chroma_manager: Chroma管理器
             
         Returns:
-            bool: 是否成功解决冲突
+            bool: True 表示新记忆仍需存储，False 表示新记忆已合并到旧记忆、无需再存储
         """
         if not conflicting_memories:
             return True
@@ -313,7 +313,7 @@ class ConflictResolver:
                         await chroma_manager.update_memory(old_memory)
                         logger.debug(f"Conflict resolved: merged into {old_memory.id}")
                         resolved_count += 1
-                        # 返回False表示不需要存储新记忆
+                        # 合并成功，新记忆无需再存储
                         return False
                 except Exception as e:
                     logger.error(f"Failed to merge memories: {e}")
@@ -324,7 +324,8 @@ class ConflictResolver:
                 new_memory.metadata["conflicting_memory_id"] = old_memory.id
                 logger.debug(f"Conflict pending: {new_memory.id} vs {old_memory.id}")
         
-        return resolved_count == len(conflicting_memories)
+        # 所有冲突均已解决且无 merge，新记忆仍需存储
+        return True
 
     def _determine_conflict_resolution(
         self,

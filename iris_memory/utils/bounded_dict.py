@@ -2,12 +2,13 @@
 有界字典 - 防止内存无限增长
 
 提供 LRU 淘汰策略的字典封装，适用于 per-user/per-session 状态跟踪。
+支持可选的淘汰回调，以便上层服务在条目被移除前执行清理（如持久化）。
 """
 
 from __future__ import annotations
 
 from collections import OrderedDict
-from typing import TypeVar, Optional, Iterator
+from typing import TypeVar, Optional, Iterator, Callable
 
 KT = TypeVar("KT")
 VT = TypeVar("VT")
@@ -21,16 +22,18 @@ class BoundedDict(OrderedDict[KT, VT]):
 
     用法::
 
-        d = BoundedDict(max_size=1000)
+        d = BoundedDict(max_size=1000, on_evict=lambda k, v: save(v))
         d["user_123"] = some_state
 
     Args:
         max_size: 最大条目数，默认 1000
+        on_evict: 淘汰回调函数，签名 ``(key, value) -> None``，在条目被移除时调用
     """
 
-    def __init__(self, max_size: int = 1000, *args, **kwargs) -> None:
+    def __init__(self, max_size: int = 1000, on_evict: Optional[Callable[[KT, VT], None]] = None, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self._max_size = max(1, max_size)
+        self._on_evict = on_evict
 
     @property
     def max_size(self) -> int:
@@ -53,6 +56,11 @@ class BoundedDict(OrderedDict[KT, VT]):
         return default
 
     def _evict(self) -> None:
-        """移除超出容量的最旧条目。"""
+        """移除超出容量的最旧条目，触发淘汰回调。"""
         while len(self) > self._max_size:
-            self.popitem(last=False)
+            key, value = self.popitem(last=False)
+            if self._on_evict is not None:
+                try:
+                    self._on_evict(key, value)
+                except Exception:
+                    pass  # 回调异常不应影响字典操作

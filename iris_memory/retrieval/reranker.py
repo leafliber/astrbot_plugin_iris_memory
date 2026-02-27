@@ -7,7 +7,7 @@ from typing import List, Optional
 from datetime import datetime, timedelta
 
 from iris_memory.models.memory import Memory
-from iris_memory.core.types import StorageLayer, QualityLevel, EmotionType, RerankContext
+from iris_memory.core.types import StorageLayer, QualityLevel, EmotionType, MemoryType, RerankContext
 from iris_memory.core.constants import NEGATIVE_EMOTIONS_CORE
 
 
@@ -248,7 +248,7 @@ class Reranker:
         emotional_state = context['emotional_state']
 
         # 如果记忆不是情感类型，返回中等得分
-        if memory.type != "emotion":
+        if memory.type != MemoryType.EMOTION:
             return 0.5
 
         # 获取当前情感和记忆情感
@@ -382,8 +382,10 @@ class Reranker:
         return unique
     
     def _calculate_similarity(self, text1: str, text2: str) -> float:
-        """计算文本相似度（简化版Jaccard）
-        
+        """计算文本相似度（字符级 bigram Jaccard）
+
+        使用字符级 bigram 而非空格分词，以正确支持中文等无空格分隔的语言。
+
         Args:
             text1: 文本1
             text2: 文本2
@@ -391,8 +393,14 @@ class Reranker:
         Returns:
             float: 相似度（0-1）
         """
-        set1 = set(text1.lower().split())
-        set2 = set(text2.lower().split())
+        def _char_bigrams(text: str) -> set:
+            t = text.lower()
+            if len(t) < 2:
+                return {t} if t else set()
+            return {t[i:i+2] for i in range(len(t) - 1)}
+
+        set1 = _char_bigrams(text1)
+        set2 = _char_bigrams(text2)
         
         intersection = len(set1 & set2)
         union = len(set1 | set2)

@@ -25,6 +25,9 @@ class ChromaOperations:
     5. 批量删除操作
     """
 
+    _EMBEDDING_RETRY_COUNT = 2
+    _EMBEDDING_RETRY_DELAY = 0.5  # seconds
+
     async def add_memory(self, memory) -> Optional[str]:
         """添加记忆到Chroma
         
@@ -38,9 +41,9 @@ class ChromaOperations:
             self._ensure_ready()
             
             if memory.embedding is None:
-                embedding = await self._generate_embedding(memory.content)
+                embedding = await self._generate_embedding_with_retry(memory.content, memory.id)
                 if embedding is None:
-                    logger.error(f"Failed to generate embedding for memory {memory.id}, skipping storage")
+                    logger.error(f"Failed to generate embedding for memory {memory.id} after retries, skipping storage")
                     return None
                 memory.embedding = np.array(embedding)
             else:
@@ -63,6 +66,39 @@ class ChromaOperations:
         except Exception as e:
             logger.error(f"Failed to add memory to Chroma: id={memory.id}, error={e}", exc_info=True)
             raise
+
+    async def _generate_embedding_with_retry(self, content: str, memory_id: str) -> Optional[list]:
+        """带重试的嵌入生成
+
+        Args:
+            content: 待嵌入的文本内容
+            memory_id: 记忆 ID（仅用于日志）
+
+        Returns:
+            Optional[list]: 嵌入向量，所有重试均失败则返回 None
+        """
+        last_err = None
+        for attempt in range(1, self._EMBEDDING_RETRY_COUNT + 1):
+            try:
+                embedding = await self._generate_embedding(content)
+                if embedding is not None:
+                    return embedding
+                logger.warning(
+                    f"Embedding returned None for memory {memory_id} "
+                    f"(attempt {attempt}/{self._EMBEDDING_RETRY_COUNT})"
+                )
+            except Exception as e:
+                last_err = e
+                logger.warning(
+                    f"Embedding generation error for memory {memory_id} "
+                    f"(attempt {attempt}/{self._EMBEDDING_RETRY_COUNT}): {e}"
+                )
+            if attempt < self._EMBEDDING_RETRY_COUNT:
+                await asyncio.sleep(self._EMBEDDING_RETRY_DELAY)
+
+        if last_err:
+            logger.error(f"All embedding retries exhausted for memory {memory_id}: {last_err}")
+        return None
 
     @staticmethod
     def _safe_enum_value(value) -> Any:

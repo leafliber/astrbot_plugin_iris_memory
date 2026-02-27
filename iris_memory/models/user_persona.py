@@ -135,6 +135,7 @@ class UserPersona:
     evidence_confirmed: List[str] = field(default_factory=list)
     evidence_inferred: List[str] = field(default_factory=list)
     evidence_contested: List[str] = field(default_factory=list)
+    _max_evidence: int = field(default=500, repr=False)
 
     # ========== 变更审计 ==========
     change_log: List[PersonaChangeRecord] = field(default_factory=list)
@@ -371,10 +372,16 @@ class UserPersona:
     def add_memory_evidence(self, memory_id: str, evidence_type: str = "confirmed"):
         if evidence_type == "confirmed" and memory_id not in self.evidence_confirmed:
             self.evidence_confirmed.append(memory_id)
+            if len(self.evidence_confirmed) > self._max_evidence:
+                self.evidence_confirmed = self.evidence_confirmed[-self._max_evidence:]
         elif evidence_type == "inferred" and memory_id not in self.evidence_inferred:
             self.evidence_inferred.append(memory_id)
+            if len(self.evidence_inferred) > self._max_evidence:
+                self.evidence_inferred = self.evidence_inferred[-self._max_evidence:]
         elif evidence_type == "contested" and memory_id not in self.evidence_contested:
             self.evidence_contested.append(memory_id)
+            if len(self.evidence_contested) > self._max_evidence:
+                self.evidence_contested = self.evidence_contested[-self._max_evidence:]
 
     # ------------------------------------------------------------------
     # 从记忆更新画像（规则引擎）
