@@ -175,7 +175,7 @@ class SessionLifecycleManager:
         检查并执行升级：
         1. WORKING → EPISODIC（从工作记忆升级到情景记忆）
         2. EPISODIC → SEMANTIC（从情景记忆升级到语义记忆）
-        使用升级评估器（支持规则/LLM/混合模式）
+        统一使用升级评估器（支持规则/LLM/混合模式）
         """
         if not self.chroma_manager:
             logger.warning("Cannot promote memories: chroma_manager not available")
@@ -186,7 +186,10 @@ class SessionLifecycleManager:
             working_promoted = 0
             failed_promotions = 0
             
-            # 从所有会话中获取工作记忆
+            # 收集所有会话中的工作记忆及其会话上下文
+            all_working_memories = []
+            memory_session_map: Dict[str, tuple] = {}  # memory_id -> (user_id, group_id)
+            
             all_sessions = self.session_manager.get_all_sessions()
             logger.debug(f"Checking {len(all_sessions)} sessions for memory promotion")
             
@@ -204,38 +207,56 @@ class SessionLifecycleManager:
                     continue
                 
                 for memory in working_memories:
-                    # 检查是否符合升级条件
-                    if self._should_promote_working_to_episodic(memory):
-                        # 升级到 EPISODIC 并保存到 Chroma
-                        original_layer = memory.storage_layer
-                        memory.storage_layer = StorageLayer.EPISODIC
-                        
-                        try:
-                            success = await self.chroma_manager.add_memory(memory)
-                            if success:
-                                working_promoted += 1
-                                # 从工作记忆中移除
+                    all_working_memories.append(memory)
+                    memory_session_map[memory.id] = (user_id, group_id)
+            
+            # 使用升级评估器统一判断（与 _archive_session 使用相同逻辑）
+            if all_working_memories:
+                evaluation_results = await self.upgrade_evaluator.evaluate_working_to_episodic(
+                    all_working_memories
+                )
+                
+                for memory in all_working_memories:
+                    result = evaluation_results.get(memory.id)
+                    if not (result and result[0]):  # should_upgrade = False
+                        continue
+                    
+                    should_upgrade, confidence, reason = result
+                    original_layer = memory.storage_layer
+                    memory.storage_layer = StorageLayer.EPISODIC
+                    
+                    try:
+                        success = await self.chroma_manager.add_memory(memory)
+                        if success:
+                            working_promoted += 1
+                            # 从工作记忆中移除（独立 try/except 防止重复添加风险）
+                            user_id, group_id = memory_session_map[memory.id]
+                            try:
                                 await self.session_manager.remove_working_memory(
                                     user_id, group_id, memory.id
                                 )
-                                logger.debug(
-                                    f"Memory {memory.id} promoted WORKING→EPISODIC "
-                                    f"(RIF={memory.rif_score:.3f}, confidence={memory.confidence:.2f})"
+                            except Exception as remove_err:
+                                logger.warning(
+                                    f"Memory {memory.id} promoted to EPISODIC but failed to "
+                                    f"remove from working memory: {remove_err}"
                                 )
-                            else:
-                                failed_promotions += 1
-                                # 恢复原存储层
-                                memory.storage_layer = original_layer
-                                logger.warning(f"Failed to add memory {memory.id} to Chroma")
-                        except Exception as e:
+                            logger.debug(
+                                f"Memory {memory.id} promoted WORKING→EPISODIC "
+                                f"(confidence={confidence:.2f}, reason={reason})"
+                            )
+                        else:
                             failed_promotions += 1
                             memory.storage_layer = original_layer
-                            logger.error(f"Error promoting memory {memory.id}: {e}")
+                            logger.warning(f"Failed to add memory {memory.id} to Chroma")
+                    except Exception as e:
+                        failed_promotions += 1
+                        memory.storage_layer = original_layer
+                        logger.error(f"Error promoting memory {memory.id}: {e}")
             
             if working_promoted > 0 or failed_promotions > 0:
                 logger.debug(
                     f"Working memory promotion: {working_promoted} promoted, "
-                    f"{failed_promotions} failed"
+                    f"{failed_promotions} failed (mode={self.upgrade_mode.value})"
                 )
             
             # ========== 阶段 2: EPISODIC → SEMANTIC ==========
@@ -288,36 +309,6 @@ class SessionLifecycleManager:
                 
         except Exception as e:
             logger.error(f"Failed to promote memories: {e}", exc_info=True)
-    
-    def _should_promote_working_to_episodic(self, memory) -> bool:
-        """判断工作记忆是否应该升级到情景记忆
-
-        升级条件（与Memory.should_upgrade_to_episodic保持一致）：
-        - 访问>=1次 且 重要性>0.5
-        - 或 情感强度>0.6
-        - 或 置信度>=0.7
-        - 或 用户主动请求的记忆
-        - 或 RIF评分较高(>=0.5)且有访问
-
-        Args:
-            memory: 记忆对象
-
-        Returns:
-            bool: 是否应该升级
-        """
-        # 首先使用Memory模型的标准判断
-        if memory.should_upgrade_to_episodic():
-            return True
-
-        # 额外条件：RIF评分较高且有访问
-        if memory.rif_score >= 0.5 and memory.access_count >= 1:
-            return True
-
-        # 质量等级检查（HIGH_CONFIDENCE或更高）
-        if memory.quality_level.value >= 3:
-            return True
-
-        return False
     
     async def _cleanup_expired_sessions(self):
         """清理过期会话"""

@@ -161,11 +161,13 @@ class Memory:
     def should_upgrade_to_episodic(self) -> bool:
         """判断是否应该从工作记忆升级到情景记忆
 
-        触发条件（放宽）：
+        触发条件（满足任一即可）：
         - 访问>=1次 且 重要性>0.5
         - 或 情感强度>0.6
         - 或 置信度>=0.7
         - 或 用户主动请求的记忆
+        - 或 RIF评分较高(>0.5) 且 有访问
+        - 或 质量等级为HIGH_CONFIDENCE或更高
         """
         if self.storage_layer != StorageLayer.WORKING:
             return False
@@ -174,8 +176,10 @@ class Memory:
         condition2 = self.emotional_weight > 0.6
         condition3 = self.confidence >= 0.7
         condition4 = self.is_user_requested
+        condition5 = self.rif_score > 0.5 and self.access_count >= 1
+        condition6 = self.quality_level.value >= QualityLevel.HIGH_CONFIDENCE.value
 
-        return condition1 or condition2 or condition3 or condition4
+        return condition1 or condition2 or condition3 or condition4 or condition5 or condition6
     
     def should_upgrade_to_semantic(self) -> bool:
         """判断是否应该从情景记忆升级到语义记忆

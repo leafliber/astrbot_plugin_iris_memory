@@ -8,8 +8,10 @@ import asyncio
 from typing import List, Dict, Any, Optional, Tuple
 from enum import Enum
 
+from datetime import datetime
+
 from iris_memory.utils.logger import get_logger
-from iris_memory.core.types import StorageLayer
+from iris_memory.core.types import StorageLayer, QualityLevel
 from iris_memory.models.memory import Memory
 
 logger = get_logger("upgrade_evaluator")
@@ -197,27 +199,44 @@ class UpgradeEvaluator:
         return results
     
     def _get_working_upgrade_reason(self, memory: Memory, should_upgrade: bool) -> str:
-        """获取工作记忆升级原因"""
+        """获取工作记忆升级原因
+        
+        条件与 Memory.should_upgrade_to_episodic() 保持完全一致
+        """
         if should_upgrade:
-            if memory.access_count >= 3 and memory.importance_score > 0.6:
+            if memory.is_user_requested:
+                return "用户主动请求保存"
+            elif memory.access_count >= 1 and memory.importance_score > 0.5:
                 return f"访问{memory.access_count}次且重要性{memory.importance_score:.2f}"
-            elif memory.emotional_weight > 0.7:
+            elif memory.emotional_weight > 0.6:
                 return f"情感权重高({memory.emotional_weight:.2f})"
+            elif memory.confidence >= 0.7:
+                return f"置信度较高({memory.confidence:.2f})"
+            elif memory.rif_score > 0.5 and memory.access_count >= 1:
+                return f"RIF评分较高({memory.rif_score:.2f})且已被访问"
+            elif memory.quality_level.value >= QualityLevel.HIGH_CONFIDENCE.value:
+                return f"质量等级较高({memory.quality_level.name})"
             else:
                 return "满足升级条件"
         else:
             return "未达到升级条件"
     
     def _get_episodic_upgrade_reason(self, memory: Memory, should_upgrade: bool) -> str:
-        """获取情景记忆升级原因"""
+        """获取情景记忆升级原因
+        
+        条件与 Memory.should_upgrade_to_semantic() 保持完全一致
+        """
         if should_upgrade:
             if memory.access_count >= 5 and memory.confidence > 0.65:
                 return f"频繁访问({memory.access_count}次)且置信度较高({memory.confidence:.2f})"
-            elif memory.quality_level.value == "confirmed":
+            elif memory.quality_level == QualityLevel.CONFIRMED:
                 return "质量已确认"
             elif memory.importance_score >= 0.8 and memory.access_count >= 3:
                 return f"高重要性({memory.importance_score:.2f})且已被访问{memory.access_count}次"
             else:
+                days_since_creation = (datetime.now() - memory.created_time).days
+                if days_since_creation >= 7 and memory.access_count >= 3 and memory.confidence > 0.6:
+                    return f"存在{days_since_creation}天且访问{memory.access_count}次，置信度{memory.confidence:.2f}"
                 return "满足升级条件"
         else:
             return "未达到升级条件"
@@ -412,19 +431,26 @@ class UpgradeEvaluator:
         results = {}
         candidates = []
         
-        # 第一阶段：规则预筛选
+        # 第一阶段：规则预筛选（条件比实际判断更宽松，确保不遗漏候选者）
         for memory in memories:
             if upgrade_type == "working_to_episodic":
-                # 放宽条件进行预筛选
+                # 预筛选条件覆盖 should_upgrade_to_episodic() 的所有分支
                 is_candidate = (
-                    memory.access_count >= 2 or  # 放宽访问次数要求
-                    memory.importance_score > 0.5 or  # 放宽重要性要求
-                    memory.emotional_weight > 0.5  # 放宽情感权重要求
+                    memory.access_count >= 1 or
+                    memory.importance_score > 0.4 or
+                    memory.emotional_weight > 0.5 or
+                    memory.confidence >= 0.6 or
+                    memory.is_user_requested or
+                    memory.rif_score > 0.4 or
+                    memory.quality_level.value >= QualityLevel.HIGH_CONFIDENCE.value
                 )
             else:
+                # 预筛选条件覆盖 should_upgrade_to_semantic() 的所有分支
                 is_candidate = (
-                    memory.access_count >= 5 or  # 放宽访问次数要求
-                    memory.confidence > 0.6  # 放宽置信度要求
+                    memory.access_count >= 3 or
+                    memory.confidence > 0.5 or
+                    memory.importance_score >= 0.7 or
+                    memory.quality_level == QualityLevel.CONFIRMED
                 )
             
             if is_candidate:
