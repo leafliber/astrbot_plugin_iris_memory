@@ -3,7 +3,7 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [v1.9.0] - 2026-02-27
+## [v1.9.0] - 2026-02-28
 
 ### ⚠️ Known Limitations
 - **旧数据兼容性**：当用户在已有数据后开启人格隔离时，旧数据将不会被查询到。
@@ -23,6 +23,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Migration
 - **SQLite Schema 自动迁移**：知识图谱数据库自动从 v1 升级到 v2，为 `kg_nodes` 和 `kg_edges` 表添加 `persona_id` 列（默认值 `'default'`）
+
+### Fixed
+- **知识图谱迁移事务原子性** (`iris_memory/knowledge_graph/kg_storage.py`)
+  - 修复 `_migrate_v1_to_v2()` 方法在添加 `persona_id` 列时缺乏事务保护的问题
+  - 使用 `_tx()` 事务上下文确保两个表的 DDL 操作原子性
+  - 避免出现 `kg_nodes` 有 `persona_id` 列但 `kg_edges` 没有的不一致状态
 
 ## [v1.8.0] - 2026-02-26
 
