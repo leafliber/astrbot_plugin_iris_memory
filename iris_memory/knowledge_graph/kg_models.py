@@ -68,6 +68,7 @@ class KGNode:
     node_type: KGNodeType = KGNodeType.UNKNOWN
     user_id: str = ""                        # 来源用户
     group_id: Optional[str] = None           # 来源群组
+    persona_id: str = "default"              # 关联的Bot人格ID，默认"default"
     aliases: List[str] = field(default_factory=list)  # 别名列表
     properties: Dict[str, Any] = field(default_factory=dict)
     mention_count: int = 1                   # 提及次数
@@ -85,6 +86,7 @@ class KGNode:
             "node_type": self.node_type.value,
             "user_id": self.user_id,
             "group_id": self.group_id,
+            "persona_id": self.persona_id or "default",
             "aliases": json.dumps(self.aliases, ensure_ascii=False),
             "properties": json.dumps(self.properties, ensure_ascii=False),
             "mention_count": self.mention_count,
@@ -104,6 +106,7 @@ class KGNode:
             node_type=KGNodeType(row.get("node_type", "unknown")),
             user_id=row.get("user_id", ""),
             group_id=row.get("group_id"),
+            persona_id=row.get("persona_id", "default") or "default",
             aliases=json.loads(row.get("aliases", "[]")),
             properties=json.loads(row.get("properties", "{}")),
             mention_count=row.get("mention_count", 1),
@@ -115,7 +118,10 @@ class KGNode:
 
 @dataclass
 class KGEdge:
-    """知识图谱边（关系）"""
+    """知识图谱边（关系）
+    
+    边的 persona_id 归属规则：与源节点一致
+    """
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     source_id: str = ""                      # 源节点 ID
     target_id: str = ""                      # 目标节点 ID
@@ -124,6 +130,7 @@ class KGEdge:
     memory_id: Optional[str] = None          # 来源记忆 ID
     user_id: str = ""
     group_id: Optional[str] = None
+    persona_id: str = "default"              # 关联的Bot人格ID，与源节点一致
     confidence: float = 0.5
     weight: float = 1.0                      # 边权重（频率/重要性）
     properties: Dict[str, Any] = field(default_factory=dict)
@@ -142,6 +149,7 @@ class KGEdge:
             "memory_id": self.memory_id,
             "user_id": self.user_id,
             "group_id": self.group_id,
+            "persona_id": self.persona_id or "default",
             "confidence": self.confidence,
             "weight": self.weight,
             "properties": json.dumps(self.properties, ensure_ascii=False),
@@ -162,6 +170,7 @@ class KGEdge:
             memory_id=row.get("memory_id"),
             user_id=row.get("user_id", ""),
             group_id=row.get("group_id"),
+            persona_id=row.get("persona_id", "default") or "default",
             confidence=row.get("confidence", 0.5),
             weight=row.get("weight", 1.0),
             properties=json.loads(row.get("properties", "{}")),

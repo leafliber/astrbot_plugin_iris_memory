@@ -526,6 +526,24 @@ def _build_registry() -> Dict[str, ConfigDefinition]:
             description="最低置信度阈值",
             value_type=float,
         ),
+
+        # ── 人格隔离 ──
+        ConfigDefinition(
+            key="persona_isolation.memory_query_by_persona",
+            section="persona_isolation",
+            attr="memory_query_by_persona",
+            default=False,
+            description="记忆是否按人格隔离查询",
+            value_type=bool,
+        ),
+        ConfigDefinition(
+            key="persona_isolation.kg_query_by_persona",
+            section="persona_isolation",
+            attr="kg_query_by_persona",
+            default=False,
+            description="知识图谱是否按人格隔离查询",
+            value_type=bool,
+        ),
     ]
 
     return {e.key: e for e in entries}

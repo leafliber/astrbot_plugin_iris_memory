@@ -106,11 +106,12 @@ class ChromaOperations:
         return value.value if hasattr(value, 'value') and not isinstance(value, str) else value
 
     def _build_memory_metadata(self, memory) -> Dict[str, Any]:
-        """构建记忆元数据"""
+        """构建记忆元数据（始终包含 persona_id，便于后续开启隔离）"""
         return {
             "user_id": memory.user_id,
             "sender_name": memory.sender_name if memory.sender_name else "",
             "group_id": memory.group_id if memory.group_id else "",
+            "persona_id": getattr(memory, "persona_id", None) or "default",
             "scope": self._safe_enum_value(memory.scope),
             "type": self._safe_enum_value(memory.type),
             "modality": self._safe_enum_value(memory.modality),

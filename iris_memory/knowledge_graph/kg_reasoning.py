@@ -143,6 +143,7 @@ class KGReasoning:
         group_id: Optional[str] = None,
         max_depth: Optional[int] = None,
         max_results: int = 10,
+        persona_id: Optional[str] = None,
     ) -> ReasoningResult:
         """执行多跳推理
 
@@ -152,6 +153,7 @@ class KGReasoning:
             group_id: 群组 ID（scope 隔离）
             max_depth: 最大跳数（覆盖默认值）
             max_results: 最大返回路径数
+            persona_id: 人格 ID（非 None 时启用 persona 过滤）
 
         Returns:
             ReasoningResult: 推理结果
@@ -160,7 +162,7 @@ class KGReasoning:
         result = ReasoningResult()
 
         # ── Step 1: 提取种子实体 ──
-        seed_nodes = await self._find_seed_nodes(query, user_id, group_id)
+        seed_nodes = await self._find_seed_nodes(query, user_id, group_id, persona_id)
         if not seed_nodes:
             logger.debug(f"No seed nodes found for query: {query[:50]}")
             return result
@@ -174,6 +176,7 @@ class KGReasoning:
                 max_depth=depth,
                 user_id=user_id,
                 group_id=group_id,
+                persona_id=persona_id,
             )
             all_paths.extend(paths)
 
@@ -197,6 +200,7 @@ class KGReasoning:
         user_id: str,
         group_id: Optional[str] = None,
         relation_type: Optional[KGRelationType] = None,
+        persona_id: Optional[str] = None,
     ) -> List[Tuple[KGEdge, KGNode]]:
         """查询指定实体的直接关系（1 跳）
 
@@ -205,12 +209,14 @@ class KGReasoning:
             user_id: 用户 ID
             group_id: 群组 ID
             relation_type: 过滤关系类型
+            persona_id: 人格 ID（非 None 时启用 persona 过滤）
 
         Returns:
             (边, 邻居节点) 列表
         """
         nodes = await self.storage.search_nodes(
-            entity_name, user_id=user_id, group_id=group_id, limit=3
+            entity_name, user_id=user_id, group_id=group_id, limit=3,
+            persona_id=persona_id,
         )
         if not nodes:
             return []
@@ -222,7 +228,7 @@ class KGReasoning:
                 if relation_type and edge.relation_type != relation_type:
                     continue
                 # scope 检查
-                if self._is_visible(neighbor, user_id, group_id):
+                if self._is_visible(neighbor, user_id, group_id, persona_id):
                     results.append((edge, neighbor))
 
         return results
@@ -237,6 +243,7 @@ class KGReasoning:
         max_depth: int,
         user_id: str,
         group_id: Optional[str],
+        persona_id: Optional[str] = None,
     ) -> List[KGPath]:
         """从单个节点开始 BFS
 
@@ -277,7 +284,7 @@ class KGReasoning:
                     continue
 
                 # scope 检查
-                if not self._is_visible(neighbor, user_id, group_id):
+                if not self._is_visible(neighbor, user_id, group_id, persona_id):
                     continue
 
                 # 置信度衰减
@@ -322,6 +329,7 @@ class KGReasoning:
         query: str,
         user_id: str,
         group_id: Optional[str],
+        persona_id: Optional[str] = None,
     ) -> List[KGNode]:
         """从查询中提取种子实体
 
@@ -339,7 +347,8 @@ class KGReasoning:
         # 先尝试每个候选词单独搜索
         for candidate in candidates:
             nodes = await self.storage.search_nodes(
-                candidate, user_id=user_id, group_id=group_id, limit=5
+                candidate, user_id=user_id, group_id=group_id, limit=5,
+                persona_id=persona_id,
             )
             for node in nodes:
                 if node.id not in seen_ids:
@@ -349,7 +358,8 @@ class KGReasoning:
         # 如果没找到，用整个查询搜索
         if not seed_nodes:
             nodes = await self.storage.search_nodes(
-                query, user_id=user_id, group_id=group_id, limit=5
+                query, user_id=user_id, group_id=group_id, limit=5,
+                persona_id=persona_id,
             )
             for node in nodes:
                 if node.id not in seen_ids:
@@ -420,8 +430,12 @@ class KGReasoning:
         node: KGNode,
         user_id: str,
         group_id: Optional[str],
+        persona_id: Optional[str] = None,
     ) -> bool:
         """检查节点对当前 scope 是否可见"""
+        # persona 过滤
+        if persona_id is not None and node.persona_id != persona_id:
+            return False
         if group_id:
             return node.user_id == user_id or node.group_id == group_id
         else:

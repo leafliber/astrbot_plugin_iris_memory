@@ -26,13 +26,14 @@
 - ✅ **用户画像**：大五人格分析、沟通偏好、情绪状态追踪
 - ✅ **情感分析**：混合模型（词典 + 规则 + LLM），支持 10 种情绪类型
 - ✅ **会话隔离**：私聊和群聊完全隔离，基于 user_id + group_id
+- ✅ **人格隔离**：支持多 Bot 人格独立记忆存储与查询（可选）
 - ✅ **Chroma 集成**：本地向量数据库，支持高效检索
 - ✅ **置信度控制**：5 级质量分级，动态升级机制
 - ✅ **主动回复**：检测用户需要时主动发送消息（实验性）
 - ✅ **图片分析**：Vision LLM 分析对话图片内容
 - ✅ **错误友好化**：将技术错误消息转为友好提示
 - ✅ **场景自适应**：根据群活跃度自动调整回复频率和处理参数
-- ✅ **Web 管理界面**：独立端口访问的记忆管理仪表盘
+- ✅ **Web 管理界面**：独立端口访问的记忆管理仪表盘，支持用户画像搜索
 
 ### LLM 集成
 - 自动在 LLM 请求前注入相关记忆
@@ -62,7 +63,6 @@
 - `/memory_stats`
 
 能检索到刚刚保存的内容，即表示核心链路正常。
-注：机器人会自己
 
 ---
 
@@ -114,9 +114,10 @@
 
 ---
 
-## 配置说明（v1.7+）
+## 配置说明（v1.8+）
 
 > v1.7 起配置结构有调整：日志与 provider 配置已集中，旧路径请按本节更新。
+> v1.8 简化 embedding 配置：移除 `fallback_to_local` 和 `enable_local_provider`，降级行为由 `embedding.source` 统一控制。
 
 ### 基础与日志
 
@@ -151,12 +152,13 @@
 | 配置组 | 关键项 | 默认值 |
 |--------|--------|--------|
 | `llm_enhanced` | `sensitivity_mode` / `trigger_mode` / `emotion_mode` / `proactive_mode` / `conflict_mode` / `retrieval_mode` | `rule` |
-| `knowledge_graph` | `enabled` / `extraction_mode` / `max_depth` / `max_facts` | `true` / `rule` / `3` / `8` |
-| `persona` | `extraction_mode` | `rule` |
-| `embedding` | `source` / `local_model` | `auto` / `BAAI/bge-small-zh-v1.5` |
+| `knowledge_graph` | `enabled` / `extraction_mode` / `max_depth` / `max_nodes_per_hop` / `max_facts` / `min_confidence` | `true` / `rule` / `3` / `10` / `8` / `0.3` |
+| `persona` | `enabled` / `extraction_mode` | `true` / `rule` |
+| `embedding` | `source` / `local_model` / `local_dimension` / `reimport_on_dimension_conflict` | `auto` / `BAAI/bge-small-zh-v1.5` / `512` / `true` |
 | `image_analysis` | `enable` / `mode` / `daily_budget` | `true` / `auto` / `100` |
-| `proactive_reply` | `enable` / `group_whitelist_mode` | `false` / `false` |
+| `proactive_reply` | `enable` / `group_whitelist_mode` / `smart_boost` | `false` / `false` / `false` |
 | `activity_adaptive` | `enable` | `true` |
+| `persona_isolation` | `memory_query_by_persona` / `kg_query_by_persona` | `false` / `false` |
 | `error_friendly` | `enable` | `true` |
 | `web_ui` | `enable` / `host` / `port` / `access_key` | `false` / `127.0.0.1` / `8089` / `""` |
 
@@ -192,7 +194,8 @@ Web UI 启用后默认访问：`http://127.0.0.1:8089`
 ### 5. 切换 embedding 模型后检索变差或报维度问题？
 
 - 不同模型维度可能不同（512/768/1024）。
-- 请同步检查 `embedding.local_dimension`，必要时重建向量集合。
+- v1.8+ 默认开启 `embedding.reimport_on_dimension_conflict=true`，会自动用新模型重新生成向量并导入原记忆。
+- 如关闭此功能，需手动检查 `embedding.local_dimension` 并重建向量集合。
 
 ### 6. Web 管理页面打不开？
 
@@ -280,9 +283,9 @@ iris_memory/
 
 ## 文档与链接
 
-- [功能详解](./FEATURES.md)
 - [更新日志](./CHANGELOG.md)
 - [框架文档](./framework.md)
+- [人格隔离设计](./PERSONA_ISOLATION_DESIGN.md)
 - [AstrBot 插件开发文档](https://docs.astrbot.app/dev/star/plugin-new.html)
 - [Chroma 文档](https://docs.trychroma.com/)
 

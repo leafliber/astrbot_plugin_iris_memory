@@ -318,6 +318,24 @@
       }
     }
   },
+  "persona_isolation": {
+    "description": "人格隔离设置",
+    "type": "object",
+    "items": {
+      "memory_query_by_persona": {
+        "description": "记忆按人格隔离查询",
+        "type": "bool",
+        "default": false,
+        "hint": "开启后不同Bot人格只能看到各自的记忆数据，适合多人格场景"
+      },
+      "kg_query_by_persona": {
+        "description": "知识图谱按人格隔离查询",
+        "type": "bool",
+        "default": false,
+        "hint": "开启后不同Bot人格只能看到各自的知识图谱数据，适合多人格场景"
+      }
+    }
+  },
   "error_friendly": {
     "description": "错误消息友好化",
     "type": "object",

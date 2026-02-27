@@ -103,7 +103,8 @@ class MemoryCaptureEngine:
         group_id: Optional[str] = None,
         context: Optional[Dict[str, Any]] = None,
         is_user_requested: bool = False,
-        sender_name: Optional[str] = None
+        sender_name: Optional[str] = None,
+        persona_id: Optional[str] = None,
     ) -> Optional[Memory]:
         """捕获记忆 - 核心记忆捕获流程
 
@@ -190,6 +191,7 @@ class MemoryCaptureEngine:
                 user_id=user_id,
                 sender_name=sender_name,
                 group_id=group_id,
+                persona_id=persona_id or "default",
                 scope=memory_scope,
                 type=memory_type,
                 modality=ModalityType.TEXT,

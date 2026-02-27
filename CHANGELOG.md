@@ -3,6 +3,27 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.9.0] - 2026-02-27
+
+### ⚠️ Known Limitations
+- **旧数据兼容性**：当用户在已有数据后开启人格隔离时，旧数据将不会被查询到。
+  - **影响范围**：仅影响开启人格隔离后查询的旧数据；新数据不受开关影响
+
+### Added
+- **人格隔离功能** (`iris_memory/core/defaults.py`, `iris_memory/core/config_manager.py`, `iris_memory/models/memory.py`, `iris_memory/knowledge_graph/kg_models.py`, `iris_memory/knowledge_graph/kg_storage.py`, `iris_memory/storage/chroma_operations.py`, `iris_memory/storage/chroma_queries.py`, `iris_memory/utils/persona_utils.py`, `_conf_schema.json`)
+  - 新增配置项 `persona_isolation.memory_query_by_persona` 和 `persona_isolation.kg_query_by_persona`，默认关闭
+  - 记忆模块：Memory 模型新增 `persona_id` 字段，存储时始终记录人格 ID，查询时根据开关决定是否过滤
+  - 知识图谱模块：KGNode/KGEdge 模型新增 `persona_id` 字段，SQLite Schema 自动迁移（v1→v2），新增 persona 相关索引
+  - 新增 `get_event_persona_id()` 工具函数，从 AstrBot 事件中安全提取人格 ID
+  - 新增 `get_persona_id_for_storage()` 和 `get_persona_id_for_query()` 配置管理器方法
+  - 支持不同 Bot 人格拥有独立的记忆空间和知识图谱数据
+
+### Changed
+- **配置管理器方法简化**：`get_persona_id_for_storage()` 移除了 `module` 参数，因为存储时始终记录 `persona_id`，无需区分模块
+
+### Migration
+- **SQLite Schema 自动迁移**：知识图谱数据库自动从 v1 升级到 v2，为 `kg_nodes` 和 `kg_edges` 表添加 `persona_id` 列（默认值 `'default'`）
+
 ## [v1.8.0] - 2026-02-26
 
 ### Added

@@ -319,6 +319,7 @@ class KGExtractor:
         memory_id: Optional[str] = None,
         sender_name: Optional[str] = None,
         existing_entities: Optional[List[str]] = None,
+        persona_id: Optional[str] = None,
     ) -> List[KGTriple]:
         """从文本中提取三元组并存入图谱
 
@@ -329,6 +330,7 @@ class KGExtractor:
             memory_id: 关联的记忆 ID
             sender_name: 发送者名称
             existing_entities: 已提取的实体列表（来自 EntityExtractor）
+            persona_id: 人格 ID（始终写入节点/边，用于 persona 隔离）
 
         Returns:
             提取到的三元组列表
@@ -382,7 +384,7 @@ class KGExtractor:
 
         # 写入 KGStorage
         for triple in triples:
-            await self._store_triple(triple, user_id, group_id, memory_id)
+            await self._store_triple(triple, user_id, group_id, memory_id, persona_id)
 
         if triples:
             self._stats["total_triples"] += len(triples)
@@ -689,8 +691,10 @@ class KGExtractor:
         user_id: str,
         group_id: Optional[str],
         memory_id: Optional[str],
+        persona_id: Optional[str] = None,
     ) -> None:
         """将三元组写入 KGStorage"""
+        _persona = persona_id or "default"
         # 创建/更新主语节点
         subject_node = KGNode(
             name=triple.subject,
@@ -698,6 +702,7 @@ class KGExtractor:
             node_type=triple.subject_type,
             user_id=user_id,
             group_id=group_id,
+            persona_id=_persona,
             confidence=triple.confidence,
         )
         subject_node = await self.storage.upsert_node(subject_node)
@@ -709,6 +714,7 @@ class KGExtractor:
             node_type=triple.object_type,
             user_id=user_id,
             group_id=group_id,
+            persona_id=_persona,
             confidence=triple.confidence,
         )
         object_node = await self.storage.upsert_node(object_node)
@@ -722,6 +728,7 @@ class KGExtractor:
             memory_id=memory_id,
             user_id=user_id,
             group_id=group_id,
+            persona_id=_persona,
             confidence=triple.confidence,
         )
         await self.storage.upsert_edge(edge)

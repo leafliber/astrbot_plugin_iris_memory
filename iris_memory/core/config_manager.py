@@ -525,6 +525,66 @@ class ConfigManager:
                                          "proactive_reply.reply_temperature",
                                          DEFAULTS.proactive_reply.reply_temperature)
     
+    # ========== 人格隔离配置 ==========
+    
+    @property
+    def memory_query_by_persona(self) -> bool:
+        """记忆模块是否按人格隔离查询（默认关闭）"""
+        return self.get("persona_isolation.memory_query_by_persona", False)
+    
+    @property
+    def kg_query_by_persona(self) -> bool:
+        """知识图谱模块是否按人格隔离查询（默认关闭）"""
+        return self.get("persona_isolation.kg_query_by_persona", False)
+    
+    @property
+    def default_persona_id(self) -> str:
+        """默认人格ID"""
+        return DEFAULTS.persona_isolation.default_persona_id
+    
+    @property
+    def persona_id_max_length(self) -> int:
+        """persona_id 最大长度"""
+        return DEFAULTS.persona_isolation.persona_id_max_length
+    
+    def get_persona_id_for_storage(self, event_persona_id: Optional[str]) -> str:
+        """获取存储时使用的人格ID（始终记录，便于后续开启隔离）
+        
+        Args:
+            event_persona_id: 从事件获取的人格ID
+            
+        Returns:
+            有效的 persona_id 字符串
+        """
+        if event_persona_id and event_persona_id.strip():
+            normalized = event_persona_id.strip()
+            if len(normalized) > self.persona_id_max_length:
+                normalized = normalized[:self.persona_id_max_length]
+            return normalized
+        return self.default_persona_id
+    
+    def get_persona_id_for_query(self, event_persona_id: Optional[str], module: str = "memory") -> Optional[str]:
+        """获取查询时使用的人格ID（根据开关决定是否过滤）
+        
+        Args:
+            event_persona_id: 从事件获取的人格ID
+            module: 模块名称 ("memory" 或 "knowledge_graph")
+            
+        Returns:
+            persona_id 或 None（None 表示不过滤）
+        """
+        if module == "memory" and not self.memory_query_by_persona:
+            return None
+        if module == "knowledge_graph" and not self.kg_query_by_persona:
+            return None
+        
+        if event_persona_id and event_persona_id.strip():
+            normalized = event_persona_id.strip()
+            if len(normalized) > self.persona_id_max_length:
+                return normalized[:self.persona_id_max_length]
+            return normalized
+        return self.default_persona_id
+
     # Web UI 配置
     @property
     def web_ui_enabled(self) -> bool:

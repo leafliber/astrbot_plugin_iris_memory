@@ -26,6 +26,7 @@ from astrbot.api import AstrBotConfig, logger
 
 from iris_memory.services.memory_service import MemoryService
 from iris_memory.utils.event_utils import get_group_id, get_sender_name, extract_reply_info
+from iris_memory.utils.persona_utils import get_event_persona_id
 from iris_memory.utils.logger import init_logging_from_config
 from iris_memory.utils.command_utils import (
     CommandParser, DeleteScopeParser, StatsFormatter,
@@ -176,13 +177,18 @@ class IrisMemoryPlugin(Star):
         group_id = get_group_id(event)
         sender_name = get_sender_name(event)
         
+        # 人格隔离：提取 persona_id
+        raw_persona_id = get_event_persona_id(event)
+        store_persona = self._service.cfg.get_persona_id_for_storage(raw_persona_id)
+        
         # 执行业务逻辑
         memory = await self._service.capture_and_store_memory(
             message=content,
             user_id=user_id,
             group_id=group_id,
             is_user_requested=True,
-            sender_name=sender_name
+            sender_name=sender_name,
+            persona_id=store_persona,
         )
         
         # 响应结果
@@ -224,12 +230,17 @@ class IrisMemoryPlugin(Star):
         user_id = event.get_sender_id()
         group_id = get_group_id(event)
         
+        # 人格隔离：查询时根据开关决定是否过滤
+        raw_persona_id = get_event_persona_id(event)
+        query_persona = self._service.cfg.get_persona_id_for_query(raw_persona_id, "memory")
+        
         # 执行业务逻辑
         memories = await self._service.search_memories(
             query=parsed.content,
             user_id=user_id,
             group_id=group_id,
-            top_k=NumericDefaults.TOP_K_SEARCH
+            top_k=NumericDefaults.TOP_K_SEARCH,
+            persona_id=query_persona,
         )
         
         # 格式化并响应
@@ -723,13 +734,16 @@ class IrisMemoryPlugin(Star):
         
         # 准备LLM上下文（聊天记录 + 记忆 + 图片 + 引用消息 + 行为指导）
         # 主动回复时：使用触发提示作为 query 检索记忆
+        raw_persona_id = get_event_persona_id(event)
+        query_persona = self._service.cfg.get_persona_id_for_query(raw_persona_id, "memory")
         context = await self._service.prepare_llm_context(
             query=query,
             user_id=user_id,
             group_id=group_id,
             image_context=image_context,
             sender_name=sender_name,
-            reply_context=reply_context
+            reply_context=reply_context,
+            persona_id=query_persona,
         )
         
         # 注入上下文
@@ -809,11 +823,14 @@ class IrisMemoryPlugin(Star):
         if reply_info and reply_info.content:
             capture_message = f"{message}\n{reply_info.format_for_buffer()}"
         
+        raw_persona_id = get_event_persona_id(event)
+        store_persona = self._service.cfg.get_persona_id_for_storage(raw_persona_id)
         memory = await self._service.capture_and_store_memory(
             message=capture_message,
             user_id=user_id,
             group_id=group_id,
-            sender_name=sender_name
+            sender_name=sender_name,
+            persona_id=store_persona,
         )
         
         if memory:
@@ -921,13 +938,16 @@ class IrisMemoryPlugin(Star):
             enriched_message = f"{message}\n{reply_info.format_for_buffer()}"
         
         # 处理消息批次
+        raw_persona_id = get_event_persona_id(event)
+        store_persona = self._service.cfg.get_persona_id_for_storage(raw_persona_id)
         await self._service.process_message_batch(
             message=enriched_message,
             user_id=user_id,
             group_id=group_id,
             context=context,
             umo=event.unified_msg_origin,
-            image_description=image_description
+            image_description=image_description,
+            persona_id=store_persona,
         )
     
     async def _build_message_context(

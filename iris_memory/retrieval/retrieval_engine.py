@@ -161,7 +161,8 @@ class MemoryRetrievalEngine:
         group_id: Optional[str] = None,
         top_k: int = 10,
         storage_layer: Optional[StorageLayer] = None,
-        emotional_state: Optional[EmotionalState] = None
+        emotional_state: Optional[EmotionalState] = None,
+        persona_id: Optional[str] = None,
     ) -> List[Memory]:
         """检索相关记忆
         
@@ -172,6 +173,7 @@ class MemoryRetrievalEngine:
             top_k: 返回的最大数量
             storage_layer: 存储层过滤（可选）
             emotional_state: 情感状态（用于情感感知检索）
+            persona_id: 人格 ID（非 None 时启用 persona 过滤）
             
         Returns:
             List[Memory]: 相关记忆列表（已排序）
@@ -195,7 +197,8 @@ class MemoryRetrievalEngine:
                 retrieval_log.strategy_selected(user_id, "HYBRID", "default")
             
             result = await self.retrieve_with_strategy(
-                query, user_id, group_id, strategy, top_k, emotional_state, storage_layer
+                query, user_id, group_id, strategy, top_k, emotional_state, storage_layer,
+                persona_id=persona_id,
             )
             
             retrieval_log.retrieve_ok(user_id, len(result), strategy.value if hasattr(strategy, 'value') else str(strategy))
@@ -301,7 +304,8 @@ class MemoryRetrievalEngine:
         strategy: RetrievalStrategy = RetrievalStrategy.HYBRID,
         top_k: int = 10,
         emotional_state: Optional[EmotionalState] = None,
-        storage_layer: Optional[StorageLayer] = None
+        storage_layer: Optional[StorageLayer] = None,
+        persona_id: Optional[str] = None,
     ) -> List[Memory]:
         """使用指定策略检索记忆
 
@@ -313,6 +317,7 @@ class MemoryRetrievalEngine:
             top_k: 返回的最大数量
             emotional_state: 情感状态（可选）
             storage_layer: 存储层过滤（可选）
+            persona_id: 人格 ID（非 None 时启用 persona 过滤）
 
         Returns:
             List[Memory]: 相关记忆列表
@@ -320,29 +325,33 @@ class MemoryRetrievalEngine:
         # 根据策略选择检索方法
         if strategy == RetrievalStrategy.VECTOR_ONLY:
             return await self._vector_only_retrieval(
-                query, user_id, group_id, top_k, storage_layer
+                query, user_id, group_id, top_k, storage_layer, persona_id=persona_id,
             )
         elif strategy == RetrievalStrategy.TIME_AWARE:
             return await self._time_aware_retrieval(
-                query, user_id, group_id, top_k, storage_layer
+                query, user_id, group_id, top_k, storage_layer, persona_id=persona_id,
             )
         elif strategy == RetrievalStrategy.EMOTION_AWARE:
             return await self._emotion_aware_retrieval(
-                query, user_id, group_id, top_k, emotional_state, storage_layer
+                query, user_id, group_id, top_k, emotional_state, storage_layer,
+                persona_id=persona_id,
             )
         elif strategy == RetrievalStrategy.GRAPH_ONLY:
             if self._kg_module and self._kg_module.enabled:
                 return await self._graph_retrieval(
-                    query, user_id, group_id, top_k, emotional_state, storage_layer
+                    query, user_id, group_id, top_k, emotional_state, storage_layer,
+                    persona_id=persona_id,
                 )
             else:
                 retrieval_log.graph_fallback(user_id, query)
                 return await self._hybrid_retrieval(
-                    query, user_id, group_id, top_k, emotional_state, storage_layer
+                    query, user_id, group_id, top_k, emotional_state, storage_layer,
+                    persona_id=persona_id,
                 )
         else:  # HYBRID
             return await self._hybrid_retrieval(
-                query, user_id, group_id, top_k, emotional_state, storage_layer
+                query, user_id, group_id, top_k, emotional_state, storage_layer,
+                persona_id=persona_id,
             )
     
     async def _hybrid_retrieval(
@@ -352,14 +361,16 @@ class MemoryRetrievalEngine:
         group_id: Optional[str] = None,
         top_k: int = 10,
         emotional_state: Optional[EmotionalState] = None,
-        storage_layer: Optional[StorageLayer] = None
+        storage_layer: Optional[StorageLayer] = None,
+        persona_id: Optional[str] = None,
     ) -> List[Memory]:
         candidate_memories = await self.chroma_manager.query_memories(
             query_text=query,
             user_id=user_id,
             group_id=group_id,
             top_k=top_k * 2,
-            storage_layer=storage_layer
+            storage_layer=storage_layer,
+            persona_id=persona_id,
         )
         retrieval_log.vector_query(user_id, len(candidate_memories), storage_layer.value if storage_layer and hasattr(storage_layer, 'value') else None)
         
@@ -408,7 +419,8 @@ class MemoryRetrievalEngine:
         user_id: str,
         group_id: Optional[str],
         top_k: int,
-        storage_layer: Optional[StorageLayer] = None
+        storage_layer: Optional[StorageLayer] = None,
+        persona_id: Optional[str] = None,
     ) -> List[Memory]:
         """纯向量检索"""
         memories = await self.chroma_manager.query_memories(
@@ -416,7 +428,8 @@ class MemoryRetrievalEngine:
             user_id=user_id,
             group_id=group_id,
             top_k=top_k,
-            storage_layer=storage_layer
+            storage_layer=storage_layer,
+            persona_id=persona_id,
         )
         await self._update_access_and_sync(memories)
         return memories
@@ -427,7 +440,8 @@ class MemoryRetrievalEngine:
         user_id: str,
         group_id: Optional[str],
         top_k: int,
-        storage_layer: Optional[StorageLayer] = None
+        storage_layer: Optional[StorageLayer] = None,
+        persona_id: Optional[str] = None,
     ) -> List[Memory]:
         """时间感知检索"""
         memories = await self.chroma_manager.query_memories(
@@ -435,7 +449,8 @@ class MemoryRetrievalEngine:
             user_id=user_id,
             group_id=group_id,
             top_k=top_k * 2,
-            storage_layer=storage_layer
+            storage_layer=storage_layer,
+            persona_id=persona_id,
         )
         
         # 按时间得分重新排序
@@ -467,7 +482,8 @@ class MemoryRetrievalEngine:
         group_id: Optional[str],
         top_k: int,
         emotional_state: Optional[EmotionalState],
-        storage_layer: Optional[StorageLayer] = None
+        storage_layer: Optional[StorageLayer] = None,
+        persona_id: Optional[str] = None,
     ) -> List[Memory]:
         """情感感知检索"""
         memories = await self.chroma_manager.query_memories(
@@ -475,7 +491,8 @@ class MemoryRetrievalEngine:
             user_id=user_id,
             group_id=group_id,
             top_k=top_k * 2,
-            storage_layer=storage_layer
+            storage_layer=storage_layer,
+            persona_id=persona_id,
         )
         
         if emotional_state:
@@ -501,7 +518,8 @@ class MemoryRetrievalEngine:
         group_id: Optional[str] = None,
         top_k: int = 10,
         emotional_state: Optional[EmotionalState] = None,
-        storage_layer: Optional[StorageLayer] = None
+        storage_layer: Optional[StorageLayer] = None,
+        persona_id: Optional[str] = None,
     ) -> List[Memory]:
         """知识图谱检索 + 向量检索混合
 
@@ -518,6 +536,7 @@ class MemoryRetrievalEngine:
             top_k: 最大返回数
             emotional_state: 情感状态
             storage_layer: 存储层过滤
+            persona_id: 人格 ID（非 None 时启用 persona 过滤）
 
         Returns:
             List[Memory]: 记忆列表
@@ -528,7 +547,8 @@ class MemoryRetrievalEngine:
             user_id=user_id,
             group_id=group_id,
             top_k=top_k * 2,
-            storage_layer=storage_layer
+            storage_layer=storage_layer,
+            persona_id=persona_id,
         )
 
         # 图推理部分
@@ -539,6 +559,7 @@ class MemoryRetrievalEngine:
                     query=query,
                     user_id=user_id,
                     group_id=group_id,
+                    persona_id=persona_id,
                 )
                 # 收集推理路径涉及的 memory_id
                 for edge in reasoning_result.get_all_edges():

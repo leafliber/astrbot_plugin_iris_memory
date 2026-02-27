@@ -31,9 +31,10 @@ class ChromaQueries:
         user_id: str,
         group_id: Optional[str] = None,
         top_k: int = 10,
-        storage_layer: Optional[StorageLayer] = None
+        storage_layer: Optional[StorageLayer] = None,
+        persona_id: Optional[str] = None
     ) -> List:
-        """查询相关记忆（支持多层级记忆）
+        """查询相关记忆（支持多层级记忆 + 人格隔离）
 
         查询策略：
         1. 私聊场景（group_id=None）：
@@ -51,6 +52,7 @@ class ChromaQueries:
             group_id: 群组ID（私聊时为None）
             top_k: 返回的最大数量
             storage_layer: 存储层过滤（可选）
+            persona_id: 人格ID（非None时按人格过滤）
 
         Returns:
             List[Memory]: 相关记忆列表（如果嵌入生成失败则返回空列表）
@@ -67,11 +69,11 @@ class ChromaQueries:
 
             if group_id:
                 all_results = await self._query_group_mode(
-                    query_embedding, user_id, group_id, top_k, storage_layer
+                    query_embedding, user_id, group_id, top_k, storage_layer, persona_id
                 )
             else:
                 all_results = await self._query_private_mode(
-                    query_embedding, user_id, top_k, storage_layer
+                    query_embedding, user_id, top_k, storage_layer, persona_id
                 )
 
             seen_ids = set()
@@ -110,20 +112,27 @@ class ChromaQueries:
         user_id: str,
         group_id: str,
         top_k: int,
-        storage_layer: Optional[StorageLayer]
+        storage_layer: Optional[StorageLayer],
+        persona_id: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """群聊场景查询（三个 scope 并行查询）"""
         where_shared = {"group_id": group_id, "scope": MemoryScope.GROUP_SHARED.value}
         if storage_layer:
             where_shared["storage_layer"] = storage_layer.value
+        if persona_id:
+            where_shared["persona_id"] = persona_id
 
         where_private = {"user_id": user_id, "group_id": group_id, "scope": MemoryScope.GROUP_PRIVATE.value}
         if storage_layer:
             where_private["storage_layer"] = storage_layer.value
+        if persona_id:
+            where_private["persona_id"] = persona_id
 
         where_global = {"scope": MemoryScope.GLOBAL.value}
         if storage_layer:
             where_global["storage_layer"] = storage_layer.value
+        if persona_id:
+            where_global["persona_id"] = persona_id
 
         include = ["embeddings", "documents", "metadatas", "distances"]
 
@@ -166,16 +175,21 @@ class ChromaQueries:
         query_embedding: List[float],
         user_id: str,
         top_k: int,
-        storage_layer: Optional[StorageLayer]
+        storage_layer: Optional[StorageLayer],
+        persona_id: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """私聊场景查询（两个 scope 并行查询）"""
         where_user_private = {"user_id": user_id, "scope": MemoryScope.USER_PRIVATE.value}
         if storage_layer:
             where_user_private["storage_layer"] = storage_layer.value
+        if persona_id:
+            where_user_private["persona_id"] = persona_id
 
         where_global = {"scope": MemoryScope.GLOBAL.value}
         if storage_layer:
             where_global["storage_layer"] = storage_layer.value
+        if persona_id:
+            where_global["persona_id"] = persona_id
 
         include = ["embeddings", "documents", "metadatas", "distances"]
 
@@ -228,17 +242,18 @@ class ChromaQueries:
         self,
         user_id: str,
         group_id: Optional[str] = None,
-        storage_layer: Optional[StorageLayer] = None
+        storage_layer: Optional[StorageLayer] = None,
+        persona_id: Optional[str] = None
     ) -> List:
-        """获取用户的所有记忆（支持多层级记忆）"""
+        """获取用户的所有记忆（支持多层级记忆 + 人格过滤）"""
         try:
             self._ensure_ready()
             all_memories = []
 
             if group_id:
-                all_memories = await self._get_all_group_memories(user_id, group_id, storage_layer)
+                all_memories = await self._get_all_group_memories(user_id, group_id, storage_layer, persona_id)
             else:
-                all_memories = await self._get_all_private_memories(user_id, storage_layer)
+                all_memories = await self._get_all_private_memories(user_id, storage_layer, persona_id)
 
             seen_ids = set()
             unique_memories = []
@@ -257,7 +272,8 @@ class ChromaQueries:
         self,
         user_id: str,
         group_id: str,
-        storage_layer: Optional[StorageLayer]
+        storage_layer: Optional[StorageLayer],
+        persona_id: Optional[str] = None
     ) -> List:
         """获取群聊场景的所有记忆"""
         all_memories = []
@@ -265,6 +281,8 @@ class ChromaQueries:
         where_shared = {"group_id": group_id, "scope": MemoryScope.GROUP_SHARED.value}
         if storage_layer:
             where_shared["storage_layer"] = storage_layer.value
+        if persona_id:
+            where_shared["persona_id"] = persona_id
 
         results = await asyncio.to_thread(
             self.collection.get,
@@ -275,6 +293,8 @@ class ChromaQueries:
         where_private = {"user_id": user_id, "group_id": group_id, "scope": MemoryScope.GROUP_PRIVATE.value}
         if storage_layer:
             where_private["storage_layer"] = storage_layer.value
+        if persona_id:
+            where_private["persona_id"] = persona_id
 
         results = await asyncio.to_thread(
             self.collection.get,
@@ -285,6 +305,8 @@ class ChromaQueries:
         where_global = {"scope": MemoryScope.GLOBAL.value}
         if storage_layer:
             where_global["storage_layer"] = storage_layer.value
+        if persona_id:
+            where_global["persona_id"] = persona_id
 
         results = await asyncio.to_thread(
             self.collection.get,
@@ -297,7 +319,8 @@ class ChromaQueries:
     async def _get_all_private_memories(
         self,
         user_id: str,
-        storage_layer: Optional[StorageLayer]
+        storage_layer: Optional[StorageLayer],
+        persona_id: Optional[str] = None
     ) -> List:
         """获取私聊场景的所有记忆"""
         all_memories = []
@@ -305,6 +328,8 @@ class ChromaQueries:
         where_user_private = {"user_id": user_id, "scope": MemoryScope.USER_PRIVATE.value}
         if storage_layer:
             where_user_private["storage_layer"] = storage_layer.value
+        if persona_id:
+            where_user_private["persona_id"] = persona_id
 
         results = await asyncio.to_thread(
             self.collection.get,
@@ -315,6 +340,8 @@ class ChromaQueries:
         where_global = {"scope": MemoryScope.GLOBAL.value}
         if storage_layer:
             where_global["storage_layer"] = storage_layer.value
+        if persona_id:
+            where_global["persona_id"] = persona_id
 
         results = await asyncio.to_thread(
             self.collection.get,
@@ -338,17 +365,18 @@ class ChromaQueries:
         self,
         user_id: str,
         group_id: Optional[str] = None,
-        storage_layer: Optional[StorageLayer] = None
+        storage_layer: Optional[StorageLayer] = None,
+        persona_id: Optional[str] = None
     ) -> int:
-        """统计记忆数量（支持多层级记忆）"""
+        """统计记忆数量（支持多层级记忆 + 人格过滤）"""
         try:
             self._ensure_ready()
             all_ids = set()
 
             if group_id:
-                all_ids = await self._count_group_memories(user_id, group_id, storage_layer)
+                all_ids = await self._count_group_memories(user_id, group_id, storage_layer, persona_id)
             else:
-                all_ids = await self._count_private_memories(user_id, storage_layer)
+                all_ids = await self._count_private_memories(user_id, storage_layer, persona_id)
 
             return len(all_ids)
 
@@ -360,7 +388,8 @@ class ChromaQueries:
         self,
         user_id: str,
         group_id: str,
-        storage_layer: Optional[StorageLayer]
+        storage_layer: Optional[StorageLayer],
+        persona_id: Optional[str] = None
     ) -> set:
         """统计群聊场景的记忆数量"""
         all_ids = set()
@@ -368,6 +397,8 @@ class ChromaQueries:
         where_shared = {"group_id": group_id, "scope": MemoryScope.GROUP_SHARED.value}
         if storage_layer:
             where_shared["storage_layer"] = storage_layer.value
+        if persona_id:
+            where_shared["persona_id"] = persona_id
 
         results = await asyncio.to_thread(
             self.collection.get,
@@ -379,6 +410,8 @@ class ChromaQueries:
         where_private = {"user_id": user_id, "group_id": group_id, "scope": MemoryScope.GROUP_PRIVATE.value}
         if storage_layer:
             where_private["storage_layer"] = storage_layer.value
+        if persona_id:
+            where_private["persona_id"] = persona_id
 
         results = await asyncio.to_thread(
             self.collection.get,
@@ -390,6 +423,8 @@ class ChromaQueries:
         where_global = {"scope": MemoryScope.GLOBAL.value}
         if storage_layer:
             where_global["storage_layer"] = storage_layer.value
+        if persona_id:
+            where_global["persona_id"] = persona_id
 
         results = await asyncio.to_thread(
             self.collection.get,
@@ -403,7 +438,8 @@ class ChromaQueries:
     async def _count_private_memories(
         self,
         user_id: str,
-        storage_layer: Optional[StorageLayer]
+        storage_layer: Optional[StorageLayer],
+        persona_id: Optional[str] = None
     ) -> set:
         """统计私聊场景的记忆数量"""
         all_ids = set()
@@ -411,6 +447,8 @@ class ChromaQueries:
         where_user_private = {"user_id": user_id, "scope": MemoryScope.USER_PRIVATE.value}
         if storage_layer:
             where_user_private["storage_layer"] = storage_layer.value
+        if persona_id:
+            where_user_private["persona_id"] = persona_id
 
         results = await asyncio.to_thread(
             self.collection.get,
@@ -422,6 +460,8 @@ class ChromaQueries:
         where_global = {"scope": MemoryScope.GLOBAL.value}
         if storage_layer:
             where_global["storage_layer"] = storage_layer.value
+        if persona_id:
+            where_global["persona_id"] = persona_id
 
         results = await asyncio.to_thread(
             self.collection.get,

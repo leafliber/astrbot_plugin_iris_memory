@@ -139,6 +139,7 @@ class KnowledgeGraphModule:
     async def process_memory(
         self,
         memory: Any,
+        persona_id: Optional[str] = None,
     ) -> List["KGTriple"]:
         """从记忆中提取三元组并存入图谱
 
@@ -146,6 +147,7 @@ class KnowledgeGraphModule:
 
         Args:
             memory: Memory 对象
+            persona_id: 人格 ID（始终写入节点/边）
 
         Returns:
             提取到的三元组列表
@@ -154,6 +156,8 @@ class KnowledgeGraphModule:
             return []
 
         try:
+            _raw = persona_id or getattr(memory, "persona_id", None)
+            _persona = _raw if isinstance(_raw, str) else "default"
             triples = await self._extractor.extract_and_store(
                 text=memory.content,
                 user_id=memory.user_id,
@@ -161,6 +165,7 @@ class KnowledgeGraphModule:
                 memory_id=memory.id,
                 sender_name=memory.sender_name,
                 existing_entities=getattr(memory, "detected_entities", None),
+                persona_id=_persona,
             )
 
             # 更新 Memory 的 graph_nodes / graph_edges（可选）
@@ -189,6 +194,7 @@ class KnowledgeGraphModule:
         group_id: Optional[str] = None,
         max_depth: Optional[int] = None,
         max_results: int = 10,
+        persona_id: Optional[str] = None,
     ) -> "ReasoningResult":
         """执行图遍历检索 + 多跳推理
 
@@ -198,6 +204,7 @@ class KnowledgeGraphModule:
             group_id: 群组 ID
             max_depth: 最大跳数
             max_results: 最大路径数
+            persona_id: 人格 ID（非 None 时启用 persona 过滤）
 
         Returns:
             ReasoningResult
@@ -212,6 +219,7 @@ class KnowledgeGraphModule:
             group_id=group_id,
             max_depth=max_depth,
             max_results=max_results,
+            persona_id=persona_id,
         )
 
     async def format_graph_context(
@@ -219,6 +227,7 @@ class KnowledgeGraphModule:
         query: str,
         user_id: str,
         group_id: Optional[str] = None,
+        persona_id: Optional[str] = None,
     ) -> str:
         """执行图检索并格式化为 LLM 上下文
 
@@ -228,6 +237,7 @@ class KnowledgeGraphModule:
             query: 查询文本
             user_id: 用户 ID
             group_id: 群组 ID
+            persona_id: 人格 ID（非 None 时启用 persona 过滤）
 
         Returns:
             格式化后的知识关联文本（可能为空字符串）
@@ -240,6 +250,7 @@ class KnowledgeGraphModule:
                 query=query,
                 user_id=user_id,
                 group_id=group_id,
+                persona_id=persona_id,
             )
 
             return self._formatter.format_reasoning_result(result, group_id)
