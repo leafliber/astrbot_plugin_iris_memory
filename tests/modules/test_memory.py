@@ -61,12 +61,17 @@ class TestMemoryMethods:
         assert result is True
     
     def test_should_not_upgrade_low_quality(self):
-        """测试低质量记忆不应升级"""
+        """测试低质量且无足够访问/重要性的记忆不应升级"""
         memory = Memory(
             id="mem_001",
             quality_level=QualityLevel.UNCERTAIN,
-            access_count=10,
-            importance_score=0.9
+            access_count=1,
+            importance_score=0.3,
+            emotional_weight=0.2,
+            confidence=0.3,
+            rif_score=0.2,
+            is_user_requested=False,
+            storage_layer=StorageLayer.WORKING
         )
         
         result = memory.should_upgrade_to_episodic()

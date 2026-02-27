@@ -129,11 +129,11 @@ class TestReranker:
         # 计算活跃度得分（无service，默认0.5）
         activity_score = reranker._calculate_activity_score(memory, {})
 
-        # 计算期望的综合得分（新权重分配）
+        # 计算期望的综合得分（新权重分配：RIF已含时近性，time_score仅微调）
         expected_score = (
-            0.20 * quality_score +  # 质量等级
-            0.20 * rif_score +     # RIF评分
-            0.15 * time_score +    # 时间衰减
+            0.25 * quality_score +  # 质量等级
+            0.25 * rif_score +     # RIF评分（内含时近性40%+相关性30%+频率30%）
+            0.05 * time_score +    # 时间衰减（微调补充）
             0.10 * sender_score +  # 发送者匹配
             0.05 * activity_score + # 活跃度
             0.10 * access_score +   # 访问频率

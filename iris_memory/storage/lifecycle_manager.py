@@ -306,6 +306,44 @@ class SessionLifecycleManager:
                     f"Memory promotion completed: {semantic_promoted} memories "
                     f"promoted from EPISODIC to SEMANTIC (mode={self.upgrade_mode.value})"
                 )
+            
+            # ========== 阶段 3: SEMANTIC → EPISODIC 降级 ==========
+            semantic_demoted = 0
+            try:
+                semantic_memories = await self.chroma_manager.get_memories_by_storage_layer(
+                    StorageLayer.SEMANTIC
+                )
+            except Exception as e:
+                logger.warning(f"Failed to get semantic memories for demotion check: {e}")
+                semantic_memories = []
+            
+            if semantic_memories:
+                for memory in semantic_memories:
+                    if memory.should_downgrade_to_episodic():
+                        original_layer = memory.storage_layer
+                        memory.storage_layer = StorageLayer.EPISODIC
+                        try:
+                            success = await self.chroma_manager.update_memory(memory)
+                            if success:
+                                semantic_demoted += 1
+                                logger.debug(
+                                    f"Memory {memory.id} demoted SEMANTIC→EPISODIC "
+                                    f"(confidence={memory.confidence:.2f}, "
+                                    f"rif={memory.rif_score:.2f}, "
+                                    f"days_since_access="
+                                    f"{(datetime.now() - memory.last_access_time).days})"
+                                )
+                            else:
+                                memory.storage_layer = original_layer
+                        except Exception as e:
+                            memory.storage_layer = original_layer
+                            logger.error(f"Error demoting memory {memory.id}: {e}")
+            
+            if semantic_demoted > 0:
+                logger.debug(
+                    f"Memory demotion completed: {semantic_demoted} memories "
+                    f"demoted from SEMANTIC to EPISODIC"
+                )
                 
         except Exception as e:
             logger.error(f"Failed to promote memories: {e}", exc_info=True)

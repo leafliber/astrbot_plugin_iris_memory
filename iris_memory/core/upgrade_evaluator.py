@@ -188,15 +188,83 @@ class UpgradeEvaluator:
             if upgrade_type == "working_to_episodic":
                 should_upgrade = memory.should_upgrade_to_episodic()
                 reason = self._get_working_upgrade_reason(memory, should_upgrade)
+                confidence = self._calculate_rule_confidence(memory, upgrade_type) if should_upgrade else 0.2
             else:
                 should_upgrade = memory.should_upgrade_to_semantic()
                 reason = self._get_episodic_upgrade_reason(memory, should_upgrade)
+                confidence = self._calculate_rule_confidence(memory, upgrade_type) if should_upgrade else 0.2
             
-            # 规则判断的置信度固定为0.8
-            confidence = 0.8 if should_upgrade else 0.2
             results[memory.id] = (should_upgrade, confidence, reason)
         
         return results
+    
+    def _calculate_rule_confidence(self, memory: Memory, upgrade_type: str) -> float:
+        """根据满足条件的数量和强度动态计算规则判断的置信度
+        
+        满足的条件越多、指标值越高，置信度越高。
+        
+        Args:
+            memory: 记忆对象
+            upgrade_type: 升级类型
+            
+        Returns:
+            float: 置信度（0.5-0.95）
+        """
+        base_confidence = 0.5
+        bonus = 0.0
+        
+        if upgrade_type == "working_to_episodic":
+            # 用户请求是最强信号
+            if memory.is_user_requested:
+                bonus += 0.3
+            # 质量等级高
+            if memory.quality_level.value >= QualityLevel.HIGH_CONFIDENCE.value:
+                bonus += 0.2
+            # 高置信度
+            if memory.confidence >= 0.7:
+                bonus += 0.15
+            elif memory.confidence >= 0.5:
+                bonus += 0.05
+            # 多次访问
+            if memory.access_count >= 5:
+                bonus += 0.15
+            elif memory.access_count >= 3:
+                bonus += 0.08
+            # 情感权重
+            if memory.emotional_weight > 0.6:
+                bonus += 0.1
+            # RIF评分
+            if memory.rif_score > 0.7:
+                bonus += 0.1
+            elif memory.rif_score > 0.5:
+                bonus += 0.05
+        else:  # episodic_to_semantic
+            # CONFIRMED 质量
+            if memory.quality_level == QualityLevel.CONFIRMED:
+                bonus += 0.3
+            # 频繁访问
+            if memory.access_count >= 10:
+                bonus += 0.2
+            elif memory.access_count >= 5:
+                bonus += 0.15
+            elif memory.access_count >= 3:
+                bonus += 0.08
+            # 高置信度
+            if memory.confidence > 0.8:
+                bonus += 0.15
+            elif memory.confidence > 0.65:
+                bonus += 0.1
+            # 高重要性
+            if memory.importance_score >= 0.8:
+                bonus += 0.1
+            # 时间验证（存在超过7天）
+            days_since_creation = (datetime.now() - memory.created_time).days
+            if days_since_creation >= 30:
+                bonus += 0.1
+            elif days_since_creation >= 7:
+                bonus += 0.05
+        
+        return min(0.95, base_confidence + bonus)
     
     def _get_working_upgrade_reason(self, memory: Memory, should_upgrade: bool) -> str:
         """获取工作记忆升级原因
@@ -206,14 +274,14 @@ class UpgradeEvaluator:
         if should_upgrade:
             if memory.is_user_requested:
                 return "用户主动请求保存"
-            elif memory.access_count >= 1 and memory.importance_score > 0.5:
+            elif memory.access_count >= 3 and memory.importance_score > 0.5:
                 return f"访问{memory.access_count}次且重要性{memory.importance_score:.2f}"
             elif memory.emotional_weight > 0.6:
                 return f"情感权重高({memory.emotional_weight:.2f})"
             elif memory.confidence >= 0.7:
                 return f"置信度较高({memory.confidence:.2f})"
-            elif memory.rif_score > 0.5 and memory.access_count >= 1:
-                return f"RIF评分较高({memory.rif_score:.2f})且已被访问"
+            elif memory.rif_score > 0.5 and memory.access_count >= 2:
+                return f"RIF评分较高({memory.rif_score:.2f})且已被访问{memory.access_count}次"
             elif memory.quality_level.value >= QualityLevel.HIGH_CONFIDENCE.value:
                 return f"质量等级较高({memory.quality_level.name})"
             else:
@@ -436,7 +504,7 @@ class UpgradeEvaluator:
             if upgrade_type == "working_to_episodic":
                 # 预筛选条件覆盖 should_upgrade_to_episodic() 的所有分支
                 is_candidate = (
-                    memory.access_count >= 1 or
+                    memory.access_count >= 2 or
                     memory.importance_score > 0.4 or
                     memory.emotional_weight > 0.5 or
                     memory.confidence >= 0.6 or

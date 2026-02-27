@@ -16,18 +16,18 @@ class Reranker:
 
     对检索结果进行重排序：
     - 质量等级优先：CONFIRMED > HIGH_CONFIDENCE > MODERATE
-    - RIF评分：高RIF得分优先
-    - 时间衰减：新记忆优先
+    - RIF评分：高RIF得分优先（内含时近性40%+相关性30%+频率30%）
+    - 时间衰减：新记忆优先（仅作为RIF之外的微调补充）
     - 情感一致性：与当前情感一致的记忆优先
     - 访问频率：高频访问的记忆优先
     - 向量相似度：Chroma向量检索的补充权重
     - 发送者匹配：与当前对话者相关的记忆加权
     - 活跃度权重：活跃成员的记忆优先
 
-    合并后的权重分配：
-    - 质量等级：0.20
-    - RIF评分：0.20
-    - 时间衰减：0.15
+    合并后的权重分配（注意：RIF已包含时近性，time_score仅做微调）：
+    - 质量等级：0.25
+    - RIF评分：0.25
+    - 时间衰减：0.05（微调，避免与RIF内时近性双重加权）
     - 向量相似度：0.15
     - 发送者匹配：0.10
     - 活跃度权重：0.05
@@ -93,10 +93,10 @@ class Reranker:
     ) -> float:
         """计算重排序得分
 
-        合并后的权重分配：
-        - 质量等级：0.20
-        - RIF评分：0.20
-        - 时间衰减：0.15
+        合并后的权重分配（RIF已包含时近性，time_score仅做微调）：
+        - 质量等级：0.25
+        - RIF评分：0.25
+        - 时间衰减：0.05（微调补充）
         - 向量相似度：0.15
         - 发送者匹配：0.10
         - 活跃度权重：0.05
@@ -139,11 +139,11 @@ class Reranker:
         # 8. 活跃度得分
         activity_score = self._calculate_activity_score(memory, context)
 
-        # 综合得分
+        # 综合得分（注意：RIF已包含时近性40%，time_score仅作微调补充）
         comprehensive_score = (
-            0.20 * quality_score +
-            0.20 * rif_score +
-            0.15 * time_score +
+            0.25 * quality_score +
+            0.25 * rif_score +
+            0.05 * time_score +
             0.10 * sender_score +
             0.05 * activity_score +
             0.10 * access_score +
@@ -261,7 +261,7 @@ class Reranker:
         # 特殊规则：如果当前情感是负面，避免高强度正面记忆
         if current_emotion in NEGATIVE_EMOTIONS_CORE:
             if memory.emotional_weight > 0.8:
-                if memory_emotion in ["joy", "excitement"]:
+                if memory_emotion in ["joy", "excitement", "calm", "contentment", "amusement"]:
                     return 0.0  # 负面情感时，高强度正面记忆相关性为0
 
         # 三级评分系统

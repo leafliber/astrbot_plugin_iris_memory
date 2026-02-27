@@ -81,7 +81,7 @@ class Memory:
     base_decay: float = DecayRate.HABIT  # 基础衰减常数
     
     # ========== 存储 ==========
-    storage_layer: StorageLayer = StorageLayer.EPISODIC
+    storage_layer: StorageLayer = StorageLayer.WORKING
     expires_at: Optional[datetime] = None  # 过期时间
     version: int = 1  # 版本号，用于追踪修改
     
@@ -162,21 +162,21 @@ class Memory:
         """判断是否应该从工作记忆升级到情景记忆
 
         触发条件（满足任一即可）：
-        - 访问>=1次 且 重要性>0.5
+        - 访问>=3次 且 重要性>0.5（被多次检索说明有持续价值）
         - 或 情感强度>0.6
         - 或 置信度>=0.7
         - 或 用户主动请求的记忆
-        - 或 RIF评分较高(>0.5) 且 有访问
+        - 或 RIF评分较高(>0.5) 且 访问>=2次
         - 或 质量等级为HIGH_CONFIDENCE或更高
         """
         if self.storage_layer != StorageLayer.WORKING:
             return False
 
-        condition1 = self.access_count >= 1 and self.importance_score > 0.5
+        condition1 = self.access_count >= 3 and self.importance_score > 0.5
         condition2 = self.emotional_weight > 0.6
         condition3 = self.confidence >= 0.7
         condition4 = self.is_user_requested
-        condition5 = self.rif_score > 0.5 and self.access_count >= 1
+        condition5 = self.rif_score > 0.5 and self.access_count >= 2
         condition6 = self.quality_level.value >= QualityLevel.HIGH_CONFIDENCE.value
 
         return condition1 or condition2 or condition3 or condition4 or condition5 or condition6
@@ -213,6 +213,38 @@ class Memory:
         days_since_access = (datetime.now() - self.last_access_time).days
         return self.rif_score < rif_threshold and days_since_access > 30
     
+    def should_downgrade_to_episodic(self) -> bool:
+        """判断语义记忆是否应该降级回情景记忆
+        
+        当记忆被错误升级到SEMANTIC层后，如果长期不被访问且评分下降，
+        应自动降级以让升级通道可逆。
+        
+        触发条件（需同时满足）：
+        - 当前为SEMANTIC存储层
+        - 置信度降到0.5以下（可能发生了冲突或更正）
+        - 90天未被访问
+        - RIF评分低于0.3
+        - 非用户主动请求保存的记忆
+        """
+        if self.storage_layer != StorageLayer.SEMANTIC:
+            return False
+        
+        # 用户主动请求的记忆不降级
+        if self.is_user_requested:
+            return False
+        
+        # CONFIRMED 质量的记忆不降级
+        if self.quality_level == QualityLevel.CONFIRMED:
+            return False
+        
+        days_since_access = (datetime.now() - self.last_access_time).days
+        
+        return (
+            self.confidence < 0.5
+            and days_since_access > 90
+            and self.rif_score < 0.3
+        )
+    
     def should_delete_working(self) -> bool:
         """判断是否应该清除工作记忆
         
@@ -226,24 +258,14 @@ class Memory:
         return hours_since_creation > 24
     
     def calculate_time_weight(self) -> float:
-        """计算时间权重
+        """计算时间权重（委托给 calculate_time_score 以保持一致性）
         
-        根据时近性计算权重：
-        - 7天内：1.2
-        - 7-30天：1.0
-        - 30-90天：0.8
-        - >90天：0.6
+        返回基于 last_access_time 的归一化时间得分（0-1），
+        与 RIF Scorer 和 Reranker 使用统一算法。
+        
+        注意：此方法保留以兼容旧代码，新代码应直接使用 calculate_time_score()。
         """
-        days = (datetime.now() - self.last_access_time).days
-        
-        if days < 7:
-            return 1.2
-        elif days < 30:
-            return 1.0
-        elif days < 90:
-            return 0.8
-        else:
-            return 0.6
+        return self.calculate_time_score(use_created_time=False)
 
     def calculate_time_score(self, use_created_time: bool = False) -> float:
         """计算归一化的时间得分（0~1）

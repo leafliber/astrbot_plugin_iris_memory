@@ -92,11 +92,9 @@ class RIFScorer:
     def _calculate_recency(self, memory: Memory) -> float:
         """计算时近性得分（40%权重）
         
-        改进的时近性计算：
-        - 新创建的记忆获得较高的初始时近性
-        - 根据记忆类型调整衰减速度
-        - 考虑记忆的情感权重（高情感记忆衰减更慢）
-        - 用户主动请求的记忆衰减更慢
+        统一使用 Memory.calculate_time_score() 作为基础时间得分，
+        再根据记忆特征（情感权重、用户请求、重要性）进行调整，
+        确保与 Reranker 等其他模块的时间算法一致。
         
         Args:
             memory: 记忆对象
@@ -104,44 +102,35 @@ class RIFScorer:
         Returns:
             float: 时近性得分（0-1）
         """
-        # 获取基础衰减率
-        decay_rate = self._get_decay_rate(memory)
+        # 统一的基础时间得分（基于 last_access_time）
+        base_time_score = memory.calculate_time_score(use_created_time=False)
         
-        # 根据记忆特征调整衰减率
+        # 根据记忆特征调整（乘性修正）
+        modifier = 1.0
+        
         # 高情感权重记忆衰减更慢
         if memory.emotional_weight > 0.7:
-            decay_rate *= 0.7  # 减慢 30%
+            modifier *= 1.15  # 提升 15%
         elif memory.emotional_weight > 0.4:
-            decay_rate *= 0.85  # 减慢 15%
+            modifier *= 1.08  # 提升 8%
         
         # 用户主动请求的记忆衰减更慢
         if memory.is_user_requested:
-            decay_rate *= 0.6  # 减慢 40%
+            modifier *= 1.2  # 提升 20%
         
         # 高重要性记忆衰减更慢
         if memory.importance_score > 0.8:
-            decay_rate *= 0.75
+            modifier *= 1.12
         elif memory.importance_score > 0.5:
-            decay_rate *= 0.9
-        
-        # 计算时间差（小时，更精确）
-        time_delta_hours = (datetime.now() - memory.last_access_time).total_seconds() / 3600
-        time_delta_days = time_delta_hours / 24
-        
-        # 指数衰减模型（基于小时更平滑）
-        exponential_decay = math.exp(-decay_rate * time_delta_days)
-        
-        # 应用时间权重（更细粒度）
-        time_weight = self._get_detailed_time_weight(memory.last_access_time)
+            modifier *= 1.05
         
         # 新创建记忆保护期（24小时内获得额外加成）
         creation_hours = (datetime.now() - memory.created_time).total_seconds() / 3600
-        new_memory_bonus = 1.0
         if creation_hours < 24:
-            new_memory_bonus = 1.0 + (24 - creation_hours) / 48  # 最大 +0.5
+            new_memory_bonus = 1.0 + (24 - creation_hours) / 120  # 最大 +0.2
+            modifier *= new_memory_bonus
         
-        # 综合时近性得分
-        recency_score = exponential_decay * time_weight * new_memory_bonus
+        recency_score = base_time_score * modifier
         
         # 归一化到0-1
         return min(1.0, max(0.0, recency_score))
@@ -149,12 +138,14 @@ class RIFScorer:
     def _calculate_relevance(self, memory: Memory) -> float:
         """计算相关性得分（30%权重）
         
-        改进的相关性计算：
-        - 考虑记忆类型的重要性
-        - 多次访问的记忆相关性得分提升
-        - 一致性分数高的记忆相关性更高
-        - 用户请求的记性相关性最高
-        - 情感类记忆有额外加成
+        改进的相关性计算（归一化权重体系）：
+        - 基础相关性（一致性 + 类型）占 55%
+        - 访问频率加成占 15%
+        - 用户请求加成占 15%
+        - 置信度加成占 10%
+        - 情感加成占 5%
+        
+        所有分量在加权前已归一化到0-1，保证最终结果∈[0,1]。
         
         Args:
             memory: 记忆对象
@@ -162,62 +153,57 @@ class RIFScorer:
         Returns:
             float: 相关性得分（0-1）
         """
-        # 基础相关性：基于一致性分数
+        # 基础相关性：基于一致性分数 (0-1)
         base_relevance = memory.consistency_score
         
-        # 记忆类型权重
+        # 记忆类型权重 (0-1)
         type_weights = {
-            'fact': 0.9,        # 事实类很重要
-            'emotion': 0.95,    # 情感类非常重要
-            'relationship': 0.95, # 关系类非常重要
-            'interaction': 0.7,  # 互动类一般
-            'inferred': 0.6     # 推断类较低
+            'fact': 0.9,
+            'emotion': 0.95,
+            'relationship': 0.95,
+            'interaction': 0.7,
+            'inferred': 0.6
         }
         type_weight = type_weights.get(memory.type.value, 0.7)
         
-        # 访问频率加成（非线性增长，最多提升25%）
-        access_bonus = min(0.25, math.log1p(memory.access_count) * 0.1)
+        # 访问频率得分 (0-1, 使用 log 平滑)
+        access_score = min(1.0, math.log1p(memory.access_count) / math.log1p(20))
         
-        # 用户请求加成（+35%）
-        user_request_bonus = 0.35 if memory.is_user_requested else 0.0
+        # 用户请求得分 (0 或 1)
+        user_request_score = 1.0 if memory.is_user_requested else 0.0
         
-        # 高置信度加成
-        confidence_bonus = 0.0
-        if memory.confidence >= 0.9:
-            confidence_bonus = 0.15
-        elif memory.confidence >= 0.75:
-            confidence_bonus = 0.08
-        elif memory.confidence >= 0.5:
-            confidence_bonus = 0.03
+        # 置信度得分 (0-1, 直接使用)
+        confidence_score = memory.confidence
         
-        # 高情感强度加成
-        emotion_bonus = 0.0
-        if memory.emotional_weight > 0.8:
-            emotion_bonus = 0.12
-        elif memory.emotional_weight > 0.5:
-            emotion_bonus = 0.06
+        # 情感强度得分 (0-1)
+        emotion_score = min(1.0, memory.emotional_weight)
         
-        # 综合相关性得分
+        # 归一化加权求和（各权重之和 = 1.0）
         relevance_score = (
-            base_relevance * 0.3 +           # 一致性占 30%
-            type_weight * 0.25 +             # 类型权重占 25%
-            access_bonus +                   # 访问频率加成
-            user_request_bonus +             # 用户请求加成
-            confidence_bonus +               # 置信度加成
-            emotion_bonus                    # 情感加成
+            base_relevance * 0.25 +      # 一致性占 25%
+            type_weight * 0.30 +          # 类型权重占 30%
+            access_score * 0.15 +         # 访问频率占 15%
+            user_request_score * 0.15 +   # 用户请求占 15%
+            confidence_score * 0.10 +     # 置信度占 10%
+            emotion_score * 0.05          # 情感占 5%
         )
         
-        # 归一化到0-1
+        # 保险归一化（理论上不应超过1.0）
         return min(1.0, max(0.0, relevance_score))
     
     def _calculate_frequency(self, memory: Memory) -> float:
         """计算频率得分（30%权重）
         
-        改进的频率计算：
-        - 基于访问频率和访问模式
-        - 近期频繁访问比历史访问更有价值
-        - 重要性高的记忆频率得分更高
-        - 考虑记忆的新鲜度
+        归一化权重体系：
+        - 基础频率（访问次数）占 40%
+        - 重要性占 20%
+        - 用户请求占 15%
+        - 质量等级占 10%
+        - 情感权重占 5%
+        - 近期访问作为乘性修正
+        - 时间衰减作为乘性修正
+        
+        所有分量在加权前已归一化到0-1，保证最终结果∈[0,1]。
         
         Args:
             memory: 记忆对象
@@ -225,38 +211,42 @@ class RIFScorer:
         Returns:
             float: 频率得分（0-1）
         """
-        # 基础频率得分：基于访问频率（使用 log1p 平滑）
+        # 基础频率得分 (0-1)
         base_frequency = min(1.0, math.log1p(memory.access_count) / math.log1p(50))
         
-        # 近期访问权重（最近7天的访问更有价值）
+        # 重要性得分 (0-1)
+        importance_score = memory.importance_score
+        
+        # 用户请求得分 (0 或 1)
+        user_request_score = 1.0 if memory.is_user_requested else 0.0
+        
+        # 质量得分 (0-1, 归一化枚举值)
+        quality_score = min(1.0, memory.quality_level.value / 5.0)
+        
+        # 情感权重得分 (0-1)
+        emotion_score = min(1.0, memory.emotional_weight)
+        
+        # 归一化加权求和（权重之和 = 0.90，留0.10给乘性修正因子的影响空间）
+        weighted_sum = (
+            base_frequency * 0.40 +
+            importance_score * 0.20 +
+            user_request_score * 0.15 +
+            quality_score * 0.10 +
+            emotion_score * 0.05
+        )
+        
+        # 近期访问乘性修正 (0.8-1.15)
         days_since_last_access = (datetime.now() - memory.last_access_time).days
-        recency_multiplier = 1.0
         if days_since_last_access <= 1:
-            recency_multiplier = 1.3  # 24小时内访问过
+            recency_multiplier = 1.15
         elif days_since_last_access <= 7:
-            recency_multiplier = 1.15  # 一周内访问过
+            recency_multiplier = 1.08
         elif days_since_last_access <= 30:
             recency_multiplier = 1.0
         else:
-            recency_multiplier = 0.8  # 超过一个月
+            recency_multiplier = 0.85
         
-        # 重要性加成
-        importance_bonus = memory.importance_score * 0.2
-        
-        # 用户请求加成
-        user_request_bonus = 0.15 if memory.is_user_requested else 0.0
-        
-        # 高质量记忆加成
-        quality_bonus = 0.0
-        if memory.quality_level.value >= 4:  # HIGH_CONFIDENCE 或 CONFIRMED
-            quality_bonus = 0.1
-        elif memory.quality_level.value >= 3:  # MODERATE
-            quality_bonus = 0.05
-        
-        # 情感权重加成
-        emotion_bonus = min(0.1, memory.emotional_weight * 0.1)
-        
-        # 时间衰减因子（基于创建时间）
+        # 时间衰减乘性修正 (0.7-1.0)
         age_days = (datetime.now() - memory.created_time).days
         if age_days <= 7:
             age_factor = 1.0
@@ -267,14 +257,7 @@ class RIFScorer:
         else:
             age_factor = max(0.7, 1.0 - (age_days - 90) / 1000)
         
-        # 综合频率得分
-        frequency_score = (
-            base_frequency * 0.5 +           # 基础频率占 50%
-            importance_bonus +
-            user_request_bonus +
-            quality_bonus +
-            emotion_bonus
-        ) * recency_multiplier * age_factor
+        frequency_score = weighted_sum * recency_multiplier * age_factor
         
         # 归一化到0-1
         return min(1.0, max(0.0, frequency_score))

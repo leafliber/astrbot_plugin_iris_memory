@@ -248,9 +248,12 @@ class DynamicMemorySelector:
     ) -> Tuple[List, dict]:
         """选择要注入的记忆
         
+        在target_count和token预算双重约束下选择记忆。
+        target_count被硬限制在合理范围内，防止外部配置过大导致token溢出。
+        
         Args:
             memories: 候选记忆列表
-            target_count: 目标数量
+            target_count: 目标数量（会被限制在1-20之间）
             
         Returns:
             Tuple[List, dict]: (选中的记忆列表, 统计信息)
@@ -258,13 +261,18 @@ class DynamicMemorySelector:
         # 重置预算
         self.token_budget.reset()
         
+        # 硬限制target_count防止配置过大
+        effective_target = max(1, min(target_count, 20))
+        
         selected = []
         stats = {
             "total_candidates": len(memories),
             "selected_count": 0,
             "used_tokens": 0,
             "skipped_count": 0,
-            "summary_used": 0
+            "summary_used": 0,
+            "target_count": effective_target,
+            "original_target": target_count
         }
         
         # 按重要性排序
@@ -275,7 +283,7 @@ class DynamicMemorySelector:
         )
         
         # 尝试选择记忆
-        for memory in sorted_memories[:target_count]:
+        for memory in sorted_memories[:effective_target]:
             # 压缩记忆
             compressed, used_summary = self.compressor.compress_memory(
                 memory.content,

@@ -60,9 +60,11 @@ class MemoryRetrievalEngine:
     结果重排序权重（Reranker）：
     ─────────────────────────────────────────
     - 质量等级：    0.25  (CONFIRMED > HIGH_CONFIDENCE > ...)
-    - RIF评分：     0.25  (时近性40% + 相关性30% + 频率30%)
-    - 时间衰减：    0.20  (新记忆优先)
+    - RIF评分：     0.25  (内含时近性40% + 相关性30% + 频率30%)
+    - 时间衰减：    0.05  (微调补充，避免与RIF双重加权)
     - 向量相似度：  0.15  (语义匹配度)
+    - 发送者匹配：  0.10  (当前对话者记忆优先)
+    - 活跃度权重：  0.05  (活跃成员记忆优先)
     - 访问频率：    0.10  (热度加权)
     - 情感一致性：  0.05  (情绪匹配)
 
@@ -218,12 +220,16 @@ class MemoryRetrievalEngine:
         if not emotional_state:
             return memories
         
+        # 正面情绪子类型（负面状态下过滤高强度的这些记忆）
+        positive_subtypes = {'joy', 'excitement', 'calm', 'contentment', 'amusement'}
+        emotion_threshold = RetrievalDefaults.EMOTION_FILTER_THRESHOLD
+        
         filtered = []
         for memory in memories:
             if emotional_state.current.primary in [EmotionType.SADNESS, EmotionType.ANGER, EmotionType.FEAR]:
-                if memory.emotional_weight > 0.7 and memory.type == MemoryType.EMOTION:
+                if memory.emotional_weight > emotion_threshold and memory.type == MemoryType.EMOTION:
                     if hasattr(memory, 'subtype') and memory.subtype:
-                        if memory.subtype in ['joy', 'excitement']:
+                        if memory.subtype in positive_subtypes:
                             retrieval_log.memory_filtered(user_id, memory.id, "emotion_mismatch")
                             continue
             
@@ -363,7 +369,7 @@ class MemoryRetrievalEngine:
             if working_memories:
                 retrieval_log.working_memory_merged(user_id, len(working_memories), len(candidate_memories) + len(working_memories))
                 candidate_memories = self._merge_memories(
-                    candidate_memories, working_memories
+                    candidate_memories, working_memories, max_total=top_k * 2
                 )
         
         if not candidate_memories:
@@ -546,7 +552,7 @@ class MemoryRetrievalEngine:
                 query, user_id, group_id, storage_layer
             )
             if working_memories:
-                vector_memories = self._merge_memories(vector_memories, working_memories)
+                vector_memories = self._merge_memories(vector_memories, working_memories, max_total=top_k * 2)
 
         if not vector_memories:
             retrieval_log.no_memories_found(user_id, query)
@@ -606,55 +612,118 @@ class MemoryRetrievalEngine:
             if not working_memories:
                 return []
             
-            # 简单的关键词匹配过滤（工作记忆通常数量较少，不需要向量检索）
-            query_lower = query.lower()
-            query_keywords = set(query_lower.split())
+            # 工作记忆合并数量上限（防止超出Token预算）
+            max_working_merge = min(self.max_context_memories * 2, 10)
             
-            relevant = []
+            # 提取查询关键词（支持中文字符级匹配 + 空格分词）
+            query_lower = query.lower()
+            query_tokens = self._tokenize_for_match(query_lower)
+            
+            scored: list[tuple[Memory, float]] = []
             for memory in working_memories:
                 content_lower = memory.content.lower()
-                # 检查是否有关键词匹配
-                content_words = set(content_lower.split())
-                overlap = query_keywords & content_words
+                content_tokens = self._tokenize_for_match(content_lower)
                 
-                # 如果有关键词重叠或者查询在内容中，认为相关
-                if overlap or query_lower in content_lower or content_lower in query_lower:
-                    relevant.append(memory)
-                # 对于短查询，包含所有工作记忆以保持上下文
-                elif len(query) < 20:
-                    relevant.append(memory)
+                # 计算匹配得分
+                score = 0.0
+                
+                # 1. 子串包含（最强信号）
+                if query_lower in content_lower or content_lower in query_lower:
+                    score += 1.0
+                
+                # 2. Token重叠率
+                if query_tokens and content_tokens:
+                    overlap = query_tokens & content_tokens
+                    # Jaccard-like: 以查询侧token数为分母，避免长内容稀释
+                    score += len(overlap) / len(query_tokens) * 0.6
+                
+                # 3. 时近性加成（最近1小时内创建的工作记忆轻微加成）
+                hours_age = (datetime.now() - memory.created_time).total_seconds() / 3600
+                if hours_age < 1:
+                    score += 0.15
+                elif hours_age < 6:
+                    score += 0.05
+                
+                if score > 0:
+                    scored.append((memory, score))
             
-            return relevant
+            # 如果没有匹配，对短查询返回最近的几条工作记忆作为上下文
+            if not scored and len(query) < RetrievalDefaults.SHORT_QUERY_THRESHOLD:
+                recent = sorted(working_memories, key=lambda m: m.created_time, reverse=True)
+                return recent[:max_working_merge]
+            
+            # 按得分排序，取前max_working_merge条
+            scored.sort(key=lambda x: x[1], reverse=True)
+            return [m for m, _ in scored[:max_working_merge]]
             
         except Exception as e:
             return []
     
+    @staticmethod
+    def _tokenize_for_match(text: str) -> set:
+        """提取匹配用的token集合（支持中英文混合）
+        
+        对中文按字符级bigram切分，对英文/数字按空格分词，
+        兼顾中文语义和英文关键词匹配。
+        
+        Args:
+            text: 输入文本
+            
+        Returns:
+            set: token集合
+        """
+        tokens = set()
+        # 空格分词（覆盖英文和数字）
+        for word in text.split():
+            if word:
+                tokens.add(word)
+        # 中文字符bigram（覆盖中文语义）
+        chinese_chars = [c for c in text if '\u4e00' <= c <= '\u9fff']
+        for i in range(len(chinese_chars)):
+            tokens.add(chinese_chars[i])  # unigram
+            if i + 1 < len(chinese_chars):
+                tokens.add(chinese_chars[i] + chinese_chars[i + 1])  # bigram
+        return tokens
+    
     def _merge_memories(
         self,
         persistent_memories: List[Memory],
-        working_memories: List[Memory]
+        working_memories: List[Memory],
+        max_total: Optional[int] = None
     ) -> List[Memory]:
         """合并持久记忆和工作记忆
         
         Args:
             persistent_memories: 来自Chroma的持久记忆
             working_memories: 来自SessionManager的工作记忆
+            max_total: 合并后最大数量（默认无限制，由调用方的top_k控制）
             
         Returns:
-            List[Memory]: 合并后的记忆列表（去重）
+            List[Memory]: 合并后的记忆列表（去重，工作记忆优先）
         """
         # 使用ID去重
         seen_ids = set()
         merged = []
         
-        # 工作记忆优先（更新鲜的上下文）
+        # 工作记忆数量上限：不超过总量的一半，且不超过max_context_memories
+        max_working = min(
+            len(working_memories),
+            self.max_context_memories,
+            (max_total or len(working_memories) + len(persistent_memories)) // 2 + 1
+        )
+        
+        # 工作记忆优先（更新鲜的上下文），但有数量限制
         for memory in working_memories:
+            if len(merged) >= max_working:
+                break
             if memory.id not in seen_ids:
                 seen_ids.add(memory.id)
                 merged.append(memory)
         
         # 添加持久记忆
         for memory in persistent_memories:
+            if max_total and len(merged) >= max_total:
+                break
             if memory.id not in seen_ids:
                 seen_ids.add(memory.id)
                 merged.append(memory)
@@ -830,7 +899,7 @@ class MemoryRetrievalEngine:
         Args:
             config: 配置字典
         """
-        self.max_context_memories = config.get("max_context_memories", 3)
+        self.max_context_memories = min(max(1, config.get("max_context_memories", 3)), 20)
         self.enable_time_aware = config.get("enable_time_aware", True)
         self.enable_emotion_aware = config.get("enable_emotion_aware", True)
         self.enable_token_budget = config.get("enable_token_budget", True)
