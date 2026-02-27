@@ -1,6 +1,8 @@
 # Iris Memory Plugin
 
-面向 AstrBot 的三层记忆插件：让机器人“记住你”、按上下文检索、并在对话中自动注入相关记忆。
+![访问量](https://count.getloli.com/get/@astrbot_plugin_iris_memory?theme=moebooru)
+
+面向 AstrBot 的三层记忆插件：让机器人"记住你"、按上下文检索、并在对话中自动注入相关记忆。
 
 ⚠️注意：
 - 插件默认只用规则（rule）。想要更智能的升级，请在 AstrBot 插件配置里开启 LLM 分析，并将模式改为 hybrid 或 llm
