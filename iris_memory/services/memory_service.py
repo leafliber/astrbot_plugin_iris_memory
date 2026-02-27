@@ -483,6 +483,12 @@ class MemoryService:
         kg_max_depth = self.cfg.get("knowledge_graph.max_depth", 3)
         kg_max_nodes = self.cfg.get("knowledge_graph.max_nodes_per_hop", 10)
         kg_max_facts = self.cfg.get("knowledge_graph.max_facts", 8)
+        kg_auto_maintenance = self.cfg.get("knowledge_graph.auto_maintenance", True)
+        kg_maintenance_interval = self.cfg.get("knowledge_graph.maintenance_interval", 86400)
+        kg_cleanup_orphans = self.cfg.get("knowledge_graph.auto_cleanup_orphans", True)
+        kg_cleanup_low_conf = self.cfg.get("knowledge_graph.auto_cleanup_low_confidence", True)
+        kg_low_conf_threshold = self.cfg.get("knowledge_graph.low_confidence_threshold", 0.2)
+        kg_staleness_days = self.cfg.get("knowledge_graph.staleness_days", 30)
 
         await self.kg.initialize(
             plugin_data_path=self.plugin_data_path,
@@ -493,6 +499,12 @@ class MemoryService:
             max_nodes_per_hop=kg_max_nodes,
             max_facts=kg_max_facts,
             enabled=kg_enabled,
+            auto_maintenance=kg_auto_maintenance,
+            maintenance_interval=kg_maintenance_interval,
+            auto_cleanup_orphans=kg_cleanup_orphans,
+            auto_cleanup_low_confidence=kg_cleanup_low_conf,
+            low_confidence_threshold=kg_low_conf_threshold,
+            staleness_days=kg_staleness_days,
         )
 
         # 注入到检索引擎

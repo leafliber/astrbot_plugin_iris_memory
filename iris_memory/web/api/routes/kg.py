@@ -94,3 +94,36 @@ def register_kg_routes(app: Any, kg_service: Any) -> None:
         except Exception as e:
             logger.error(f"KG edge delete error: {e}")
             return error_response("删除失败", 500)
+
+    @app.route("/api/kg/maintenance", methods=["POST"])
+    async def kg_maintenance():
+        try:
+            result = await kg_service.run_maintenance()
+            if "error" in result:
+                return error_response(result["error"])
+            return success_response(result, message="维护完成")
+        except Exception as e:
+            logger.error(f"KG maintenance error: {e}")
+            return error_response("维护执行失败", 500)
+
+    @app.route("/api/kg/consistency", methods=["GET"])
+    async def kg_consistency():
+        try:
+            result = await kg_service.check_consistency()
+            if "error" in result:
+                return error_response(result["error"])
+            return success_response(result)
+        except Exception as e:
+            logger.error(f"KG consistency error: {e}")
+            return error_response("一致性检查失败", 500)
+
+    @app.route("/api/kg/quality", methods=["GET"])
+    async def kg_quality():
+        try:
+            result = await kg_service.get_quality_report()
+            if "error" in result:
+                return error_response(result["error"])
+            return success_response(result)
+        except Exception as e:
+            logger.error(f"KG quality error: {e}")
+            return error_response("质量报告生成失败", 500)

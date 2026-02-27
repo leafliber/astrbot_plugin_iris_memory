@@ -375,6 +375,14 @@ class KnowledgeGraphDefaults:
     max_facts: int = 8                     # 注入LLM的最大事实数
     min_confidence: float = 0.2            # 最低置信度阈值
 
+    # 定时维护配置
+    maintenance_interval: int = 86400      # 维护任务执行间隔（秒），默认每天
+    auto_maintenance: bool = True          # 是否启用自动维护
+    auto_cleanup_orphans: bool = True      # 自动清理孤立节点
+    auto_cleanup_low_confidence: bool = True  # 自动清理低置信度边
+    low_confidence_threshold: float = 0.2  # 低置信度阈值
+    staleness_days: int = 30               # 过期天数
+
 
 @dataclass
 class WebUIDefaults:

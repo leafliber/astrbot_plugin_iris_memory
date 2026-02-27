@@ -480,3 +480,111 @@ class TestKGStorageDeleteByGroup:
 
         stats = run(storage.get_stats())
         assert stats["nodes"] == 1  # 只剩 g2 的节点
+
+
+class TestKGStorageSQLAggregation:
+    """SQL 聚合方法测试"""
+
+    def _make_node(self, name: str, user_id: str = "u1", **kwargs) -> KGNode:
+        return KGNode(name=name, display_name=name, user_id=user_id, **kwargs)
+
+    def _make_edge(self, source_id: str, target_id: str, **kwargs) -> KGEdge:
+        return KGEdge(source_id=source_id, target_id=target_id, user_id="u1", **kwargs)
+
+    def test_get_node_count(self, storage):
+        """节点计数"""
+        assert run(storage.get_node_count()) == 0
+        run(storage.upsert_node(self._make_node("A")))
+        run(storage.upsert_node(self._make_node("B")))
+        assert run(storage.get_node_count()) == 2
+
+    def test_get_edge_count(self, storage):
+        """边计数"""
+        n1 = run(storage.upsert_node(self._make_node("A")))
+        n2 = run(storage.upsert_node(self._make_node("B")))
+        assert run(storage.get_edge_count()) == 0
+        run(storage.upsert_edge(self._make_edge(n1.id, n2.id)))
+        assert run(storage.get_edge_count()) == 1
+
+    def test_get_avg_confidence(self, storage):
+        """平均置信度"""
+        run(storage.upsert_node(self._make_node("A", confidence=0.4)))
+        run(storage.upsert_node(self._make_node("B", confidence=0.8)))
+
+        result = run(storage.get_avg_confidence())
+        assert abs(result["nodes"] - 0.6) < 0.01
+
+    def test_get_avg_confidence_empty(self, storage):
+        """空图的平均置信度"""
+        result = run(storage.get_avg_confidence())
+        assert result["nodes"] == 0.0
+        assert result["edges"] == 0.0
+
+    def test_get_low_confidence_counts(self, storage):
+        """低置信度计数"""
+        run(storage.upsert_node(self._make_node("A", confidence=0.1)))
+        run(storage.upsert_node(self._make_node("B", confidence=0.5)))
+        run(storage.upsert_node(self._make_node("C", confidence=0.8)))
+
+        result = run(storage.get_low_confidence_counts(threshold=0.3))
+        assert result["nodes"] == 1
+
+    def test_get_node_type_distribution(self, storage):
+        """节点类型分布"""
+        run(storage.upsert_node(self._make_node("A", node_type=KGNodeType.PERSON)))
+        run(storage.upsert_node(self._make_node("B", node_type=KGNodeType.PERSON)))
+        run(storage.upsert_node(self._make_node("C", node_type=KGNodeType.LOCATION)))
+
+        dist = run(storage.get_node_type_distribution())
+        assert dist["person"] == 2
+        assert dist["location"] == 1
+
+    def test_get_relation_type_distribution(self, storage):
+        """关系类型分布"""
+        n1 = run(storage.upsert_node(self._make_node("A")))
+        n2 = run(storage.upsert_node(self._make_node("B")))
+        n3 = run(storage.upsert_node(self._make_node("C")))
+        run(storage.upsert_edge(self._make_edge(n1.id, n2.id, relation_type=KGRelationType.LIKES)))
+        run(storage.upsert_edge(self._make_edge(n1.id, n3.id, relation_type=KGRelationType.LIKES)))
+        run(storage.upsert_edge(self._make_edge(n2.id, n3.id, relation_type=KGRelationType.KNOWS)))
+
+        dist = run(storage.get_relation_type_distribution())
+        assert dist["likes"] == 2
+        assert dist["knows"] == 1
+
+    def test_iter_nodes_batch(self, storage):
+        """分批迭代节点"""
+        for i in range(5):
+            run(storage.upsert_node(self._make_node(f"N{i}")))
+
+        batches = run(storage.iter_nodes_batch(batch_size=2))
+        total = sum(len(b) for b in batches)
+        assert total == 5
+        assert len(batches) == 3  # 2+2+1
+
+    def test_iter_edges_batch(self, storage):
+        """分批迭代边"""
+        nodes = []
+        for i in range(4):
+            nodes.append(run(storage.upsert_node(self._make_node(f"N{i}"))))
+        for i in range(3):
+            run(storage.upsert_edge(self._make_edge(nodes[i].id, nodes[i+1].id)))
+
+        batches = run(storage.iter_edges_batch(batch_size=2))
+        total = sum(len(b) for b in batches)
+        assert total == 3
+
+    def test_get_low_confidence_stale_edge_ids(self, storage):
+        """低置信度过期边查询"""
+        from datetime import datetime, timedelta
+
+        n1 = run(storage.upsert_node(self._make_node("A")))
+        n2 = run(storage.upsert_node(self._make_node("B")))
+
+        old_edge = self._make_edge(n1.id, n2.id, confidence=0.1)
+        old_edge.updated_time = datetime.now() - timedelta(days=60)
+        run(storage.upsert_edge(old_edge))
+
+        cutoff = datetime.now() - timedelta(days=30)
+        ids = run(storage.get_low_confidence_stale_edge_ids(0.2, cutoff.isoformat()))
+        assert len(ids) == 1

@@ -337,3 +337,152 @@ class KgWebService:
             "nodes": [node_to_graph_dict(n) for n in visited_nodes.values()],
             "edges": [edge_to_graph_dict(e) for e in unique_edges],
         }
+
+    # ================================================================
+    # 维护 / 一致性 / 质量
+    # ================================================================
+
+    async def run_maintenance(self) -> Dict[str, Any]:
+        """执行图谱维护清理
+
+        Returns:
+            维护报告字典
+        """
+        try:
+            kg = self._service.kg
+            if not kg or not kg.enabled:
+                return {"error": "知识图谱未启用"}
+
+            report = await kg.run_maintenance()
+            return {
+                "total_removed": report.total_removed,
+                "duration_seconds": round(report.duration_seconds, 2),
+                "summary": report.summary(),
+                "results": [
+                    {
+                        "task": r.task_name,
+                        "removed_count": r.removed_count,
+                        "details": r.details[:10],
+                    }
+                    for r in report.results
+                ],
+            }
+        except Exception as e:
+            logger.error(f"Run maintenance error: {e}")
+            return {"error": f"维护执行失败: {e}"}
+
+    async def check_consistency(self) -> Dict[str, Any]:
+        """执行一致性检查
+
+        Returns:
+            一致性报告字典
+        """
+        try:
+            kg = self._service.kg
+            if not kg or not kg.enabled:
+                return {"error": "知识图谱未启用"}
+
+            report = await kg.check_consistency()
+            return {
+                "is_consistent": report.is_consistent,
+                "total_issues": report.total_issues,
+                "summary": report.summary(),
+                "contradictions": len(report.contradictions),
+                "dangling_edges": len(report.dangling_edges),
+                "self_references": len(report.self_references),
+                "cycles": len(report.cycles),
+                "duplicate_relations": len(report.duplicate_relations),
+                "details": {
+                    "contradictions": [
+                        {
+                            "edge_a_id": c.edge_a_id,
+                            "edge_b_id": c.edge_b_id,
+                            "source_id": c.source_id,
+                            "target_id": c.target_id,
+                            "relation_a": c.relation_a,
+                            "relation_b": c.relation_b,
+                            "description": c.description,
+                        }
+                        for c in report.contradictions[:20]
+                    ],
+                    "dangling_edges": [
+                        {
+                            "edge_id": d.edge_id,
+                            "missing_node_id": d.missing_node_id,
+                            "is_source_missing": d.is_source_missing,
+                            "description": d.description,
+                        }
+                        for d in report.dangling_edges[:20]
+                    ],
+                    "self_references": [
+                        {
+                            "edge_id": s.edge_id,
+                            "node_id": s.node_id,
+                            "relation_type": s.relation_type,
+                            "description": s.description,
+                        }
+                        for s in report.self_references[:20]
+                    ],
+                    "cycles": [
+                        {
+                            "node_ids": cy.node_ids,
+                            "edge_ids": cy.edge_ids,
+                            "cycle_length": cy.cycle_length,
+                            "description": cy.description,
+                        }
+                        for cy in report.cycles[:20]
+                    ],
+                    "duplicate_relations": [
+                        {
+                            "source_id": dr.source_id,
+                            "relation_type": dr.relation_type,
+                            "edge_ids": dr.edge_ids,
+                            "target_ids": dr.target_ids,
+                            "description": dr.description,
+                        }
+                        for dr in report.duplicate_relations[:20]
+                    ],
+                },
+            }
+        except Exception as e:
+            logger.error(f"Check consistency error: {e}")
+            return {"error": f"一致性检查失败: {e}"}
+
+    async def get_quality_report(self) -> Dict[str, Any]:
+        """获取图谱质量报告
+
+        Returns:
+            质量报告字典
+        """
+        try:
+            kg = self._service.kg
+            if not kg or not kg.enabled:
+                return {"error": "知识图谱未启用"}
+
+            report = await kg.generate_quality_report()
+            return {
+                "total_nodes": report.total_nodes,
+                "total_edges": report.total_edges,
+                "orphan_node_count": report.orphan_node_count,
+                "orphan_node_ratio": round(report.orphan_node_ratio, 4),
+                "avg_node_confidence": round(report.avg_node_confidence, 4),
+                "avg_edge_confidence": round(report.avg_edge_confidence, 4),
+                "avg_edges_per_node": round(report.avg_edges_per_node, 2),
+                "low_confidence_stats": {
+                    "threshold": report.low_confidence_stats.threshold,
+                    "low_confidence_node_count": report.low_confidence_stats.low_confidence_node_count,
+                    "low_confidence_node_ratio": round(
+                        report.low_confidence_stats.low_confidence_node_ratio, 4
+                    ),
+                    "low_confidence_edge_count": report.low_confidence_stats.low_confidence_edge_count,
+                    "low_confidence_edge_ratio": round(
+                        report.low_confidence_stats.low_confidence_edge_ratio, 4
+                    ),
+                },
+                "node_type_distribution": report.node_type_distribution,
+                "relation_type_distribution": report.relation_type_distribution,
+                "summary": report.summary(),
+            }
+        except Exception as e:
+            logger.error(f"Get quality report error: {e}")
+            return {"error": f"质量报告生成失败: {e}"}

@@ -16,7 +16,6 @@
 
 from __future__ import annotations
 
-from collections import Counter
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, TYPE_CHECKING
 
@@ -111,6 +110,7 @@ class KGQualityReporter:
     - 计算平均置信度等综合指标
 
     所有方法都是只读的，不会修改图谱数据。
+    优先使用 SQL 聚合查询避免全量加载到 Python 内存。
     """
 
     def __init__(self, storage: "KGStorage") -> None:
@@ -127,8 +127,7 @@ class KGQualityReporter:
             孤立节点占总节点数的比例 (0.0 ~ 1.0)，无节点时返回 0.0
         """
         orphan_ids = await self._storage.get_orphan_node_ids()
-        stats = await self._storage.get_stats()
-        total_nodes = stats.get("nodes", 0)
+        total_nodes = await self._storage.get_node_count()
 
         if total_nodes == 0:
             return 0.0
@@ -142,7 +141,7 @@ class KGQualityReporter:
         self,
         threshold: float = DEFAULT_LOW_CONFIDENCE_THRESHOLD,
     ) -> LowConfidenceStats:
-        """统计低置信度节点和边的占比
+        """统计低置信度节点和边的占比（使用 SQL 聚合）
 
         Args:
             threshold: 低置信度阈值（低于此值视为低置信度）
@@ -150,14 +149,12 @@ class KGQualityReporter:
         Returns:
             低置信度统计数据
         """
-        all_nodes = await self._storage.get_all_nodes()
-        all_edges = await self._storage.get_all_edges()
+        low_counts = await self._storage.get_low_confidence_counts(threshold)
+        total_nodes = await self._storage.get_node_count()
+        total_edges = await self._storage.get_edge_count()
 
-        low_conf_nodes = sum(1 for n in all_nodes if n.confidence < threshold)
-        low_conf_edges = sum(1 for e in all_edges if e.confidence < threshold)
-
-        total_nodes = len(all_nodes)
-        total_edges = len(all_edges)
+        low_conf_nodes = low_counts["nodes"]
+        low_conf_edges = low_counts["edges"]
 
         return LowConfidenceStats(
             low_confidence_node_count=low_conf_nodes,
@@ -172,56 +169,36 @@ class KGQualityReporter:
     # ================================================================
 
     async def get_relation_type_distribution(self) -> Dict[str, int]:
-        """统计关系类型分布
+        """统计关系类型分布（使用 SQL GROUP BY）
 
         Returns:
             {relation_type_value: count} 的字典
         """
-        all_edges = await self._storage.get_all_edges()
-        counter: Counter = Counter()
-        for edge in all_edges:
-            counter[edge.relation_type.value] += 1
-        return dict(counter)
+        return await self._storage.get_relation_type_distribution()
 
     # ================================================================
     # 节点类型分布
     # ================================================================
 
     async def get_node_type_distribution(self) -> Dict[str, int]:
-        """统计节点类型分布
+        """统计节点类型分布（使用 SQL GROUP BY）
 
         Returns:
             {node_type_value: count} 的字典
         """
-        all_nodes = await self._storage.get_all_nodes()
-        counter: Counter = Counter()
-        for node in all_nodes:
-            counter[node.node_type.value] += 1
-        return dict(counter)
+        return await self._storage.get_node_type_distribution()
 
     # ================================================================
     # 平均置信度
     # ================================================================
 
     async def get_avg_confidence(self) -> Dict[str, float]:
-        """计算节点和边的平均置信度
+        """计算节点和边的平均置信度（使用 SQL AVG）
 
         Returns:
             {"nodes": avg_node_conf, "edges": avg_edge_conf}
         """
-        all_nodes = await self._storage.get_all_nodes()
-        all_edges = await self._storage.get_all_edges()
-
-        avg_node = (
-            sum(n.confidence for n in all_nodes) / len(all_nodes)
-            if all_nodes else 0.0
-        )
-        avg_edge = (
-            sum(e.confidence for e in all_edges) / len(all_edges)
-            if all_edges else 0.0
-        )
-
-        return {"nodes": avg_node, "edges": avg_edge}
+        return await self._storage.get_avg_confidence()
 
     # ================================================================
     # 完整质量报告
@@ -233,7 +210,7 @@ class KGQualityReporter:
     ) -> QualityReport:
         """生成完整质量报告
 
-        包含所有统计指标的综合报告。
+        使用 SQL 聚合查询替代全量加载，大幅降低内存占用。
 
         Args:
             low_confidence_threshold: 低置信度阈值
@@ -241,36 +218,17 @@ class KGQualityReporter:
         Returns:
             完整质量报告
         """
-        # 获取原始数据（尽量减少重复查询）
-        all_nodes = await self._storage.get_all_nodes()
-        all_edges = await self._storage.get_all_edges()
+        # 使用 SQL 聚合获取统计数据（避免 get_all_nodes / get_all_edges）
+        total_nodes = await self._storage.get_node_count()
+        total_edges = await self._storage.get_edge_count()
         orphan_ids = await self._storage.get_orphan_node_ids()
+        avg_conf = await self._storage.get_avg_confidence()
+        low_counts = await self._storage.get_low_confidence_counts(low_confidence_threshold)
+        node_type_dist = await self._storage.get_node_type_distribution()
+        relation_type_dist = await self._storage.get_relation_type_distribution()
 
-        total_nodes = len(all_nodes)
-        total_edges = len(all_edges)
-
-        # 低置信度统计
-        low_conf_nodes = sum(1 for n in all_nodes if n.confidence < low_confidence_threshold)
-        low_conf_edges = sum(1 for e in all_edges if e.confidence < low_confidence_threshold)
-
-        # 平均置信度
-        avg_node_conf = (
-            sum(n.confidence for n in all_nodes) / total_nodes
-            if total_nodes > 0 else 0.0
-        )
-        avg_edge_conf = (
-            sum(e.confidence for e in all_edges) / total_edges
-            if total_edges > 0 else 0.0
-        )
-
-        # 类型分布
-        node_type_dist: Counter = Counter()
-        for node in all_nodes:
-            node_type_dist[node.node_type.value] += 1
-
-        relation_type_dist: Counter = Counter()
-        for edge in all_edges:
-            relation_type_dist[edge.relation_type.value] += 1
+        low_conf_nodes = low_counts["nodes"]
+        low_conf_edges = low_counts["edges"]
 
         # 每节点平均边数
         avg_edges = total_edges / total_nodes if total_nodes > 0 else 0.0
@@ -287,10 +245,10 @@ class KGQualityReporter:
                 low_confidence_edge_ratio=low_conf_edges / total_edges if total_edges > 0 else 0.0,
                 threshold=low_confidence_threshold,
             ),
-            avg_node_confidence=avg_node_conf,
-            avg_edge_confidence=avg_edge_conf,
-            relation_type_distribution=dict(relation_type_dist),
-            node_type_distribution=dict(node_type_dist),
+            avg_node_confidence=avg_conf["nodes"],
+            avg_edge_confidence=avg_conf["edges"],
+            relation_type_distribution=relation_type_dist,
+            node_type_distribution=node_type_dist,
             avg_edges_per_node=avg_edges,
         )
 

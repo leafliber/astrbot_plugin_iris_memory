@@ -180,6 +180,18 @@ class WebService:
         """删除知识图谱边"""
         return await self._kg.delete_kg_edge(edge_id)
 
+    async def run_kg_maintenance(self) -> Dict[str, Any]:
+        """执行知识图谱维护"""
+        return await self._kg.run_maintenance()
+
+    async def check_kg_consistency(self) -> Dict[str, Any]:
+        """执行知识图谱一致性检查"""
+        return await self._kg.check_consistency()
+
+    async def get_kg_quality_report(self) -> Dict[str, Any]:
+        """获取知识图谱质量报告"""
+        return await self._kg.get_quality_report()
+
     # ================================================================
     # 用户画像与情感状态
     # ================================================================
