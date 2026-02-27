@@ -555,6 +555,7 @@ class ChromaManager(ChromaQueries, ChromaOperations):
             user_id=metadata.get('user_id', ''),
             sender_name=metadata.get('sender_name') if metadata.get('sender_name') else None,
             group_id=metadata.get('group_id') if metadata.get('group_id') else None,
+            persona_id=metadata.get('persona_id', 'default') or 'default',
             scope=MemoryScope(metadata.get('scope', MemoryScope.GROUP_PRIVATE.value)),
             type=MemoryType(metadata.get('type', 'fact')),
             modality=ModalityType(metadata.get('modality', 'text')),
@@ -574,9 +575,10 @@ class ChromaManager(ChromaQueries, ChromaOperations):
         self._set_memory_timestamps(memory, metadata)
         
         system_keys = {
-            'user_id', 'sender_name', 'group_id', 'scope', 'type', 'modality', 'quality_level',
-            'sensitivity_level', 'storage_layer', 'created_time', 'last_access_time',
-            'access_count', 'confidence', 'rif_score', 'importance_score', 'is_user_requested'
+            'user_id', 'sender_name', 'group_id', 'persona_id', 'scope', 'type', 'modality',
+            'quality_level', 'sensitivity_level', 'storage_layer', 'created_time',
+            'last_access_time', 'access_count', 'confidence', 'rif_score',
+            'importance_score', 'is_user_requested'
         }
         memory.metadata = {k: v for k, v in metadata.items() if k not in system_keys}
         

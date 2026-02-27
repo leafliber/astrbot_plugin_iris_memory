@@ -350,6 +350,22 @@ class LLMEnhancedDefaults:
 
 
 @dataclass
+class PersonaIsolationDefaults:
+    """人格隔离默认配置
+
+    控制记忆和知识图谱按 AstrBot 人格隔离查询的行为。
+    存储时始终记录 persona_id，查询时根据开关决定是否过滤。
+    """
+    # 用户可见开关
+    memory_query_by_persona: bool = False   # 记忆是否按人格隔离查询
+    kg_query_by_persona: bool = False       # 知识图谱是否按人格隔离查询
+
+    # 内部默认值（用户无需配置）
+    default_persona_id: str = "default"     # 无法获取人格时使用的默认ID
+    persona_id_max_length: int = 64         # persona_id 最大长度限制
+
+
+@dataclass
 class KnowledgeGraphDefaults:
     """知识图谱默认配置"""
     enabled: bool = True                   # 是否启用知识图谱
@@ -386,6 +402,7 @@ class AllDefaults:
     llm_providers: LLMProvidersDefaults = field(default_factory=LLMProvidersDefaults)
     llm_enhanced: LLMEnhancedDefaults = field(default_factory=LLMEnhancedDefaults)
     knowledge_graph: KnowledgeGraphDefaults = field(default_factory=KnowledgeGraphDefaults)
+    persona_isolation: PersonaIsolationDefaults = field(default_factory=PersonaIsolationDefaults)
     web_ui: WebUIDefaults = field(default_factory=WebUIDefaults)
 
 
@@ -422,7 +439,8 @@ def get_defaults_dict() -> Dict[str, Dict[str, Any]]:
                          'llm_integration', 'message_processing', 
                          'proactive_reply', 'image_analysis', 'log',
                          'persona', 'activity_adaptive', 'llm_providers',
-                         'llm_enhanced', 'knowledge_graph', 'web_ui']:
+                         'llm_enhanced', 'knowledge_graph',
+                         'persona_isolation', 'web_ui']:
         section_obj = getattr(DEFAULTS, section_name, None)
         if section_obj:
             result[section_name] = asdict(section_obj)

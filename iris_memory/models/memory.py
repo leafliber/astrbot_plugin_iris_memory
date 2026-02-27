@@ -34,6 +34,7 @@ class Memory:
     user_id: str = ""
     sender_name: Optional[str] = None  # 发送者显示名称（群聊中用于区分成员）
     group_id: Optional[str] = None  # 群聊ID，私聊为None
+    persona_id: str = "default"  # 关联的Bot人格ID，默认"default"，不可为None
     scope: MemoryScope = MemoryScope.GROUP_PRIVATE  # 记忆可见性范围
     type: MemoryType = MemoryType.FACT
     subtype: Optional[str] = None  # 子类型（如emotion中的具体情绪）
@@ -120,6 +121,9 @@ class Memory:
         """从字典创建Memory对象"""
         # 防御性拷贝，避免修改调用方原始字典
         data = data.copy()
+        
+        # 兼容无 persona_id 的旧数据
+        data.setdefault("persona_id", "default")
         
         # 处理特殊字段
         if 'embedding' in data and data['embedding'] is not None:

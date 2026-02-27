@@ -115,7 +115,8 @@ class BusinessService:
         group_id: Optional[str],
         is_user_requested: bool = False,
         context: Optional[Dict[str, Any]] = None,
-        sender_name: Optional[str] = None
+        sender_name: Optional[str] = None,
+        persona_id: Optional[str] = None,
     ) -> Optional[Any]:
         """捕获并存储记忆
 
@@ -132,7 +133,8 @@ class BusinessService:
                 group_id=group_id,
                 is_user_requested=is_user_requested,
                 context=context,
-                sender_name=sender_name
+                sender_name=sender_name,
+                persona_id=persona_id,
             )
 
             if not memory:
@@ -295,7 +297,8 @@ class BusinessService:
         query: str,
         user_id: str,
         group_id: Optional[str],
-        top_k: int = NumericDefaults.TOP_K_SEARCH
+        top_k: int = NumericDefaults.TOP_K_SEARCH,
+        persona_id: Optional[str] = None,
     ) -> List[Any]:
         """搜索记忆"""
         if not self._retrieval.retrieval_engine:
@@ -309,7 +312,8 @@ class BusinessService:
                 user_id=user_id,
                 group_id=group_id,
                 top_k=top_k,
-                emotional_state=emotional_state
+                emotional_state=emotional_state,
+                persona_id=persona_id,
             )
 
             return memories
@@ -477,6 +481,7 @@ class BusinessService:
         image_context: str = "",
         sender_name: Optional[str] = None,
         reply_context: Optional[str] = None,
+        persona_id: Optional[str] = None,
     ) -> str:
         """准备 LLM 上下文（包含聊天记录 + 记忆 + 图片 + 引用消息）
 
@@ -487,6 +492,7 @@ class BusinessService:
             image_context: 图片分析上下文
             sender_name: 发送者名称
             reply_context: 引用消息上下文（已格式化的描述文本）
+            persona_id: 人格 ID（非 None 时启用 persona 过滤）
         """
         if not self._retrieval.retrieval_engine:
             return ""
@@ -508,7 +514,8 @@ class BusinessService:
                 user_id=user_id,
                 group_id=group_id,
                 top_k=self._cfg.max_context_memories,
-                emotional_state=emotional_state
+                emotional_state=emotional_state,
+                persona_id=persona_id,
             )
 
             session_key = SessionKeyBuilder.build(user_id, group_id)
@@ -560,6 +567,7 @@ class BusinessService:
                         query=query,
                         user_id=user_id,
                         group_id=group_id,
+                        persona_id=persona_id,
                     )
                     if kg_context:
                         context_parts.append(kg_context)
@@ -718,7 +726,8 @@ class BusinessService:
         group_id: Optional[str],
         context: Dict[str, Any],
         umo: str,
-        image_description: str = ""
+        image_description: str = "",
+        persona_id: Optional[str] = None,
     ) -> None:
         """处理消息批次"""
         batch_processor = self._capture.batch_processor
@@ -746,7 +755,8 @@ class BusinessService:
             if classification.layer.value == "immediate":
                 sender_name = context.get("sender_name")
                 await self._handle_immediate_memory(
-                    full_message, user_id, group_id, classification, sender_name
+                    full_message, user_id, group_id, classification, sender_name,
+                    persona_id=persona_id,
                 )
             else:
                 sender_name = context.get("sender_name")
@@ -768,7 +778,8 @@ class BusinessService:
         user_id: str,
         group_id: Optional[str],
         classification: Any,
-        sender_name: Optional[str] = None
+        sender_name: Optional[str] = None,
+        persona_id: Optional[str] = None,
     ) -> None:
         """处理立即层级的记忆"""
         memory = await self.capture_and_store_memory(
@@ -779,7 +790,8 @@ class BusinessService:
                 "classification": classification.metadata,
                 "source": classification.source
             },
-            sender_name=sender_name
+            sender_name=sender_name,
+            persona_id=persona_id,
         )
 
         if memory:

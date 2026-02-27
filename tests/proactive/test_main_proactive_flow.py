@@ -14,6 +14,7 @@ class _FakeEvent:
         self.message_obj = SimpleNamespace(message=[])
         self.unified_msg_origin = "test:FriendMessage:u1"
         self._proactive = proactive
+        self.persona = None  # persona isolation support
 
     def get_sender_id(self):
         return "u1"
@@ -33,7 +34,12 @@ class _FakeEvent:
 def plugin_stub():
     plugin = IrisMemoryPlugin.__new__(IrisMemoryPlugin)
     plugin._service = SimpleNamespace(
-        cfg=SimpleNamespace(enable_inject=True, enable_memory=True),
+        cfg=SimpleNamespace(
+            enable_inject=True,
+            enable_memory=True,
+            get_persona_id_for_storage=Mock(return_value="default"),
+            get_persona_id_for_query=Mock(return_value=None),
+        ),
         is_initialized=True,
         is_embedding_ready=Mock(return_value=True),
         member_identity=SimpleNamespace(resolve_tag=AsyncMock()),

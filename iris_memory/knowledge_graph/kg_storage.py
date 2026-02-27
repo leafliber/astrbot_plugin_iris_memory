@@ -32,7 +32,7 @@ from iris_memory.core.constants import CacheDefaults
 logger = get_logger("kg_storage")
 
 # ── 常量 ──
-_SCHEMA_VERSION = 1
+_SCHEMA_VERSION = 2
 _DEFAULT_DB_NAME = "knowledge_graph.db"
 _NODE_CACHE_TTL = 300  # 5 分钟缓存 TTL
 _NODE_CACHE_MAX_SIZE = CacheDefaults.KG_NODE_CACHE_MAX_SIZE
@@ -58,13 +58,14 @@ class KGStorage:
     # ================================================================
 
     async def initialize(self, db_path: Path) -> None:
-        """初始化数据库（建表 + FTS5）"""
+        """初始化数据库（建表 + FTS5 + 自动迁移）"""
         self._db_path = db_path
         self._conn = sqlite3.connect(str(db_path), check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute("PRAGMA foreign_keys=ON")
         self._create_tables()
+        self._auto_migrate()
         logger.debug(f"KGStorage initialized: {db_path}")
 
     def _create_tables(self) -> None:
@@ -79,6 +80,7 @@ class KGStorage:
                     node_type     TEXT NOT NULL DEFAULT 'unknown',
                     user_id       TEXT NOT NULL DEFAULT '',
                     group_id      TEXT,
+                    persona_id    TEXT DEFAULT 'default',
                     aliases       TEXT NOT NULL DEFAULT '[]',
                     properties    TEXT NOT NULL DEFAULT '{}',
                     mention_count INTEGER NOT NULL DEFAULT 1,
@@ -99,6 +101,7 @@ class KGStorage:
                     memory_id      TEXT,
                     user_id        TEXT NOT NULL DEFAULT '',
                     group_id       TEXT,
+                    persona_id     TEXT DEFAULT 'default',
                     confidence     REAL NOT NULL DEFAULT 0.5,
                     weight         REAL NOT NULL DEFAULT 1.0,
                     properties     TEXT NOT NULL DEFAULT '{}',
@@ -114,12 +117,16 @@ class KGStorage:
             cur.execute("CREATE INDEX IF NOT EXISTS idx_nodes_user ON kg_nodes(user_id)")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_nodes_group ON kg_nodes(group_id)")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_nodes_type ON kg_nodes(node_type)")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_nodes_persona ON kg_nodes(persona_id)")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_nodes_user_persona ON kg_nodes(user_id, persona_id)")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_edges_source ON kg_edges(source_id)")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_edges_target ON kg_edges(target_id)")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_edges_rel ON kg_edges(relation_type)")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_edges_memory ON kg_edges(memory_id)")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_edges_user ON kg_edges(user_id)")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_edges_group ON kg_edges(group_id)")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_edges_persona ON kg_edges(persona_id)")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_edges_user_persona ON kg_edges(user_id, persona_id)")
 
             # ── FTS5 虚拟表 ──
             # tokenize='unicode61' 支持中英文
@@ -194,6 +201,42 @@ class KGStorage:
         if self._conn:
             self._conn.close()
             self._conn = None
+
+    def _auto_migrate(self) -> None:
+        """自动迁移：检查 schema_version 并执行必要的 DDL 升级"""
+        assert self._conn
+        row = self._conn.execute(
+            "SELECT value FROM kg_meta WHERE key = 'schema_version'"
+        ).fetchone()
+        current = int(row["value"]) if row else 1
+
+        if current >= _SCHEMA_VERSION:
+            return
+
+        logger.info(f"KG schema migration: v{current} → v{_SCHEMA_VERSION}")
+
+        if current < 2:
+            self._migrate_v1_to_v2()
+
+        # 更新版本号
+        self._conn.execute(
+            "INSERT OR REPLACE INTO kg_meta(key, value) VALUES (?, ?)",
+            ("schema_version", str(_SCHEMA_VERSION)),
+        )
+        self._conn.commit()
+
+    def _migrate_v1_to_v2(self) -> None:
+        """v1 → v2：添加 persona_id 列（DEFAULT 'default' 自动回填旧数据）"""
+        assert self._conn
+        # 检查列是否已经存在（防止重复执行）
+        cols = {info[1] for info in self._conn.execute("PRAGMA table_info(kg_nodes)").fetchall()}
+        if "persona_id" not in cols:
+            self._conn.execute("ALTER TABLE kg_nodes ADD COLUMN persona_id TEXT DEFAULT 'default'")
+            logger.info("Migration v1→v2: added persona_id to kg_nodes")
+        cols_e = {info[1] for info in self._conn.execute("PRAGMA table_info(kg_edges)").fetchall()}
+        if "persona_id" not in cols_e:
+            self._conn.execute("ALTER TABLE kg_edges ADD COLUMN persona_id TEXT DEFAULT 'default'")
+            logger.info("Migration v1→v2: added persona_id to kg_edges")
 
     @contextmanager
     def _tx(self):
@@ -276,10 +319,10 @@ class KGStorage:
         with self._tx() as cur:
             cur.execute(
                 """INSERT INTO kg_nodes
-                   (id, name, display_name, node_type, user_id, group_id,
+                   (id, name, display_name, node_type, user_id, group_id, persona_id,
                     aliases, properties, mention_count, confidence,
                     created_time, updated_time)
-                   VALUES (:id, :name, :display_name, :node_type, :user_id, :group_id,
+                   VALUES (:id, :name, :display_name, :node_type, :user_id, :group_id, :persona_id,
                            :aliases, :properties, :mention_count, :confidence,
                            :created_time, :updated_time)""",
                 d,
@@ -315,6 +358,7 @@ class KGStorage:
         group_id: Optional[str] = None,
         node_type: Optional[KGNodeType] = None,
         limit: int = 20,
+        persona_id: Optional[str] = None,
     ) -> List[KGNode]:
         """FTS5 全文搜索节点
 
@@ -324,12 +368,13 @@ class KGStorage:
             group_id: 限定群组
             node_type: 限定节点类型
             limit: 最大返回数
+            persona_id: 人格 ID（非 None 时启用 persona 过滤）
 
         Returns:
             匹配的节点列表（按 rank 排序）
         """
         async with self._lock:
-            return self._search_nodes_sync(query, user_id, group_id, node_type, limit)
+            return self._search_nodes_sync(query, user_id, group_id, node_type, limit, persona_id)
 
     def _search_nodes_sync(
         self,
@@ -338,6 +383,7 @@ class KGStorage:
         group_id: Optional[str] = None,
         node_type: Optional[KGNodeType] = None,
         limit: int = 20,
+        persona_id: Optional[str] = None,
     ) -> List[KGNode]:
         """同步版全文搜索
 
@@ -349,16 +395,16 @@ class KGStorage:
 
         # 中文查询优先使用 LIKE 精确匹配
         if self._is_chinese(query):
-            results = self._search_nodes_like_exact(query, user_id, group_id, node_type, limit)
+            results = self._search_nodes_like_exact(query, user_id, group_id, node_type, limit, persona_id)
             if results:
                 return results
             # 精确匹配无结果时退回模糊 LIKE
-            return self._search_nodes_like(query, user_id, group_id, node_type, limit)
+            return self._search_nodes_like(query, user_id, group_id, node_type, limit, persona_id)
 
         # 英文使用 FTS5
         fts_query = self._build_fts_query(query)
         if not fts_query:
-            return self._search_nodes_like(query, user_id, group_id, node_type, limit)
+            return self._search_nodes_like(query, user_id, group_id, node_type, limit, persona_id)
 
         try:
             rows = self._conn.execute(
@@ -371,10 +417,10 @@ class KGStorage:
             ).fetchall()
         except sqlite3.OperationalError:
             # FTS 查询语法错误时 fallback
-            return self._search_nodes_like(query, user_id, group_id, node_type, limit)
+            return self._search_nodes_like(query, user_id, group_id, node_type, limit, persona_id)
 
         nodes = [KGNode.from_row(dict(r)) for r in rows]
-        return self._filter_nodes_by_scope(nodes, user_id, group_id, node_type, limit)
+        return self._filter_nodes_by_scope(nodes, user_id, group_id, node_type, limit, persona_id)
 
     def _search_nodes_like_exact(
         self,
@@ -383,6 +429,7 @@ class KGStorage:
         group_id: Optional[str],
         node_type: Optional[KGNodeType],
         limit: int,
+        persona_id: Optional[str] = None,
     ) -> List[KGNode]:
         """精确名称匹配搜索（用于中文实体）
 
@@ -404,7 +451,7 @@ class KGStorage:
             ).fetchall()
             rows = list(rows) + list(extra)
         nodes = [KGNode.from_row(dict(r)) for r in rows]
-        return self._filter_nodes_by_scope(nodes, user_id, group_id, node_type, limit)
+        return self._filter_nodes_by_scope(nodes, user_id, group_id, node_type, limit, persona_id)
 
     def _search_nodes_like(
         self,
@@ -413,6 +460,7 @@ class KGStorage:
         group_id: Optional[str],
         node_type: Optional[KGNodeType],
         limit: int,
+        persona_id: Optional[str] = None,
     ) -> List[KGNode]:
         """LIKE 回退搜索"""
         assert self._conn
@@ -422,7 +470,7 @@ class KGStorage:
             (pattern, pattern, limit * 3),
         ).fetchall()
         nodes = [KGNode.from_row(dict(r)) for r in rows]
-        return self._filter_nodes_by_scope(nodes, user_id, group_id, node_type, limit)
+        return self._filter_nodes_by_scope(nodes, user_id, group_id, node_type, limit, persona_id)
 
     def _filter_nodes_by_scope(
         self,
@@ -431,10 +479,12 @@ class KGStorage:
         group_id: Optional[str],
         node_type: Optional[KGNodeType],
         limit: int,
+        persona_id: Optional[str] = None,
     ) -> List[KGNode]:
-        """根据 scope 过滤节点
+        """根据 scope 和 persona 过滤节点
 
         安全约束：当 user_id 为空时返回空列表，防止数据泄露。
+        persona_id 非 None 时启用 persona 过滤（只返回匹配的 persona）。
         """
         if not user_id:
             logger.warning("Scope filtering skipped: no user_id provided")
@@ -443,6 +493,9 @@ class KGStorage:
         result = []
         for n in nodes:
             if node_type and n.node_type != node_type:
+                continue
+            # persona 过滤
+            if persona_id is not None and n.persona_id != persona_id:
                 continue
             if group_id:
                 # 群聊场景：自己的 + 群共享的
@@ -495,10 +548,10 @@ class KGStorage:
             cur.execute(
                 """INSERT INTO kg_edges
                    (id, source_id, target_id, relation_type, relation_label,
-                    memory_id, user_id, group_id, confidence, weight,
+                    memory_id, user_id, group_id, persona_id, confidence, weight,
                     properties, created_time, updated_time)
                    VALUES (:id, :source_id, :target_id, :relation_type, :relation_label,
-                           :memory_id, :user_id, :group_id, :confidence, :weight,
+                           :memory_id, :user_id, :group_id, :persona_id, :confidence, :weight,
                            :properties, :created_time, :updated_time)""",
                 d,
             )
@@ -594,6 +647,7 @@ class KGStorage:
         rows = self._conn.execute(
             """SELECT e.*, n.id as n_id, n.name as n_name, n.display_name as n_display,
                       n.node_type as n_type, n.user_id as n_user, n.group_id as n_group,
+                      n.persona_id as n_persona,
                       n.aliases as n_aliases, n.properties as n_props,
                       n.mention_count as n_mention, n.confidence as n_conf,
                       n.created_time as n_created, n.updated_time as n_updated
@@ -609,6 +663,7 @@ class KGStorage:
                 "id": rd["n_id"], "name": rd["n_name"],
                 "display_name": rd["n_display"], "node_type": rd["n_type"],
                 "user_id": rd["n_user"], "group_id": rd["n_group"],
+                "persona_id": rd.get("n_persona", "default"),
                 "aliases": rd["n_aliases"], "properties": rd["n_props"],
                 "mention_count": rd["n_mention"], "confidence": rd["n_conf"],
                 "created_time": rd["n_created"], "updated_time": rd["n_updated"],
@@ -619,6 +674,7 @@ class KGStorage:
         rows = self._conn.execute(
             """SELECT e.*, n.id as n_id, n.name as n_name, n.display_name as n_display,
                       n.node_type as n_type, n.user_id as n_user, n.group_id as n_group,
+                      n.persona_id as n_persona,
                       n.aliases as n_aliases, n.properties as n_props,
                       n.mention_count as n_mention, n.confidence as n_conf,
                       n.created_time as n_created, n.updated_time as n_updated
@@ -634,6 +690,7 @@ class KGStorage:
                 "id": rd["n_id"], "name": rd["n_name"],
                 "display_name": rd["n_display"], "node_type": rd["n_type"],
                 "user_id": rd["n_user"], "group_id": rd["n_group"],
+                "persona_id": rd.get("n_persona", "default"),
                 "aliases": rd["n_aliases"], "properties": rd["n_props"],
                 "mention_count": rd["n_mention"], "confidence": rd["n_conf"],
                 "created_time": rd["n_created"], "updated_time": rd["n_updated"],
