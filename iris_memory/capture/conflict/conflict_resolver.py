@@ -6,12 +6,15 @@
 
 import re
 from datetime import datetime, timedelta
-from typing import List, Optional
+from typing import List, Optional, TYPE_CHECKING
 
 from iris_memory.utils.logger import get_logger
 from iris_memory.models.memory import Memory
 from iris_memory.core.types import QualityLevel
 from iris_memory.capture.conflict.similarity_calculator import SimilarityCalculator
+
+if TYPE_CHECKING:
+    from iris_memory.knowledge_graph.kg_storage import KGStorage
 
 logger = get_logger("conflict_resolver")
 
@@ -261,37 +264,51 @@ class ConflictResolver:
         self,
         new_memory: Memory,
         conflicting_memories: List[Memory],
-        chroma_manager
+        chroma_manager,
+        kg_storage: Optional["KGStorage"] = None,
     ) -> bool:
         """解决记忆冲突
-        
+
         冲突解决策略：
         1. 如果新记忆是用户显式请求的，优先采用新记忆
         2. 如果新记忆置信度更高，更新旧记忆
         3. 如果旧记忆质量等级更高，保留旧记忆
         4. 否则标记为需要用户确认
-        
+
         Args:
             new_memory: 新记忆
             conflicting_memories: 冲突的记忆列表
             chroma_manager: Chroma管理器
-            
+            kg_storage: 知识图谱存储层（可选，用于同步删除关联边）
+
         Returns:
             bool: True 表示新记忆仍需存储，False 表示新记忆已合并到旧记忆、无需再存储
         """
         if not conflicting_memories:
             return True
-        
+
         resolved_count = 0
-        
+
         for old_memory in conflicting_memories:
             resolution = self._determine_conflict_resolution(new_memory, old_memory)
-            
+
             if resolution == "replace":
                 # 用新记忆替换旧记忆
                 try:
                     if chroma_manager:
                         await chroma_manager.delete_memory(old_memory.id)
+                        # 同步删除知识图谱关联边
+                        if kg_storage:
+                            try:
+                                edge_count = await kg_storage.delete_by_memory_id(old_memory.id)
+                                if edge_count > 0:
+                                    logger.debug(
+                                        f"Deleted {edge_count} KG edges for replaced memory {old_memory.id}"
+                                    )
+                            except Exception as kg_err:
+                                logger.warning(
+                                    f"Failed to delete KG edges for memory {old_memory.id}: {kg_err}"
+                                )
                         logger.debug(f"Conflict resolved: replaced {old_memory.id} with {new_memory.id}")
                         resolved_count += 1
                 except Exception as e:
