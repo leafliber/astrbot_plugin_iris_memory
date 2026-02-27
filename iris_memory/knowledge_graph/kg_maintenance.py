@@ -124,6 +124,8 @@ class KGMaintenanceManager:
     ) -> List[str]:
         """检测低置信度且长期未更新的边
 
+        使用 SQL 查询替代全量加载，降低内存占用。
+
         仅当同时满足以下条件时才标记为待清理：
         1. confidence < confidence_threshold
         2. updated_time 距今超过 staleness_days 天
@@ -135,15 +137,13 @@ class KGMaintenanceManager:
         Returns:
             待清理的边 ID 列表
         """
-        all_edges = await self._storage.get_all_edges()
         cutoff = datetime.now() - timedelta(days=staleness_days)
+        cutoff_iso = cutoff.isoformat()
 
-        stale_edge_ids: List[str] = []
-        for edge in all_edges:
-            if edge.confidence < confidence_threshold and edge.updated_time < cutoff:
-                stale_edge_ids.append(edge.id)
-
-        return stale_edge_ids
+        return await self._storage.get_low_confidence_stale_edge_ids(
+            confidence_threshold=confidence_threshold,
+            cutoff_iso=cutoff_iso,
+        )
 
     async def clean_low_confidence_edges(
         self,

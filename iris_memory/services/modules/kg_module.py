@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
 
@@ -44,6 +45,7 @@ class KnowledgeGraphModule:
         self._maintenance: Optional[KGMaintenanceManager] = None
         self._consistency: Optional[KGConsistencyDetector] = None
         self._quality: Optional[KGQualityReporter] = None
+        self._scheduler: Optional[KGScheduler] = None
         self._enabled: bool = True
 
     # ── 属性 ──
@@ -96,6 +98,12 @@ class KnowledgeGraphModule:
         max_nodes_per_hop: int = 10,
         max_facts: int = 8,
         enabled: bool = True,
+        auto_maintenance: bool = True,
+        maintenance_interval: int = 86400,
+        auto_cleanup_orphans: bool = True,
+        auto_cleanup_low_confidence: bool = True,
+        low_confidence_threshold: float = 0.2,
+        staleness_days: int = 30,
     ) -> None:
         """初始化知识图谱模块
 
@@ -108,6 +116,12 @@ class KnowledgeGraphModule:
             max_nodes_per_hop: 每跳最大节点数
             max_facts: 注入 LLM 的最大事实数
             enabled: 是否启用
+            auto_maintenance: 是否启用自动维护
+            maintenance_interval: 维护任务执行间隔（秒）
+            auto_cleanup_orphans: 是否自动清理孤立节点
+            auto_cleanup_low_confidence: 是否自动清理低置信度边
+            low_confidence_threshold: 低置信度阈值
+            staleness_days: 过期天数
         """
         self._enabled = enabled
         if not enabled:
@@ -152,13 +166,29 @@ class KnowledgeGraphModule:
         self._consistency = KGConsistencyDetector(self._storage)
         self._quality = KGQualityReporter(self._storage)
 
+        # 初始化定时调度器
+        if auto_maintenance:
+            self._scheduler = KGScheduler(
+                kg_module=self,
+                interval=maintenance_interval,
+                auto_cleanup_orphans=auto_cleanup_orphans,
+                auto_cleanup_low_confidence=auto_cleanup_low_confidence,
+                low_confidence_threshold=low_confidence_threshold,
+                staleness_days=staleness_days,
+            )
+            await self._scheduler.start()
+
         logger.debug(
             f"KnowledgeGraphModule initialized: mode={kg_mode}, "
-            f"max_depth={max_depth}, db={db_path}"
+            f"max_depth={max_depth}, db={db_path}, "
+            f"auto_maintenance={auto_maintenance}"
         )
 
     async def close(self) -> None:
         """关闭资源"""
+        if self._scheduler:
+            await self._scheduler.stop()
+            self._scheduler = None
         if self._storage:
             await self._storage.close()
             self._storage = None
@@ -376,3 +406,96 @@ class KnowledgeGraphModule:
             return QualityReport()
 
         return await self._quality.generate_report(low_confidence_threshold)
+
+
+class KGScheduler:
+    """知识图谱定时维护调度器
+
+    按周期自动执行：
+    1. 完整维护清理（孤立节点、低置信度边、悬空边）
+    2. 一致性检测（用于日志记录，不自动修复）
+
+    遵循项目中已有的 asyncio.create_task 后台循环模式
+    （参考 SessionLifecycleManager、BatchProcessor）。
+    """
+
+    def __init__(
+        self,
+        kg_module: KnowledgeGraphModule,
+        interval: int = 86400,
+        auto_cleanup_orphans: bool = True,
+        auto_cleanup_low_confidence: bool = True,
+        low_confidence_threshold: float = 0.2,
+        staleness_days: int = 30,
+    ) -> None:
+        self._kg = kg_module
+        self._interval = interval
+        self._auto_cleanup_orphans = auto_cleanup_orphans
+        self._auto_cleanup_low_confidence = auto_cleanup_low_confidence
+        self._low_confidence_threshold = low_confidence_threshold
+        self._staleness_days = staleness_days
+        self._task: Optional[asyncio.Task] = None
+        self._is_running = False
+
+    async def start(self) -> None:
+        """启动定时维护任务"""
+        if self._is_running:
+            return
+        self._is_running = True
+        self._task = asyncio.create_task(self._run_loop())
+        logger.info(
+            f"KGScheduler started: interval={self._interval}s, "
+            f"cleanup_orphans={self._auto_cleanup_orphans}, "
+            f"cleanup_low_conf={self._auto_cleanup_low_confidence}"
+        )
+
+    async def stop(self) -> None:
+        """停止定时维护任务（热更新友好）"""
+        self._is_running = False
+        if self._task:
+            self._task.cancel()
+            try:
+                await self._task
+            except asyncio.CancelledError:
+                pass
+            except Exception as e:
+                logger.warning(f"KGScheduler stop error: {e}")
+            self._task = None
+        logger.debug("KGScheduler stopped")
+
+    async def _run_loop(self) -> None:
+        """维护循环：等待 interval 后执行一次维护"""
+        while self._is_running:
+            try:
+                await asyncio.sleep(self._interval)
+                if not self._is_running:
+                    break
+                await self._execute_maintenance()
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"KGScheduler loop error: {e}")
+
+    async def _execute_maintenance(self) -> None:
+        """执行一次完整维护"""
+        try:
+            # 1. 维护清理
+            report = await self._kg.run_maintenance(
+                confidence_threshold=self._low_confidence_threshold,
+                staleness_days=self._staleness_days,
+            )
+            logger.info(f"KGScheduler maintenance: {report.summary()}")
+
+            # 2. 一致性检测（仅记录日志，不自动修复）
+            consistency = await self._kg.check_consistency()
+            if not consistency.is_consistent:
+                logger.warning(f"KGScheduler consistency: {consistency.summary()}")
+            else:
+                logger.debug("KGScheduler consistency: no issues found")
+
+        except Exception as e:
+            logger.error(f"KGScheduler maintenance failed: {e}")
+
+    async def run_once(self) -> None:
+        """手动触发一次维护（供 Web API 调用）"""
+        await self._execute_maintenance()

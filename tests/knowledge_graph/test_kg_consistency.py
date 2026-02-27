@@ -20,8 +20,10 @@ from iris_memory.knowledge_graph.kg_consistency import (
     DanglingEdgeIssue,
     SelfReferenceIssue,
     CycleIssue,
+    DuplicateRelationIssue,
     ConsistencyReport,
     CONTRADICTORY_RELATIONS,
+    UNIQUE_RELATIONS,
 )
 
 
@@ -414,3 +416,116 @@ class TestIssueDataclasses:
             cycle_length=2,
         )
         assert "循环依赖" in issue.description
+
+    def test_duplicate_relation_issue_auto_description(self):
+        issue = DuplicateRelationIssue(
+            source_id="s1234567890",
+            relation_type="lives_in",
+            edge_ids=["e1", "e2"],
+            target_ids=["t1", "t2"],
+        )
+        assert "唯一性关系重复" in issue.description
+        assert "lives_in" in issue.description
+
+
+class TestContradictoryRelationsExtended:
+    """扩展矛盾关系映射测试"""
+
+    def test_lives_in_works_at_contradictory(self):
+        """LIVES_IN 与 WORKS_AT 矛盾"""
+        assert KGRelationType.WORKS_AT in CONTRADICTORY_RELATIONS[KGRelationType.LIVES_IN]
+
+    def test_lives_in_studies_at_contradictory(self):
+        """LIVES_IN 与 STUDIES_AT 矛盾"""
+        assert KGRelationType.STUDIES_AT in CONTRADICTORY_RELATIONS[KGRelationType.LIVES_IN]
+
+    def test_works_at_studies_at_contradictory(self):
+        """WORKS_AT 与 STUDIES_AT 互为矛盾"""
+        assert KGRelationType.STUDIES_AT in CONTRADICTORY_RELATIONS[KGRelationType.WORKS_AT]
+        assert KGRelationType.WORKS_AT in CONTRADICTORY_RELATIONS[KGRelationType.STUDIES_AT]
+
+    def test_wants_dislikes_contradictory(self):
+        """WANTS 与 DISLIKES 矛盾"""
+        assert KGRelationType.DISLIKES in CONTRADICTORY_RELATIONS[KGRelationType.WANTS]
+
+    def test_unique_relations_defined(self):
+        """唯一性关系集合已定义"""
+        assert KGRelationType.LIVES_IN in UNIQUE_RELATIONS
+        assert KGRelationType.WORKS_AT in UNIQUE_RELATIONS
+        assert KGRelationType.STUDIES_AT in UNIQUE_RELATIONS
+
+
+class TestDetectDuplicateUniqueRelations:
+    """唯一性关系重复检测测试"""
+
+    def test_no_duplicates_in_clean_graph(self, storage):
+        """正常图无重复"""
+        n1 = run(storage.upsert_node(_make_node("Alice")))
+        n2 = run(storage.upsert_node(_make_node("Beijing")))
+        run(storage.upsert_edge(_make_edge(n1.id, n2.id, relation_type=KGRelationType.LIVES_IN)))
+
+        detector = KGConsistencyDetector(storage)
+        issues = run(detector.detect_duplicate_unique_relations())
+        assert len(issues) == 0
+
+    def test_detect_duplicate_lives_in(self, storage):
+        """检测同一人住在两个地方"""
+        n1 = run(storage.upsert_node(_make_node("Alice")))
+        n2 = run(storage.upsert_node(_make_node("Beijing")))
+        n3 = run(storage.upsert_node(_make_node("Shanghai")))
+
+        _insert_edge_raw(storage, _make_edge(n1.id, n2.id, relation_type=KGRelationType.LIVES_IN))
+        _insert_edge_raw(storage, _make_edge(n1.id, n3.id, relation_type=KGRelationType.LIVES_IN))
+
+        detector = KGConsistencyDetector(storage)
+        issues = run(detector.detect_duplicate_unique_relations())
+        assert len(issues) == 1
+        assert issues[0].source_id == n1.id
+        assert issues[0].relation_type == "lives_in"
+        assert len(issues[0].edge_ids) == 2
+
+    def test_different_sources_no_duplicate(self, storage):
+        """不同来源的相同关系类型不构成重复"""
+        n1 = run(storage.upsert_node(_make_node("Alice")))
+        n2 = run(storage.upsert_node(_make_node("Bob")))
+        n3 = run(storage.upsert_node(_make_node("Beijing")))
+
+        _insert_edge_raw(storage, _make_edge(n1.id, n3.id, relation_type=KGRelationType.LIVES_IN))
+        _insert_edge_raw(storage, _make_edge(n2.id, n3.id, relation_type=KGRelationType.LIVES_IN))
+
+        detector = KGConsistencyDetector(storage)
+        issues = run(detector.detect_duplicate_unique_relations())
+        assert len(issues) == 0
+
+
+class TestCycleDetectionOptimized:
+    """循环检测优化后的测试"""
+
+    def test_max_issues_limit(self, storage):
+        """max_issues 参数限制结果数"""
+        # 创建多个短循环
+        nodes = []
+        for i in range(6):
+            nodes.append(run(storage.upsert_node(_make_node(f"N{i}"))))
+
+        # 创建 3 个独立短循环: (0->1->0), (2->3->2), (4->5->4)
+        for i in range(0, 6, 2):
+            _insert_edge_raw(storage, _make_edge(
+                nodes[i].id, nodes[i+1].id,
+                relation_type=KGRelationType.RELATED_TO,
+            ))
+            _insert_edge_raw(storage, _make_edge(
+                nodes[i+1].id, nodes[i].id,
+                relation_type=KGRelationType.RELATED_TO,
+            ))
+
+        detector = KGConsistencyDetector(storage)
+        issues = run(detector.detect_cycles(max_cycle_length=3, max_issues=1))
+        assert len(issues) <= 1
+
+    def test_run_all_checks_includes_duplicates(self, storage):
+        """完整检查包含唯一性关系重复"""
+        detector = KGConsistencyDetector(storage)
+        report = run(detector.run_all_checks())
+        assert hasattr(report, 'duplicate_relations')
+        assert isinstance(report.duplicate_relations, list)

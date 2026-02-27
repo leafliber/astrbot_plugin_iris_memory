@@ -964,6 +964,204 @@ class KGStorage:
             return {r[0] for r in rows}
 
     # ================================================================
+    # SQL 聚合方法（避免全量加载到 Python 内存）
+    # ================================================================
+
+    async def get_node_count(self) -> int:
+        """获取节点总数"""
+        async with self._lock:
+            assert self._conn
+            row = self._conn.execute("SELECT COUNT(*) FROM kg_nodes").fetchone()
+            return row[0] if row else 0
+
+    async def get_edge_count(self) -> int:
+        """获取边总数"""
+        async with self._lock:
+            assert self._conn
+            row = self._conn.execute("SELECT COUNT(*) FROM kg_edges").fetchone()
+            return row[0] if row else 0
+
+    async def get_avg_confidence(self) -> Dict[str, float]:
+        """使用 SQL 聚合计算平均置信度
+
+        Returns:
+            {"nodes": 平均节点置信度, "edges": 平均边置信度}
+        """
+        async with self._lock:
+            assert self._conn
+            nr = self._conn.execute(
+                "SELECT AVG(confidence) FROM kg_nodes"
+            ).fetchone()
+            er = self._conn.execute(
+                "SELECT AVG(confidence) FROM kg_edges"
+            ).fetchone()
+            return {
+                "nodes": nr[0] if nr and nr[0] is not None else 0.0,
+                "edges": er[0] if er and er[0] is not None else 0.0,
+            }
+
+    async def get_low_confidence_counts(self, threshold: float = 0.3) -> Dict[str, int]:
+        """使用 SQL 计算低置信度节点和边数量
+
+        Args:
+            threshold: 低置信度阈值
+
+        Returns:
+            {"nodes": 低置信度节点数, "edges": 低置信度边数}
+        """
+        async with self._lock:
+            assert self._conn
+            nr = self._conn.execute(
+                "SELECT COUNT(*) FROM kg_nodes WHERE confidence < ?",
+                (threshold,),
+            ).fetchone()
+            er = self._conn.execute(
+                "SELECT COUNT(*) FROM kg_edges WHERE confidence < ?",
+                (threshold,),
+            ).fetchone()
+            return {
+                "nodes": nr[0] if nr else 0,
+                "edges": er[0] if er else 0,
+            }
+
+    async def get_node_type_distribution(self) -> Dict[str, int]:
+        """使用 SQL GROUP BY 统计节点类型分布
+
+        Returns:
+            {node_type_value: count}
+        """
+        async with self._lock:
+            assert self._conn
+            rows = self._conn.execute(
+                "SELECT node_type, COUNT(*) as cnt FROM kg_nodes GROUP BY node_type"
+            ).fetchall()
+            return {r[0]: r[1] for r in rows}
+
+    async def get_relation_type_distribution(self) -> Dict[str, int]:
+        """使用 SQL GROUP BY 统计关系类型分布
+
+        Returns:
+            {relation_type_value: count}
+        """
+        async with self._lock:
+            assert self._conn
+            rows = self._conn.execute(
+                "SELECT relation_type, COUNT(*) as cnt FROM kg_edges GROUP BY relation_type"
+            ).fetchall()
+            return {r[0]: r[1] for r in rows}
+
+    async def get_low_confidence_stale_edge_ids(
+        self,
+        confidence_threshold: float = 0.2,
+        cutoff_iso: str = "",
+    ) -> List[str]:
+        """使用 SQL 获取低置信度且过期的边 ID 列表
+
+        Args:
+            confidence_threshold: 置信度阈值
+            cutoff_iso: ISO 格式的截止时间字符串
+
+        Returns:
+            待清理的边 ID 列表
+        """
+        async with self._lock:
+            assert self._conn
+            rows = self._conn.execute(
+                "SELECT id FROM kg_edges WHERE confidence < ? AND updated_time < ?",
+                (confidence_threshold, cutoff_iso),
+            ).fetchall()
+            return [r[0] for r in rows]
+
+    async def detect_contradictions_sql(
+        self,
+        relation_pairs: List[tuple],
+    ) -> List[Dict[str, Any]]:
+        """使用 SQL JOIN 检测矛盾关系对
+
+        Args:
+            relation_pairs: [(rel_a, rel_b), ...] 互斥的关系类型值对
+
+        Returns:
+            匹配的矛盾边对信息列表
+        """
+        if not relation_pairs:
+            return []
+
+        async with self._lock:
+            assert self._conn
+            results: List[Dict[str, Any]] = []
+            for rel_a, rel_b in relation_pairs:
+                rows = self._conn.execute(
+                    """SELECT e1.id as e1_id, e2.id as e2_id,
+                              e1.source_id, e1.target_id,
+                              e1.relation_type as rel_a, e2.relation_type as rel_b
+                       FROM kg_edges e1
+                       JOIN kg_edges e2
+                         ON e1.source_id = e2.source_id
+                        AND e1.target_id = e2.target_id
+                       WHERE e1.relation_type = ? AND e2.relation_type = ?
+                         AND e1.id < e2.id""",
+                    (rel_a, rel_b),
+                ).fetchall()
+                for r in rows:
+                    results.append(dict(r))
+            return results
+
+    # ================================================================
+    # 分批迭代方法（大图谱内存优化）
+    # ================================================================
+
+    async def iter_nodes_batch(self, batch_size: int = 500) -> List[List[KGNode]]:
+        """分批获取所有节点
+
+        对于需要遍历所有节点的场景，分批加载减少内存峰值。
+
+        Args:
+            batch_size: 每批数量
+
+        Returns:
+            节点批次列表
+        """
+        batches: List[List[KGNode]] = []
+        async with self._lock:
+            assert self._conn
+            offset = 0
+            while True:
+                rows = self._conn.execute(
+                    "SELECT * FROM kg_nodes LIMIT ? OFFSET ?",
+                    (batch_size, offset),
+                ).fetchall()
+                if not rows:
+                    break
+                batches.append([KGNode.from_row(dict(r)) for r in rows])
+                offset += batch_size
+        return batches
+
+    async def iter_edges_batch(self, batch_size: int = 500) -> List[List[KGEdge]]:
+        """分批获取所有边
+
+        Args:
+            batch_size: 每批数量
+
+        Returns:
+            边批次列表
+        """
+        batches: List[List[KGEdge]] = []
+        async with self._lock:
+            assert self._conn
+            offset = 0
+            while True:
+                rows = self._conn.execute(
+                    "SELECT * FROM kg_edges LIMIT ? OFFSET ?",
+                    (batch_size, offset),
+                ).fetchall()
+                if not rows:
+                    break
+                batches.append([KGEdge.from_row(dict(r)) for r in rows])
+                offset += batch_size
+        return batches
+
+    # ================================================================
     # 工具方法
     # ================================================================
 
