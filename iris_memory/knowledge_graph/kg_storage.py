@@ -244,18 +244,15 @@ class KGStorage:
     def _migrate_v1_to_v2(self) -> None:
         """v1 → v2：添加 persona_id 列（DEFAULT 'default' 自动回填旧数据）"""
         assert self._conn
-        try:
-            cols = {info[1] for info in self._conn.execute("PRAGMA table_info(kg_nodes)").fetchall()}
+        with self._tx() as cur:
+            cols = {info[1] for info in cur.execute("PRAGMA table_info(kg_nodes)").fetchall()}
             if "persona_id" not in cols:
-                self._conn.execute("ALTER TABLE kg_nodes ADD COLUMN persona_id TEXT DEFAULT 'default'")
+                cur.execute("ALTER TABLE kg_nodes ADD COLUMN persona_id TEXT DEFAULT 'default'")
                 logger.info("Migration v1→v2: added persona_id to kg_nodes")
-            cols_e = {info[1] for info in self._conn.execute("PRAGMA table_info(kg_edges)").fetchall()}
+            cols_e = {info[1] for info in cur.execute("PRAGMA table_info(kg_edges)").fetchall()}
             if "persona_id" not in cols_e:
-                self._conn.execute("ALTER TABLE kg_edges ADD COLUMN persona_id TEXT DEFAULT 'default'")
+                cur.execute("ALTER TABLE kg_edges ADD COLUMN persona_id TEXT DEFAULT 'default'")
                 logger.info("Migration v1→v2: added persona_id to kg_edges")
-        except sqlite3.Error as e:
-            logger.error(f"Migration v1→v2 failed: {e}")
-            raise
 
     @contextmanager
     def _tx(self):
