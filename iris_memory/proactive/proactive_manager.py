@@ -10,8 +10,9 @@
 """
 import asyncio
 import time
-from typing import Dict, Any, Optional, List, TYPE_CHECKING
+from typing import Dict, Any, Optional, List, Union, TYPE_CHECKING
 from dataclasses import dataclass
+from typing import Protocol
 
 from iris_memory.utils.logger import get_logger
 from iris_memory.utils.command_utils import SessionKeyBuilder
@@ -23,6 +24,19 @@ from iris_memory.proactive.proactive_event import ProactiveMessageEvent
 
 if TYPE_CHECKING:
     from iris_memory.core.config_manager import ConfigManager
+    from iris_memory.proactive.llm_proactive_reply_detector import LLMReplyDecision
+
+
+class ReplyDecisionProtocol(Protocol):
+    """主动回复决策协议
+    
+    定义 ProactiveReplyDecision 和 LLMReplyDecision 的共同接口。
+    使用 Protocol 实现结构化子类型（鸭子类型），避免修改现有继承关系。
+    """
+    should_reply: bool
+    urgency: ReplyUrgency
+    reason: str
+    suggested_delay: int
 
 logger = get_logger("proactive_manager")
 
@@ -91,10 +105,6 @@ class ProactiveReplyManager:
         
         # 智能增强：用户最后发言时间追踪
         self._last_user_message_time: BoundedDict[str, float] = BoundedDict(max_size=2000)
-        self._smart_boost_enabled = self.config.get("smart_boost_enabled", False)
-        self._smart_boost_window = self.config.get("smart_boost_window_seconds", 300)
-        self._smart_boost_multiplier = self.config.get("smart_boost_score_multiplier", 1.5)
-        self._smart_boost_threshold = self.config.get("smart_boost_reply_threshold", 0.25)
         
         # 统计
         self.stats = {
@@ -165,6 +175,34 @@ class ProactiveReplyManager:
         if self._config_manager:
             return self._config_manager.get_max_daily_replies(group_id)
         return self._default_max_daily
+    
+    @property
+    def _smart_boost_enabled(self) -> bool:
+        """获取智能增强开关"""
+        if self._config_manager:
+            return self._config_manager.smart_boost_enabled
+        return self.config.get("smart_boost_enabled", False)
+    
+    @property
+    def _smart_boost_window(self) -> int:
+        """获取智能增强窗口时间（秒）"""
+        if self._config_manager:
+            return self._config_manager.smart_boost_window_seconds
+        return self.config.get("smart_boost_window_seconds", 300)
+    
+    @property
+    def _smart_boost_multiplier(self) -> float:
+        """获取智能增强分数乘数"""
+        if self._config_manager:
+            return self._config_manager.smart_boost_score_multiplier
+        return self.config.get("smart_boost_score_multiplier", 1.5)
+    
+    @property
+    def _smart_boost_threshold(self) -> float:
+        """获取智能增强回复阈值"""
+        if self._config_manager:
+            return self._config_manager.smart_boost_reply_threshold
+        return self.config.get("smart_boost_reply_threshold", 0.25)
     
     async def handle_batch(
         self,
@@ -286,10 +324,10 @@ class ProactiveReplyManager:
     
     def _apply_smart_boost(
         self,
-        decision: Any,
+        decision: Union[ProactiveReplyDecision, "LLMReplyDecision"],
         user_id: str,
         group_id: Optional[str] = None
-    ) -> Any:
+    ) -> Union[ProactiveReplyDecision, "LLMReplyDecision"]:
         """对检测决策应用智能增强
         
         在检测器返回结果之后、提交任务之前调用。

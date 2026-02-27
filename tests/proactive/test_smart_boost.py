@@ -123,6 +123,10 @@ def mock_config_manager_llm():
     """proactive_mode = llm 的 ConfigManager mock"""
     mgr = Mock()
     type(mgr).proactive_mode = PropertyMock(return_value="llm")
+    type(mgr).smart_boost_enabled = PropertyMock(return_value=True)
+    type(mgr).smart_boost_window_seconds = PropertyMock(return_value=300)
+    type(mgr).smart_boost_score_multiplier = PropertyMock(return_value=1.5)
+    type(mgr).smart_boost_reply_threshold = PropertyMock(return_value=0.25)
     mgr.get_max_daily_replies = Mock(return_value=20)
     mgr.get_cooldown_seconds = Mock(return_value=60)
     return mgr
@@ -133,6 +137,10 @@ def mock_config_manager_hybrid():
     """proactive_mode = hybrid 的 ConfigManager mock"""
     mgr = Mock()
     type(mgr).proactive_mode = PropertyMock(return_value="hybrid")
+    type(mgr).smart_boost_enabled = PropertyMock(return_value=True)
+    type(mgr).smart_boost_window_seconds = PropertyMock(return_value=300)
+    type(mgr).smart_boost_score_multiplier = PropertyMock(return_value=1.5)
+    type(mgr).smart_boost_reply_threshold = PropertyMock(return_value=0.25)
     mgr.get_max_daily_replies = Mock(return_value=20)
     mgr.get_cooldown_seconds = Mock(return_value=60)
     return mgr
@@ -143,6 +151,24 @@ def mock_config_manager_rule():
     """proactive_mode = rule 的 ConfigManager mock"""
     mgr = Mock()
     type(mgr).proactive_mode = PropertyMock(return_value="rule")
+    type(mgr).smart_boost_enabled = PropertyMock(return_value=True)
+    type(mgr).smart_boost_window_seconds = PropertyMock(return_value=300)
+    type(mgr).smart_boost_score_multiplier = PropertyMock(return_value=1.5)
+    type(mgr).smart_boost_reply_threshold = PropertyMock(return_value=0.25)
+    mgr.get_max_daily_replies = Mock(return_value=20)
+    mgr.get_cooldown_seconds = Mock(return_value=60)
+    return mgr
+
+
+@pytest.fixture
+def mock_config_manager_disabled():
+    """smart_boost_enabled = False 的 ConfigManager mock"""
+    mgr = Mock()
+    type(mgr).proactive_mode = PropertyMock(return_value="llm")
+    type(mgr).smart_boost_enabled = PropertyMock(return_value=False)
+    type(mgr).smart_boost_window_seconds = PropertyMock(return_value=300)
+    type(mgr).smart_boost_score_multiplier = PropertyMock(return_value=1.5)
+    type(mgr).smart_boost_reply_threshold = PropertyMock(return_value=0.25)
     mgr.get_max_daily_replies = Mock(return_value=20)
     mgr.get_cooldown_seconds = Mock(return_value=60)
     return mgr
@@ -174,14 +200,14 @@ class TestConfigDependency:
 
     def test_smart_boost_disabled_when_config_off(
         self, smart_boost_disabled_config, mock_context_with_queue,
-        decision_no_reply_with_score, mock_config_manager_llm,
+        decision_no_reply_with_score, mock_config_manager_disabled,
     ):
         """smart_boost_enabled=False 时 is_in_boost_window 返回 False"""
         manager = _make_manager(
             smart_boost_disabled_config,
             decision_no_reply_with_score,
             mock_context_with_queue,
-            mock_config_manager_llm,
+            mock_config_manager_disabled,
         )
         manager._record_user_message("u1")
         assert manager.is_in_boost_window("u1") is False
@@ -559,11 +585,15 @@ class TestHandleBatchWithSmartBoost:
     """验证 handle_batch 中智能增强的完整流程"""
 
     @pytest.mark.asyncio
-    async def test_handle_batch_records_message_time(
+    async def test_handle_batch_does_not_record_message_time(
         self, smart_boost_config, mock_context_with_queue,
         decision_no_reply_with_score, mock_config_manager_llm,
     ):
-        """handle_batch 应记录用户发言时间"""
+        """handle_batch 不应记录用户发言时间
+        
+        智能增强窗口只在 Bot 发送主动回复后开始，
+        避免持续聊天导致窗口无限延长。
+        """
         manager = _make_manager(
             smart_boost_config,
             decision_no_reply_with_score,
@@ -575,7 +605,7 @@ class TestHandleBatchWithSmartBoost:
             await manager.handle_batch(
                 messages=["你好"], user_id="u1"
             )
-            assert "u1:private" in manager._last_user_message_time
+            assert "u1:private" not in manager._last_user_message_time
         finally:
             await manager.stop()
 
