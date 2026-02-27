@@ -23,6 +23,9 @@
     <div class="nav-item" data-section="personas" onclick="showSection('personas',this)">
       <span class="icon">◉</span><span>用户画像</span>
     </div>
+    <div class="nav-item" data-section="proactive" onclick="showSection('proactive',this)">
+      <span class="icon">💬</span><span>主动回复</span>
+    </div>
     <div class="nav-item" data-section="io" onclick="showSection('io',this)">
       <span class="icon">⇄</span><span>导入导出</span>
     </div>
@@ -278,6 +281,32 @@
       <div class="pagination" id="persona-pagination"></div>
     </div>
 
+    <!-- ======== Proactive Reply Section ======== -->
+    <div id="sec-proactive" class="section">
+      <div class="section-header">
+        <h2>💬 主动回复</h2>
+        <div class="spacer"></div>
+        <button class="btn-icon" onclick="refreshProactiveTab()" title="刷新">↻</button>
+      </div>
+      <div id="proactive-status-container">
+        <div class="loading"><div class="spinner"></div></div>
+      </div>
+      <div class="card" id="proactive-whitelist-card" style="margin-top:16px;">
+        <div class="card-title">📋 群聊白名单管理</div>
+        <div class="filter-bar" style="margin-bottom:12px;">
+          <input type="text" id="proactive-group-input" placeholder="输入群聊 ID" onkeydown="if(event.key==='Enter')addProactiveWhitelist()">
+          <button class="btn btn-primary" onclick="addProactiveWhitelist()">+ 添加</button>
+        </div>
+        <div class="filter-bar" style="margin-bottom:12px;">
+          <input type="text" id="proactive-check-input" placeholder="查询群聊是否在白名单" oninput="checkProactiveWhitelist()">
+          <span id="proactive-check-result" style="min-width:120px;font-size:13px;"></span>
+        </div>
+        <div id="proactive-whitelist-container">
+          <div style="color:var(--text2);text-align:center;padding:20px;">加载中...</div>
+        </div>
+      </div>
+    </div>
+
     <!-- ======== Import/Export Section ======== -->
     <div id="sec-io" class="section">
       <div class="section-header">
@@ -467,6 +496,7 @@
 <script src="/static/js/memories.js"></script>
 <script src="/static/js/kg.js"></script>
 <script src="/static/js/personas.js"></script>
+<script src="/static/js/proactive.js"></script>
 <script src="/static/js/io.js"></script>
 <script src="/static/js/app.js"></script>
 </body>

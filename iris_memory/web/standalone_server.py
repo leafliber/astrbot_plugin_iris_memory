@@ -215,24 +215,28 @@ class StandaloneWebServer:
         from iris_memory.web.api.routes.kg import register_kg_routes
         from iris_memory.web.api.routes.io import register_io_routes
         from iris_memory.web.api.routes.personas import register_persona_routes
+        from iris_memory.web.api.routes.proactive import register_proactive_routes
 
         from iris_memory.web.service.dashboard_service import DashboardService
         from iris_memory.web.service.memory_web_service import MemoryWebService
         from iris_memory.web.service.kg_web_service import KgWebService
         from iris_memory.web.service.io_service import IoService
         from iris_memory.web.service.persona_web_service import PersonaWebService
+        from iris_memory.web.service.proactive_web_service import ProactiveWebService
 
         dashboard_svc = DashboardService(self._service)
         memory_svc = MemoryWebService(self._service)
         kg_svc = KgWebService(self._service)
         io_svc = IoService(self._service)
         persona_svc = PersonaWebService(self._service)
+        proactive_svc = ProactiveWebService(self._service)
 
         register_dashboard_routes(app, dashboard_svc)
         register_memory_routes(app, memory_svc)
         register_kg_routes(app, kg_svc)
         register_io_routes(app, io_svc)
         register_persona_routes(app, persona_svc)
+        register_proactive_routes(app, proactive_svc)
     
     async def _serve_index(self) -> Any:
         """服务前端页面"""

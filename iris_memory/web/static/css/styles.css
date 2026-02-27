@@ -197,6 +197,12 @@ input[type="checkbox"] { width:16px; height:16px; accent-color:var(--accent); }
 .node-popup h4 { margin-bottom:8px; color:var(--accent); }
 .node-popup .detail-item { padding:4px 0; }
 
+/* Proactive Whitelist */
+.whitelist-list { display:flex; flex-direction:column; gap:8px; }
+.whitelist-item { display:flex; align-items:center; justify-content:space-between; background:var(--bg3); padding:10px 14px; border-radius:var(--radius); border:1px solid var(--border); }
+.whitelist-item:hover { border-color:var(--accent); }
+.whitelist-id { font-family:monospace; font-size:14px; color:var(--text); }
+
 /* Responsive */
 @media(max-width:768px) {
   .sidebar { width:60px; }

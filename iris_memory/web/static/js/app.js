@@ -11,6 +11,7 @@ function showSection(name, navEl) {
   if (name === 'dashboard') loadDashboard();
   if (name === 'memories') { if (!memState.loaded) searchMemories(); }
   if (name === 'personas') loadPersonas();
+  if (name === 'proactive') { if (!proactiveState.loaded) loadProactiveStatus(); }
 }
 
 // Initialization

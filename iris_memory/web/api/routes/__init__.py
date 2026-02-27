@@ -7,6 +7,7 @@ from iris_memory.web.api.routes.io import register_io_routes
 from iris_memory.web.api.routes.kg import register_kg_routes
 from iris_memory.web.api.routes.memories import register_memory_routes
 from iris_memory.web.api.routes.personas import register_persona_routes
+from iris_memory.web.api.routes.proactive import register_proactive_routes
 
 __all__ = [
     "register_dashboard_routes",
@@ -14,4 +15,5 @@ __all__ = [
     "register_kg_routes",
     "register_memory_routes",
     "register_persona_routes",
+    "register_proactive_routes",
 ]
