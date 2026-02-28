@@ -7,9 +7,13 @@
 设计动机：
 - 原 PersistenceOperations 作为 Mixin 通过 self.xxx 隐式访问 MemoryService 属性
 - 转为组合模式后，所有依赖通过构造函数显式注入
+
+重构历史：
+- 2026-03-01: 配置驱动化重构，将 18 个 _load_xxx/_save_xxx 方法简化为配置表驱动
 """
 
-from typing import Dict, Any, Optional
+from dataclasses import dataclass, field
+from typing import Dict, Any, Optional, Callable, Awaitable
 
 from iris_memory.utils.logger import get_logger
 from iris_memory.core.constants import KVStoreKeys, LogTemplates
@@ -17,6 +21,145 @@ from iris_memory.utils.member_utils import set_identity_service
 from iris_memory.services.shared_state import SharedState
 
 logger = get_logger("memory_service.persistence")
+
+
+@dataclass
+class KVLoaderConfig:
+    """KV 加载配置"""
+    key: str
+    component_path: str
+    deserialize_method: str
+    default: Any = field(default_factory=dict)
+    config_check: Optional[str] = None
+    log_message: Optional[str] = None
+    is_async: bool = True
+    special_handler: Optional[str] = None
+
+
+@dataclass
+class KVSaveConfig:
+    """KV 保存配置"""
+    key: str
+    component_path: str
+    serialize_method: str
+    config_check: Optional[str] = None
+    log_message: Optional[str] = None
+    is_async: bool = True
+    special_handler: Optional[str] = None
+
+
+_KV_LOADERS: list[KVLoaderConfig] = [
+    KVLoaderConfig(
+        key=KVStoreKeys.SESSIONS,
+        component_path="_storage.session_manager",
+        deserialize_method="deserialize_from_kv_storage",
+        log_message="Loaded {count} sessions",
+    ),
+    KVLoaderConfig(
+        key=KVStoreKeys.LIFECYCLE_STATE,
+        component_path="_storage.lifecycle_manager",
+        deserialize_method="deserialize_state",
+        log_message="Loaded lifecycle state",
+    ),
+    KVLoaderConfig(
+        key=KVStoreKeys.BATCH_QUEUES,
+        component_path="_capture.batch_processor",
+        deserialize_method="deserialize_queues",
+        log_message="Loaded batch processor queues",
+    ),
+    KVLoaderConfig(
+        key=KVStoreKeys.CHAT_HISTORY,
+        component_path="_storage.chat_history_buffer",
+        deserialize_method="deserialize",
+        log_message="Loaded chat history buffer",
+    ),
+    KVLoaderConfig(
+        key=KVStoreKeys.PROACTIVE_REPLY_WHITELIST,
+        component_path="_proactive.proactive_manager",
+        deserialize_method="deserialize_whitelist",
+        default=[],
+        log_message="Loaded proactive reply whitelist",
+    ),
+    KVLoaderConfig(
+        key=KVStoreKeys.MEMBER_IDENTITY,
+        component_path="_member_identity",
+        deserialize_method="deserialize",
+        log_message="Loaded member identity data",
+    ),
+    KVLoaderConfig(
+        key=KVStoreKeys.GROUP_ACTIVITY,
+        component_path="_activity_tracker",
+        deserialize_method="deserialize",
+        log_message="Loaded group activity states",
+    ),
+    KVLoaderConfig(
+        key=KVStoreKeys.USER_PERSONAS,
+        component_path="",
+        deserialize_method="",
+        config_check="persona.enabled",
+        special_handler="_load_user_personas",
+    ),
+    KVLoaderConfig(
+        key=KVStoreKeys.PERSONA_BATCH_QUEUES,
+        component_path="",
+        deserialize_method="",
+        config_check="persona.enabled",
+        special_handler="_load_persona_batch_queues",
+    ),
+]
+
+_KV_SAVERS: list[KVSaveConfig] = [
+    KVSaveConfig(
+        key=KVStoreKeys.SESSIONS,
+        component_path="_storage.session_manager",
+        serialize_method="serialize_for_kv_storage",
+        log_message="Saved {count} sessions",
+    ),
+    KVSaveConfig(
+        key=KVStoreKeys.BATCH_QUEUES,
+        component_path="_capture.batch_processor",
+        serialize_method="serialize_queues",
+        log_message="Saved batch processor queues",
+    ),
+    KVSaveConfig(
+        key=KVStoreKeys.CHAT_HISTORY,
+        component_path="_storage.chat_history_buffer",
+        serialize_method="serialize",
+        log_message="Saved chat history buffer",
+    ),
+    KVSaveConfig(
+        key=KVStoreKeys.PROACTIVE_REPLY_WHITELIST,
+        component_path="_proactive.proactive_manager",
+        serialize_method="serialize_whitelist",
+        log_message="Saved proactive reply whitelist",
+    ),
+    KVSaveConfig(
+        key=KVStoreKeys.MEMBER_IDENTITY,
+        component_path="_member_identity",
+        serialize_method="serialize",
+        log_message="Saved member identity data",
+    ),
+    KVSaveConfig(
+        key=KVStoreKeys.GROUP_ACTIVITY,
+        component_path="_activity_tracker",
+        serialize_method="serialize",
+        log_message="Saved group activity states",
+    ),
+    KVSaveConfig(
+        key=KVStoreKeys.USER_PERSONAS,
+        component_path="",
+        serialize_method="",
+        config_check="persona.enabled",
+        special_handler="_save_user_personas",
+    ),
+    KVSaveConfig(
+        key=KVStoreKeys.PERSONA_BATCH_QUEUES,
+        component_path="",
+        serialize_method="",
+        config_check="persona.enabled",
+        special_handler="_save_persona_batch_queues",
+    ),
+]
 
 
 class PersistenceService:
@@ -97,127 +240,95 @@ class PersistenceService:
     # ── KV 加载 ──
 
     async def load_from_kv(self, get_kv_data: Any) -> None:
-        """从 KV 存储加载数据"""
+        """从 KV 存储加载数据（配置驱动）"""
         try:
-            await self._load_session_data(get_kv_data)
-            await self._load_lifecycle_state(get_kv_data)
-            await self._load_batch_queues(get_kv_data)
-            await self._load_chat_history(get_kv_data)
-            await self._load_proactive_whitelist(get_kv_data)
-            await self._load_member_identity(get_kv_data)
-            await self._load_activity_data(get_kv_data)
-            await self._load_user_personas(get_kv_data)
-            await self._load_persona_batch_queues(get_kv_data)
-
+            for config in _KV_LOADERS:
+                await self._execute_loader(config, get_kv_data)
         except Exception as e:
             logger.error(f"Failed to load from KV: {e}", exc_info=True)
 
-    async def _load_session_data(self, get_kv_data: Any) -> None:
-        """加载会话数据"""
-        if not self._storage.session_manager:
+    async def _execute_loader(self, config: KVLoaderConfig, get_kv_data: Any) -> None:
+        """执行单个加载配置"""
+        if config.config_check and not self._cfg.get(config.config_check, True):
             return
 
-        sessions_data = await get_kv_data(KVStoreKeys.SESSIONS, {})
-        if sessions_data:
-            await self._storage.session_manager.deserialize_from_kv_storage(sessions_data)
-            logger.debug(LogTemplates.SESSION_LOADED.format(
-                count=self._storage.session_manager.get_session_count()
-            ))
-
-    async def _load_lifecycle_state(self, get_kv_data: Any) -> None:
-        """加载生命周期状态"""
-        if not self._storage.lifecycle_manager:
+        if config.special_handler:
+            await getattr(self, config.special_handler)(get_kv_data)
             return
 
-        lifecycle_state = await get_kv_data(KVStoreKeys.LIFECYCLE_STATE, {})
-        if lifecycle_state:
-            await self._storage.lifecycle_manager.deserialize_state(lifecycle_state)
-            logger.debug("Loaded lifecycle state")
-
-    async def _load_batch_queues(self, get_kv_data: Any) -> None:
-        """加载批量处理器队列"""
-        if not self._capture.batch_processor:
+        component = self._resolve_component(config.component_path)
+        if not component:
             return
 
-        batch_queues = await get_kv_data(KVStoreKeys.BATCH_QUEUES, {})
-        if batch_queues:
-            await self._capture.batch_processor.deserialize_queues(batch_queues)
-            logger.debug("Loaded batch processor queues")
-
-    async def _load_chat_history(self, get_kv_data: Any) -> None:
-        """加载聊天记录缓冲区"""
-        if not self._storage.chat_history_buffer:
+        data = await get_kv_data(config.key, config.default)
+        if not data:
             return
 
-        chat_history = await get_kv_data(KVStoreKeys.CHAT_HISTORY, {})
-        if chat_history:
-            await self._storage.chat_history_buffer.deserialize(chat_history)
-            logger.debug("Loaded chat history buffer")
+        method = getattr(component, config.deserialize_method)
+        if config.is_async:
+            await method(data)
+        else:
+            method(data)
 
-    async def _load_proactive_whitelist(self, get_kv_data: Any) -> None:
-        """加载主动回复白名单"""
-        if not self._proactive.proactive_manager:
-            return
+        if config.log_message:
+            self._log_loader_result(config, component)
 
-        whitelist_data = await get_kv_data(KVStoreKeys.PROACTIVE_REPLY_WHITELIST, [])
-        if whitelist_data:
-            self._proactive.proactive_manager.deserialize_whitelist(whitelist_data)
-            logger.debug("Loaded proactive reply whitelist")
+    def _resolve_component(self, path: str) -> Any:
+        """解析组件路径"""
+        if not path:
+            return None
+        obj = self
+        for attr in path.split("."):
+            obj = getattr(obj, attr, None)
+            if obj is None:
+                return None
+        return obj
 
-    async def _load_member_identity(self, get_kv_data: Any) -> None:
-        """加载成员身份数据"""
-        if not self._member_identity:
-            return
-
-        identity_data = await get_kv_data(KVStoreKeys.MEMBER_IDENTITY, {})
-        if identity_data:
-            self._member_identity.deserialize(identity_data)
-            stats = self._member_identity.get_stats()
+    def _log_loader_result(self, config: KVLoaderConfig, component: Any) -> None:
+        """记录加载结果日志"""
+        if "{count}" in config.log_message:
+            if hasattr(component, "get_session_count"):
+                count = component.get_session_count()
+            elif hasattr(component, "__len__"):
+                count = len(component)
+            else:
+                count = 0
+            logger.debug(config.log_message.format(count=count))
+        elif config.key == KVStoreKeys.MEMBER_IDENTITY and hasattr(component, "get_stats"):
+            stats = component.get_stats()
             logger.debug(
                 f"Loaded member identity data: "
                 f"{stats['total_profiles']} profiles, "
                 f"{stats['total_groups']} groups"
             )
-
-    async def _load_activity_data(self, get_kv_data: Any) -> None:
-        """加载群活跃度数据"""
-        if not self._activity_tracker:
-            return
-
-        activity_data = await get_kv_data(KVStoreKeys.GROUP_ACTIVITY, {})
-        if activity_data:
-            self._activity_tracker.deserialize(activity_data)
-            logger.debug("Loaded group activity states")
+        else:
+            logger.debug(config.log_message)
 
     async def _load_user_personas(self, get_kv_data: Any) -> None:
-        """加载用户画像"""
-        if not self._cfg.get("persona.enabled", True):
-            return
-
+        """加载用户画像（特殊处理）"""
         from iris_memory.models.user_persona import UserPersona
         from iris_memory.analysis.persona.persona_logger import persona_log
 
         personas_data = await get_kv_data(KVStoreKeys.USER_PERSONAS, {})
-        if personas_data:
-            persona_log.restore_start(len(personas_data))
-            success_count = 0
-            fail_count = 0
-            for uid, pdata in personas_data.items():
-                try:
-                    self._state.user_personas[uid] = UserPersona.from_dict(pdata)
-                    persona_log.restore_ok(uid)
-                    success_count += 1
-                except Exception as e:
-                    persona_log.restore_error(uid, e)
-                    fail_count += 1
-            persona_log.restore_summary(len(personas_data), success_count, fail_count)
-            logger.debug(f"Loaded {len(self._state.user_personas)} user personas")
+        if not personas_data:
+            return
+
+        persona_log.restore_start(len(personas_data))
+        success_count = 0
+        fail_count = 0
+        for uid, pdata in personas_data.items():
+            try:
+                self._state.user_personas[uid] = UserPersona.from_dict(pdata)
+                persona_log.restore_ok(uid)
+                success_count += 1
+            except Exception as e:
+                persona_log.restore_error(uid, e)
+                fail_count += 1
+        persona_log.restore_summary(len(personas_data), success_count, fail_count)
+        logger.debug(f"Loaded {len(self._state.user_personas)} user personas")
 
     async def _load_persona_batch_queues(self, get_kv_data: Any) -> None:
         """加载画像批量处理器队列（重启时清空策略）"""
-        if not self._cfg.get("persona.enabled", True):
-            return
-
         persona_batch = self._analysis.persona_batch_processor
         if not persona_batch:
             return
@@ -230,94 +341,66 @@ class PersistenceService:
     # ── KV 保存 ──
 
     async def save_to_kv(self, put_kv_data: Any) -> None:
-        """保存到 KV 存储"""
+        """保存到 KV 存储（配置驱动）"""
         try:
-            # 缓存 put_kv_data 供批量处理器自动保存回调使用
             self._cached_put_kv_data = put_kv_data
-
-            await self._save_session_data(put_kv_data)
-            await self._save_batch_queues(put_kv_data)
-            await self._save_chat_history(put_kv_data)
-            await self._save_proactive_whitelist(put_kv_data)
-            await self._save_member_identity(put_kv_data)
-            await self._save_activity_data(put_kv_data)
-            await self._save_user_personas(put_kv_data)
-            await self._save_persona_batch_queues(put_kv_data)
-
+            for config in _KV_SAVERS:
+                await self._execute_saver(config, put_kv_data)
         except Exception as e:
             logger.error(f"Failed to save to KV: {e}", exc_info=True)
 
-    async def _save_session_data(self, put_kv_data: Any) -> None:
-        """保存会话数据"""
-        if not self._storage.session_manager:
+    async def _execute_saver(self, config: KVSaveConfig, put_kv_data: Any) -> None:
+        """执行单个保存配置"""
+        if config.config_check and not self._cfg.get(config.config_check, True):
             return
 
-        sessions_data = await self._storage.session_manager.serialize_for_kv_storage()
-        await put_kv_data(KVStoreKeys.SESSIONS, sessions_data)
-        logger.debug(LogTemplates.SESSION_SAVED.format(
-            count=self._storage.session_manager.get_session_count()
-        ))
+        if config.special_handler:
+            await getattr(self, config.special_handler)(put_kv_data)
+            return
+
+        component = self._resolve_component(config.component_path)
+        if not component:
+            return
+
+        method = getattr(component, config.serialize_method)
+        if config.is_async:
+            data = await method()
+        else:
+            data = method()
+
+        await put_kv_data(config.key, data)
+
+        if config.log_message:
+            self._log_saver_result(config, component)
+
+    def _log_saver_result(self, config: KVSaveConfig, component: Any) -> None:
+        """记录保存结果日志"""
+        if "{count}" in config.log_message:
+            if hasattr(component, "get_session_count"):
+                count = component.get_session_count()
+            elif hasattr(component, "__len__"):
+                count = len(component)
+            else:
+                count = 0
+            logger.debug(config.log_message.format(count=count))
+        else:
+            logger.debug(config.log_message)
 
     async def _save_batch_queues(self, put_kv_data: Optional[Any] = None) -> None:
-        """保存批量处理器队列
-
-        Args:
-            put_kv_data: KV 写入函数。为 None 时尝试使用上次缓存的函数，
-                以支持批量处理器的无参回调。
-        """
+        """保存批量处理器队列（支持无参回调）"""
         if not self._capture.batch_processor:
             return
 
         put_func = put_kv_data or self._cached_put_kv_data
         if put_func is None:
-            # KV 存储尚未初始化，静默跳过（批量处理器的自动保存会在初始化后正常工作）
             return
 
         batch_queues = await self._capture.batch_processor.serialize_queues()
         await put_func(KVStoreKeys.BATCH_QUEUES, batch_queues)
         logger.debug("Saved batch processor queues")
 
-    async def _save_chat_history(self, put_kv_data: Any) -> None:
-        """保存聊天记录缓冲区"""
-        if not self._storage.chat_history_buffer:
-            return
-
-        chat_history = await self._storage.chat_history_buffer.serialize()
-        await put_kv_data(KVStoreKeys.CHAT_HISTORY, chat_history)
-        logger.debug("Saved chat history buffer")
-
-    async def _save_proactive_whitelist(self, put_kv_data: Any) -> None:
-        """保存主动回复白名单"""
-        if not self._proactive.proactive_manager:
-            return
-
-        whitelist_data = self._proactive.proactive_manager.serialize_whitelist()
-        await put_kv_data(KVStoreKeys.PROACTIVE_REPLY_WHITELIST, whitelist_data)
-        logger.debug("Saved proactive reply whitelist")
-
-    async def _save_member_identity(self, put_kv_data: Any) -> None:
-        """保存成员身份数据"""
-        if not self._member_identity:
-            return
-
-        identity_data = self._member_identity.serialize()
-        await put_kv_data(KVStoreKeys.MEMBER_IDENTITY, identity_data)
-        logger.debug("Saved member identity data")
-
-    async def _save_activity_data(self, put_kv_data: Any) -> None:
-        """保存群活跃度数据"""
-        if not self._activity_tracker:
-            return
-
-        activity_data = self._activity_tracker.serialize()
-        await put_kv_data(KVStoreKeys.GROUP_ACTIVITY, activity_data)
-        logger.debug("Saved group activity states")
-
     async def _save_user_personas(self, put_kv_data: Any) -> None:
-        """保存用户画像"""
-        if not self._cfg.get("persona.enabled", True):
-            return
-
+        """保存用户画像（特殊处理）"""
         if not self._state.user_personas:
             return
 
@@ -336,9 +419,6 @@ class PersistenceService:
 
     async def _save_persona_batch_queues(self, put_kv_data: Any) -> None:
         """保存画像批量处理器队列"""
-        if not self._cfg.get("persona.enabled", True):
-            return
-
         persona_batch = self._analysis.persona_batch_processor
         if not persona_batch:
             return
