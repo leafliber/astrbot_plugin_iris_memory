@@ -2,20 +2,27 @@
 Chroma 操作模块
 
 将CRUD操作从 ChromaManager 中拆分出来，提高代码可维护性。
+使用组合模式而非 Mixin，依赖关系显式化。
 """
 
+from __future__ import annotations
+
 import asyncio
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any, Optional, Tuple, TYPE_CHECKING
+
 import numpy as np
 
 from iris_memory.utils.logger import get_logger
 from iris_memory.core.memory_scope import MemoryScope
 
+if TYPE_CHECKING:
+    from iris_memory.storage.chroma_manager import ChromaManager
+
 logger = get_logger("chroma_operations")
 
 
 class ChromaOperations:
-    """Chroma CRUD 操作 Mixin
+    """Chroma CRUD 操作组件
     
     职责：
     1. 记忆添加
@@ -23,10 +30,20 @@ class ChromaOperations:
     3. 记忆删除
     4. 会话删除
     5. 批量删除操作
+    
+    通过组合模式持有 ChromaManager 引用，而非 Mixin 继承。
     """
 
     _EMBEDDING_RETRY_COUNT = 2
-    _EMBEDDING_RETRY_DELAY = 0.5  # seconds
+    _EMBEDDING_RETRY_DELAY = 0.5
+
+    def __init__(self, manager: ChromaManager) -> None:
+        """初始化操作组件
+        
+        Args:
+            manager: ChromaManager 实例引用
+        """
+        self._manager = manager
 
     async def add_memory(self, memory) -> Optional[str]:
         """添加记忆到Chroma
@@ -38,7 +55,7 @@ class ChromaOperations:
             Optional[str]: 记忆ID，如果嵌入生成失败则返回None
         """
         try:
-            self._ensure_ready()
+            self._manager._ensure_ready()
             
             if memory.embedding is None:
                 embedding = await self._generate_embedding_with_retry(memory.content, memory.id)
@@ -53,7 +70,7 @@ class ChromaOperations:
             metadata.update(memory.metadata)
 
             await asyncio.to_thread(
-                self.collection.add,
+                self._manager.collection.add,
                 ids=[memory.id],
                 embeddings=[embedding],
                 documents=[memory.content],
@@ -80,7 +97,7 @@ class ChromaOperations:
         last_err = None
         for attempt in range(1, self._EMBEDDING_RETRY_COUNT + 1):
             try:
-                embedding = await self._generate_embedding(content)
+                embedding = await self._manager._generate_embedding(content)
                 if embedding is not None:
                     return embedding
                 logger.warning(
@@ -127,19 +144,6 @@ class ChromaOperations:
             "is_user_requested": memory.is_user_requested,
         }
 
-    def _log_memory_details(self, memory, embedding: List[float]) -> None:
-        """记录记忆详情（单行汇总）"""
-        if not logger.isEnabledFor(10):
-            return
-        
-        content_preview = memory.content[:60] + "..." if len(memory.content) > 60 else memory.content
-        logger.debug(
-            f"Memory detail: id={memory.id[:8]}... user={memory.user_id} "
-            f"type={self._safe_enum_value(memory.type)} scope={self._safe_enum_value(memory.scope)} "
-            f"layer={self._safe_enum_value(memory.storage_layer)} rif={memory.rif_score:.3f} "
-            f"quality={self._safe_enum_value(memory.quality_level)} content='{content_preview}'"
-        )
-
     async def update_memory(self, memory) -> bool:
         """更新记忆
         
@@ -150,19 +154,18 @@ class ChromaOperations:
             bool: 是否更新成功
         """
         try:
-            self._ensure_ready()
+            self._manager._ensure_ready()
             if memory.embedding is None:
-                embedding = await self._generate_embedding(memory.content)
+                embedding = await self._manager._generate_embedding(memory.content)
                 memory.embedding = np.array(embedding)
             else:
                 embedding = memory.embedding.tolist()
             
-            # 复用 _build_memory_metadata 以保证字段一致性
             metadata = self._build_memory_metadata(memory)
             metadata.update(memory.metadata)
 
             await asyncio.to_thread(
-                self.collection.update,
+                self._manager.collection.update,
                 ids=[memory.id],
                 embeddings=[embedding],
                 documents=[memory.content],
@@ -192,18 +195,16 @@ class ChromaOperations:
             return 0
         
         try:
-            self._ensure_ready()
+            self._manager._ensure_ready()
         except Exception:
             return 0
         
         updated = 0
-        # 收集需要更新的 id 和 metadata
         ids = []
         metadatas = []
         for memory in memories:
             try:
                 ids.append(memory.id)
-                # 仅更新访问相关字段，使用 collection.get 获取现有 metadata 并合并
                 metadatas.append({
                     "access_count": memory.access_count,
                     "last_access_time": memory.last_access_time.isoformat(),
@@ -215,9 +216,8 @@ class ChromaOperations:
             return 0
         
         try:
-            # 先获取现有 metadata
             existing = await asyncio.to_thread(
-                self.collection.get,
+                self._manager.collection.get,
                 ids=ids,
                 include=["metadatas"]
             )
@@ -225,14 +225,13 @@ class ChromaOperations:
                 merged_metadatas = []
                 for i, mid in enumerate(existing["ids"]):
                     meta = dict(existing["metadatas"][i]) if i < len(existing["metadatas"]) else {}
-                    # 找到对应的更新数据
                     idx = ids.index(mid) if mid in ids else -1
                     if idx >= 0:
                         meta.update(metadatas[idx])
                     merged_metadatas.append(meta)
 
                 await asyncio.to_thread(
-                    self.collection.update,
+                    self._manager.collection.update,
                     ids=existing["ids"],
                     metadatas=merged_metadatas,
                 )
@@ -253,11 +252,10 @@ class ChromaOperations:
             bool: 是否删除成功
         """
         try:
-            self._ensure_ready()
+            self._manager._ensure_ready()
 
-            # 先检查记忆是否存在
             check = await asyncio.to_thread(
-                self.collection.get,
+                self._manager.collection.get,
                 ids=[memory_id],
                 include=["metadatas"]
             )
@@ -265,15 +263,13 @@ class ChromaOperations:
                 logger.warning(f"Memory not found for deletion: {memory_id}")
                 return False
 
-            # 执行删除
             await asyncio.to_thread(
-                self.collection.delete,
+                self._manager.collection.delete,
                 ids=[memory_id]
             )
 
-            # 验证删除是否成功
             verify = await asyncio.to_thread(
-                self.collection.get,
+                self._manager.collection.get,
                 ids=[memory_id],
                 include=["metadatas"]
             )
@@ -299,18 +295,18 @@ class ChromaOperations:
             bool: 是否删除成功
         """
         try:
-            self._ensure_ready()
+            self._manager._ensure_ready()
             where = {"user_id": user_id}
             where["group_id"] = group_id if group_id else ""
 
             results = await asyncio.to_thread(
-                self.collection.get,
-                where=self._build_where_clause(where)
+                self._manager.collection.get,
+                where=self._manager._build_where_clause(where)
             )
 
             if results['ids']:
                 await asyncio.to_thread(
-                    self.collection.delete,
+                    self._manager.collection.delete,
                     ids=results['ids']
                 )
                 logger.debug(f"Deleted {len(results['ids'])} memories for session {user_id}/{group_id}")
@@ -333,37 +329,37 @@ class ChromaOperations:
             Tuple[bool, int]: (是否成功, 删除数量)
         """
         try:
-            self._ensure_ready()
+            self._manager._ensure_ready()
             all_ids = set()
             
             if in_private_only:
                 where_user_private = {"user_id": user_id, "scope": MemoryScope.USER_PRIVATE.value}
                 results = await asyncio.to_thread(
-                    self.collection.get,
-                    where=self._build_where_clause(where_user_private)
+                    self._manager.collection.get,
+                    where=self._manager._build_where_clause(where_user_private)
                 )
                 if results['ids']:
                     all_ids.update(results['ids'])
 
                 where_global = {"user_id": user_id, "scope": MemoryScope.GLOBAL.value, "group_id": ""}
                 results = await asyncio.to_thread(
-                    self.collection.get,
-                    where=self._build_where_clause(where_global)
+                    self._manager.collection.get,
+                    where=self._manager._build_where_clause(where_global)
                 )
                 if results['ids']:
                     all_ids.update(results['ids'])
             else:
                 where = {"user_id": user_id}
                 results = await asyncio.to_thread(
-                    self.collection.get,
-                    where=self._build_where_clause(where)
+                    self._manager.collection.get,
+                    where=self._manager._build_where_clause(where)
                 )
                 if results['ids']:
                     all_ids.update(results['ids'])
 
             if all_ids:
                 await asyncio.to_thread(
-                    self.collection.delete,
+                    self._manager.collection.delete,
                     ids=list(all_ids)
                 )
                 logger.debug(f"Deleted {len(all_ids)} memories for user {user_id} (private_only={in_private_only})")
@@ -386,37 +382,37 @@ class ChromaOperations:
             Tuple[bool, int]: (是否成功, 删除数量)
         """
         try:
-            self._ensure_ready()
+            self._manager._ensure_ready()
             all_ids = set()
             
             if scope_filter == "group_shared":
                 where = {"group_id": group_id, "scope": MemoryScope.GROUP_SHARED.value}
                 results = await asyncio.to_thread(
-                    self.collection.get,
-                    where=self._build_where_clause(where)
+                    self._manager.collection.get,
+                    where=self._manager._build_where_clause(where)
                 )
                 if results['ids']:
                     all_ids.update(results['ids'])
             elif scope_filter == "group_private":
                 where = {"group_id": group_id, "scope": MemoryScope.GROUP_PRIVATE.value}
                 results = await asyncio.to_thread(
-                    self.collection.get,
-                    where=self._build_where_clause(where)
+                    self._manager.collection.get,
+                    where=self._manager._build_where_clause(where)
                 )
                 if results['ids']:
                     all_ids.update(results['ids'])
             else:
                 where = {"group_id": group_id}
                 results = await asyncio.to_thread(
-                    self.collection.get,
-                    where=self._build_where_clause(where)
+                    self._manager.collection.get,
+                    where=self._manager._build_where_clause(where)
                 )
                 if results['ids']:
                     all_ids.update(results['ids'])
 
             if all_ids:
                 await asyncio.to_thread(
-                    self.collection.delete,
+                    self._manager.collection.delete,
                     ids=list(all_ids)
                 )
                 logger.debug(f"Deleted {len(all_ids)} memories for group {group_id} (scope_filter={scope_filter})")
@@ -435,8 +431,8 @@ class ChromaOperations:
             Tuple[bool, int]: (是否成功, 删除数量)
         """
         try:
-            self._ensure_ready()
-            results = await asyncio.to_thread(self.collection.get)
+            self._manager._ensure_ready()
+            results = await asyncio.to_thread(self._manager.collection.get)
 
             if not results or not results.get('ids'):
                 logger.debug("Database is empty, nothing to delete")
@@ -448,7 +444,7 @@ class ChromaOperations:
 
             if count > 0:
                 await asyncio.to_thread(
-                    self.collection.delete,
+                    self._manager.collection.delete,
                     ids=results['ids']
                 )
                 logger.warning(f"Deleted ALL {count} memories from database!")

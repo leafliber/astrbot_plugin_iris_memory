@@ -2,28 +2,43 @@
 Chroma 查询模块
 
 将查询相关逻辑从 ChromaManager 中拆分出来，提高代码可维护性。
+使用组合模式而非 Mixin，依赖关系显式化。
 """
 
+from __future__ import annotations
+
 import asyncio
-from typing import List, Dict, Any, Optional
-import numpy as np
+from typing import List, Dict, Any, Optional, TYPE_CHECKING
 
 from iris_memory.utils.logger import get_logger
 from iris_memory.core.memory_scope import MemoryScope
 from iris_memory.core.types import StorageLayer
 
+if TYPE_CHECKING:
+    from iris_memory.storage.chroma_manager import ChromaManager
+
 logger = get_logger("chroma_queries")
 
 
 class ChromaQueries:
-    """Chroma 查询操作 Mixin
+    """Chroma 查询操作组件
     
     职责：
     1. 向量相似度检索
     2. 多范围查询（群聊/私聊/全局）
     3. 结果去重和排序
     4. 结果转换为Memory对象
+    
+    通过组合模式持有 ChromaManager 引用，而非 Mixin 继承。
     """
+
+    def __init__(self, manager: ChromaManager) -> None:
+        """初始化查询组件
+        
+        Args:
+            manager: ChromaManager 实例引用
+        """
+        self._manager = manager
 
     async def query_memories(
         self,
@@ -58,9 +73,9 @@ class ChromaQueries:
             List[Memory]: 相关记忆列表（如果嵌入生成失败则返回空列表）
         """
         try:
-            self._ensure_ready()
+            self._manager._ensure_ready()
             
-            query_embedding = await self._generate_embedding(query_text)
+            query_embedding = await self._manager._generate_embedding(query_text)
             if query_embedding is None:
                 logger.error("Failed to generate query embedding, returning empty results")
                 return []
@@ -90,7 +105,7 @@ class ChromaQueries:
             memories = []
             for memory_data in unique_results:
                 memory_data_without_distance = {k: v for k, v in memory_data.items() if k != 'distance'}
-                memory = self._result_to_memory(memory_data_without_distance)
+                memory = self._manager._result_to_memory(memory_data_without_distance)
                 memories.append(memory)
             
             logger.debug(
@@ -136,26 +151,25 @@ class ChromaQueries:
 
         include = ["embeddings", "documents", "metadatas", "distances"]
 
-        # 并行执行三个独立查询
         shared_task = asyncio.to_thread(
-            self.collection.query,
+            self._manager.collection.query,
             query_embeddings=[query_embedding],
             n_results=top_k,
-            where=self._build_where_clause(where_shared),
+            where=self._manager._build_where_clause(where_shared),
             include=include,
         )
         private_task = asyncio.to_thread(
-            self.collection.query,
+            self._manager.collection.query,
             query_embeddings=[query_embedding],
             n_results=top_k,
-            where=self._build_where_clause(where_private),
+            where=self._manager._build_where_clause(where_private),
             include=include,
         )
         global_task = asyncio.to_thread(
-            self.collection.query,
+            self._manager.collection.query,
             query_embeddings=[query_embedding],
             n_results=top_k,
-            where=self._build_where_clause(where_global),
+            where=self._manager._build_where_clause(where_global),
             include=include,
         )
 
@@ -194,17 +208,17 @@ class ChromaQueries:
         include = ["embeddings", "documents", "metadatas", "distances"]
 
         private_task = asyncio.to_thread(
-            self.collection.query,
+            self._manager.collection.query,
             query_embeddings=[query_embedding],
             n_results=top_k,
-            where=self._build_where_clause(where_user_private),
+            where=self._manager._build_where_clause(where_user_private),
             include=include,
         )
         global_task = asyncio.to_thread(
-            self.collection.query,
+            self._manager.collection.query,
             query_embeddings=[query_embedding],
             n_results=top_k,
-            where=self._build_where_clause(where_global),
+            where=self._manager._build_where_clause(where_global),
             include=include,
         )
 
@@ -230,14 +244,6 @@ class ChromaQueries:
                 })
         return extracted
 
-    def _log_query_results(self, results: List[Dict]) -> None:
-        """记录查询结果详情（已合并到主查询日志）"""
-        pass
-
-    def _log_final_memories(self, memories: List) -> None:
-        """记录最终Memory对象（已合并到主查询日志）"""
-        pass
-
     async def get_all_memories(
         self,
         user_id: str,
@@ -247,7 +253,7 @@ class ChromaQueries:
     ) -> List:
         """获取用户的所有记忆（支持多层级记忆 + 人格过滤）"""
         try:
-            self._ensure_ready()
+            self._manager._ensure_ready()
             all_memories = []
 
             if group_id:
@@ -285,8 +291,8 @@ class ChromaQueries:
             where_shared["persona_id"] = persona_id
 
         results = await asyncio.to_thread(
-            self.collection.get,
-            where=self._build_where_clause(where_shared)
+            self._manager.collection.get,
+            where=self._manager._build_where_clause(where_shared)
         )
         all_memories.extend(self._results_to_memories(results))
 
@@ -297,8 +303,8 @@ class ChromaQueries:
             where_private["persona_id"] = persona_id
 
         results = await asyncio.to_thread(
-            self.collection.get,
-            where=self._build_where_clause(where_private)
+            self._manager.collection.get,
+            where=self._manager._build_where_clause(where_private)
         )
         all_memories.extend(self._results_to_memories(results))
 
@@ -309,8 +315,8 @@ class ChromaQueries:
             where_global["persona_id"] = persona_id
 
         results = await asyncio.to_thread(
-            self.collection.get,
-            where=self._build_where_clause(where_global)
+            self._manager.collection.get,
+            where=self._manager._build_where_clause(where_global)
         )
         all_memories.extend(self._results_to_memories(results))
 
@@ -332,8 +338,8 @@ class ChromaQueries:
             where_user_private["persona_id"] = persona_id
 
         results = await asyncio.to_thread(
-            self.collection.get,
-            where=self._build_where_clause(where_user_private)
+            self._manager.collection.get,
+            where=self._manager._build_where_clause(where_user_private)
         )
         all_memories.extend(self._results_to_memories(results))
 
@@ -344,8 +350,8 @@ class ChromaQueries:
             where_global["persona_id"] = persona_id
 
         results = await asyncio.to_thread(
-            self.collection.get,
-            where=self._build_where_clause(where_global)
+            self._manager.collection.get,
+            where=self._manager._build_where_clause(where_global)
         )
         all_memories.extend(self._results_to_memories(results))
 
@@ -356,8 +362,8 @@ class ChromaQueries:
         memories = []
         if results['ids']:
             for i in range(len(results['ids'])):
-                memory_data = self._extract_memory_data(results, i)
-                memory = self._result_to_memory(memory_data)
+                memory_data = self._manager._extract_memory_data(results, i)
+                memory = self._manager._result_to_memory(memory_data)
                 memories.append(memory)
         return memories
 
@@ -370,7 +376,7 @@ class ChromaQueries:
     ) -> int:
         """统计记忆数量（支持多层级记忆 + 人格过滤）"""
         try:
-            self._ensure_ready()
+            self._manager._ensure_ready()
             all_ids = set()
 
             if group_id:
@@ -401,8 +407,8 @@ class ChromaQueries:
             where_shared["persona_id"] = persona_id
 
         results = await asyncio.to_thread(
-            self.collection.get,
-            where=self._build_where_clause(where_shared)
+            self._manager.collection.get,
+            where=self._manager._build_where_clause(where_shared)
         )
         if results['ids']:
             all_ids.update(results['ids'])
@@ -414,8 +420,8 @@ class ChromaQueries:
             where_private["persona_id"] = persona_id
 
         results = await asyncio.to_thread(
-            self.collection.get,
-            where=self._build_where_clause(where_private)
+            self._manager.collection.get,
+            where=self._manager._build_where_clause(where_private)
         )
         if results['ids']:
             all_ids.update(results['ids'])
@@ -427,8 +433,8 @@ class ChromaQueries:
             where_global["persona_id"] = persona_id
 
         results = await asyncio.to_thread(
-            self.collection.get,
-            where=self._build_where_clause(where_global)
+            self._manager.collection.get,
+            where=self._manager._build_where_clause(where_global)
         )
         if results['ids']:
             all_ids.update(results['ids'])
@@ -451,8 +457,8 @@ class ChromaQueries:
             where_user_private["persona_id"] = persona_id
 
         results = await asyncio.to_thread(
-            self.collection.get,
-            where=self._build_where_clause(where_user_private)
+            self._manager.collection.get,
+            where=self._manager._build_where_clause(where_user_private)
         )
         if results['ids']:
             all_ids.update(results['ids'])
@@ -464,8 +470,8 @@ class ChromaQueries:
             where_global["persona_id"] = persona_id
 
         results = await asyncio.to_thread(
-            self.collection.get,
-            where=self._build_where_clause(where_global)
+            self._manager.collection.get,
+            where=self._manager._build_where_clause(where_global)
         )
         if results['ids']:
             all_ids.update(results['ids'])
@@ -479,20 +485,20 @@ class ChromaQueries:
     ) -> List:
         """获取指定存储层的所有记忆"""
         try:
-            self._ensure_ready()
+            self._manager._ensure_ready()
             where = {"storage_layer": storage_layer.value}
 
             results = await asyncio.to_thread(
-                self.collection.get,
-                where=self._build_where_clause(where),
+                self._manager.collection.get,
+                where=self._manager._build_where_clause(where),
                 include=["embeddings", "documents", "metadatas"]
             )
 
             memories = []
             if results['ids']:
                 for i in range(min(len(results['ids']), limit)):
-                    memory_data = self._extract_memory_data(results, i)
-                    memory = self._result_to_memory(memory_data)
+                    memory_data = self._manager._extract_memory_data(results, i)
+                    memory = self._manager._result_to_memory(memory_data)
                     memories.append(memory)
 
             logger.debug(

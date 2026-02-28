@@ -3,14 +3,19 @@ Chroma存储管理器
 管理Chroma向量数据库的CRUD操作，支持会话隔离
 
 架构：
-- 使用 Mixin 模式拆分功能模块
+- 使用组合模式拆分功能模块
 - chroma_queries.py: 查询操作
 - chroma_operations.py: CRUD操作
 """
 
+from __future__ import annotations
+
 import os
+import time
+import json
 from typing import List, Dict, Any, Optional, Tuple
 from pathlib import Path
+from datetime import datetime
 
 import numpy as np
 
@@ -38,7 +43,7 @@ from iris_memory.storage.chroma_operations import ChromaOperations
 logger = get_logger("chroma_manager")
 
 
-class ChromaManager(ChromaQueries, ChromaOperations):
+class ChromaManager:
     """Chroma向量数据库管理器
     
     负责管理Chroma的CRUD操作，包括：
@@ -47,9 +52,9 @@ class ChromaManager(ChromaQueries, ChromaOperations):
     - 向量相似度检索
     - 会话隔离（基于user_id和group_id的元数据过滤）
     
-    使用 Mixin 模式组织代码：
-    - ChromaQueries: 查询操作
-    - ChromaOperations: CRUD操作
+    使用组合模式组织代码：
+    - _queries: ChromaQueries 查询操作组件
+    - _operations: ChromaOperations CRUD操作组件
     """
     
     def __init__(self, config, data_path: Path, plugin_context=None):
@@ -81,6 +86,9 @@ class ChromaManager(ChromaQueries, ChromaOperations):
         self.embedding_manager = EmbeddingManager(config, data_path)
         if plugin_context:
             self.embedding_manager.set_plugin_context(plugin_context)
+        
+        self._queries: Optional[ChromaQueries] = None
+        self._operations: Optional[ChromaOperations] = None
     
     @property
     def is_ready(self) -> bool:
@@ -94,6 +102,10 @@ class ChromaManager(ChromaQueries, ChromaOperations):
                 "ChromaManager is not initialized. "
                 "This may happen during hot-reload. Please wait for initialization to complete."
             )
+        if self._queries is None:
+            self._queries = ChromaQueries(self)
+        if self._operations is None:
+            self._operations = ChromaOperations(self)
     
     async def initialize(self):
         """异步初始化Chroma客户端和集合"""
@@ -124,7 +136,6 @@ class ChromaManager(ChromaQueries, ChromaOperations):
 
             self._create_or_use_collection(existing_collection)
 
-            # 如果有备份数据（维度变更）且配置允许，重新导入到新集合
             if backup_data and self.reimport_on_dimension_conflict:
                 await self._reimport_memories_with_new_embeddings(backup_data)
             elif backup_data and not self.reimport_on_dimension_conflict:
@@ -132,6 +143,9 @@ class ChromaManager(ChromaQueries, ChromaOperations):
                     f"维度冲突处理：配置禁用了自动重新导入，{len(backup_data.get('ids', []))} 条记忆已备份但未导入。"
                     f"您可以在备份集合中找到这些记忆。"
                 )
+
+            self._queries = ChromaQueries(self)
+            self._operations = ChromaOperations(self)
 
             logger.debug(
                 f"Chroma manager initialized successfully. "
@@ -190,14 +204,7 @@ class ChromaManager(ChromaQueries, ChromaOperations):
         return detected_dimension
 
     def _get_dimension_from_metadata(self, collection) -> Optional[int]:
-        """从集合元数据中获取嵌入维度
-        
-        Args:
-            collection: ChromaDB 集合对象
-            
-        Returns:
-            Optional[int]: 元数据中记录的维度，获取失败返回 None
-        """
+        """从集合元数据中获取嵌入维度"""
         try:
             metadata = collection.metadata
             if metadata and "embedding_dimension" in metadata:
@@ -212,19 +219,7 @@ class ChromaManager(ChromaQueries, ChromaOperations):
     def _handle_dimension_conflict(
         self, existing_collection, detected_dimension: Optional[int]
     ) -> Optional[Dict[str, Any]]:
-        """处理维度冲突
-
-        当嵌入模型更换导致维度不匹配时，备份旧集合数据并返回，
-        供后续重新导入到新维度的集合中。
-
-        Args:
-            existing_collection: 现有的 ChromaDB 集合实例，为 None 时直接返回
-            detected_dimension: 从现有集合检测到的嵌入维度，为 None 时尝试从元数据获取
-
-        Returns:
-            Optional[Dict[str, Any]]: 备份的数据，包含 ids/documents/metadatas，
-                                     无冲突或无需迁移时返回 None
-        """
+        """处理维度冲突"""
         if not existing_collection:
             return None
 
@@ -249,12 +244,10 @@ class ChromaManager(ChromaQueries, ChromaOperations):
             f"The old collection will be backed up and re-imported with new embeddings."
         )
 
-        # 备份旧集合数据
         backup_data = None
         if old_count > 0:
             backup_data = self._backup_collection_data(existing_collection, old_count)
 
-            # 安全检查：如果内存备份失败，尝试文件级备份后再决定是否删除
             if backup_data is None:
                 file_backup_ok = self._backup_collection_before_delete(existing_collection, old_count)
                 if not file_backup_ok:
@@ -269,7 +262,6 @@ class ChromaManager(ChromaQueries, ChromaOperations):
                     f"Proceeding with collection deletion."
                 )
 
-        # 删除旧集合
         self.client.delete_collection(name=self.collection_name)
         logger.warning(
             f"Old collection '{self.collection_name}' deleted after dimension conflict. "
@@ -279,15 +271,7 @@ class ChromaManager(ChromaQueries, ChromaOperations):
         return backup_data
 
     def _backup_collection_data(self, existing_collection, old_count: int) -> Optional[Dict[str, Any]]:
-        """备份集合数据供后续重新导入
-
-        Args:
-            existing_collection: 现有的 ChromaDB 集合实例
-            old_count: 集合中的记忆数量
-
-        Returns:
-            Optional[Dict[str, Any]]: 备份的数据，包含 ids/documents/metadatas，失败返回 None
-        """
+        """备份集合数据供后续重新导入"""
         try:
             all_data = existing_collection.get(include=["documents", "metadatas"])
             if not all_data or not all_data.get("ids"):
@@ -305,13 +289,7 @@ class ChromaManager(ChromaQueries, ChromaOperations):
             return None
 
     def _backup_collection_before_delete(self, existing_collection, old_count: int) -> bool:
-        """在删除集合前尝试备份数据到新集合，并额外导出 JSON 文件
-
-        Returns:
-            bool: 至少一种备份方式成功返回 True，全部失败返回 False
-        """
-        import time
-        import json
+        """在删除集合前尝试备份数据到新集合，并额外导出 JSON 文件"""
         backup_name = f"{self.collection_name}_backup_{int(time.time())}"
         chroma_backup_ok = False
         json_backup_ok = False
@@ -319,9 +297,8 @@ class ChromaManager(ChromaQueries, ChromaOperations):
             all_data = existing_collection.get(include=["documents", "metadatas", "embeddings"])
             if not all_data or not all_data.get("ids"):
                 logger.debug("No data in old collection to backup.")
-                return True  # 没有数据，无需备份
+                return True
 
-            # 1. ChromaDB 集合级备份
             backup_col = self.client.create_collection(name=backup_name)
             batch_size = 500
             ids = all_data["ids"]
@@ -349,10 +326,8 @@ class ChromaManager(ChromaQueries, ChromaOperations):
                 exc_info=True,
             )
 
-        # 2. JSON 文件级备份（作为最后保障）
         try:
             if not chroma_backup_ok:
-                # 如果 ChromaDB 备份失败，重新读取数据
                 all_data = existing_collection.get(include=["documents", "metadatas"])
             json_backup_path = self.data_path / "backup" / f"{backup_name}.json"
             json_backup_path.parent.mkdir(parents=True, exist_ok=True)
@@ -397,18 +372,7 @@ class ChromaManager(ChromaQueries, ChromaOperations):
             logger.debug(f"Created new collection: {self.collection_name}")
 
     async def _reimport_memories_with_new_embeddings(self, backup_data: Dict[str, Any]) -> Dict[str, Any]:
-        """使用新的嵌入模型重新导入备份的记忆数据
-
-        Args:
-            backup_data: 备份的数据，包含 ids/documents/metadatas
-
-        Returns:
-            Dict 包含:
-                - success_count: 成功导入数量
-                - failed_count: 失败数量
-                - failed_ids: 失败的记忆ID列表
-                - failed_details: 失败的详细信息列表
-        """
+        """使用新的嵌入模型重新导入备份的记忆数据"""
         ids = backup_data.get("ids", [])
         documents = backup_data.get("documents", [])
         metadatas = backup_data.get("metadatas", [])
@@ -435,16 +399,13 @@ class ChromaManager(ChromaQueries, ChromaOperations):
             batch_valid_ids = []
             batch_valid_docs = []
             batch_valid_metas = []
-            batch_failed_ids: List[str] = []
 
-            # 阶段1: 生成嵌入向量
             for j, doc in enumerate(batch_docs):
                 mem_id = batch_ids[j]
                 if not doc:
                     failed_count += 1
                     failed_ids.append(mem_id)
                     failed_details.append({"id": mem_id, "reason": "empty_document", "stage": "embedding"})
-                    batch_failed_ids.append(mem_id)
                     continue
                 try:
                     embedding = await self._generate_embedding(doc)
@@ -460,17 +421,14 @@ class ChromaManager(ChromaQueries, ChromaOperations):
                         failed_count += 1
                         failed_ids.append(mem_id)
                         failed_details.append({"id": mem_id, "reason": "embedding_generation_failed", "stage": "embedding"})
-                        batch_failed_ids.append(mem_id)
                         logger.warning(f"Failed to generate embedding for memory {mem_id}")
                 except Exception as e:
                     failed_count += 1
                     failed_ids.append(mem_id)
                     failed_details.append({"id": mem_id, "reason": str(e), "stage": "embedding", "error_type": type(e).__name__})
-                    batch_failed_ids.append(mem_id)
                     logger.error(f"Error generating embedding for memory {mem_id}: {e}")
 
-            # 阶段2: 批量导入（带事务性回滚保护）
-            if batch_embeddings:
+            if batch_valid_ids:
                 try:
                     self.collection.add(
                         ids=batch_valid_ids,
@@ -478,24 +436,17 @@ class ChromaManager(ChromaQueries, ChromaOperations):
                         documents=batch_valid_docs,
                         metadatas=batch_valid_metas
                     )
-                    success_count += len(batch_embeddings)
-                    logger.debug(f"Re-imported batch {i // batch_size + 1}/{(total - 1) // batch_size + 1}: {len(batch_embeddings)} memories")
+                    success_count += len(batch_valid_ids)
                 except Exception as e:
-                    # 批量导入失败，记录所有该批次有效ID为失败
-                    logger.error(f"Failed to add batch to collection: {e}. Marking {len(batch_valid_ids)} memories as failed.")
                     failed_count += len(batch_valid_ids)
-                    for mem_id in batch_valid_ids:
-                        if mem_id not in failed_ids:
-                            failed_ids.append(mem_id)
-                            failed_details.append({"id": mem_id, "reason": str(e), "stage": "import", "error_type": type(e).__name__})
-                    # 从成功计数中减去（如果之前有成功的）
-                    success_count = max(0, success_count - len(batch_embeddings))
+                    failed_ids.extend(batch_valid_ids)
+                    for mid in batch_valid_ids:
+                        failed_details.append({"id": mid, "reason": str(e), "stage": "import", "error_type": type(e).__name__})
+                    logger.error(f"Failed to import batch: {e}")
 
         logger.info(
-            f"Memory re-import completed: {success_count} succeeded, {failed_count} failed. "
-            f"Total: {total}"
+            f"Re-import complete: {success_count} succeeded, {failed_count} failed out of {total} memories"
         )
-
         if failed_ids:
             logger.warning(f"Failed memory IDs ({len(failed_ids)}): {failed_ids[:10]}{'...' if len(failed_ids) > 10 else ''}")
 
@@ -507,14 +458,7 @@ class ChromaManager(ChromaQueries, ChromaOperations):
         }
 
     async def _generate_embedding(self, text: str) -> Optional[List[float]]:
-        """生成文本嵌入向量（使用策略模式的嵌入管理器）
-
-        Args:
-            text: 文本内容
-
-        Returns:
-            Optional[List[float]]: 嵌入向量，如果生成失败则返回None
-        """
+        """生成文本嵌入向量（使用策略模式的嵌入管理器）"""
         try:
             embedding = await self.embedding_manager.embed(text, self.embedding_dimension)
             return embedding
@@ -526,12 +470,6 @@ class ChromaManager(ChromaQueries, ChromaOperations):
         """构建 ChromaDB 的 where 查询条件
         
         ChromaDB 要求 where 子句只能有一个操作符，多字段需要使用 $and/$or 包装
-        
-        Args:
-            filters: 过滤条件字典
-            
-        Returns:
-            Dict[str, Any]: ChromaDB 可用的 where 子句
         """
         if len(filters) <= 1:
             return filters
@@ -539,14 +477,7 @@ class ChromaManager(ChromaQueries, ChromaOperations):
         return {"$and": [{k: v} for k, v in filters.items()]}
 
     def _result_to_memory(self, memory_data: Dict[str, Any]) -> Memory:
-        """将Chroma查询结果转换为Memory对象
-        
-        Args:
-            memory_data: 从Chroma获取的记录数据
-            
-        Returns:
-            Memory: 记忆对象
-        """
+        """将Chroma查询结果转换为Memory对象"""
         metadata = memory_data.get('metadata', {})
         
         memory = Memory(
@@ -586,8 +517,6 @@ class ChromaManager(ChromaQueries, ChromaOperations):
 
     def _set_memory_timestamps(self, memory, metadata: Dict) -> None:
         """设置记忆时间戳"""
-        from datetime import datetime
-        
         if 'created_time' in metadata:
             try:
                 memory.created_time = datetime.fromisoformat(metadata['created_time'])
@@ -601,15 +530,7 @@ class ChromaManager(ChromaQueries, ChromaOperations):
                 pass
 
     def _extract_memory_data(self, results: Dict, index: int) -> Dict[str, Any]:
-        """从Chroma查询结果中提取记忆数据
-
-        Args:
-            results: Chroma查询结果
-            index: 索引
-
-        Returns:
-            Dict[str, Any]: 记忆数据字典
-        """
+        """从Chroma查询结果中提取记忆数据"""
         documents = results.get('documents', [])
         embeddings = results.get('embeddings', [])
         metadatas = results.get('metadatas', [])
@@ -641,12 +562,7 @@ class ChromaManager(ChromaQueries, ChromaOperations):
         }
     
     async def close(self):
-        """关闭 Chroma 客户端（热更新友好）
-        
-        不再调用 client.reset()（会清除所有数据），
-        仅释放客户端引用和集合引用。
-        持久化数据保留在磁盘，下次初始化时自动加载。
-        """
+        """关闭 Chroma 客户端（热更新友好）"""
         self._is_ready = False
         
         if hasattr(self, 'embedding_manager') and self.embedding_manager:
@@ -656,7 +572,131 @@ class ChromaManager(ChromaQueries, ChromaOperations):
             except Exception as e:
                 logger.warning(f"Error closing embedding manager: {e}")
         
+        self._queries = None
+        self._operations = None
         self.collection = None
         self.client = None
         
         logger.debug("[Hot-Reload] Chroma manager closed (data preserved on disk)")
+
+    async def query_memories(
+        self,
+        query_text: str,
+        user_id: str,
+        group_id: Optional[str] = None,
+        top_k: int = 10,
+        storage_layer: Optional[StorageLayer] = None,
+        persona_id: Optional[str] = None
+    ) -> List:
+        """查询相关记忆（委托到 ChromaQueries）"""
+        try:
+            self._ensure_ready()
+            return await self._queries.query_memories(
+                query_text, user_id, group_id, top_k, storage_layer, persona_id
+            )
+        except RuntimeError:
+            return []
+
+    async def get_all_memories(
+        self,
+        user_id: str,
+        group_id: Optional[str] = None,
+        storage_layer: Optional[StorageLayer] = None,
+        persona_id: Optional[str] = None
+    ) -> List:
+        """获取用户的所有记忆（委托到 ChromaQueries）"""
+        try:
+            self._ensure_ready()
+            return await self._queries.get_all_memories(user_id, group_id, storage_layer, persona_id)
+        except RuntimeError:
+            return []
+
+    async def count_memories(
+        self,
+        user_id: str,
+        group_id: Optional[str] = None,
+        storage_layer: Optional[StorageLayer] = None,
+        persona_id: Optional[str] = None
+    ) -> int:
+        """统计记忆数量（委托到 ChromaQueries）"""
+        try:
+            self._ensure_ready()
+            return await self._queries.count_memories(user_id, group_id, storage_layer, persona_id)
+        except RuntimeError:
+            return 0
+
+    async def get_memories_by_storage_layer(
+        self,
+        storage_layer: StorageLayer,
+        limit: int = 1000
+    ) -> List:
+        """获取指定存储层的所有记忆（委托到 ChromaQueries）"""
+        try:
+            self._ensure_ready()
+            return await self._queries.get_memories_by_storage_layer(storage_layer, limit)
+        except RuntimeError:
+            return []
+
+    async def add_memory(self, memory) -> Optional[str]:
+        """添加记忆到Chroma（委托到 ChromaOperations）"""
+        try:
+            self._ensure_ready()
+            return await self._operations.add_memory(memory)
+        except RuntimeError:
+            return None
+
+    async def update_memory(self, memory) -> bool:
+        """更新记忆（委托到 ChromaOperations）"""
+        try:
+            self._ensure_ready()
+            return await self._operations.update_memory(memory)
+        except RuntimeError:
+            return False
+
+    async def batch_update_access_stats(self, memories: list) -> int:
+        """批量更新记忆的访问统计（委托到 ChromaOperations）"""
+        try:
+            self._ensure_ready()
+            return await self._operations.batch_update_access_stats(memories)
+        except RuntimeError:
+            return 0
+
+    async def delete_memory(self, memory_id: str) -> bool:
+        """删除记忆（委托到 ChromaOperations）"""
+        try:
+            self._ensure_ready()
+            return await self._operations.delete_memory(memory_id)
+        except RuntimeError:
+            return False
+
+    async def delete_session(self, user_id: str, group_id: Optional[str] = None) -> bool:
+        """删除会话的所有记忆（委托到 ChromaOperations）"""
+        try:
+            self._ensure_ready()
+            return await self._operations.delete_session(user_id, group_id)
+        except RuntimeError:
+            return False
+
+    async def delete_user_memories(self, user_id: str, in_private_only: bool = False) -> Tuple[bool, int]:
+        """删除用户的所有记忆（委托到 ChromaOperations）"""
+        try:
+            self._ensure_ready()
+            return await self._operations.delete_user_memories(user_id, in_private_only)
+        except RuntimeError:
+            return False, 0
+
+    async def delete_group_memories(self, group_id: str, scope_filter: Optional[str] = None) -> Tuple[bool, int]:
+        """删除群组的记忆（委托到 ChromaOperations）"""
+        try:
+            self._ensure_ready()
+            return await self._operations.delete_group_memories(group_id, scope_filter)
+        except RuntimeError:
+            return False, 0
+
+    async def delete_all_memories(self) -> Tuple[bool, int]:
+        """删除所有记忆（委托到 ChromaOperations）"""
+        try:
+            self._ensure_ready()
+            return await self._operations.delete_all_memories()
+        except RuntimeError:
+            return False, 0
