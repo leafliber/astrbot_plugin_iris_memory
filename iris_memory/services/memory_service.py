@@ -866,6 +866,7 @@ class MemoryService:
         image_context: str = "",
         sender_name: Optional[str] = None,
         reply_context: Optional[str] = None,
+        persona_id: Optional[str] = None,
     ) -> str:
         """准备 LLM 上下文"""
         if not self._is_initialized or not self._business:
@@ -877,6 +878,7 @@ class MemoryService:
             image_context=image_context,
             sender_name=sender_name,
             reply_context=reply_context,
+            persona_id=persona_id,
         )
 
     async def analyze_images(

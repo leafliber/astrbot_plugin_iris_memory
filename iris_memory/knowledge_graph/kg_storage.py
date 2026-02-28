@@ -187,10 +187,6 @@ class KGStorage:
                     value TEXT
                 )
             """)
-            cur.execute(
-                "INSERT OR REPLACE INTO kg_meta(key, value) VALUES (?, ?)",
-                ("schema_version", str(_SCHEMA_VERSION)),
-            )
 
     async def close(self) -> None:
         """关闭数据库连接"""
