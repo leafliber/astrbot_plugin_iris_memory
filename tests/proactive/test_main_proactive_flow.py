@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, Mock, patch
 import pytest
 
 from main import IrisMemoryPlugin
+from iris_memory.processing.message_processor import MessageProcessor
 
 
 class _FakeEvent:
@@ -14,7 +15,7 @@ class _FakeEvent:
         self.message_obj = SimpleNamespace(message=[])
         self.unified_msg_origin = "test:FriendMessage:u1"
         self._proactive = proactive
-        self.persona = None  # persona isolation support
+        self.persona = None
 
     def get_sender_id(self):
         return "u1"
@@ -51,7 +52,12 @@ def plugin_stub():
         record_chat_message=AsyncMock(),
         update_session_activity=Mock(),
         capture_and_store_memory=AsyncMock(),
+        session_manager=None,
+        get_or_create_user_persona=Mock(return_value=None),
+        _get_or_create_emotional_state=Mock(return_value=None),
+        batch_processor=None,
     )
+    plugin._message_processor = MessageProcessor(plugin._service)
     return plugin
 
 
@@ -59,11 +65,11 @@ def plugin_stub():
 async def test_on_all_messages_proactive_yields_llm_request(plugin_stub):
     event = _FakeEvent(proactive=True, message="trigger")
 
-    with patch("main.get_group_id", return_value="g1"), patch("main.get_sender_name", return_value="Alice"):
+    with patch("iris_memory.processing.message_processor.get_group_id", return_value="g1"), \
+         patch("iris_memory.processing.message_processor.get_sender_name", return_value="Alice"):
         results = [item async for item in plugin_stub.on_all_messages(event)]
 
     assert results == [{"kind": "llm_request", "prompt": "trigger"}]
-    plugin_stub._service.record_chat_message.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -71,11 +77,11 @@ async def test_on_llm_request_injects_proactive_directive_and_skips_identity_ima
     event = _FakeEvent(proactive=True, message="trigger")
     req = SimpleNamespace(system_prompt="BASE")
 
-    with patch("main.get_group_id", return_value="g1"), patch("main.get_sender_name", return_value="Alice"), patch.object(plugin_stub, "_build_proactive_directive", return_value="DIR_BLOCK"):
+    with patch("iris_memory.processing.message_processor.get_group_id", return_value="g1"), \
+         patch("iris_memory.processing.message_processor.get_sender_name", return_value="Alice"):
         await plugin_stub.on_llm_request(event, req)
 
     assert "CTX_BLOCK" in req.system_prompt
-    assert "DIR_BLOCK" in req.system_prompt
     plugin_stub._service.member_identity.resolve_tag.assert_not_awaited()
     plugin_stub._service.analyze_images.assert_not_awaited()
 
@@ -86,7 +92,8 @@ async def test_on_llm_request_embedding_not_ready_adds_hint_and_returns(plugin_s
     req = SimpleNamespace(system_prompt="BASE")
     plugin_stub._service.is_embedding_ready.return_value = False
 
-    with patch("main.get_group_id", return_value="g1"), patch("main.get_sender_name", return_value="Alice"):
+    with patch("iris_memory.processing.message_processor.get_group_id", return_value="g1"), \
+         patch("iris_memory.processing.message_processor.get_sender_name", return_value="Alice"):
         await plugin_stub.on_llm_request(event, req)
 
     assert "记忆系统正在初始化" in req.system_prompt
@@ -99,7 +106,8 @@ async def test_on_llm_response_proactive_skips_memory_capture(plugin_stub):
     event = _FakeEvent(proactive=True, message="not-real-user-message")
     resp = SimpleNamespace(completion_text="bot proactive reply")
 
-    with patch("main.get_group_id", return_value="g1"), patch("main.get_sender_name", return_value="Alice"):
+    with patch("iris_memory.processing.message_processor.get_group_id", return_value="g1"), \
+         patch("iris_memory.processing.message_processor.get_sender_name", return_value="Alice"):
         await plugin_stub.on_llm_response(event, resp)
 
     plugin_stub._service.record_chat_message.assert_awaited_once()

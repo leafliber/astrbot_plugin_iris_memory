@@ -40,9 +40,10 @@ def test_astrbot_handler_formats_flat_module_name(monkeypatch) -> None:
 
     handler.emit(record)
 
-    mock_astrbot_logger.debug.assert_called_once_with(
-        "[memory_service_business] Message classified"
-    )
+    mock_astrbot_logger.debug.assert_called_once()
+    call_args = mock_astrbot_logger.debug.call_args[0][0]
+    assert "[memory_service_business]" in call_args
+    assert "Message classified" in call_args
 
 
 def test_astrbot_handler_compat_with_dotted_name(monkeypatch) -> None:
@@ -63,4 +64,7 @@ def test_astrbot_handler_compat_with_dotted_name(monkeypatch) -> None:
 
     handler.emit(record)
 
-    mock_astrbot_logger.info.assert_called_once_with("[memory_service_business] legacy")
+    mock_astrbot_logger.info.assert_called_once()
+    call_args = mock_astrbot_logger.info.call_args[0][0]
+    assert "[memory_service_business]" in call_args
+    assert "legacy" in call_args

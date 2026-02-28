@@ -4,7 +4,7 @@
 """
 
 import asyncio
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Final, ClassVar
 from datetime import datetime
 
 from iris_memory.models.memory import Memory
@@ -74,6 +74,14 @@ class MemoryRetrievalEngine:
     - 动态记忆选择器优化上下文使用
     - 记忆压缩减少token消耗
     """
+
+    _STRATEGY_METHOD_MAP: ClassVar[Dict[RetrievalStrategy, str]] = {
+        RetrievalStrategy.VECTOR_ONLY: "_vector_only_retrieval",
+        RetrievalStrategy.TIME_AWARE: "_time_aware_retrieval",
+        RetrievalStrategy.EMOTION_AWARE: "_emotion_aware_retrieval",
+        RetrievalStrategy.GRAPH_ONLY: "_graph_retrieval",
+        RetrievalStrategy.HYBRID: "_hybrid_retrieval",
+    }
 
     def __init__(
         self,
@@ -322,37 +330,21 @@ class MemoryRetrievalEngine:
         Returns:
             List[Memory]: 相关记忆列表
         """
-        # 根据策略选择检索方法
-        if strategy == RetrievalStrategy.VECTOR_ONLY:
-            return await self._vector_only_retrieval(
-                query, user_id, group_id, top_k, storage_layer, persona_id=persona_id,
-            )
-        elif strategy == RetrievalStrategy.TIME_AWARE:
-            return await self._time_aware_retrieval(
-                query, user_id, group_id, top_k, storage_layer, persona_id=persona_id,
-            )
-        elif strategy == RetrievalStrategy.EMOTION_AWARE:
-            return await self._emotion_aware_retrieval(
-                query, user_id, group_id, top_k, emotional_state, storage_layer,
-                persona_id=persona_id,
-            )
-        elif strategy == RetrievalStrategy.GRAPH_ONLY:
-            if self._kg_module and self._kg_module.enabled:
-                return await self._graph_retrieval(
-                    query, user_id, group_id, top_k, emotional_state, storage_layer,
-                    persona_id=persona_id,
-                )
-            else:
-                retrieval_log.graph_fallback(user_id, query)
-                return await self._hybrid_retrieval(
-                    query, user_id, group_id, top_k, emotional_state, storage_layer,
-                    persona_id=persona_id,
-                )
-        else:  # HYBRID
-            return await self._hybrid_retrieval(
-                query, user_id, group_id, top_k, emotional_state, storage_layer,
-                persona_id=persona_id,
-            )
+        method_name = self._STRATEGY_METHOD_MAP.get(strategy, "_hybrid_retrieval")
+        
+        if strategy == RetrievalStrategy.GRAPH_ONLY and not self._is_kg_available():
+            retrieval_log.graph_fallback(user_id, query)
+            method_name = "_hybrid_retrieval"
+        
+        method = getattr(self, method_name)
+        return await method(
+            query, user_id, group_id, top_k, emotional_state,
+            storage_layer, persona_id
+        )
+    
+    def _is_kg_available(self) -> bool:
+        """检查知识图谱模块是否可用"""
+        return self._kg_module is not None and self._kg_module.enabled
     
     async def _hybrid_retrieval(
         self,
@@ -417,8 +409,9 @@ class MemoryRetrievalEngine:
         self,
         query: str,
         user_id: str,
-        group_id: Optional[str],
-        top_k: int,
+        group_id: Optional[str] = None,
+        top_k: int = 10,
+        emotional_state: Optional[EmotionalState] = None,
         storage_layer: Optional[StorageLayer] = None,
         persona_id: Optional[str] = None,
     ) -> List[Memory]:
@@ -438,8 +431,9 @@ class MemoryRetrievalEngine:
         self,
         query: str,
         user_id: str,
-        group_id: Optional[str],
-        top_k: int,
+        group_id: Optional[str] = None,
+        top_k: int = 10,
+        emotional_state: Optional[EmotionalState] = None,
         storage_layer: Optional[StorageLayer] = None,
         persona_id: Optional[str] = None,
     ) -> List[Memory]:
@@ -479,9 +473,9 @@ class MemoryRetrievalEngine:
         self,
         query: str,
         user_id: str,
-        group_id: Optional[str],
-        top_k: int,
-        emotional_state: Optional[EmotionalState],
+        group_id: Optional[str] = None,
+        top_k: int = 10,
+        emotional_state: Optional[EmotionalState] = None,
         storage_layer: Optional[StorageLayer] = None,
         persona_id: Optional[str] = None,
     ) -> List[Memory]:

@@ -6,6 +6,7 @@ Web 模块 - 提供 Iris Memory 的 Web 管理界面
 - service/      领域子服务（DashboardService / MemoryWebService / KgWebService …）
 - data/         仓储实现（MemoryRepo / KgRepo / PersonaRepo / SessionRepo）
 - static/       前端资源（HTML shell + CSS + JS 模块）
+- web_ui.py     Web UI 管理器（插件入口使用）
 
 功能模块：
 1. 统计面板：数据可视化、趋势分析
@@ -18,8 +19,10 @@ Web 模块 - 提供 Iris Memory 的 Web 管理界面
 
 from iris_memory.web.standalone_server import StandaloneWebServer
 from iris_memory.web.web_service import WebService
+from iris_memory.web.web_ui import WebUIManager
 
 __all__ = [
     "StandaloneWebServer",
     "WebService",
+    "WebUIManager",
 ]
