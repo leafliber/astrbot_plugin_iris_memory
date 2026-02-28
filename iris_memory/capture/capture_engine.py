@@ -245,7 +245,8 @@ class MemoryCaptureEngine:
                     query_text=memory.content,
                     user_id=user_id,
                     group_id=group_id,
-                    top_k=10
+                    top_k=10,
+                    persona_id=persona_id,
                 )
                 
                 if self.enable_duplicate_check and similar_memories:

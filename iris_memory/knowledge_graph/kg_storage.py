@@ -195,9 +195,16 @@ class KGStorage:
             self._conn = None
 
     def _auto_migrate(self) -> None:
-        """自动迁移：检查 schema_version 并执行必要的 DDL 升级"""
+        """自动迁移：检查 schema_version 并执行必要的 DDL 升级
+
+        注意：同时验证实际表结构，防止 schema_version 被错误设置后迁移被跳过
+        """
         assert self._conn
         try:
+            # 先检查表结构，无论 schema_version 是什么都确保 persona_id 列存在
+            # 这是为了修复之前可能错误设置 schema_version = 2 的旧数据库
+            self._ensure_persona_columns()
+
             row = self._conn.execute(
                 "SELECT value FROM kg_meta WHERE key = 'schema_version'"
             ).fetchone()
@@ -206,8 +213,7 @@ class KGStorage:
             if current < _SCHEMA_VERSION:
                 logger.info(f"KG schema migration: v{current} → v{_SCHEMA_VERSION}")
 
-                if current < 2:
-                    self._migrate_v1_to_v2()
+                # v1→v2 迁移已在 _ensure_persona_columns 中完成
 
                 self._conn.execute(
                     "INSERT OR REPLACE INTO kg_meta(key, value) VALUES (?, ?)",
@@ -221,6 +227,28 @@ class KGStorage:
             self._conn.rollback()
             logger.error(f"KG schema migration failed: {e}")
             raise RuntimeError(f"Database migration failed: {e}") from e
+
+    def _ensure_persona_columns(self) -> None:
+        """确保 persona_id 列存在（修复可能被跳过的迁移）
+        
+        注意：此方法不使用事务上下文，直接操作连接，
+        因为 ALTER TABLE 需要立即提交才能被后续操作看到。
+        """
+        assert self._conn
+        try:
+            cols = {info[1] for info in self._conn.execute("PRAGMA table_info(kg_nodes)").fetchall()}
+            if "persona_id" not in cols:
+                self._conn.execute("ALTER TABLE kg_nodes ADD COLUMN persona_id TEXT DEFAULT 'default'")
+                logger.info("Migration: added missing persona_id to kg_nodes")
+            cols_e = {info[1] for info in self._conn.execute("PRAGMA table_info(kg_edges)").fetchall()}
+            if "persona_id" not in cols_e:
+                self._conn.execute("ALTER TABLE kg_edges ADD COLUMN persona_id TEXT DEFAULT 'default'")
+                logger.info("Migration: added missing persona_id to kg_edges")
+            self._conn.commit()
+        except sqlite3.Error as e:
+            self._conn.rollback()
+            logger.error(f"Failed to add persona_id columns: {e}")
+            raise
 
     def _ensure_persona_indexes(self) -> None:
         """确保 persona_id 相关索引存在（新旧数据库都需要）"""
@@ -236,19 +264,6 @@ class KGStorage:
                 self._conn.execute("CREATE INDEX IF NOT EXISTS idx_edges_user_persona ON kg_edges(user_id, persona_id)")
         except sqlite3.Error as e:
             logger.warning(f"Failed to create persona indexes: {e}")
-
-    def _migrate_v1_to_v2(self) -> None:
-        """v1 → v2：添加 persona_id 列（DEFAULT 'default' 自动回填旧数据）"""
-        assert self._conn
-        with self._tx() as cur:
-            cols = {info[1] for info in cur.execute("PRAGMA table_info(kg_nodes)").fetchall()}
-            if "persona_id" not in cols:
-                cur.execute("ALTER TABLE kg_nodes ADD COLUMN persona_id TEXT DEFAULT 'default'")
-                logger.info("Migration v1→v2: added persona_id to kg_nodes")
-            cols_e = {info[1] for info in cur.execute("PRAGMA table_info(kg_edges)").fetchall()}
-            if "persona_id" not in cols_e:
-                cur.execute("ALTER TABLE kg_edges ADD COLUMN persona_id TEXT DEFAULT 'default'")
-                logger.info("Migration v1→v2: added persona_id to kg_edges")
 
     @contextmanager
     def _tx(self):
