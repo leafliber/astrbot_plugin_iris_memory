@@ -808,13 +808,14 @@ class MemoryService:
         query: str,
         user_id: str,
         group_id: Optional[str],
-        top_k: int = 5
+        top_k: int = 5,
+        persona_id: Optional[str] = None,
     ) -> List[Any]:
         """搜索记忆"""
         if not self._is_initialized or not self._business:
             return []
         return await self._business.search_memories(
-            query=query, user_id=user_id, group_id=group_id, top_k=top_k
+            query=query, user_id=user_id, group_id=group_id, top_k=top_k, persona_id=persona_id
         )
 
     async def clear_memories(self, user_id: str, group_id: Optional[str]) -> bool:

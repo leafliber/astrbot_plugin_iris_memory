@@ -219,6 +219,8 @@ docker/*.sock
 # ai
 .codebuddy/
 .trae/
+.lingma/
 CODEBUDDY.md
 QWEN.md
 AGENTS.md
+CLAUDE.md

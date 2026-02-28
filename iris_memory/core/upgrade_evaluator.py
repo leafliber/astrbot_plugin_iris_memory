@@ -17,6 +17,48 @@ from iris_memory.models.memory import Memory
 logger = get_logger("upgrade_evaluator")
 
 
+def _get_storage_layer_value(storage_layer) -> str:
+    """安全获取 storage_layer 的字符串值
+    
+    Args:
+        storage_layer: 可能是 StorageLayer 枚举、字符串或整数
+        
+    Returns:
+        str: storage_layer 的字符串值
+    """
+    if isinstance(storage_layer, StorageLayer):
+        return storage_layer.value
+    elif isinstance(storage_layer, str):
+        return storage_layer
+    else:
+        return str(storage_layer)
+
+
+def _get_quality_level_value(quality_level) -> int:
+    """安全获取 quality_level 的整数值
+    
+    Args:
+        quality_level: 可能是 QualityLevel 枚举、整数或字符串
+        
+    Returns:
+        int: quality_level 的整数值
+    """
+    if isinstance(quality_level, QualityLevel):
+        return quality_level.value
+    elif isinstance(quality_level, int):
+        return quality_level
+    elif isinstance(quality_level, str):
+        try:
+            return int(quality_level)
+        except ValueError:
+            try:
+                return QualityLevel[quality_level].value
+            except KeyError:
+                return QualityLevel.MODERATE.value
+    else:
+        return QualityLevel.MODERATE.value
+
+
 class UpgradeMode(str, Enum):
     """升级判断模式"""
     RULE = "rule"      # 仅使用规则判断
@@ -214,11 +256,9 @@ class UpgradeEvaluator:
         bonus = 0.0
         
         if upgrade_type == "working_to_episodic":
-            # 用户请求是最强信号
             if memory.is_user_requested:
                 bonus += 0.3
-            # 质量等级高
-            if memory.quality_level.value >= QualityLevel.HIGH_CONFIDENCE.value:
+            if _get_quality_level_value(memory.quality_level) >= QualityLevel.HIGH_CONFIDENCE.value:
                 bonus += 0.2
             # 高置信度
             if memory.confidence >= 0.7:
@@ -282,8 +322,10 @@ class UpgradeEvaluator:
                 return f"置信度较高({memory.confidence:.2f})"
             elif memory.rif_score > 0.5 and memory.access_count >= 2:
                 return f"RIF评分较高({memory.rif_score:.2f})且已被访问{memory.access_count}次"
-            elif memory.quality_level.value >= QualityLevel.HIGH_CONFIDENCE.value:
-                return f"质量等级较高({memory.quality_level.name})"
+            elif _get_quality_level_value(memory.quality_level) >= QualityLevel.HIGH_CONFIDENCE.value:
+                ql_val = _get_quality_level_value(memory.quality_level)
+                ql_name = QualityLevel(ql_val).name if ql_val <= QualityLevel.CONFIRMED.value else str(ql_val)
+                return f"质量等级较高({ql_name})"
             else:
                 return "满足升级条件"
         else:
@@ -297,7 +339,7 @@ class UpgradeEvaluator:
         if should_upgrade:
             if memory.access_count >= 5 and memory.confidence > 0.65:
                 return f"频繁访问({memory.access_count}次)且置信度较高({memory.confidence:.2f})"
-            elif memory.quality_level == QualityLevel.CONFIRMED:
+            elif _get_quality_level_value(memory.quality_level) == QualityLevel.CONFIRMED.value:
                 return "质量已确认"
             elif memory.importance_score >= 0.8 and memory.access_count >= 3:
                 return f"高重要性({memory.importance_score:.2f})且已被访问{memory.access_count}次"
@@ -466,16 +508,16 @@ class UpgradeEvaluator:
             for memory in memories:
                 if memory.id not in results:
                     logger.warning(f"Memory {memory.id} not in LLM response")
-                    # 使用规则作为后备
-                    should_upgrade = memory.should_upgrade_to_episodic() if memory.storage_layer.value == "working" else memory.should_upgrade_to_semantic()
+                    layer_val = _get_storage_layer_value(memory.storage_layer)
+                    should_upgrade = memory.should_upgrade_to_episodic() if layer_val == "working" else memory.should_upgrade_to_semantic()
                     results[memory.id] = (should_upgrade, 0.5, "LLM未返回结果，使用规则判断")
             
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse LLM response as JSON: {e}")
             logger.debug(f"Response was: {response}")
-            # 降级到规则判断
             for memory in memories:
-                should_upgrade = memory.should_upgrade_to_episodic() if memory.storage_layer.value == "working" else memory.should_upgrade_to_semantic()
+                layer_val = _get_storage_layer_value(memory.storage_layer)
+                should_upgrade = memory.should_upgrade_to_episodic() if layer_val == "working" else memory.should_upgrade_to_semantic()
                 results[memory.id] = (should_upgrade, 0.5, "JSON解析失败，使用规则判断")
         
         return results
@@ -502,7 +544,6 @@ class UpgradeEvaluator:
         # 第一阶段：规则预筛选（条件比实际判断更宽松，确保不遗漏候选者）
         for memory in memories:
             if upgrade_type == "working_to_episodic":
-                # 预筛选条件覆盖 should_upgrade_to_episodic() 的所有分支
                 is_candidate = (
                     memory.access_count >= 2 or
                     memory.importance_score > 0.4 or
@@ -510,15 +551,14 @@ class UpgradeEvaluator:
                     memory.confidence >= 0.6 or
                     memory.is_user_requested or
                     memory.rif_score > 0.4 or
-                    memory.quality_level.value >= QualityLevel.HIGH_CONFIDENCE.value
+                    _get_quality_level_value(memory.quality_level) >= QualityLevel.HIGH_CONFIDENCE.value
                 )
             else:
-                # 预筛选条件覆盖 should_upgrade_to_semantic() 的所有分支
                 is_candidate = (
                     memory.access_count >= 3 or
                     memory.confidence > 0.5 or
                     memory.importance_score >= 0.7 or
-                    memory.quality_level == QualityLevel.CONFIRMED
+                    _get_quality_level_value(memory.quality_level) == QualityLevel.CONFIRMED.value
                 )
             
             if is_candidate:

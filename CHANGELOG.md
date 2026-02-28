@@ -3,6 +3,26 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.9.1] - 2026-02-28
+
+### Fixed
+- **MemoryService 缺少 persona_id 参数传递** (`iris_memory/services/memory_service.py`)
+  - 修复 `process_message_batch()` 方法未接收 `persona_id` 参数导致调用报错
+  - 修复 `capture_and_store_memory()` 方法未接收 `persona_id` 参数
+  - Facade 层方法需将 `persona_id` 传递给底层 `BusinessService`
+- **记忆去重和冲突检测缺少 persona_id 过滤** (`iris_memory/capture/capture_engine.py`)
+  - 修复 `capture_memory()` 方法中调用 `query_memories` 进行去重和冲突检测时未传递 `persona_id`
+  - 开启人格隔离后，去重和冲突检测应在同一人格内进行
+- **知识图谱迁移逻辑缺陷** (`iris_memory/knowledge_graph/kg_storage.py`)
+  - 修复旧数据库可能被错误标记为 v2 但实际未执行迁移的问题
+  - 新增 `_ensure_persona_columns()` 方法，无论 `schema_version` 值如何都检查并添加缺失的 `persona_id` 列
+  - 解决 `table kg_nodes has no column named persona_id` 错误
+- **记忆升级评估器类型错误** (`iris_memory/core/upgrade_evaluator.py`)
+  - 修复 `'int' object has no attribute 'value'` 错误
+  - 新增 `_get_storage_layer_value()` 辅助函数，安全处理 storage_layer 的枚举/字符串/整数类型
+  - 新增 `_get_quality_level_value()` 辅助函数，安全处理 quality_level 的枚举/整数/字符串类型
+  - Memory 对象从数据库恢复时，枚举字段可能是原始类型，直接调用 `.value` 会失败
+
 ## [v1.9.0] - 2026-02-28
 
 ### ⚠️ Known Limitations
