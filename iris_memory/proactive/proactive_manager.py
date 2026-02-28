@@ -113,6 +113,7 @@ class ProactiveReplyManager:
             "replies_failed": 0,
             "smart_boost_activations": 0,
             "smart_boost_delay_reductions": 0,
+            "tasks_cleared_on_bot_reply": 0,
         }
     
     async def initialize(self):
@@ -163,6 +164,64 @@ class ProactiveReplyManager:
                 logger.error(f"Error processing pending task during shutdown: {e}")
         
         logger.debug("[Hot-Reload] ProactiveReplyManager stopped")
+    
+    def clear_pending_tasks_for_session(
+        self,
+        user_id: str,
+        group_id: Optional[str] = None
+    ) -> int:
+        """清除指定会话的待处理任务
+        
+        当 Bot 发送消息后调用，清除该会话中尚未发送的主动回复任务。
+        这样可以避免 Bot 已经回复后，又发送过时的主动回复。
+        
+        Args:
+            user_id: 用户 ID
+            group_id: 群聊 ID（可选）
+            
+        Returns:
+            int: 清除的任务数量
+        """
+        session_key = SessionKeyBuilder.build(user_id, group_id)
+        cleared_count = 0
+        remaining_tasks = []
+        
+        while not self.pending_tasks.empty():
+            try:
+                task = self.pending_tasks.get_nowait()
+                task_session_key = SessionKeyBuilder.build(task.user_id, task.group_id)
+                if task_session_key != session_key:
+                    remaining_tasks.append(task)
+                else:
+                    cleared_count += 1
+            except asyncio.QueueEmpty:
+                break
+        
+        for task in remaining_tasks:
+            self.pending_tasks.put_nowait(task)
+        
+        if cleared_count > 0:
+            self.stats["tasks_cleared_on_bot_reply"] += cleared_count
+            logger.debug(
+                f"Cleared {cleared_count} pending proactive tasks for {session_key} "
+                f"(Bot already replied)"
+            )
+        
+        return cleared_count
+    
+    def clear_all_pending_tasks(self) -> int:
+        """清除所有待处理任务
+        
+        Returns:
+            int: 清除的任务数量
+        """
+        cleared_count = self.pending_tasks.qsize()
+        while not self.pending_tasks.empty():
+            try:
+                self.pending_tasks.get_nowait()
+            except asyncio.QueueEmpty:
+                break
+        return cleared_count
     
     def _get_cooldown_seconds(self, group_id: Optional[str] = None) -> int:
         """获取冷却时间"""
@@ -557,7 +616,11 @@ class ProactiveReplyManager:
             f"用户最近的消息：\n{messages_summary}"
             f"{emotion_info}\n\n"
             f"请根据你的人格和与这位用户的记忆，生成一条自然、简短的主动消息。"
-            f"像朋友一样自然地接话或关心对方，不要说明你是在主动回复。"
+            f"像朋友一样自然地接话或关心对方，不要说明你是在主动回复。\n"
+            f"重要提示：\n"
+            f"- 不要重复提及用户刚才已经说过的话题或事件\n"
+            f"- 如果是群聊，注意不要过度介入，保持适度存在感\n"
+            f"- 避免机械式回应，要有个性化的互动"
         )
         
         return prompt

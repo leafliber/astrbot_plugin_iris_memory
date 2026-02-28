@@ -184,6 +184,11 @@ class MessageProcessor:
                 is_bot=True,
                 session_user_id=user_id
             )
+            
+            if not is_proactive:
+                proactive_mgr = getattr(self._service, 'proactive_manager', None)
+                if proactive_mgr:
+                    proactive_mgr.clear_pending_tasks_for_session(user_id, group_id)
 
         self._service.update_session_activity(user_id, group_id)
 
@@ -388,6 +393,9 @@ class MessageProcessor:
             "- 结合你对用户的记忆和近期话题来开启对话\n"
             "- 避免重复之前已经讨论过的内容\n"
             "- 语气要符合你的人格设定\n"
+            "- 不要重复提及用户刚才已经说过的话题或事件\n"
+            "- 如果是群聊环境，注意适度存在感，不要过度介入\n"
+            "- 避免机械式回应，要有个性化的互动\n"
         )
 
         return directive

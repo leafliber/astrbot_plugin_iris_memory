@@ -706,6 +706,6 @@ class TestConfigManagerSmartBoost:
         from iris_memory.core.config_manager import ConfigManager
 
         mgr = ConfigManager()
-        assert mgr.smart_boost_window_seconds == 300
-        assert mgr.smart_boost_score_multiplier == 1.5
-        assert mgr.smart_boost_reply_threshold == 0.25
+        assert mgr.smart_boost_window_seconds == 120
+        assert mgr.smart_boost_score_multiplier == 1.2
+        assert mgr.smart_boost_reply_threshold == 0.35
