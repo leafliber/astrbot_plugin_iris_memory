@@ -103,10 +103,10 @@ class ProactiveReplyManager:
         self.processing_task: Optional[asyncio.Task] = None
         self.is_running = False
         
-        # 智能增强：用户最后发言时间追踪
         self._last_user_message_time: BoundedDict[str, float] = BoundedDict(max_size=2000)
         
-        # 统计
+        self._processing_sessions: set = set()
+        
         self.stats = {
             "replies_sent": 0,
             "replies_skipped": 0,
@@ -317,7 +317,6 @@ class ProactiveReplyManager:
                     )
                     return
                 
-                # 创建任务
                 task = ProactiveReplyTask(
                     messages=messages,
                     user_id=user_id,
@@ -327,11 +326,8 @@ class ProactiveReplyManager:
                     umo=umo
                 )
                 
-                # 加入队列
                 await self.pending_tasks.put(task)
                 
-                # 立即记录冷却时间，防止同一会话重复排队
-                # _process_task 成功后会再次刷新时间戳
                 self.last_reply_time[session_key] = asyncio.get_running_loop().time()
                 
                 logger.debug(f"Proactive reply queued for {session_key}, "
@@ -483,19 +479,27 @@ class ProactiveReplyManager:
     
     async def _process_task(self, task: ProactiveReplyTask, skip_delay: bool = False):
         """处理回复任务：构造合成事件并注入事件队列"""
+        session_key = SessionKeyBuilder.build(task.user_id, task.group_id)
+        
         try:
-            # 延迟发送（根据紧急度）
             delay = task.decision.suggested_delay
             if delay > 0 and not skip_delay:
                 await asyncio.sleep(delay)
             
-            # 检查事件队列和 context
+            if session_key in self._processing_sessions:
+                logger.debug(
+                    f"Proactive reply cancelled, another task is processing for {session_key}"
+                )
+                self.stats["replies_skipped"] += 1
+                return
+            
+            self._processing_sessions.add(session_key)
+            
             if not self.event_queue or not self.astrbot_context:
                 logger.debug("Event queue or context not available, skip proactive reply")
                 self.stats["replies_failed"] += 1
                 return
             
-            # 构建触发提示（LLM 的 prompt，不是最终回复）
             trigger_prompt = self._build_trigger_prompt(task)
             
             if not trigger_prompt:
@@ -503,19 +507,15 @@ class ProactiveReplyManager:
                 self.stats["replies_failed"] += 1
                 return
             
-            # 构建主动回复上下文（附加到合成事件的 extras）
-            # 获取发送者名称（从上下文中获取）
             sender_name = task.context.get("sender_name", "")
             
-            # 准备近期消息数据（供 _build_proactive_directive 使用）
             recent_messages = []
             for msg in task.messages[-5:]:
                 recent_messages.append({
                     "sender_name": sender_name or task.user_id,
-                    "content": msg[:200]  # 截断过长消息
+                    "content": msg[:200]
                 })
             
-            # 提取情感摘要
             reply_context = task.decision.reply_context or {}
             emotion_data = reply_context.get("emotion", {})
             emotion_summary = ""
@@ -537,7 +537,6 @@ class ProactiveReplyManager:
                 "target_user": sender_name or task.user_id,
             }
             
-            # 构造合成事件
             proactive_event = ProactiveMessageEvent(
                 context=self.astrbot_context,
                 umo=task.umo,
@@ -548,7 +547,6 @@ class ProactiveReplyManager:
                 proactive_context=proactive_context,
             )
             
-            # 注入事件队列
             try:
                 self.event_queue.put_nowait(proactive_event)
             except asyncio.QueueFull:
@@ -560,17 +558,12 @@ class ProactiveReplyManager:
             
             self.stats["replies_sent"] += 1
             
-            # 注入成功后才更新冷却时间
-            session_key = SessionKeyBuilder.build(task.user_id, task.group_id)
             self.last_reply_time[session_key] = asyncio.get_running_loop().time()
             
-            # 更新每日计数
             count_key = SessionKeyBuilder.build(task.user_id, task.group_id)
             self.daily_reply_count[count_key] = \
                 self.daily_reply_count.get(count_key, 0) + 1
             
-            # 智能增强：Bot 发送主动回复后记录时间戳，开启增强窗口
-            # 在窗口期内用户发言时，会提升 Bot 再次主动回复的概率
             self._record_user_message(task.user_id, task.group_id)
             
             logger.debug(
@@ -582,6 +575,8 @@ class ProactiveReplyManager:
         except Exception as e:
             logger.error(f"Error processing proactive reply task: {e}")
             self.stats["replies_failed"] += 1
+        finally:
+            self._processing_sessions.discard(session_key)
     
     def _build_trigger_prompt(self, task: ProactiveReplyTask) -> str:
         """构建触发提示词
