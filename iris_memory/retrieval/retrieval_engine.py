@@ -1,6 +1,11 @@
 """
 记忆检索引擎
 根据companion-memory框架实现混合检索
+
+v1.9.2 重构：
+- 5 种策略实现拆分至 retrieval/strategies/ 子包
+- 格式化逻辑拆分至 retrieval/memory_formatter.py
+- MemoryRetrievalEngine 保持向后兼容的公共 API
 """
 
 import asyncio
@@ -18,6 +23,13 @@ from iris_memory.utils.member_utils import format_member_tag
 from iris_memory.retrieval.reranker import Reranker
 from iris_memory.retrieval.retrieval_router import RetrievalRouter
 from iris_memory.retrieval.retrieval_logger import retrieval_log
+from iris_memory.retrieval.memory_formatter import MemoryFormatter
+from iris_memory.retrieval.strategies.base import StrategyParams
+from iris_memory.retrieval.strategies.vector import VectorOnlyStrategy
+from iris_memory.retrieval.strategies.time_aware import TimeAwareStrategy
+from iris_memory.retrieval.strategies.emotion_aware import EmotionAwareStrategy
+from iris_memory.retrieval.strategies.graph import GraphStrategy
+from iris_memory.retrieval.strategies.hybrid import HybridStrategy
 from iris_memory.utils.logger import get_logger
 from iris_memory.core.constants import RetrievalDefaults
 
@@ -137,6 +149,18 @@ class MemoryRetrievalEngine:
 
         # 知识图谱模块（可选，由外部注入）
         self._kg_module = None
+
+        # 格式化器（从 Engine 分离，SRP）
+        self._formatter = MemoryFormatter(
+            token_budget=self.token_budget,
+            compressor=self.memory_compressor,
+            selector=self.memory_selector,
+            persona_coordinator=self.persona_coordinator,
+        )
+
+        # 策略实例（延迟在 _build_strategies 中创建）
+        self._strategies: Dict[RetrievalStrategy, Any] = {}
+        self._build_strategies()
     
     async def _update_access_and_sync(self, memories: List[Memory]) -> None:
         """更新记忆访问统计并同步到 ChromaDB
@@ -317,25 +341,28 @@ class MemoryRetrievalEngine:
     ) -> List[Memory]:
         """使用指定策略检索记忆
 
-        Args:
-            query: 查询文本
-            user_id: 用户ID
-            group_id: 群组ID（可选）
-            strategy: 检索策略
-            top_k: 返回的最大数量
-            emotional_state: 情感状态（可选）
-            storage_layer: 存储层过滤（可选）
-            persona_id: 人格 ID（非 None 时启用 persona 过滤）
-
-        Returns:
-            List[Memory]: 相关记忆列表
+        优先使用新的策略对象，回退到旧方法以保持兼容。
         """
-        method_name = self._STRATEGY_METHOD_MAP.get(strategy, "_hybrid_retrieval")
-        
         if strategy == RetrievalStrategy.GRAPH_ONLY and not self._is_kg_available():
             retrieval_log.graph_fallback(user_id, query)
-            method_name = "_hybrid_retrieval"
-        
+            strategy = RetrievalStrategy.HYBRID
+
+        # 使用新策略对象
+        strategy_obj = self._strategies.get(strategy)
+        if strategy_obj is not None:
+            params = StrategyParams(
+                query=query,
+                user_id=user_id,
+                group_id=group_id,
+                top_k=top_k,
+                emotional_state=emotional_state,
+                storage_layer=storage_layer,
+                persona_id=persona_id,
+            )
+            return await strategy_obj.execute(params)
+
+        # 回退到旧方法
+        method_name = self._STRATEGY_METHOD_MAP.get(strategy, "_hybrid_retrieval")
         method = getattr(self, method_name)
         return await method(
             query, user_id, group_id, top_k, emotional_state,
@@ -504,6 +531,10 @@ class MemoryRetrievalEngine:
             kg_module: KnowledgeGraphModule 实例
         """
         self._kg_module = kg_module
+        # 同步到 GraphStrategy
+        graph_strategy = self._strategies.get(RetrievalStrategy.GRAPH_ONLY)
+        if isinstance(graph_strategy, GraphStrategy):
+            graph_strategy.set_kg_module(kg_module)
 
     async def _graph_retrieval(
         self,
@@ -748,6 +779,45 @@ class MemoryRetrievalEngine:
     
     def set_session_manager(self, session_manager):
         self.session_manager = session_manager
+        self._build_strategies()
+
+    def _build_strategies(self) -> None:
+        """构建策略实例（在依赖变更后重新调用）"""
+        self._strategies = {
+            RetrievalStrategy.VECTOR_ONLY: VectorOnlyStrategy(
+                self.chroma_manager, self._update_access_and_sync,
+            ),
+            RetrievalStrategy.TIME_AWARE: TimeAwareStrategy(
+                self.chroma_manager, self._update_access_and_sync,
+            ),
+            RetrievalStrategy.EMOTION_AWARE: EmotionAwareStrategy(
+                self.chroma_manager, self._update_access_and_sync,
+                self._apply_emotion_filter,
+            ),
+            RetrievalStrategy.HYBRID: HybridStrategy(
+                chroma_manager=self.chroma_manager,
+                update_access_fn=self._update_access_and_sync,
+                emotion_filter_fn=self._apply_emotion_filter,
+                rerank_fn=self._rerank_memories,
+                get_working_memories_fn=self._get_relevant_working_memories,
+                merge_memories_fn=self._merge_memories,
+                enable_emotion_aware=self.enable_emotion_aware,
+                enable_working_memory_merge=self.enable_working_memory_merge,
+                session_manager=self.session_manager,
+            ),
+            RetrievalStrategy.GRAPH_ONLY: GraphStrategy(
+                chroma_manager=self.chroma_manager,
+                update_access_fn=self._update_access_and_sync,
+                emotion_filter_fn=self._apply_emotion_filter,
+                rerank_fn=self._rerank_memories,
+                get_working_memories_fn=self._get_relevant_working_memories,
+                merge_memories_fn=self._merge_memories,
+                kg_module=self._kg_module,
+                enable_emotion_aware=self.enable_emotion_aware,
+                enable_working_memory_merge=self.enable_working_memory_merge,
+                session_manager=self.session_manager,
+            ),
+        }
     
     def format_memories_for_llm(
         self,
@@ -758,156 +828,43 @@ class MemoryRetrievalEngine:
         group_id: Optional[str] = None,
         current_sender_name: Optional[str] = None
     ) -> str:
-        """格式化记忆用于注入到LLM上下文
-        
-        Args:
-            memories: 记忆列表
-            use_token_budget: 是否使用token预算管理（默认True）
-            user_persona: 用户画像（可选，用于人格协调）
-            persona_style: 人格风格 (default/natural/roleplay)
-            group_id: 群组ID（用于区分群聊/个人知识）
-            current_sender_name: 当前发言者名称（用于群成员识别）
-            
-        Returns:
-            str: 格式化的记忆文本
-        """
-        if not memories:
-            return ""
-        
-        # 如果启用token预算，使用动态选择器
-        if self.enable_token_budget and use_token_budget:
-            return self.memory_selector.get_memory_context(
-                memories,
-                target_count=self.max_context_memories,
-                persona_style=persona_style,
-                group_id=group_id,
-                current_sender_name=current_sender_name
-            )
-        
-        # 根据人格风格选择格式化方式
-        if persona_style == "natural":
-            formatted = self._format_natural_style(memories, group_id, current_sender_name)
-        elif persona_style == "roleplay":
-            formatted = self._format_roleplay_style(memories, group_id, current_sender_name)
-        else:
-            formatted = self._format_default_style(memories, group_id, current_sender_name)
-        
-        # 如果有用户画像，应用人格协调
-        if user_persona:
-            formatted = self.persona_coordinator.format_context_with_persona(
-                formatted,
-                user_persona,
-                bot_persona="friendly"  # 默认Bot人格
-            )
-        
-        return formatted
+        """格式化记忆用于注入到LLM上下文（委托给 MemoryFormatter）"""
+        return self._formatter.format_memories_for_llm(
+            memories=memories,
+            use_token_budget=self.enable_token_budget and use_token_budget,
+            user_persona=user_persona,
+            persona_style=persona_style,
+            group_id=group_id,
+            current_sender_name=current_sender_name,
+            max_context_memories=self.max_context_memories,
+        )
     
-    def _format_memory_label(self, memory: Memory, group_id: Optional[str] = None) -> str:
-        """为记忆生成来源标签，明确区分群聊知识和个人知识
-        
-        Args:
-            memory: 记忆对象
-            group_id: 当前群组ID
-            
-        Returns:
-            str: 来源标签字符串
-        """
-        parts = []
-        
-        # 来源标注
-        from iris_memory.core.memory_scope import MemoryScope
-        if memory.scope == MemoryScope.GROUP_SHARED:
-            parts.append("群聊共识")
-        elif memory.scope == MemoryScope.GROUP_PRIVATE:
-            sender_tag = self._format_sender_tag(memory, group_id)
-            if not sender_tag:
-                # 强制使用 user_id 生成标识，确保记忆来源明确
-                sender_tag = format_member_tag(None, memory.user_id, group_id)
-            if sender_tag:
-                parts.append(f"{sender_tag}的个人信息")
-            else:
-                parts.append("个人信息")
-        elif memory.scope == MemoryScope.USER_PRIVATE:
-            parts.append("私聊记忆")
-        
-        return "｜".join(parts) if parts else ""
-    
-    def _format_natural_style(
-        self,
-        memories: List[Memory],
-        group_id: Optional[str] = None,
-        current_sender_name: Optional[str] = None
-    ) -> str:
-        """自然群友风格格式化"""
-        formatted = "【你记得的事情】\n"
-        formatted += "以下是你和群友之间的往事，请用自己的话自然提及，不要暴露'记录'、'数据'等概念：\n"
-        
-        if group_id:
-            formatted += "（注意区分群共识和个人信息，不要把A的事情说成B的）\n"
-        
-        for memory in memories:
-            label = self._format_memory_label(memory, group_id)
-            sender_tag = self._format_sender_tag(memory, group_id)
-            sender = f"（{sender_tag}说的）" if sender_tag else ""
-            prefix = f"[{label}]" if label else ""
-            formatted += f"- {prefix}{sender}{memory.content}\n"
-        
-        return formatted
-    
-    def _format_roleplay_style(
-        self,
-        memories: List[Memory],
-        group_id: Optional[str] = None,
-        current_sender_name: Optional[str] = None
-    ) -> str:
-        """角色扮演风格格式化"""
-        formatted = "【你的记忆】\n"
-        formatted += "这些都是你亲身经历的事情，回复时可以自然地说'我记得...'、'你之前说过...'：\n"
-        for memory in memories:
-            sender_tag = self._format_sender_tag(memory, group_id)
-            sender = f"（{sender_tag}）" if sender_tag else ""
-            formatted += f"· {sender}{memory.content}\n"
-        return formatted
-    
-    def _format_default_style(
-        self,
-        memories: List[Memory],
-        group_id: Optional[str] = None,
-        current_sender_name: Optional[str] = None
-    ) -> str:
-        """默认格式化"""
-        formatted = "【相关记忆】\n"
-        for i, memory in enumerate(memories, 1):
-            time_str = memory.created_time.strftime("%Y-%m-%d %H:%M")
-            if hasattr(memory.type, 'value'):
-                type_label = memory.type.value.upper()
-            else:
-                type_label = str(memory.type).upper()
-            
-            label = self._format_memory_label(memory, group_id)
-            sender_tag = self._format_sender_tag(memory, group_id)
-            sender = f" @{sender_tag}" if sender_tag else ""
-            
-            formatted += f"{i}. [{type_label}]{sender} {time_str}"
-            if label:
-                formatted += f" ({label})"
-            formatted += f"\n   内容: {memory.content}\n"
-            
-            if memory.summary:
-                formatted += f"   摘要: {memory.summary}\n"
-            
-            if memory.emotional_weight > 0.5:
-                formatted += f"   情感强度: {memory.emotional_weight:.2f}\n"
-            
-            formatted += "\n"
-        
-        return formatted
+    # ── Backward-compat thin delegates (formatting moved to MemoryFormatter) ──
 
-    def _format_sender_tag(self, memory: Memory, group_id: Optional[str]) -> str:
-        """Format a stable sender tag for group disambiguation."""
-        if group_id:
-            return format_member_tag(memory.sender_name, memory.user_id, group_id)
-        return (memory.sender_name or "").strip()
+    def _format_memory_label(self, memory: Memory, group_id: Optional[str] = None) -> str:
+        return self._formatter._format_memory_label(memory, group_id)
+
+    def _format_natural_style(
+        self, memories: List[Memory], group_id: Optional[str] = None,
+        current_sender_name: Optional[str] = None,
+    ) -> str:
+        return self._formatter._format_natural_style(memories, group_id, current_sender_name)
+
+    def _format_roleplay_style(
+        self, memories: List[Memory], group_id: Optional[str] = None,
+        current_sender_name: Optional[str] = None,
+    ) -> str:
+        return self._formatter._format_roleplay_style(memories, group_id, current_sender_name)
+
+    def _format_default_style(
+        self, memories: List[Memory], group_id: Optional[str] = None,
+        current_sender_name: Optional[str] = None,
+    ) -> str:
+        return self._formatter._format_default_style(memories, group_id, current_sender_name)
+
+    @staticmethod
+    def _format_sender_tag(memory: Memory, group_id: Optional[str]) -> str:
+        return MemoryFormatter._format_sender_tag(memory, group_id)
     
     def set_config(self, config: Dict[str, Any]):
         """设置配置
@@ -933,3 +890,6 @@ class MemoryRetrievalEngine:
         self.persona_coordinator.set_strategy(
             CoordinationStrategy(coordination_strategy)
         )
+
+        # 配置变更后重建策略对象
+        self._build_strategies()

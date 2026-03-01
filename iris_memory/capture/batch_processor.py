@@ -181,10 +181,8 @@ class MessageBatchProcessor:
         session_key = SessionKeyBuilder.build(user_id, group_id)
         
         if session_key not in self.message_queues:
-            # 新会话加入前，检查是否超出会话限额，主动清理过期会话
             if len(self.last_process_time) >= self.MAX_TRACKED_SESSIONS:
                 self._evict_expired_sessions()
-            # 清理后仍超限则强制淘汰最旧会话
             if len(self.last_process_time) >= self.MAX_TRACKED_SESSIONS:
                 self._evict_oldest_sessions()
             self.message_queues[session_key] = []
@@ -205,6 +203,16 @@ class MessageBatchProcessor:
         logger.debug(
             f"Message queued for {session_key}, "
             f"queue size: {len(self.message_queues[session_key])}"
+        )
+        
+        await self._trigger_realtime_proactive_reply(
+            content=content,
+            user_id=user_id,
+            sender_name=sender_name,
+            group_id=group_id,
+            context=context or {},
+            umo=umo,
+            session_key=session_key
         )
         
         should_process = await self._check_threshold(session_key)

@@ -11,6 +11,7 @@ import time
 from typing import Any, Dict, Optional, Tuple
 from iris_memory.core.defaults import DEFAULTS, get_default
 from iris_memory.core.config_registry import CONFIG_REGISTRY, get_registry_mapping
+from iris_memory.core.config_properties import CONFIG_PROPERTIES
 from iris_memory.core.activity_config import (
     ActivityAwareConfigProvider, GroupActivityTracker
 )
@@ -202,56 +203,25 @@ class ConfigManager:
         """从默认配置获取值"""
         return get_default(section, attr, fallback)
     
-    # 便捷访问方法 - 基础功能
-    @property
-    def enable_memory(self) -> bool:
-        return self.get("basic.enable_memory", True)
+    # ========== 数据驱动属性查找 ==========
     
-    @property
-    def enable_inject(self) -> bool:
-        return self.get("basic.enable_inject", True)
+    def __getattr__(self, name: str) -> Any:
+        """数据驱动的配置属性访问
+        
+        当常规属性查找失败时，从 CONFIG_PROPERTIES 表查找并返回
+        对应 self.get(config_key, default) 的值。
+        """
+        prop = CONFIG_PROPERTIES.get(name)
+        if prop is None:
+            raise AttributeError(
+                f"'{type(self).__name__}' has no attribute '{name}'"
+            )
+        value = self.get(prop.config_key, prop.default)
+        if prop.normalize_provider:
+            return normalize_provider_id(value)
+        return value
     
-    @property
-    def log_level(self) -> str:
-        return self.get("logging.log_level", "INFO")
-    
-    # 记忆设置
-    @property
-    def max_context_memories(self) -> int:
-        return self.get("memory.max_context_memories", 3)
-    
-    @property
-    def token_budget(self) -> int:
-        return self.get("llm_integration.token_budget", DEFAULTS.llm_integration.token_budget)
-    
-    @property
-    def max_working_memory(self) -> int:
-        return self.get("memory.max_working_memory", DEFAULTS.memory.max_working_memory)
-    
-    @property
-    def chat_context_count(self) -> int:
-        return self.get("advanced.chat_context_count", DEFAULTS.llm_integration.chat_context_count)
-    
-    @property
-    def rif_threshold(self) -> float:
-        return self.get("memory.rif_threshold", DEFAULTS.memory.rif_threshold)
-    
-    @property
-    def upgrade_mode(self) -> str:
-        return self.get("memory.upgrade_mode", "rule")
-
-    # 主动回复
-    @property
-    def proactive_reply_enabled(self) -> bool:
-        return self.get("proactive_reply.enable", False)
-    
-    @property
-    def proactive_reply_max_daily(self) -> int:
-        return self.get("proactive_reply.max_daily_replies", DEFAULTS.proactive_reply.max_daily_replies)
-    
-    @property
-    def proactive_reply_group_whitelist_mode(self) -> bool:
-        return self.get("proactive_reply.group_whitelist_mode", False)
+    # ========== 保留自定义逻辑的属性 ==========
     
     @property
     def smart_boost_enabled(self) -> bool:
@@ -261,198 +231,6 @@ class ConfigManager:
             return False
         mode = self.proactive_mode
         return mode in ("llm", "hybrid")
-    
-    @property
-    def smart_boost_window_seconds(self) -> int:
-        return self.get("proactive_reply.smart_boost_window_seconds",
-                        DEFAULTS.proactive_reply.smart_boost_window_seconds)
-    
-    @property
-    def smart_boost_score_multiplier(self) -> float:
-        return self.get("proactive_reply.smart_boost_score_multiplier",
-                        DEFAULTS.proactive_reply.smart_boost_score_multiplier)
-    
-    @property
-    def smart_boost_reply_threshold(self) -> float:
-        return self.get("proactive_reply.smart_boost_reply_threshold",
-                        DEFAULTS.proactive_reply.smart_boost_reply_threshold)
-    
-    # 图片分析
-    @property
-    def image_analysis_enabled(self) -> bool:
-        return self.get("image_analysis.enable", True)
-    
-    @property
-    def image_analysis_mode(self) -> str:
-        return self.get("image_analysis.mode", "auto")
-    
-    @property
-    def image_analysis_max_images(self) -> int:
-        return self.get("image_analysis.max_images_per_message", DEFAULTS.image_analysis.max_images_per_message)
-    
-    @property
-    def image_analysis_daily_budget(self) -> int:
-        return self.get("image_analysis.daily_budget", DEFAULTS.image_analysis.daily_analysis_budget)
-    
-    @property
-    def image_analysis_session_budget(self) -> int:
-        return self.get("image_analysis.session_analysis_budget", DEFAULTS.image_analysis.session_analysis_budget)
-    
-    @property
-    def image_analysis_require_context(self) -> bool:
-        return self.get("image_analysis.require_context_relevance", DEFAULTS.image_analysis.require_context_relevance)
-    
-    @property
-    def image_analysis_provider_id(self) -> str:
-        return normalize_provider_id(self.get("llm_providers.image_analysis_provider_id", ""))
-    
-    # LLM增强处理
-    @property
-    def use_llm(self) -> bool:
-        return self.get("memory.use_llm", False)
-    
-    @property
-    def llm_provider_id(self) -> str:
-        return normalize_provider_id(self.get("llm_providers.memory_provider_id", ""))
-    
-    # 批量处理配置
-    @property
-    def batch_threshold_count(self) -> int:
-        return self.get("message_processing.batch_threshold_count", DEFAULTS.message_processing.batch_threshold_count)
-    
-    @property
-    def short_message_threshold(self) -> int:
-        return self.get("message_processing.short_message_threshold", DEFAULTS.message_processing.short_message_threshold)
-    
-    @property
-    def merge_time_window(self) -> int:
-        return self.get("message_processing.merge_time_window", DEFAULTS.message_processing.merge_time_window)
-    
-    @property
-    def max_merge_count(self) -> int:
-        return self.get("message_processing.max_merge_count", DEFAULTS.message_processing.max_merge_count)
-    
-    # 会话管理
-    @property
-    def session_timeout(self) -> int:
-        return self.get("session.session_timeout", DEFAULTS.session.session_timeout)
-    
-    # 嵌入配置
-    @property
-    def embedding_source(self) -> str:
-        """嵌入源选择：auto / astrbot / local"""
-        return self.get("embedding.source", DEFAULTS.embedding.source)
-    
-    @property
-    def embedding_astrbot_provider_id(self) -> str:
-        """指定的 AstrBot embedding provider ID"""
-        return normalize_provider_id(self.get("embedding.astrbot_provider_id", DEFAULTS.embedding.astrbot_provider_id))
-    
-    @property
-    def embedding_local_model(self) -> str:
-        """本地嵌入模型名称"""
-        return self.get("embedding.local_model", DEFAULTS.embedding.local_model)
-
-    @property
-    def embedding_local_dimension(self) -> int:
-        """本地嵌入模型维度"""
-        return self.get("embedding.local_dimension", DEFAULTS.embedding.local_dimension)
-    
-    # 画像配置
-    @property
-    def persona_auto_update(self) -> bool:
-        return self.get("persona.enable_auto_update", DEFAULTS.persona.enable_auto_update)
-    
-    @property
-    def persona_injection_enabled(self) -> bool:
-        return self.get("persona.enable_persona_injection", DEFAULTS.persona.enable_persona_injection)
-    
-    @property
-    def persona_max_change_log(self) -> int:
-        return self.get("persona.max_change_log", DEFAULTS.persona.max_change_log)
-    
-    @property
-    def persona_snapshot_interval(self) -> int:
-        return self.get("persona.snapshot_interval", DEFAULTS.persona.snapshot_interval)
-
-    @property
-    def persona_extraction_mode(self) -> str:
-        return self.get("persona.extraction_mode", "rule")
-
-    @property
-    def persona_llm_provider(self) -> str:
-        provider_id = normalize_provider_id(self.get("llm_providers.persona_provider_id", ""))
-        return provider_id or "default"
-
-    @property
-    def persona_enable_interest(self) -> bool:
-        return self.get("persona.enable_interest_extraction", True)
-
-    @property
-    def persona_enable_style(self) -> bool:
-        return self.get("persona.enable_style_extraction", True)
-
-    @property
-    def persona_enable_preference(self) -> bool:
-        return self.get("persona.enable_preference_extraction", True)
-
-    @property
-    def persona_llm_max_tokens(self) -> int:
-        return self.get("persona.llm_max_tokens", 300)
-
-    @property
-    def persona_llm_daily_limit(self) -> int:
-        return self.get("persona.llm_daily_limit", 50)
-
-    @property
-    def persona_fallback_to_rule(self) -> bool:
-        return self.get("persona.fallback_to_rule", True)
-
-    # 画像批量处理配置
-    @property
-    def persona_batch_enabled(self) -> bool:
-        return self.get("persona.batch_enabled", DEFAULTS.persona.batch_enabled)
-    
-    @property
-    def persona_batch_threshold(self) -> int:
-        return self.get("persona.batch_threshold", DEFAULTS.persona.batch_threshold)
-    
-    @property
-    def persona_batch_flush_interval(self) -> int:
-        return self.get("persona.batch_flush_interval", DEFAULTS.persona.batch_flush_interval)
-    
-    @property
-    def persona_batch_max_size(self) -> int:
-        return self.get("persona.batch_max_size", DEFAULTS.persona.batch_max_size)
-    
-    # LLM智能增强配置
-    @property
-    def llm_enhanced_provider_id(self) -> str:
-        return normalize_provider_id(self.get("llm_providers.enhanced_provider_id", ""))
-    
-    @property
-    def sensitivity_mode(self) -> str:
-        return self.get("llm_enhanced.sensitivity_mode", "rule")
-    
-    @property
-    def trigger_mode(self) -> str:
-        return self.get("llm_enhanced.trigger_mode", "rule")
-    
-    @property
-    def emotion_mode(self) -> str:
-        return self.get("llm_enhanced.emotion_mode", "rule")
-    
-    @property
-    def proactive_mode(self) -> str:
-        return self.get("llm_enhanced.proactive_mode", "rule")
-    
-    @property
-    def conflict_mode(self) -> str:
-        return self.get("llm_enhanced.conflict_mode", "rule")
-    
-    @property
-    def retrieval_mode(self) -> str:
-        return self.get("llm_enhanced.retrieval_mode", "rule")
     
     @property
     def llm_enhanced_enabled(self) -> bool:
@@ -466,12 +244,22 @@ class ConfigManager:
             self.retrieval_mode,
         ]
         return any(mode in ("llm", "hybrid") for mode in modes)
-
-    # 知识图谱配置
-    @property
-    def knowledge_graph_provider_id(self) -> str:
-        return normalize_provider_id(self.get("llm_providers.knowledge_graph_provider_id", ""))
     
+    @property
+    def default_persona_id(self) -> str:
+        """默认人格ID"""
+        return DEFAULTS.persona_isolation.default_persona_id
+    
+    @property
+    def persona_id_max_length(self) -> int:
+        """persona_id 最大长度"""
+        return DEFAULTS.persona_isolation.persona_id_max_length
+    
+    @property
+    def persona_llm_provider(self) -> str:
+        provider_id = normalize_provider_id(self.get("llm_providers.persona_provider_id", ""))
+        return provider_id or "default"
+
     # ========== 批量处理动态配置 ==========
     
     def _with_group_override(self, group_id: Optional[str], key: str, fallback_key: str, default: Any) -> Any:
@@ -525,27 +313,6 @@ class ConfigManager:
                                          "proactive_reply.reply_temperature",
                                          DEFAULTS.proactive_reply.reply_temperature)
     
-    # ========== 人格隔离配置 ==========
-    
-    @property
-    def memory_query_by_persona(self) -> bool:
-        """记忆模块是否按人格隔离查询（默认关闭）"""
-        return self.get("persona_isolation.memory_query_by_persona", False)
-    
-    @property
-    def kg_query_by_persona(self) -> bool:
-        """知识图谱模块是否按人格隔离查询（默认关闭）"""
-        return self.get("persona_isolation.kg_query_by_persona", False)
-    
-    @property
-    def default_persona_id(self) -> str:
-        """默认人格ID"""
-        return DEFAULTS.persona_isolation.default_persona_id
-    
-    @property
-    def persona_id_max_length(self) -> int:
-        """persona_id 最大长度"""
-        return DEFAULTS.persona_isolation.persona_id_max_length
     
     def get_persona_id_for_storage(self, event_persona_id: Optional[str]) -> str:
         """获取存储时使用的人格ID（始终记录，便于后续开启隔离）
@@ -584,27 +351,6 @@ class ConfigManager:
                 return normalized[:self.persona_id_max_length]
             return normalized
         return self.default_persona_id
-
-    # Web UI 配置
-    @property
-    def web_ui_enabled(self) -> bool:
-        """是否启用Web管理界面"""
-        return self.get("web_ui.enable", DEFAULTS.web_ui.enable)
-    
-    @property
-    def web_ui_port(self) -> int:
-        """Web服务端口"""
-        return self.get("web_ui.port", DEFAULTS.web_ui.port)
-    
-    @property
-    def web_ui_access_key(self) -> str:
-        """Web访问密钥"""
-        return self.get("web_ui.access_key", DEFAULTS.web_ui.access_key)
-    
-    @property
-    def web_ui_host(self) -> str:
-        """Web服务监听地址"""
-        return self.get("web_ui.host", DEFAULTS.web_ui.host)
 
 
 # 全局配置管理器 — 通过 ServiceContainer 管理

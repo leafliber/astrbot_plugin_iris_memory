@@ -4,6 +4,7 @@ from .reranker import Reranker
 from .retrieval_engine import MemoryRetrievalEngine
 from .retrieval_router import RetrievalRouter
 from .retrieval_logger import RetrievalLogger, retrieval_log
+from .memory_formatter import MemoryFormatter
 
 __all__ = [
     'Reranker',
@@ -11,4 +12,5 @@ __all__ = [
     'RetrievalRouter',
     'RetrievalLogger',
     'retrieval_log',
+    'MemoryFormatter',
 ]

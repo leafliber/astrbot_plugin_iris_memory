@@ -18,8 +18,9 @@ from datetime import datetime
 
 from iris_memory.utils.logger import get_logger
 from iris_memory.core.constants import (
-    SessionScope, PersonaStyle, NumericDefaults, LogTemplates, UNLIMITED_BUDGET
+    SessionScope, NumericDefaults, LogTemplates, UNLIMITED_BUDGET
 )
+from iris_memory.services.context_builder import ContextBuilder
 
 if TYPE_CHECKING:
     from iris_memory.services.modules.storage_module import StorageModule
@@ -55,8 +56,7 @@ class BusinessServiceDeps:
     member_identity: Any = None
     activity_tracker: Any = None
 from iris_memory.core.types import StorageLayer
-from iris_memory.utils.command_utils import SessionKeyBuilder, MessageFilter
-from iris_memory.utils.member_utils import format_member_tag
+from iris_memory.utils.command_utils import MessageFilter
 from iris_memory.analysis.persona.persona_logger import persona_log
 from iris_memory.services.shared_state import SharedState
 
@@ -91,6 +91,15 @@ class BusinessService:
         self._image_analyzer = deps.image_analyzer
         self._member_identity = deps.member_identity
         self._activity_tracker = deps.activity_tracker
+        self._context_builder = ContextBuilder(
+            retrieval=deps.retrieval,
+            analysis=deps.analysis,
+            storage=deps.storage,
+            kg=deps.kg,
+            shared_state=deps.shared_state,
+            cfg=deps.cfg,
+            member_identity=deps.member_identity,
+        )
 
     # ── 可选组件更新（初始化后注入） ──
 
@@ -101,6 +110,7 @@ class BusinessService:
     def set_member_identity(self, identity: Any) -> None:
         """更新成员身份服务引用"""
         self._member_identity = identity
+        self._context_builder.set_member_identity(identity)
 
     def set_activity_tracker(self, tracker: Any) -> None:
         """更新群活跃度跟踪器引用"""
@@ -483,199 +493,16 @@ class BusinessService:
         reply_context: Optional[str] = None,
         persona_id: Optional[str] = None,
     ) -> str:
-        """准备 LLM 上下文（包含聊天记录 + 记忆 + 图片 + 引用消息）
-
-        Args:
-            query: 用户查询文本
-            user_id: 用户ID
-            group_id: 群组ID
-            image_context: 图片分析上下文
-            sender_name: 发送者名称
-            reply_context: 引用消息上下文（已格式化的描述文本）
-            persona_id: 人格 ID（非 None 时启用 persona 过滤）
-        """
-        if not self._retrieval.retrieval_engine:
-            return ""
-
-        try:
-            emotional_state = self._state.get_or_create_emotional_state(user_id)
-            if self._analysis.emotion_analyzer:
-                emotion_result = await self._analysis.emotion_analyzer.analyze_emotion(query)
-                self._analysis.emotion_analyzer.update_emotional_state(
-                    emotional_state,
-                    emotion_result["primary"],
-                    emotion_result["intensity"],
-                    emotion_result["confidence"],
-                    emotion_result["secondary"]
-                )
-
-            memories = await self._retrieval.retrieval_engine.retrieve(
-                query=query,
-                user_id=user_id,
-                group_id=group_id,
-                top_k=self._cfg.max_context_memories,
-                emotional_state=emotional_state,
-                persona_id=persona_id,
-            )
-
-            session_key = SessionKeyBuilder.build(user_id, group_id)
-            if memories:
-                memories = self._state.filter_recently_injected(memories, session_key)
-
-            context_parts: List[str] = []
-
-            chat_context = await self._build_chat_history_context(
-                user_id, group_id
-            )
-            if chat_context:
-                context_parts.append(chat_context)
-
-            if memories:
-                persona = self._state.get_or_create_user_persona(user_id)
-                persona_view = persona.to_injection_view() if persona else None
-                if persona_view:
-                    persona_log.inject_view(user_id, persona_view)
-
-                memory_context = self._retrieval.retrieval_engine.format_memories_for_llm(
-                    memories,
-                    persona_style=PersonaStyle.NATURAL,
-                    user_persona=persona_view,
-                    group_id=group_id,
-                    current_sender_name=sender_name
-                )
-                context_parts.append(memory_context)
-                logger.debug(LogTemplates.MEMORY_INJECTED.format(count=len(memories)))
-
-                self._state.track_injected_memories(
-                    session_key,
-                    [m.id for m in memories]
-                )
-
-            member_context = self._build_member_identity_context(
-                memories,
-                group_id,
-                user_id,
-                sender_name
-            )
-            if member_context:
-                context_parts.append(member_context)
-
-            # 知识图谱上下文
-            if self._kg and self._kg.enabled:
-                try:
-                    kg_context = await self._kg.format_graph_context(
-                        query=query,
-                        user_id=user_id,
-                        group_id=group_id,
-                        persona_id=persona_id,
-                    )
-                    if kg_context:
-                        context_parts.append(kg_context)
-                        logger.debug("Injected knowledge graph context into LLM prompt")
-                except Exception as kg_err:
-                    logger.debug(f"KG context skipped: {kg_err}")
-
-            if image_context:
-                context_parts.append(image_context)
-                logger.debug("Injected image context into LLM prompt")
-
-            # 引用消息上下文
-            if reply_context:
-                context_parts.append(reply_context)
-                logger.debug("Injected reply context into LLM prompt")
-
-            behavior_directives = self._build_behavior_directives(
-                group_id,
-                sender_name
-            )
-            if behavior_directives:
-                context_parts.append(behavior_directives)
-
-            return "\n\n".join(context_parts)
-
-        except Exception as e:
-            logger.warning(f"Failed to prepare LLM context: {e}")
-            return ""
-
-    def _build_behavior_directives(
-        self,
-        group_id: Optional[str],
-        sender_name: Optional[str] = None
-    ) -> str:
-        """构建行为指导，与人格 Prompt 协同工作"""
-        directives = []
-
-        directives.append("【记忆使用规则】")
-        directives.append("◆ 禁止重复：不要反复提起同一件事或记忆。如果你刚才已经提到过某个话题，就自然地聊别的，不要翻来覆去说同一件事。")
-        directives.append("◆ 减少反问：不要频繁反问对方，尤其不要重复问同一个问题。用陈述、共鸣、接话的方式回应，像真人朋友那样自然接话。如果想了解更多，偶尔问一下就够了。")
-        directives.append("◆ 简短自然：回复尽量简短，像群里随手接话，一行结束。不要写长篇大论，不要列清单式回答日常闲聊。")
-
-        if group_id:
-            directives.append("◆ 知识区分：记忆中标注了「群聊共识」和「个人信息」。群聊共识是大家都知道的事，个人信息是某个人的私事。引用个人信息时要确认是当前对话者的，不要张冠李戴。")
-        else:
-            directives.append("◆ 这是私聊对话，记忆都是你和对方之间的。")
-
-        return "\n".join(directives)
-
-    def _build_member_identity_context(
-        self,
-        memories: List[Any],
-        group_id: Optional[str],
-        user_id: str,
-        sender_name: Optional[str]
-    ) -> str:
-        """Build a compact member identity hint for group chats."""
-        if not group_id:
-            return ""
-
-        current_tag = format_member_tag(sender_name, user_id, group_id)
-        other_tags: List[str] = []
-        seen: set = set()
-
-        for memory in memories:
-            tag = format_member_tag(memory.sender_name, memory.user_id, group_id)
-            if not tag:
-                continue
-            if tag == current_tag:
-                continue
-            if tag in seen:
-                continue
-            seen.add(tag)
-            other_tags.append(tag)
-
-        lines = [
-            "【群成员识别】",
-            f"当前对话者: {current_tag}。回复时针对这个人，不要混淆成其他群友。",
-        ]
-
-        if other_tags:
-            lines.append("记忆中涉及成员: " + ", ".join(other_tags[:5]))
-
-        if self._member_identity:
-            all_members = self._member_identity.get_group_members(group_id)
-            extra_members = [
-                m for m in all_members
-                if m != current_tag and m not in seen
-            ]
-            if extra_members:
-                lines.append(
-                    "群内其他已知成员: " + ", ".join(extra_members[:10])
-                )
-
-            history = self._member_identity.get_name_history(user_id)
-            if history:
-                last_change = history[-1]
-                lines.append(
-                    f"注意: 当前对话者曾用名 \"{last_change['old_name']}\"，"
-                    f"现在叫 \"{last_change['new_name']}\"。"
-                )
-
-        lines.append(
-            "同名以#后ID区分。不要把A说的话当成B说的，"
-            "引用其他人的记忆时要明确说明。"
+        """准备 LLM 上下文（委托给 ContextBuilder）"""
+        return await self._context_builder.build(
+            query=query,
+            user_id=user_id,
+            group_id=group_id,
+            image_context=image_context,
+            sender_name=sender_name,
+            reply_context=reply_context,
+            persona_id=persona_id,
         )
-
-        return "\n".join(lines)
 
     # ── 图片分析 ──
 
@@ -842,45 +669,6 @@ class BusinessService:
                 reply_content=reply_content,
             )
 
-    async def _build_chat_history_context(
-        self,
-        user_id: str,
-        group_id: Optional[str]
-    ) -> str:
-        """构建聊天记录上下文"""
-        chat_history_buffer = self._storage.chat_history_buffer
-        if not chat_history_buffer:
-            return ""
-
-        chat_context_count = self._cfg.get_chat_context_count(group_id)
-        if chat_context_count <= 0:
-            return ""
-
-        if chat_history_buffer.max_messages < chat_context_count:
-            chat_history_buffer.set_max_messages(chat_context_count)
-
-        messages = await chat_history_buffer.get_recent_messages(
-            user_id=user_id,
-            group_id=group_id,
-            limit=chat_context_count
-        )
-
-        if not messages:
-            return ""
-
-        context = chat_history_buffer.format_for_llm(
-            messages,
-            group_id=group_id
-        )
-
-        if context:
-            logger.debug(
-                f"Injected {len(messages)} chat messages into context "
-                f"(group={group_id is not None})"
-            )
-
-        return context
-
     # ── 会话管理 ──
 
     def update_session_activity(self, user_id: str, group_id: Optional[str]) -> None:
@@ -902,3 +690,11 @@ class BusinessService:
     def _get_or_create_emotional_state(self, user_id: str) -> Any:
         """获取或创建用户情感状态（代理到 SharedState）"""
         return self._state.get_or_create_emotional_state(user_id)
+
+    # ── 向后兼容代理（逻辑已移至 ContextBuilder） ──
+
+    async def _build_chat_history_context(
+        self, user_id: str, group_id: Optional[str]
+    ) -> str:
+        """Backward-compat delegate → ContextBuilder._build_chat_history"""
+        return await self._context_builder._build_chat_history(user_id, group_id)

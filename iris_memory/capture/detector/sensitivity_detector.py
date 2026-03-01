@@ -8,53 +8,16 @@ from typing import List, Tuple, Optional
 
 from iris_memory.core.types import SensitivityLevel
 from iris_memory.utils.logger import get_logger
+from iris_memory.utils.masking import mask_sensitive
+from iris_memory.utils.validators import validate_china_id, validate_bank_card
 
 logger = get_logger("sensitivity_detector")
 
 
-def _mask_sensitive(value: str) -> str:
-    """对敏感信息进行脱敏处理
-    
-    规则：
-    - 长度 <= 4: 全部替换为 *
-    - 长度 <= 8: 保留首尾各1字符
-    - 长度 > 8: 保留首尾各4字符
-    """
-    length = len(value)
-    if length <= 4:
-        return "*" * length
-    if length <= 8:
-        return value[0] + "*" * (length - 2) + value[-1]
-    return value[:4] + "*" * (length - 8) + value[-4:]
-
-
-def _validate_china_id(digits: str) -> bool:
-    """验证中国身份证号校验位（GB 11643-1999）"""
-    if len(digits) != 18:
-        return False
-    weights = [7, 9, 10, 5, 8, 4, 2, 1, 6, 3, 7, 9, 10, 5, 8, 4, 2]
-    check_chars = '10X98765432'
-    try:
-        total = sum(int(digits[i]) * weights[i] for i in range(17))
-        return check_chars[total % 11].upper() == digits[17].upper()
-    except (ValueError, IndexError):
-        return False
-
-
-def _validate_bank_card(digits: str) -> bool:
-    """Luhn 算法验证银行卡号"""
-    if not digits.isdigit() or len(digits) < 16 or len(digits) > 19:
-        return False
-    total = 0
-    reverse_digits = digits[::-1]
-    for i, ch in enumerate(reverse_digits):
-        n = int(ch)
-        if i % 2 == 1:
-            n *= 2
-            if n > 9:
-                n -= 9
-        total += n
-    return total % 10 == 0
+# Backward-compat aliases (private API)
+_mask_sensitive = mask_sensitive
+_validate_china_id = validate_china_id
+_validate_bank_card = validate_bank_card
 
 
 class SensitivityDetector:

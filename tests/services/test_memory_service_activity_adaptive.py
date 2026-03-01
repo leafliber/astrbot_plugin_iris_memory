@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 
 from iris_memory.services.business_service import BusinessService
+from iris_memory.services.context_builder import ContextBuilder
 
 
 @pytest.fixture
@@ -22,10 +23,20 @@ def business_service_stub():
     svc._capture = Mock()
     svc._retrieval = Mock()
     svc._kg = Mock()
-    svc._shared_state = Mock()
+    svc._state = Mock()
     svc._image_analyzer = None
     svc._member_identity = None
     svc._activity_tracker = None
+    # Context builder with same mocked deps
+    cb = object.__new__(ContextBuilder)
+    cb._retrieval = svc._retrieval
+    cb._analysis = svc._analysis
+    cb._storage = svc._storage
+    cb._kg = svc._kg
+    cb._state = svc._state
+    cb._cfg = svc._cfg
+    cb._member_identity = None
+    svc._context_builder = cb
     return svc
 
 

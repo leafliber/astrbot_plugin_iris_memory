@@ -116,8 +116,8 @@ class TestChromaManagerInitialization:
         # Mock Settings
         mock_settings = MagicMock()
 
-        monkeypatch.setattr("iris_memory.storage.chroma_manager.chromadb", mock_chromadb)
-        monkeypatch.setattr("iris_memory.storage.chroma_manager.Settings", mock_settings)
+        monkeypatch.setattr("iris_memory.storage.chroma_init.chromadb", mock_chromadb)
+        monkeypatch.setattr("iris_memory.storage.chroma_init.Settings", mock_settings)
 
         # Mock embedding manager
         chroma_manager.embedding_manager = MagicMock()
@@ -134,7 +134,7 @@ class TestChromaManagerInitialization:
     @pytest.mark.asyncio
     async def test_initialize_without_chromadb(self, chroma_manager, monkeypatch):
         """测试ChromaDB不可用时抛出错误"""
-        monkeypatch.setattr("iris_memory.storage.chroma_manager.chromadb", None)
+        monkeypatch.setattr("iris_memory.storage.chroma_init.chromadb", None)
         
         with pytest.raises(ImportError, match="chromadb is not installed"):
             await chroma_manager.initialize()
@@ -156,8 +156,8 @@ class TestChromaManagerInitialization:
         mock_chromadb.PersistentClient.return_value = mock_client
         mock_settings = MagicMock()
 
-        monkeypatch.setattr("iris_memory.storage.chroma_manager.chromadb", mock_chromadb)
-        monkeypatch.setattr("iris_memory.storage.chroma_manager.Settings", mock_settings)
+        monkeypatch.setattr("iris_memory.storage.chroma_init.chromadb", mock_chromadb)
+        monkeypatch.setattr("iris_memory.storage.chroma_init.Settings", mock_settings)
 
         # Mock embedding manager
         chroma_manager.embedding_manager = MagicMock()
@@ -188,8 +188,8 @@ class TestChromaManagerInitialization:
         mock_chromadb.PersistentClient.return_value = mock_client
         mock_settings = MagicMock()
 
-        monkeypatch.setattr("iris_memory.storage.chroma_manager.chromadb", mock_chromadb)
-        monkeypatch.setattr("iris_memory.storage.chroma_manager.Settings", mock_settings)
+        monkeypatch.setattr("iris_memory.storage.chroma_init.chromadb", mock_chromadb)
+        monkeypatch.setattr("iris_memory.storage.chroma_init.Settings", mock_settings)
 
         # Mock embedding manager with dimension detection
         chroma_manager.embedding_manager = MagicMock()

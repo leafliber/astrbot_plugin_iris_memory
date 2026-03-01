@@ -226,7 +226,8 @@ class KGStorage:
         except Exception as e:
             self._conn.rollback()
             logger.error(f"KG schema migration failed: {e}")
-            raise RuntimeError(f"Database migration failed: {e}") from e
+            from iris_memory.core.exceptions import MigrationError
+            raise MigrationError(f"Database migration failed: {e}") from e
 
     def _ensure_persona_columns(self) -> None:
         """确保 persona_id 列存在（修复可能被跳过的迁移）

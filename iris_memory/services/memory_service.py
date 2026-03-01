@@ -50,6 +50,42 @@ from iris_memory.services.business_service import BusinessService, BusinessServi
 from iris_memory.services.persistence_service import PersistenceService
 from iris_memory.utils.logger import get_logger
 
+# 简单属性代理：attribute_name → (module_name, sub_attr)
+# MemoryService.__getattr__ 使用此表把访问委托到 self._deps.<module>.<attr>
+_PROXY_ATTRS: Dict[str, Tuple[str, str]] = {
+    # storage module
+    "chroma_manager": ("storage", "chroma_manager"),
+    "session_manager": ("storage", "session_manager"),
+    "lifecycle_manager": ("storage", "lifecycle_manager"),
+    # capture module
+    "capture_engine": ("capture", "capture_engine"),
+    "batch_processor": ("capture", "batch_processor"),
+    "message_classifier": ("capture", "message_classifier"),
+    # retrieval module
+    "retrieval_engine": ("retrieval", "retrieval_engine"),
+    # proactive module
+    "proactive_manager": ("proactive", "proactive_manager"),
+    # analysis module
+    "emotion_analyzer": ("analysis", "emotion_analyzer"),
+    "persona_extractor": ("analysis", "persona_extractor"),
+    "_persona_batch_processor": ("analysis", "persona_batch_processor"),
+    # llm_enhanced module
+    "llm_sensitivity_detector": ("llm_enhanced", "sensitivity_detector"),
+    "llm_trigger_detector": ("llm_enhanced", "trigger_detector"),
+    "llm_emotion_analyzer": ("llm_enhanced", "emotion_analyzer"),
+    "llm_proactive_reply_detector": ("llm_enhanced", "proactive_reply_detector"),
+    "llm_conflict_resolver": ("llm_enhanced", "conflict_resolver"),
+    "llm_retrieval_router": ("llm_enhanced", "retrieval_router"),
+}
+
+# SharedState 属性代理
+_STATE_ATTRS: Dict[str, str] = {
+    "_user_emotional_states": "user_emotional_states",
+    "_user_personas": "user_personas",
+    "_recently_injected": "recently_injected",
+    "_max_recent_track": "max_recent_track",
+}
+
 
 class MemoryService:
     """
@@ -124,33 +160,21 @@ class MemoryService:
     def is_initialized(self) -> bool:
         return self._is_initialized
 
-    @property
-    def chroma_manager(self):
-        return self.storage.chroma_manager
+    def __getattr__(self, name: str) -> Any:
+        """数据驱动的属性代理
 
-    @property
-    def capture_engine(self):
-        return self.capture.capture_engine
-
-    @property
-    def retrieval_engine(self):
-        return self.retrieval.retrieval_engine
-
-    @property
-    def session_manager(self):
-        return self.storage.session_manager
-
-    @property
-    def lifecycle_manager(self):
-        return self.storage.lifecycle_manager
-
-    @property
-    def batch_processor(self):
-        return self.capture.batch_processor
-
-    @property
-    def message_classifier(self):
-        return self.capture.message_classifier
+        按 _PROXY_ATTRS 表把访问委托到 self._deps.<module>.<attr>，
+        按 _STATE_ATTRS 表把访问委托到 self._deps.shared_state.<attr>。
+        """
+        if name in _PROXY_ATTRS:
+            module_name, attr = _PROXY_ATTRS[name]
+            module = getattr(self._deps, module_name)
+            return getattr(module, attr)
+        if name in _STATE_ATTRS:
+            return getattr(self._deps.shared_state, _STATE_ATTRS[name])
+        raise AttributeError(
+            f"'{type(self).__name__}' has no attribute '{name}'"
+        )
 
     @property
     def image_analyzer(self):
@@ -163,22 +187,6 @@ class MemoryService:
         return self.storage.chat_history_buffer
 
     @property
-    def proactive_manager(self):
-        return self.proactive.proactive_manager
-
-    @property
-    def emotion_analyzer(self):
-        return self.analysis.emotion_analyzer
-
-    @property
-    def persona_extractor(self):
-        return self.analysis.persona_extractor
-
-    @property
-    def _persona_batch_processor(self):
-        return self.analysis.persona_batch_processor
-
-    @property
     def member_identity(self):
         return self._member_identity
 
@@ -189,46 +197,6 @@ class MemoryService:
     @property
     def activity_provider(self):
         return self._activity_provider
-
-    @property
-    def llm_sensitivity_detector(self):
-        return self.llm_enhanced.sensitivity_detector
-
-    @property
-    def llm_trigger_detector(self):
-        return self.llm_enhanced.trigger_detector
-
-    @property
-    def llm_emotion_analyzer(self):
-        return self.llm_enhanced.emotion_analyzer
-
-    @property
-    def llm_proactive_reply_detector(self):
-        return self.llm_enhanced.proactive_reply_detector
-
-    @property
-    def llm_conflict_resolver(self):
-        return self.llm_enhanced.conflict_resolver
-
-    @property
-    def llm_retrieval_router(self):
-        return self.llm_enhanced.retrieval_router
-
-    @property
-    def _user_emotional_states(self):
-        return self._shared_state.user_emotional_states
-
-    @property
-    def _user_personas(self):
-        return self._shared_state.user_personas
-
-    @property
-    def _recently_injected(self):
-        return self._shared_state.recently_injected
-
-    @property
-    def _max_recent_track(self) -> int:
-        return self._shared_state.max_recent_track
 
     def is_embedding_ready(self) -> bool:
         """检查 embedding 系统是否就绪"""

@@ -460,7 +460,8 @@ class EmbeddingManager:
                 logger.warning(f"Provider {provider_name} failed: {e}")
                 continue
 
-        raise RuntimeError("All embedding providers failed")
+        from iris_memory.core.exceptions import EmbeddingError
+        raise EmbeddingError("All embedding providers failed")
 
     async def embed_batch(self, texts: List[str], dimension: Optional[int] = None) -> List[List[float]]:
         """批量生成嵌入向量
