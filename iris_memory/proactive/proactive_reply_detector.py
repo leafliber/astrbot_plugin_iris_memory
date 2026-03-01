@@ -54,11 +54,12 @@ class ProactiveReplyDetector:
         # 需要回复的关键词（适配群聊场景）
         self.reply_triggers = {
             "question": [
-                r"[吗嘛呢吧？?]$",
+                r"[吗嘛？?]$",
+                r"吧[?？]$",  # "吧"需要配合问号才是疑问
+                r".*?(呢)[?？]$",  # "呢"需要配合问号才是疑问（如"他呢？"）
                 r"^(什么|怎么|为什么|如何|哪里|谁|多少|啥)",
                 r"^(能|可以|会).*吗[?？]?$",
                 r"^(是不是|对不对|行不行)",
-                r".*?(呢|吧|啊)[?？]$",
             ],
             "emotional_support": [
                 r"(难过|伤心|痛苦|哭|难受|烦|郁闷|孤独|emo|破防)",
@@ -251,10 +252,11 @@ class ProactiveReplyDetector:
             reasons.append(f"positive({emotion_intensity:.2f})")
         
         # 用户个性化 — 同时处理 to_injection_view() 与历史字段格式
+        # 偏好值影响范围：±10%（0.0→0.9x, 0.5→1.0x, 1.0→1.1x）
         prefs = user_persona.get("preferences", {})
-        user_preference = prefs.get("proactive_reply", 
+        user_preference = prefs.get("proactive_reply",
                            user_persona.get("proactive_reply_preference", 0.5))
-        reply_score *= (0.8 + 0.4 * user_preference)
+        reply_score *= (0.9 + 0.2 * user_preference)
         
         # 根据分数决定（群聊场景优化，降低阈值）
         if reply_score >= 0.7:

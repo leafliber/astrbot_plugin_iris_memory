@@ -55,7 +55,7 @@ class BusinessServiceDeps:
     member_identity: Any = None
     activity_tracker: Any = None
 from iris_memory.core.types import StorageLayer
-from iris_memory.utils.command_utils import SessionKeyBuilder
+from iris_memory.utils.command_utils import SessionKeyBuilder, MessageFilter
 from iris_memory.utils.member_utils import format_member_tag
 from iris_memory.analysis.persona.persona_logger import persona_log
 from iris_memory.services.shared_state import SharedState
@@ -824,6 +824,10 @@ class BusinessService:
             reply_sender_id: 被引用消息的发送者ID
             reply_content: 被引用消息的内容摘要
         """
+        if is_bot and MessageFilter.should_skip_bot_message(content):
+            logger.debug("Skipping bot rich-text message from chat history")
+            return
+
         chat_history_buffer = self._storage.chat_history_buffer
         if chat_history_buffer:
             await chat_history_buffer.add_message(

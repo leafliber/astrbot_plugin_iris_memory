@@ -254,7 +254,7 @@ class LLMProactiveReplyDetector(LLMEnhancedDetector[LLMReplyDecision]):
     ) -> str:
         """构建LLM提示词"""
         messages_text = "\n".join(
-            [f"用户: {m}" for m in messages[-5:]]
+            [f"用户: {m}" for m in messages[-10:]]
         )
         return PROACTIVE_REPLY_PROMPT.format(messages=messages_text)
     

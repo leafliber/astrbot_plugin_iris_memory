@@ -253,6 +253,13 @@ class MessageProcessor:
         if MessageFilter.is_command(message):
             return None
 
+        if MessageFilter.is_bot_rich_text_output(message):
+            self._service.logger.debug(
+                f"Skipping rich-text message from user={user_id}, "
+                f"likely from another bot"
+            )
+            return None
+
         if len(message) > InputValidationConfig.MAX_MESSAGE_LENGTH:
             message = message[:InputValidationConfig.MAX_MESSAGE_LENGTH]
 

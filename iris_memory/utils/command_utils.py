@@ -3,6 +3,7 @@
 """
 from __future__ import annotations
 
+import re
 from typing import Optional, Set, List, TYPE_CHECKING
 from dataclasses import dataclass
 
@@ -362,28 +363,143 @@ class MessageFilter:
         "memory_save", "memory_search", "memory_clear", "memory_stats",
         "memory_delete", "proactive_reply"
     ])
-    
+
+    RICH_TEXT_PATTERNS: List[str] = [
+        r"^\[\]\(%7B%22version%22.*%7D\)",
+        r"mqqapi://markdown/mention",
+        r"mqqapi://markdown",
+        r"^\[\]\(%7B.*%7D\)\s*$",
+    ]
+
     @classmethod
     def is_command(cls, message: str) -> bool:
         """检查是否为指令消息"""
         stripped = message.strip()
-        
-        # 检查斜杠开头
+
         if stripped.startswith('/'):
             return True
-        
-        # 检查已知指令
+
         for cmd in cls.KNOWN_COMMANDS:
             if stripped.startswith(cmd):
                 return True
-        
+
         return False
-    
+
+    @classmethod
+    def is_rich_text_message(cls, message: str) -> bool:
+        """
+        检查是否为QQ富文本/markdown消息
+
+        QQ富文本消息特征：
+        - [](%7B%22version%22%3A2%7D) 版本标记
+        - mqqapi://markdown/mention @提及链接
+        - 高密度的markdown格式标记
+
+        Args:
+            message: 消息内容
+
+        Returns:
+            bool: 是否为富文本消息
+        """
+        if not message:
+            return False
+
+        for pattern in cls.RICH_TEXT_PATTERNS:
+            if re.search(pattern, message, re.IGNORECASE):
+                return True
+
+        return False
+
+    @classmethod
+    def is_bot_rich_text_output(cls, message: str) -> bool:
+        """
+        检查是否为Bot输出的富文本消息（应跳过记忆捕获）
+
+        判断标准：
+        1. 包含QQ富文本版本标记
+        2. 包含mqqapi链接
+        3. 同时包含多个markdown格式标记（加粗、代码块、引用等）
+
+        Args:
+            message: 消息内容
+
+        Returns:
+            bool: 是否应跳过该消息
+        """
+        if not message:
+            return False
+
+        if cls.is_rich_text_message(message):
+            return True
+
+        markdown_markers = [
+            r'\*\*\*[^*]+\*\*\*',
+            r'```[a-z]*\n',
+            r'> ! `https?://',
+            r'\[@[^\]]+\]\(mqqapi://',
+        ]
+
+        match_count = 0
+        for pattern in markdown_markers:
+            if re.search(pattern, message, re.IGNORECASE):
+                match_count += 1
+
+        return match_count >= 2
+
     @classmethod
     def should_skip_message_processing(cls, message: str) -> bool:
         """
         检查是否应跳过消息处理
-        
+
         用于批量消息处理器过滤指令
         """
         return cls.is_command(message)
+
+    @classmethod
+    def should_skip_bot_message(cls, message: str) -> bool:
+        """
+        检查是否应跳过Bot消息的记录/捕获
+
+        用于过滤Bot输出的富文本格式消息
+
+        Args:
+            message: Bot输出的消息内容
+
+        Returns:
+            bool: 是否应跳过
+        """
+        return cls.is_bot_rich_text_output(message)
+
+    @classmethod
+    def strip_rich_text_markup(cls, message: str) -> str:
+        """
+        清理富文本标记，提取纯文本内容
+
+        用于从Bot输出的富文本消息中提取有意义的文本内容。
+        注意：如果消息被判定为应跳过，建议直接跳过而非清理。
+
+        Args:
+            message: 包含富文本标记的消息
+
+        Returns:
+            str: 清理后的纯文本
+        """
+        if not message:
+            return ""
+
+        text = message
+
+        text = re.sub(r'\[\]\(%7B[^)]*%7D\)', '', text, flags=re.IGNORECASE)
+
+        text = re.sub(r'\[@([^\]]+)\]\(mqqapi://[^\)]+\)', r'@\1', text)
+
+        text = re.sub(r'\*\*\*([^*]+)\*\*\*', r'\1', text)
+
+        text = re.sub(r'```[a-z]*\n?', '', text)
+        text = re.sub(r'```', '', text)
+
+        text = re.sub(r'> ! `[^`]+`', '', text)
+
+        text = re.sub(r'\n{3,}', '\n\n', text)
+
+        return text.strip()
