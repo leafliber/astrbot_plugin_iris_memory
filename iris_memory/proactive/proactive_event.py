@@ -11,9 +11,11 @@
 - send() 通过 Context.send_message() 实现，适配所有平台
 - _extras["iris_proactive"] 标记防止死循环
 - 保留原始 user_id / group_id / umo 供记忆检索和会话定位
+- persona_id 确保主动回复使用正确的人格
 """
 import time
 import uuid
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 from iris_memory.core.constants import PROACTIVE_EXTRA_KEY, PROACTIVE_CONTEXT_KEY
@@ -35,6 +37,15 @@ from iris_memory.utils.logger import get_logger
 logger = get_logger("proactive_event")
 
 
+@dataclass
+class ProactivePersona:
+    """主动回复的人格信息
+    
+    兼容 AstrBot 的 persona 属性结构，包含 id 字段。
+    """
+    id: str
+
+
 class ProactiveMessageEvent(AstrMessageEvent):
     """主动回复合成事件
 
@@ -53,6 +64,7 @@ class ProactiveMessageEvent(AstrMessageEvent):
         sender_name: str = "",
         group_id: Optional[str] = None,
         proactive_context: Optional[Dict[str, Any]] = None,
+        persona_id: str = "default",
     ) -> None:
         """
         Args:
@@ -63,6 +75,7 @@ class ProactiveMessageEvent(AstrMessageEvent):
             sender_name: 用户昵称（用于记忆检索中的身份标注）
             group_id: 群聊 ID（私聊时为 None）
             proactive_context: 主动回复的上下文（检测原因、情感、消息摘要等）
+            persona_id: Bot 人格 ID（确保主动回复使用正确的人格）
         """
         # 从 UMO 解析 session
         try:
@@ -123,6 +136,10 @@ class ProactiveMessageEvent(AstrMessageEvent):
         # 存储 context 引用（用于 send）
         self.context_obj = context
 
+        # 设置人格属性（确保主动回复使用正确的人格）
+        # 兼容 AstrBot 的 persona 结构，get_event_persona_id() 会读取 self.persona.id
+        self.persona = ProactivePersona(id=persona_id)
+
         # 标记为主动回复事件（防循环核心）
         self._extras[PROACTIVE_EXTRA_KEY] = True
 
@@ -139,7 +156,7 @@ class ProactiveMessageEvent(AstrMessageEvent):
 
         logger.debug(
             f"ProactiveMessageEvent created: umo={umo}, "
-            f"user_id={user_id}, group_id={group_id}"
+            f"user_id={user_id}, group_id={group_id}, persona_id={persona_id}"
         )
 
     async def send(self, message: MessageChain) -> None:
@@ -158,4 +175,4 @@ class ProactiveMessageEvent(AstrMessageEvent):
             await self.send(chain)
 
 
-__all__ = ["ProactiveMessageEvent"]
+__all__ = ["ProactiveMessageEvent", "ProactivePersona"]

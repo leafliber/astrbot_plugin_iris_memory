@@ -49,7 +49,8 @@ class ProactiveReplyTask:
     group_id: Optional[str]
     decision: ProactiveReplyDecision
     context: Dict[str, Any]
-    umo: str = ""  # 新增：unified_msg_origin
+    umo: str = ""
+    persona_id: str = "default"
 
 
 class ProactiveReplyManager:
@@ -269,7 +270,8 @@ class ProactiveReplyManager:
         user_id: str,
         group_id: Optional[str] = None,
         context: Optional[Dict] = None,
-        umo: str = ""
+        umo: str = "",
+        persona_id: str = "default"
     ):
         """处理批量消息，判断是否需要主动回复"""
         if not self.enabled or not messages:
@@ -323,7 +325,8 @@ class ProactiveReplyManager:
                     group_id=group_id,
                     decision=decision,
                     context=context or {},
-                    umo=umo
+                    umo=umo,
+                    persona_id=persona_id,
                 )
                 
                 await self.pending_tasks.put(task)
@@ -545,6 +548,7 @@ class ProactiveReplyManager:
                 sender_name=sender_name,
                 group_id=task.group_id,
                 proactive_context=proactive_context,
+                persona_id=task.persona_id,
             )
             
             try:

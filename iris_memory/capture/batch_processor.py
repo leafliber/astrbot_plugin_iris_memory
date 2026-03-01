@@ -175,7 +175,8 @@ class MessageBatchProcessor:
         sender_name: Optional[str] = None,
         group_id: Optional[str] = None,
         context: Optional[Dict[str, Any]] = None,
-        umo: str = ""
+        umo: str = "",
+        persona_id: str = "default"
     ) -> bool:
         """添加消息到队列"""
         session_key = SessionKeyBuilder.build(user_id, group_id)
@@ -196,7 +197,8 @@ class MessageBatchProcessor:
             sender_name=sender_name,
             group_id=group_id,
             context=context or {},
-            umo=umo
+            umo=umo,
+            persona_id=persona_id,
         ))
         
         self._dirty = True
@@ -632,7 +634,8 @@ class MessageBatchProcessor:
                 user_id=last_msg.user_id,
                 group_id=last_msg.group_id,
                 context=last_msg.context,
-                umo=last_msg.umo
+                umo=last_msg.umo,
+                persona_id=last_msg.persona_id,
             )
         except Exception as e:
             logger.warning(f"Proactive reply check failed: {e}")

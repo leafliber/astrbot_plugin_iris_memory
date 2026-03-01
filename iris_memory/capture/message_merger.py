@@ -27,6 +27,7 @@ class QueuedMessage:
     umo: str = ""
     is_merged: bool = False
     original_messages: List[str] = field(default_factory=list)
+    persona_id: str = "default"
     
     def __post_init__(self) -> None:
         if not isinstance(self.context, dict):

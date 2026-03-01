@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from iris_memory.proactive.proactive_event import ProactiveMessageEvent
+from iris_memory.proactive.proactive_event import ProactiveMessageEvent, ProactivePersona
 
 
 @pytest.mark.asyncio
@@ -46,3 +46,41 @@ def test_proactive_event_sets_extras_and_identity():
     assert event.get_extra("iris_proactive_context", {}).get("reason") == "emotion"
     assert event.get_sender_id() == "u200"
     assert event.message_str == "主动问候"
+
+
+def test_proactive_event_default_persona_id():
+    """测试默认 persona_id 为 'default'"""
+    context = SimpleNamespace(send_message=AsyncMock())
+
+    event = ProactiveMessageEvent(
+        context=context,
+        umo="test:FriendMessage:u1",
+        trigger_prompt="test",
+        user_id="u1",
+    )
+
+    assert event.persona is not None
+    assert event.persona.id == "default"
+
+
+def test_proactive_event_custom_persona_id():
+    """测试自定义 persona_id"""
+    context = SimpleNamespace(send_message=AsyncMock())
+
+    event = ProactiveMessageEvent(
+        context=context,
+        umo="test:GroupMessage:g1",
+        trigger_prompt="test",
+        user_id="u1",
+        group_id="g1",
+        persona_id="custom_persona",
+    )
+
+    assert event.persona is not None
+    assert event.persona.id == "custom_persona"
+
+
+def test_proactive_persona_dataclass():
+    """测试 ProactivePersona 数据类"""
+    persona = ProactivePersona(id="test_persona")
+    assert persona.id == "test_persona"

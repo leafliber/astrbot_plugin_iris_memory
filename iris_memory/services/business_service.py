@@ -593,7 +593,8 @@ class BusinessService:
                     sender_name=sender_name,
                     group_id=group_id,
                     context=context,
-                    umo=umo
+                    umo=umo,
+                    persona_id=persona_id or "default",
                 )
 
         except Exception as e:
