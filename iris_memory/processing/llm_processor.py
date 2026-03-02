@@ -372,15 +372,25 @@ class LLMMessageProcessor:
                     
             except Exception as e:
                 last_error = e
-                logger.warning(f"LLM API call failed (attempt {attempt + 1}/{MAX_RETRIES}): {e}")
-                
+                error_type = type(e).__name__
+                logger.warning(
+                    f"LLM API call failed (attempt {attempt + 1}/{MAX_RETRIES}): "
+                    f"[{error_type}] {e} | provider_id={repr(self.default_provider_id)}, "
+                    f"max_tokens={max_tokens}, temperature={temperature}, "
+                    f"prompt_length={len(prompt)}"
+                )
+
                 if attempt < MAX_RETRIES - 1:
                     await asyncio.sleep(backoff)
                     backoff = min(backoff * BACKOFF_MULTIPLIER, MAX_BACKOFF)
-        
+
         # 所有重试都失败
         self._circuit_breaker_on_failure()
-        logger.error(f"LLM API call failed after {MAX_RETRIES} attempts: {last_error}")
+        error_type = type(last_error).__name__ if last_error else "Unknown"
+        logger.error(
+            f"LLM API call failed after {MAX_RETRIES} attempts: "
+            f"[{error_type}] {last_error} | provider_id={repr(self.default_provider_id)}"
+        )
         self.stats["failed_calls"] += 1
         return None
     

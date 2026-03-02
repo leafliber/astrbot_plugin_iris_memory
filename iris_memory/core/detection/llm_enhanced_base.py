@@ -158,12 +158,22 @@ class LLMEnhancedBase(ABC):
                     return result
             except Exception as e:
                 last_error = e
-                logger.warning(f"LLM call failed (attempt {attempt + 1}/{MAX_RETRIES}): {e}")
+                error_type = type(e).__name__
+                logger.warning(
+                    f"LLM call failed (attempt {attempt + 1}/{MAX_RETRIES}): "
+                    f"[{error_type}] {e} | provider_id={repr(self._resolved_provider_id)}, "
+                    f"prompt_length={len(prompt)}"
+                )
                 if attempt < MAX_RETRIES - 1:
                     await asyncio.sleep(backoff)
                     backoff = min(backoff * BACKOFF_MULTIPLIER, MAX_BACKOFF)
-        
+
         self._stats["failed_calls"] += 1
+        error_type = type(last_error).__name__ if last_error else "Unknown"
+        logger.error(
+            f"LLM call failed after {MAX_RETRIES} attempts: "
+            f"[{error_type}] {last_error} | provider_id={repr(self._resolved_provider_id)}"
+        )
         return LLMCallResult(success=False, error=str(last_error))
     
     async def _call_llm_once(self, prompt: str) -> LLMCallResult:

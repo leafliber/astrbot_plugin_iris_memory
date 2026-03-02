@@ -202,7 +202,13 @@ async def call_llm(
                     tokens_used=tokens,
                 )
         except Exception as e:
-            logger.warning(f"llm_generate failed: {e}")
+            error_type = type(e).__name__
+            error_msg = str(e)
+            logger.warning(
+                f"llm_generate failed: [{error_type}] {error_msg} | "
+                f"provider_id={repr(provider_id)}, prompt_length={len(prompt)}, "
+                f"prompt_preview={repr(prompt[:100])}..."
+            )
 
     # ② 回退：provider.text_chat
     if provider and hasattr(provider, "text_chat"):
@@ -217,9 +223,19 @@ async def call_llm(
                 tokens_used=tokens,
             )
         except Exception as e:
-            logger.warning(f"text_chat failed: {e}")
+            error_type = type(e).__name__
+            error_msg = str(e)
+            provider_info = getattr(provider, '__class__', type(provider)).__name__ if provider else "None"
+            logger.warning(
+                f"text_chat failed: [{error_type}] {error_msg} | "
+                f"provider_type={provider_info}, prompt_length={len(prompt)}, "
+                f"prompt_preview={repr(prompt[:100])}..."
+            )
 
-    return LLMCallResult(success=False, error="No suitable LLM method found")
+    return LLMCallResult(
+        success=False,
+        error=f"No suitable LLM method found (provider_id={repr(provider_id)})"
+    )
 
 
 def _extract_text(resp: Any) -> str:

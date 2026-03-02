@@ -164,8 +164,11 @@ class Memory:
         }
         
         for field_name, enum_class in enum_mappings.items():
-            if field_name in data and isinstance(data[field_name], str):
-                data[field_name] = enum_class(data[field_name])
+            if field_name in data and data[field_name] is not None and not isinstance(data[field_name], enum_class):
+                try:
+                    data[field_name] = enum_class(data[field_name])
+                except (ValueError, KeyError):
+                    pass
         
         return cls(**data)
     
@@ -194,7 +197,8 @@ class Memory:
         condition3 = self.confidence >= 0.7
         condition4 = self.is_user_requested
         condition5 = self.rif_score > 0.5 and self.access_count >= 2
-        condition6 = self.quality_level.value >= QualityLevel.HIGH_CONFIDENCE.value
+        ql_val = self.quality_level.value if isinstance(self.quality_level, QualityLevel) else int(self.quality_level)
+        condition6 = ql_val >= QualityLevel.HIGH_CONFIDENCE.value
 
         return condition1 or condition2 or condition3 or condition4 or condition5 or condition6
     
@@ -211,7 +215,8 @@ class Memory:
             return False
         
         condition1 = self.access_count >= 5 and self.confidence > 0.65
-        condition2 = self.quality_level == QualityLevel.CONFIRMED
+        condition2 = (self.quality_level == QualityLevel.CONFIRMED
+                      or int(self.quality_level) == int(QualityLevel.CONFIRMED))
         condition3 = self.importance_score >= 0.8 and self.access_count >= 3
         days_since_creation = (datetime.now() - self.created_time).days
         condition4 = days_since_creation >= 7 and self.access_count >= 3 and self.confidence > 0.6
