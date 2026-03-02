@@ -399,7 +399,7 @@ class ServiceInitializer:
         await self._deps.capture.init_batch_processor(
             cfg=self._deps.cfg,
             llm_processor=self._deps.llm_enhanced.llm_processor,
-            proactive_manager=self._deps.proactive.proactive_manager,
+            proactive_manager=self._deps.proactive.manager,
             on_save_callback=None,
         )
 

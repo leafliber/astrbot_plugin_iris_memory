@@ -65,7 +65,7 @@ _PROXY_ATTRS: Dict[str, Tuple[str, str]] = {
     # retrieval module
     "retrieval_engine": ("retrieval", "retrieval_engine"),
     # proactive module
-    "proactive_manager": ("proactive", "proactive_manager"),
+    "proactive_manager": ("proactive", "manager"),
     # analysis module
     "emotion_analyzer": ("analysis", "emotion_analyzer"),
     "persona_extractor": ("analysis", "persona_extractor"),
@@ -74,7 +74,6 @@ _PROXY_ATTRS: Dict[str, Tuple[str, str]] = {
     "llm_sensitivity_detector": ("llm_enhanced", "sensitivity_detector"),
     "llm_trigger_detector": ("llm_enhanced", "trigger_detector"),
     "llm_emotion_analyzer": ("llm_enhanced", "emotion_analyzer"),
-    "llm_proactive_reply_detector": ("llm_enhanced", "proactive_reply_detector"),
     "llm_conflict_resolver": ("llm_enhanced", "conflict_resolver"),
     "llm_retrieval_router": ("llm_enhanced", "retrieval_router"),
 }

@@ -134,14 +134,6 @@ def _build_registry() -> Dict[str, ConfigDefinition]:
             description="是否启用群聊白名单模式",
             value_type=bool,
         ),
-        ConfigDefinition(
-            key="proactive_reply.smart_boost",
-            section="proactive_reply",
-            attr="smart_boost_enabled",
-            default=False,
-            description="是否启用主动回复智能增强",
-            value_type=bool,
-        ),
 
         # ── 图片分析 ──
         ConfigDefinition(
@@ -442,14 +434,6 @@ def _build_registry() -> Dict[str, ConfigDefinition]:
             attr="emotion_mode",
             default="rule",
             description="情感分析模式 (rule/llm/hybrid)",
-            value_type=str,
-        ),
-        ConfigDefinition(
-            key="llm_enhanced.proactive_mode",
-            section="llm_enhanced",
-            attr="proactive_mode",
-            default="rule",
-            description="主动回复检测模式 (rule/llm/hybrid)",
             value_type=str,
         ),
         ConfigDefinition(

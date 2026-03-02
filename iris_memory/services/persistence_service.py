@@ -75,7 +75,7 @@ _KV_LOADERS: list[KVLoaderConfig] = [
     ),
     KVLoaderConfig(
         key=KVStoreKeys.PROACTIVE_REPLY_WHITELIST,
-        component_path="_proactive.proactive_manager",
+        component_path="_proactive.manager",
         deserialize_method="deserialize_whitelist",
         default=[],
         log_message="Loaded proactive reply whitelist",
@@ -132,7 +132,7 @@ _KV_SAVERS: list[KVSaveConfig] = [
     ),
     KVSaveConfig(
         key=KVStoreKeys.PROACTIVE_REPLY_WHITELIST,
-        component_path="_proactive.proactive_manager",
+        component_path="_proactive.manager",
         serialize_method="serialize_whitelist",
         log_message="Saved proactive reply whitelist",
         is_async=False,
@@ -489,7 +489,7 @@ class PersistenceService:
             ("Batch Processor", self._capture.batch_processor),
             ("Persona Batch Processor", self._analysis.persona_batch_processor),
             ("LLM Processor", self._llm_enhanced.llm_processor if self._llm_enhanced else None),
-            ("Proactive Manager", self._proactive.proactive_manager),
+            ("Proactive Manager", self._proactive.manager),
             ("Image Analyzer", self._image_analyzer),
         ]
 

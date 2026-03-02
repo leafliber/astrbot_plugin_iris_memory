@@ -26,16 +26,6 @@ class ProactiveModule:
         """主动回复管理器"""
         return self._manager
 
-    # 向后兼容别名
-    @property
-    def new_manager(self) -> Optional[ProactiveManager]:
-        return self._manager
-
-    @property
-    def proactive_manager(self) -> Optional[ProactiveManager]:
-        """兼容别名，等同于 manager"""
-        return self._manager
-
     async def initialize(
         self,
         cfg: Any,
@@ -79,6 +69,8 @@ class ProactiveModule:
             personality = getattr(cfg, "proactive_personality", "balanced")
             max_history = getattr(cfg, "proactive_context_max_history", 10)
             max_text_tokens = getattr(cfg, "proactive_context_max_text_tokens", 150)
+            group_whitelist_mode = bool(cfg.get("proactive_reply.group_whitelist_mode", False)
+                                        if hasattr(cfg, "get") else False)
 
             self._manager = ProactiveManager(
                 plugin_data_path=plugin_data_path,
@@ -90,6 +82,7 @@ class ProactiveModule:
                 quiet_hours=[quiet_start, quiet_end],
                 max_history=max_history,
                 max_text_tokens=max_text_tokens,
+                group_whitelist_mode=group_whitelist_mode,
             )
             await self._manager.initialize()
             logger.info("Proactive manager initialized")

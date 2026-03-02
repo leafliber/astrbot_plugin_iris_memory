@@ -243,12 +243,6 @@ class ProactiveReplyDefaults:
     question_threshold: float = 0.8
     mention_threshold: float = 0.9
 
-    # 旧版智能增强配置（保留向后兼容）
-    smart_boost_enabled: bool = False
-    smart_boost_window_seconds: int = 60
-    smart_boost_score_multiplier: float = 1.2
-    smart_boost_reply_threshold: float = 0.5
-
     # ===== 新系统高级配置 =====
 
     # -- 上下文引擎 --
@@ -399,7 +393,6 @@ class LLMEnhancedDefaults:
     emotion_llm_weight: float = 0.4
     emotion_enable_context_aware: bool = True
     
-    proactive_mode: str = "rule"
     proactive_daily_limit: int = 100
     
     conflict_mode: str = "rule"

@@ -234,13 +234,6 @@
         "options": ["rule", "llm", "hybrid"],
         "hint": "rule-词典+规则（默认），llm-深度理解，hybrid-混合（推荐）"
       },
-      "proactive_mode": {
-        "description": "主动回复检测模式",
-        "type": "string",
-        "default": "rule",
-        "options": ["rule", "llm", "hybrid"],
-        "hint": "rule-规则判断（默认），llm-社交理解，hybrid-混合（推荐）"
-      },
       "conflict_mode": {
         "description": "冲突解决模式",
         "type": "string",
@@ -297,12 +290,6 @@
         "type": "bool",
         "default": false,
         "hint": "开启后仅在管理员通过指令启用的群聊中触发主动回复，使用 /proactive_reply on|off 控制"
-      },
-      "smart_boost": {
-        "description": "启用主动回复智能增强",
-        "type": "bool",
-        "default": false,
-        "hint": "用户发言后短时间内提升主动回复概率（线性衰减），仅当LLM智能增强中的主动回复检测模式为llm或hybrid时生效"
       }
     }
   },

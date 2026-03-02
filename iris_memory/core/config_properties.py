@@ -71,23 +71,6 @@ CONFIG_PROPERTIES: dict[str, _ConfigProp] = {
         "proactive_reply.web_dashboard",
         DEFAULTS.proactive_reply.web_dashboard,
     ),
-    # 旧版智能增强（保留向后兼容）
-    "smart_boost_enabled": _ConfigProp(
-        "proactive_reply.smart_boost",
-        DEFAULTS.proactive_reply.smart_boost_enabled,
-    ),
-    "smart_boost_window_seconds": _ConfigProp(
-        "proactive_reply.smart_boost_window_seconds",
-        DEFAULTS.proactive_reply.smart_boost_window_seconds,
-    ),
-    "smart_boost_score_multiplier": _ConfigProp(
-        "proactive_reply.smart_boost_score_multiplier",
-        DEFAULTS.proactive_reply.smart_boost_score_multiplier,
-    ),
-    "smart_boost_reply_threshold": _ConfigProp(
-        "proactive_reply.smart_boost_reply_threshold",
-        DEFAULTS.proactive_reply.smart_boost_reply_threshold,
-    ),
 
     # ── 图片分析 ──
     "image_analysis_enabled": _ConfigProp("image_analysis.enable", True),
@@ -192,7 +175,6 @@ CONFIG_PROPERTIES: dict[str, _ConfigProp] = {
     "sensitivity_mode": _ConfigProp("llm_enhanced.sensitivity_mode", "rule"),
     "trigger_mode": _ConfigProp("llm_enhanced.trigger_mode", "rule"),
     "emotion_mode": _ConfigProp("llm_enhanced.emotion_mode", "rule"),
-    "proactive_mode": _ConfigProp("llm_enhanced.proactive_mode", "rule"),
     "conflict_mode": _ConfigProp("llm_enhanced.conflict_mode", "rule"),
     "retrieval_mode": _ConfigProp("llm_enhanced.retrieval_mode", "rule"),
 

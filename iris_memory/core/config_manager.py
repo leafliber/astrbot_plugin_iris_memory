@@ -222,16 +222,7 @@ class ConfigManager:
         return value
     
     # ========== 保留自定义逻辑的属性 ==========
-    
-    @property
-    def smart_boost_enabled(self) -> bool:
-        """智能增强是否启用（需同时满足：配置开启 + proactive_mode 为 llm 或 hybrid）"""
-        enabled = self.get("proactive_reply.smart_boost", DEFAULTS.proactive_reply.smart_boost_enabled)
-        if not enabled:
-            return False
-        mode = self.proactive_mode
-        return mode in ("llm", "hybrid")
-    
+
     @property
     def llm_enhanced_enabled(self) -> bool:
         """判断是否有任何模块启用了LLM增强"""
@@ -239,7 +230,6 @@ class ConfigManager:
             self.sensitivity_mode,
             self.trigger_mode,
             self.emotion_mode,
-            self.proactive_mode,
             self.conflict_mode,
             self.retrieval_mode,
         ]

@@ -54,6 +54,7 @@ class ProactiveManager:
         max_history: int = 10,
         max_text_tokens: int = 150,
         enabled: bool = True,
+        group_whitelist_mode: bool = False,
     ) -> None:
         self._plugin_data_path = plugin_data_path
         self._chroma_manager = chroma_manager
@@ -65,6 +66,10 @@ class ProactiveManager:
         self._max_history = max_history
         self._max_text_tokens = max_text_tokens
         self._enabled = enabled
+
+        # 白名单状态（持久化到 KV 存储）
+        self._group_whitelist: List[str] = []
+        self._group_whitelist_mode: bool = group_whitelist_mode
 
         # 子组件（延迟初始化）
         self._feedback_store: Optional[FeedbackStore] = None
@@ -204,6 +209,11 @@ class ProactiveManager:
         if not self._enabled or not self._initialized:
             return None
 
+        # 白名单/黑名单过滤
+        if not self.is_group_allowed(group_id):
+            logger.debug(f"Group {group_id} not in whitelist, skipping proactive reply")
+            return None
+
         try:
             # 1. 构建上下文
             context = await self._context_engine.build_context(
@@ -279,6 +289,52 @@ class ProactiveManager:
         except Exception as e:
             logger.error(f"Failed to get stats: {e}")
             return {}
+
+    # ── 白名单管理 ──────────────────────────────────────────────
+
+    @property
+    def group_whitelist(self) -> List[str]:
+        """已加入白名单/黑名单的群组 ID 列表"""
+        return self._group_whitelist
+
+    @group_whitelist.setter
+    def group_whitelist(self, value: List[str]) -> None:
+        self._group_whitelist = list(value) if value else []
+
+    @property
+    def group_whitelist_mode(self) -> bool:
+        """True = 白名单模式（仅列表中的群允许）；False = 黑名单模式"""
+        return self._group_whitelist_mode
+
+    @group_whitelist_mode.setter
+    def group_whitelist_mode(self, value: bool) -> None:
+        self._group_whitelist_mode = bool(value)
+
+    def is_group_allowed(self, group_id: Optional[str]) -> bool:
+        """判断群组是否允许主动回复"""
+        if not group_id:
+            return True  # 私聊始终允许
+        if not self._group_whitelist_mode:
+            return True  # 未启用白名单模式，全部允许
+        return group_id in self._group_whitelist
+
+    def serialize_whitelist(self) -> Dict[str, Any]:
+        """序列化白名单状态，用于 KV 存储持久化"""
+        return {
+            "group_whitelist": self._group_whitelist,
+            "group_whitelist_mode": self._group_whitelist_mode,
+        }
+
+    def deserialize_whitelist(self, data: Any) -> None:
+        """从 KV 存储反序列化白名单状态"""
+        if not isinstance(data, dict):
+            return
+        self._group_whitelist = list(data.get("group_whitelist", []))
+        self._group_whitelist_mode = bool(data.get("group_whitelist_mode", False))
+        logger.debug(
+            f"Whitelist loaded: mode={self._group_whitelist_mode}, "
+            f"groups={self._group_whitelist}"
+        )
 
     async def close(self) -> None:
         """关闭并释放所有资源"""
