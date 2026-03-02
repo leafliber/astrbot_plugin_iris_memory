@@ -183,12 +183,14 @@ def _make_manager(
     """创建 ProactiveReplyManager 实例的辅助函数"""
     detector = Mock()
     detector.analyze = AsyncMock(return_value=detector_decision)
-    return ProactiveReplyManager(
+    manager = ProactiveReplyManager(
         astrbot_context=context_with_queue,
         reply_detector=detector,
         config=config,
         config_manager=config_manager,
     )
+    manager._startup_time = 0
+    return manager
 
 
 # =============================================================================
@@ -601,6 +603,7 @@ class TestHandleBatchWithSmartBoost:
             mock_config_manager_llm,
         )
         await manager.initialize()
+        manager._startup_time = 0
         try:
             await manager.handle_batch(
                 messages=["你好"], user_id="u1"
@@ -622,13 +625,12 @@ class TestHandleBatchWithSmartBoost:
             mock_config_manager_llm,
         )
         await manager.initialize()
+        manager._startup_time = 0
         try:
-            # 先记录一次发言（模拟之前的消息）
             manager._record_user_message("u1")
             await manager.handle_batch(
                 messages=["test"], user_id="u1"
             )
-            # 0.2 * ~1.5 = ~0.3 >= 0.25 应创建任务
             assert manager.pending_tasks.qsize() == 1
         finally:
             await manager.stop()
@@ -646,12 +648,12 @@ class TestHandleBatchWithSmartBoost:
             mock_config_manager_rule,
         )
         await manager.initialize()
+        manager._startup_time = 0
         try:
             manager._record_user_message("u1")
             await manager.handle_batch(
                 messages=["test"], user_id="u1"
             )
-            # 不应翻转 → 无任务
             assert manager.pending_tasks.qsize() == 0
             assert manager.stats["replies_skipped"] == 1
         finally:
@@ -708,4 +710,4 @@ class TestConfigManagerSmartBoost:
         mgr = ConfigManager()
         assert mgr.smart_boost_window_seconds == 60
         assert mgr.smart_boost_score_multiplier == 1.2
-        assert mgr.smart_boost_reply_threshold == 0.35
+        assert mgr.smart_boost_reply_threshold == 0.5

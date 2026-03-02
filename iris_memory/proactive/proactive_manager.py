@@ -288,7 +288,7 @@ class ProactiveReplyManager:
         """获取智能增强回复阈值"""
         if self._config_manager:
             return self._config_manager.smart_boost_reply_threshold
-        return self.config.get("smart_boost_reply_threshold", 0.25)
+        return self.config.get("smart_boost_reply_threshold", 0.5)
     
     async def handle_batch(
         self,
