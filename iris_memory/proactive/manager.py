@@ -274,6 +274,41 @@ class ProactiveManager:
                 session_key, user_replied_directly
             )
 
+    def clear_pending_tasks_for_session(
+        self,
+        user_id: str,
+        group_id: Optional[str] = None,
+    ) -> None:
+        """清除会话的待处理任务
+
+        当用户发送新消息或 Bot 回复后调用，
+        清除该会话的待处理主动回复状态。
+
+        Args:
+            user_id: 用户 ID
+            group_id: 群组 ID（私聊为 None）
+        """
+        session_key = self._build_session_key(user_id, group_id)
+
+        if self._feedback_tracker:
+            pending = self._feedback_tracker._pending_feedback
+            pending.pop(session_key, None)
+
+        if self._decision_engine:
+            self._decision_engine._followup_detector._reset_state(session_key)
+
+        logger.debug(f"Cleared pending tasks for session {session_key}")
+
+    def _build_session_key(
+        self,
+        user_id: str,
+        group_id: Optional[str] = None,
+    ) -> str:
+        """构建会话键"""
+        if group_id:
+            return f"{user_id}:{group_id}"
+        return f"{user_id}:private"
+
     async def get_stats(self, days: int = 7) -> Dict[str, Any]:
         """获取统计数据"""
         if not self._feedback_store:

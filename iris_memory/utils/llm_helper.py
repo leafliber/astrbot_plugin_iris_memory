@@ -212,6 +212,7 @@ async def call_llm(
 
     # ② 回退：provider.text_chat
     if provider and hasattr(provider, "text_chat"):
+        resolved_pid = provider_id or extract_provider_id(provider) or "unknown"
         try:
             resp = await provider.text_chat(prompt=prompt, context=[])
             text = _extract_text(resp)
@@ -225,10 +226,9 @@ async def call_llm(
         except Exception as e:
             error_type = type(e).__name__
             error_msg = str(e)
-            provider_info = getattr(provider, '__class__', type(provider)).__name__ if provider else "None"
             logger.warning(
                 f"text_chat failed: [{error_type}] {error_msg} | "
-                f"provider_type={provider_info}, prompt_length={len(prompt)}, "
+                f"provider_id={repr(resolved_pid)}, prompt_length={len(prompt)}, "
                 f"prompt_preview={repr(prompt[:100])}..."
             )
 
