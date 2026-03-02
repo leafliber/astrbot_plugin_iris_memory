@@ -224,6 +224,11 @@ class ConfigManager:
     # ========== 保留自定义逻辑的属性 ==========
 
     @property
+    def proactive_mode(self) -> str:
+        """L3 确认模式: rule=跳过L3, hybrid=正常进行L3"""
+        return self.get("llm_enhanced.proactive_mode", DEFAULTS.llm_enhanced.proactive_mode)
+
+    @property
     def llm_enhanced_enabled(self) -> bool:
         """判断是否有任何模块启用了LLM增强"""
         modes = [

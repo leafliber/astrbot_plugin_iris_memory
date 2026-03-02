@@ -437,6 +437,14 @@ def _build_registry() -> Dict[str, ConfigDefinition]:
             value_type=str,
         ),
         ConfigDefinition(
+            key="llm_enhanced.proactive_mode",
+            section="llm_enhanced",
+            attr="proactive_mode",
+            default="rule",
+            description="主动回复 L3 格式 (rule/hybrid)",
+            value_type=str,
+        ),
+        ConfigDefinition(
             key="llm_enhanced.conflict_mode",
             section="llm_enhanced",
             attr="conflict_mode",

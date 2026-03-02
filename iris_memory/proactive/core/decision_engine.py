@@ -181,12 +181,14 @@ class DecisionEngine:
         followup_max_count: int = 2,
         followup_time_window: int = 120,
         followup_similarity_threshold: float = 0.6,
+        llm_confirmation_enabled: bool = False,
     ) -> None:
         self._rule_detector = rule_detector
         self._vector_detector = vector_detector
         self._llm_detector = llm_detector
         self._feedback_store = feedback_store
         self._personality = personality
+        self._llm_confirmation_enabled = llm_confirmation_enabled
 
         # 内部组件：跟进检测器
         self._followup_detector = FollowUpDetector(
@@ -318,6 +320,15 @@ class DecisionEngine:
         # === L3: LLM 确认 ===
         llm_result = LLMResult()
         llm_used = False
+        if not self._llm_confirmation_enabled:
+            # rule 模式：跳过 L3，中置信案例直接拒绝
+            elapsed = (time.monotonic() - start_time) * 1000
+            return ProactiveDecision(
+                should_reply=False,
+                reason="L3_skipped_rule_mode",
+                confidence=0.5,
+                detection_latency_ms=elapsed,
+            )
         if self._llm_detector:
             try:
                 llm_result = await self._llm_detector.detect(

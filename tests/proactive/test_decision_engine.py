@@ -228,9 +228,16 @@ class TestDecisionEngine:
         assert "L2_low_confidence" in result.reason
 
     @pytest.mark.asyncio
-    async def test_l3_confirm(self, engine, mock_rule, mock_vector, mock_llm):
+    async def test_l3_confirm(self, mock_rule, mock_vector, mock_llm):
         from iris_memory.proactive.core.models import LLMResult
 
+        engine = DecisionEngine(
+            rule_detector=mock_rule,
+            vector_detector=mock_vector,
+            llm_detector=mock_llm,
+            personality="balanced",
+            llm_confirmation_enabled=True,
+        )
         mock_rule.detect.return_value = RuleResult(score=0.4, should_reply=False)
         mock_vector.detect.return_value = VectorResult(
             final_score=0.7,  # between mid(0.6) and high(0.85) for balanced/group
@@ -251,9 +258,16 @@ class TestDecisionEngine:
         assert result.llm_used
 
     @pytest.mark.asyncio
-    async def test_l3_reject(self, engine, mock_rule, mock_vector, mock_llm):
+    async def test_l3_reject(self, mock_rule, mock_vector, mock_llm):
         from iris_memory.proactive.core.models import LLMResult
 
+        engine = DecisionEngine(
+            rule_detector=mock_rule,
+            vector_detector=mock_vector,
+            llm_detector=mock_llm,
+            personality="balanced",
+            llm_confirmation_enabled=True,
+        )
         mock_rule.detect.return_value = RuleResult(score=0.4, should_reply=False)
         mock_vector.detect.return_value = VectorResult(
             final_score=0.7,
@@ -267,6 +281,23 @@ class TestDecisionEngine:
         result = await engine.decide(ctx)
         assert not result.should_reply
         assert "L3_rejected" in result.reason
+
+    @pytest.mark.asyncio
+    async def test_l3_skipped_in_rule_mode(self, engine, mock_rule, mock_vector, mock_llm):
+        """rule 模式下 L3 跳过，中置信案例直接拒绝"""
+        from iris_memory.proactive.core.models import LLMResult
+
+        mock_rule.detect.return_value = RuleResult(score=0.4, should_reply=False)
+        mock_vector.detect.return_value = VectorResult(
+            final_score=0.7, should_reply=False,
+        )
+        # L3 不应被调用
+        mock_llm.detect.return_value = LLMResult(should_reply=True, reason="should not reach")
+        ctx = _make_context()
+        result = await engine.decide(ctx)  # engine fixture has llm_confirmation_enabled=False
+        assert not result.should_reply
+        assert "L3_skipped" in result.reason
+        mock_llm.detect.assert_not_called()
 
 
 # ========== Cosine Similarity ==========

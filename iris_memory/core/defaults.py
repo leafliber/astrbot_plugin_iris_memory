@@ -392,7 +392,8 @@ class LLMEnhancedDefaults:
     emotion_mode: str = "rule"
     emotion_llm_weight: float = 0.4
     emotion_enable_context_aware: bool = True
-    
+
+    proactive_mode: str = "rule"  # rule=跳过L3, hybrid=正常进行L3
     proactive_daily_limit: int = 100
     
     conflict_mode: str = "rule"

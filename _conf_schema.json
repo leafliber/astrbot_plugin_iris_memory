@@ -234,6 +234,13 @@
         "options": ["rule", "llm", "hybrid"],
         "hint": "rule-词典+规则（默认），llm-深度理解，hybrid-混合（推荐）"
       },
+      "proactive_mode": {
+        "description": "主动回复模式",
+        "type": "string",
+        "default": "rule",
+        "options": ["rule", "hybrid"],
+        "hint": "rule-跳过 LLM 边缘案例确认（默认），hybrid-对中置信案例进行 LLM 确认（推荐）"
+      },
       "conflict_mode": {
         "description": "冲突解决模式",
         "type": "string",

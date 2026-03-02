@@ -55,6 +55,7 @@ class ProactiveManager:
         max_text_tokens: int = 150,
         enabled: bool = True,
         group_whitelist_mode: bool = False,
+        proactive_mode: str = "rule",
     ) -> None:
         self._plugin_data_path = plugin_data_path
         self._chroma_manager = chroma_manager
@@ -66,6 +67,7 @@ class ProactiveManager:
         self._max_history = max_history
         self._max_text_tokens = max_text_tokens
         self._enabled = enabled
+        self._proactive_mode = proactive_mode  # "rule" | "hybrid"
 
         # 白名单状态（持久化到 KV 存储）
         self._group_whitelist: List[str] = []
@@ -146,6 +148,7 @@ class ProactiveManager:
                 llm_detector=llm_detector,
                 feedback_store=self._feedback_store,
                 personality=self._personality,
+                llm_confirmation_enabled=(self._proactive_mode == "hybrid"),
             )
             await self._decision_engine.initialize()
 

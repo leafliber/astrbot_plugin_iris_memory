@@ -175,6 +175,7 @@ CONFIG_PROPERTIES: dict[str, _ConfigProp] = {
     "sensitivity_mode": _ConfigProp("llm_enhanced.sensitivity_mode", "rule"),
     "trigger_mode": _ConfigProp("llm_enhanced.trigger_mode", "rule"),
     "emotion_mode": _ConfigProp("llm_enhanced.emotion_mode", "rule"),
+    "proactive_mode": _ConfigProp("llm_enhanced.proactive_mode", "rule"),
     "conflict_mode": _ConfigProp("llm_enhanced.conflict_mode", "rule"),
     "retrieval_mode": _ConfigProp("llm_enhanced.retrieval_mode", "rule"),
 

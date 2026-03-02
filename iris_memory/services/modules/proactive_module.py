@@ -71,6 +71,7 @@ class ProactiveModule:
             max_text_tokens = getattr(cfg, "proactive_context_max_text_tokens", 150)
             group_whitelist_mode = bool(cfg.get("proactive_reply.group_whitelist_mode", False)
                                         if hasattr(cfg, "get") else False)
+            proactive_mode = str(getattr(cfg, "proactive_mode", "rule"))
 
             self._manager = ProactiveManager(
                 plugin_data_path=plugin_data_path,
@@ -83,6 +84,7 @@ class ProactiveModule:
                 max_history=max_history,
                 max_text_tokens=max_text_tokens,
                 group_whitelist_mode=group_whitelist_mode,
+                proactive_mode=proactive_mode,
             )
             await self._manager.initialize()
             logger.info("Proactive manager initialized")
