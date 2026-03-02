@@ -143,7 +143,7 @@ class LLMProactiveReplyDetector(LLMEnhancedDetector[LLMReplyDecision]):
         return LLMReplyDecision(
             should_reply=decision.should_reply,
             urgency=decision.urgency,
-            confidence=0.7,
+            confidence=getattr(decision, 'confidence', 0.7),
             reason=decision.reason,
             reply_type="chat",
             suggested_delay=decision.suggested_delay,
