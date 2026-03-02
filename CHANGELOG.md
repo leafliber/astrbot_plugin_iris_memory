@@ -13,6 +13,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 新增 `replies_consecutive_limited` 统计计数器
   - 防止特定群聊/用户的"滚雪球"式连续回复问题
 
+- **启动冷却期机制** (`iris_memory/proactive/proactive_manager.py`)
+  - 新增 `_startup_time` 记录启动时间
+  - 新增 `_is_in_startup_cooldown()` 方法检查启动冷却状态
+  - 默认启动冷却期：2 分钟（`STARTUP_COOLDOWN_SECONDS=120`）
+  - 防止重启后状态丢失（`_recent_replies`、`last_reply_time` 为空）导致连续回复
+
 ### Changed
 - **主动回复检测器阈值与权重调整** (`iris_memory/proactive/proactive_reply_detector.py`)
   - MEDIUM 阈值从 0.3 提高到 0.4，降低误触发概率
@@ -31,7 +37,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **智能增强参数调整** (`iris_memory/core/defaults.py`)
   - smart_boost_window 从 120s 缩短到 60s（不超过冷却时间）
-  - smart_boost_threshold 从 0.25 提高到 0.35
+  - smart_boost_threshold 从 0.25 提高到 0.4（与 MEDIUM 阈值一致）
   - 确保智能增强窗口不会与冷却机制冲突
 
 ### Fixed

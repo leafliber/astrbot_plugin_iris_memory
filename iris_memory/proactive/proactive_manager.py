@@ -120,6 +120,11 @@ class ProactiveReplyManager:
         
         self._processing_sessions: set = set()
         
+        # 启动冷却期：重启后一段时间内禁用主动回复，防止状态丢失导致连续回复
+        # 原因：_recent_replies 和 last_reply_time 在重启后为空
+        self._startup_time: Optional[float] = None
+        self.STARTUP_COOLDOWN_SECONDS: int = 120  # 启动后2分钟内禁用主动回复
+        
         # 群冷却检查回调：(group_id: str) -> bool
         # 由 CooldownModule 注入，用于在主动回复前检查群冷却状态
         self._cooldown_checker: Optional[Any] = None
@@ -152,9 +157,13 @@ class ProactiveReplyManager:
         
         # 启动处理循环
         self.is_running = True
+        self._startup_time = time.time()
         self.processing_task = asyncio.create_task(self._process_loop())
         
-        logger.debug("Proactive reply manager initialized (event queue mode)")
+        logger.debug(
+            f"Proactive reply manager initialized (event queue mode, "
+            f"startup cooldown: {self.STARTUP_COOLDOWN_SECONDS}s)"
+        )
     
     async def stop(self):
         """停止（热更新友好）"""
@@ -292,6 +301,11 @@ class ProactiveReplyManager:
     ):
         """处理批量消息，判断是否需要主动回复"""
         if not self.enabled or not messages:
+            return
+        
+        # 检查启动冷却期（防止重启后状态丢失导致连续回复）
+        if self._is_in_startup_cooldown():
+            logger.debug("Proactive reply in startup cooldown, skipping")
             return
         
         # 检查群冷却
@@ -748,6 +762,20 @@ class ProactiveReplyManager:
         replies = [t for t in replies if now - t < self.CONSECUTIVE_WINDOW]
         replies.append(now)
         self._recent_replies[session_key] = replies
+    
+    def _is_in_startup_cooldown(self) -> bool:
+        """检查是否在启动冷却期内
+        
+        重启后 _recent_replies 和 last_reply_time 为空，可能导致连续回复。
+        启动冷却期确保有足够时间让用户发送消息，建立正常状态。
+        
+        Returns:
+            True 表示仍在冷却期内，应跳过主动回复
+        """
+        if self._startup_time is None:
+            return False
+        elapsed = time.time() - self._startup_time
+        return elapsed < self.STARTUP_COOLDOWN_SECONDS
     
     def get_stats(self) -> Dict[str, Any]:
         """获取统计信息"""
