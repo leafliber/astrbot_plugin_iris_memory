@@ -12,6 +12,7 @@ Logger工具模块
 import logging
 import logging.handlers
 import sys
+from datetime import datetime
 from pathlib import Path
 from typing import Optional, Dict, Any
 
@@ -32,6 +33,8 @@ _LOG_CONFIG = {
     "format": "%(asctime)s - %(name)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s",
     "date_format": "%Y-%m-%d %H:%M:%S",
 }
+
+_STARTUP_TIME: str = datetime.now().strftime("%Y%m%d_%H%M%S")
 
 # 已创建的logger缓存
 _loggers: Dict[str, logging.Logger] = {}
@@ -123,8 +126,9 @@ def _configure_logger(logger: logging.Logger, name: str) -> None:
     
     # 2. 文件输出（仅在 AstrBot 不可用时输出到控制台）
     if _LOG_CONFIG["log_dir"]:
-        # 统一日志文件
-        unified_log = _LOG_CONFIG["log_dir"] / "iris_memory.log"
+        # 带时间码的日志文件，避免重启覆盖
+        log_filename = f"iris_memory_{_STARTUP_TIME}.log"
+        unified_log = _LOG_CONFIG["log_dir"] / log_filename
         file_handler = logging.handlers.RotatingFileHandler(
             unified_log,
             maxBytes=_LOG_CONFIG["max_bytes"],

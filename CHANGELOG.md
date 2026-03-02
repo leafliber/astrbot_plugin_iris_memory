@@ -3,6 +3,24 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.10.0] - 2026-03-02
+
+### Verified
+- **ProactiveManager API 兼容性验证** (`iris_memory/capture/batch_processor.py`, `iris_memory/proactive/manager.py`)
+  - 验证 `process_message` 参数格式正确匹配
+  - messages 字段 (text, sender_id, sender_name, timestamp) 完整传递
+  - 无需额外参数验证逻辑
+
+- **ProactiveManager 初始化参数传递验证** (`iris_memory/services/initializer.py`, `iris_memory/services/modules/proactive_module.py`)
+  - 验证 `plugin_data_path` 参数正确传递
+  - 调用链完整：initializer → ProactiveModule → ProactiveManager
+  - 已有 `if not plugin_data_path` 防护检查
+
+- **测试用例接口一致性验证** (`tests/capture/test_batch_processor.py`)
+  - 验证测试代码已使用 `process_message` 新接口
+  - 无遗留 `handle_batch` 引用
+  - `TestProactiveReplyIntegration` 正确验证新 API 调用
+
 ## [v1.9.3] - 2026-03-02
 
 ### Added
