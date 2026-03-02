@@ -585,14 +585,14 @@ class TestHandleBatchWithSmartBoost:
     """验证 handle_batch 中智能增强的完整流程"""
 
     @pytest.mark.asyncio
-    async def test_handle_batch_does_not_record_message_time(
+    async def test_handle_batch_records_user_message_time(
         self, smart_boost_config, mock_context_with_queue,
         decision_no_reply_with_score, mock_config_manager_llm,
     ):
-        """handle_batch 不应记录用户发言时间
+        """handle_batch 应记录用户发言时间
         
-        智能增强窗口只在 Bot 发送主动回复后开始，
-        避免持续聊天导致窗口无限延长。
+        智能增强窗口基于用户发言时间,而非 Bot 回复时间,
+        避免 Bot 自身回复不断刷新窗口导致"滚雪球"式连续回复。
         """
         manager = _make_manager(
             smart_boost_config,
@@ -605,7 +605,7 @@ class TestHandleBatchWithSmartBoost:
             await manager.handle_batch(
                 messages=["你好"], user_id="u1"
             )
-            assert "u1:private" not in manager._last_user_message_time
+            assert "u1:private" in manager._last_user_message_time
         finally:
             await manager.stop()
 

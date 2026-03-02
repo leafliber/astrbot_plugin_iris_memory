@@ -10,6 +10,7 @@
 """
 import asyncio
 import time
+from datetime import date
 from typing import Dict, Any, Optional, List, Union, TYPE_CHECKING
 from dataclasses import dataclass
 from typing import Protocol
@@ -105,6 +106,12 @@ class ProactiveReplyManager:
         self.is_running = False
         
         self._last_user_message_time: BoundedDict[str, float] = BoundedDict(max_size=2000)
+        
+        # 每日计数重置日期跟踪（惰性重置：在检查时判断是否跨日）
+        self._last_reset_date: date = date.today()
+        
+        # 已排队等待处理的会话（防止同一会话重复入队）
+        self._queued_sessions: set = set()
         
         self._processing_sessions: set = set()
         
@@ -288,8 +295,10 @@ class ProactiveReplyManager:
         
         session_key = SessionKeyBuilder.build(user_id, group_id)
         
-        # 注意：不在每次用户发言时记录时间
-        # 智能增强窗口只在 Bot 发送主动回复后开始，避免持续聊天导致窗口无限延长
+        # 记录用户发言时间（供智能增强窗口使用）
+        # 智能增强在用户活跃期间提升回复概率，窗口基于用户发言时间而非 Bot 回复时间，
+        # 避免 Bot 自身回复不断刷新窗口导致"滚雪球"式连续回复
+        self._record_user_message(user_id, group_id)
         
         # 检查每日限制（硬限制，不受紧急度影响）
         if self._is_daily_limit_reached(user_id, group_id):
@@ -328,6 +337,14 @@ class ProactiveReplyManager:
                     )
                     return
                 
+                # 防止同一会话重复入队
+                if session_key in self._queued_sessions:
+                    logger.debug(
+                        f"Task already queued for {session_key}, skipping"
+                    )
+                    self.stats["replies_skipped"] += 1
+                    return
+                
                 task = ProactiveReplyTask(
                     messages=messages,
                     user_id=user_id,
@@ -339,8 +356,7 @@ class ProactiveReplyManager:
                 )
                 
                 await self.pending_tasks.put(task)
-                
-                self.last_reply_time[session_key] = asyncio.get_running_loop().time()
+                self._queued_sessions.add(session_key)
                 
                 logger.debug(f"Proactive reply queued for {session_key}, "
                            f"urgency: {decision.urgency.value}")
@@ -577,8 +593,6 @@ class ProactiveReplyManager:
             self.daily_reply_count[count_key] = \
                 self.daily_reply_count.get(count_key, 0) + 1
             
-            self._record_user_message(task.user_id, task.group_id)
-            
             logger.debug(
                 f"Proactive reply event dispatched for {task.user_id}, "
                 f"urgency: {task.decision.urgency.value}, "
@@ -590,6 +604,7 @@ class ProactiveReplyManager:
             self.stats["replies_failed"] += 1
         finally:
             self._processing_sessions.discard(session_key)
+            self._queued_sessions.discard(session_key)
     
     def _build_trigger_prompt(self, task: ProactiveReplyTask) -> str:
         """构建触发提示词
@@ -663,8 +678,20 @@ class ProactiveReplyManager:
         
         return elapsed < effective_cooldown
     
+    def _check_daily_reset(self) -> None:
+        """惰性检查是否跨日，跨日则重置每日计数
+        
+        在每次检查每日限制前调用，避免需要后台定时任务。
+        """
+        today = date.today()
+        if self._last_reset_date != today:
+            self.daily_reply_count.clear()
+            self._last_reset_date = today
+            logger.debug("Daily proactive reply counts reset (new day)")
+    
     def _is_daily_limit_reached(self, user_id: str, group_id: Optional[str] = None) -> bool:
         """检查是否达到每日限制"""
+        self._check_daily_reset()
         count_key = SessionKeyBuilder.build(user_id, group_id)
         count = self.daily_reply_count.get(count_key, 0)
         return count >= self._get_max_daily_replies(group_id)

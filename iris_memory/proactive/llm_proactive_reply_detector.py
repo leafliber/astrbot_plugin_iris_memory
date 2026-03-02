@@ -192,57 +192,22 @@ class LLMProactiveReplyDetector(LLMEnhancedDetector[LLMReplyDecision]):
         group_id: Optional[str] = None,
         context: Optional[Dict[str, Any]] = None
     ) -> ProactiveReplyDecision:
-        """同步规则检测"""
+        """同步规则检测（通过 _rule_detector 的统一逻辑实现）
+        
+        委托给 ProactiveReplyDetector._make_decision 以避免重复评分逻辑。
+        因为同步路径无法执行异步情感分析，使用中性默认情感值。
+        """
         last_message = messages[-1] if messages else ""
+        combined_text = "\n".join(messages)
         signals = self._rule_detector._detect_reply_signals(
-            last_message, "\n".join(messages)
+            last_message, combined_text
         )
-        
-        if signals.get("ignore", 0) > 0.5:
-            return ProactiveReplyDecision(
-                should_reply=False,
-                urgency=ReplyUrgency.IGNORE,
-                reason="message_should_be_ignored",
-                suggested_delay=0,
-                reply_context={"signals": signals}
-            )
-        
-        reply_score = 0.0
-        reasons = []
-        
-        if signals["question"] > 0.5:
-            reply_score += 0.4 * signals["question"]
-            reasons.append("question")
-        if signals["emotional_support"] > 0.3:
-            reply_score += 0.3 * signals["emotional_support"]
-            reasons.append("emotion")
-        if signals["seeking_attention"] > 0.5:
-            reply_score += 0.3 * signals["seeking_attention"]
-            reasons.append("attention")
-        if signals["mention_bot"] > 0.3:
-            reply_score += 0.5 * signals["mention_bot"]
-            reasons.append("mention")
-        
-        if reply_score >= 0.5:
-            return ProactiveReplyDecision(
-                should_reply=True,
-                urgency=(
-                    ReplyUrgency.HIGH if reply_score >= 0.7
-                    else ReplyUrgency.MEDIUM
-                ),
-                reason=" + ".join(reasons),
-                suggested_delay=5 if reply_score >= 0.7 else 30,
-                reply_context={
-                    "signals": signals, "reply_score": reply_score
-                }
-            )
-        
-        return ProactiveReplyDecision(
-            should_reply=False,
-            urgency=ReplyUrgency.IGNORE,
-            reason="low_score",
-            suggested_delay=0,
-            reply_context={"signals": signals, "reply_score": reply_score}
+        return self._rule_detector._make_decision(
+            signals=signals,
+            emotion={"primary": "neutral", "intensity": 0.0},
+            message_count=len(messages),
+            time_span=context.get("time_span", 0) if context else 0,
+            user_persona=context.get("user_persona", {}) if context else {},
         )
     
     def _build_prompt(
