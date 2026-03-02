@@ -31,6 +31,11 @@ class ProactiveModule:
     def new_manager(self) -> Optional[ProactiveManager]:
         return self._manager
 
+    @property
+    def proactive_manager(self) -> Optional[ProactiveManager]:
+        """兼容别名，等同于 manager"""
+        return self._manager
+
     async def initialize(
         self,
         cfg: Any,
