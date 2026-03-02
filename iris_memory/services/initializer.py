@@ -344,18 +344,15 @@ class ServiceInitializer:
 
     async def _init_proactive_reply(self) -> None:
         """初始化主动回复组件"""
+        chroma_mgr = self._deps.storage.chroma_manager
+        embedding_mgr = chroma_mgr.embedding_manager if chroma_mgr else None
         await self._deps.proactive.initialize(
             cfg=self._deps.cfg,
-            context=self._deps.context,
-            emotion_analyzer=self._deps.analysis.emotion_analyzer,
-            llm_proactive_reply_detector=self._deps.llm_enhanced.proactive_reply_detector,
+            plugin_data_path=self._deps.plugin_data_path,
+            chroma_manager=chroma_mgr,
+            embedding_manager=embedding_mgr,
+            shared_state=self._deps.shared_state,
         )
-
-        # 注入群冷却检查回调
-        if self._deps.proactive.proactive_manager:
-            self._deps.proactive.proactive_manager._cooldown_checker = (
-                self._deps.cooldown.is_active
-            )
 
     async def _init_image_analyzer(self) -> None:
         """初始化图片分析器"""

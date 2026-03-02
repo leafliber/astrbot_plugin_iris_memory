@@ -20,7 +20,6 @@ from iris_memory.capture.batch_processor import (
 )
 from iris_memory.capture.capture_engine import MemoryCaptureEngine
 from iris_memory.processing.llm_processor import LLMMessageProcessor, LLMSummaryResult
-from iris_memory.proactive.proactive_manager import ProactiveReplyManager
 
 
 # =============================================================================
@@ -55,8 +54,8 @@ def mock_llm_processor():
 @pytest.fixture
 def mock_proactive_manager():
     """模拟主动回复管理器"""
-    manager = Mock(spec=ProactiveReplyManager)
-    manager.handle_batch = AsyncMock()
+    manager = MagicMock()
+    manager.process_message = AsyncMock()
     return manager
 
 
@@ -416,7 +415,7 @@ class TestProactiveReplyIntegration:
         await full_processor.stop()
         
         # 验证主动回复管理器被调用
-        full_processor.proactive_manager.handle_batch.assert_called()
+        full_processor.proactive_manager.process_message.assert_called()
     
     @pytest.mark.asyncio
     async def test_proactive_reply_context(self, full_processor):
@@ -428,7 +427,7 @@ class TestProactiveReplyIntegration:
         await full_processor.stop()
         
         # 验证主动回复处理器被调用
-        full_processor.proactive_manager.handle_batch.assert_called()
+        full_processor.proactive_manager.process_message.assert_called()
 
 
 # =============================================================================

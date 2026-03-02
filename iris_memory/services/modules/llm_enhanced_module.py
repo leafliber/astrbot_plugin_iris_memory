@@ -19,7 +19,6 @@ logger = get_logger("module.llm_enhanced")
 SENSITIVITY = "sensitivity"
 TRIGGER = "trigger"
 EMOTION = "emotion"
-PROACTIVE = "proactive"
 CONFLICT = "conflict"
 RETRIEVAL = "retrieval"
 
@@ -67,10 +66,6 @@ class LLMEnhancedModule:
         return self._detectors.get(EMOTION)
 
     @property
-    def proactive_reply_detector(self) -> Optional[Any]:
-        return self._detectors.get(PROACTIVE)
-
-    @property
     def conflict_resolver(self) -> Optional[Any]:
         return self._detectors.get(CONFLICT)
 
@@ -96,7 +91,6 @@ class LLMEnhancedModule:
         from iris_memory.capture.detector.llm_sensitivity_detector import LLMSensitivityDetector
         from iris_memory.capture.detector.llm_trigger_detector import LLMTriggerDetector
         from iris_memory.analysis.emotion.llm_emotion_analyzer import LLMEmotionAnalyzer
-        from iris_memory.proactive.llm_proactive_reply_detector import LLMProactiveReplyDetector
         from iris_memory.capture.conflict.llm_conflict_resolver import LLMConflictResolver
         from iris_memory.retrieval.llm_retrieval_router import LLMRetrievalRouter
 
@@ -109,7 +103,6 @@ class LLMEnhancedModule:
             (SENSITIVITY, "sensitivity_mode", LLMSensitivityDetector),
             (TRIGGER, "trigger_mode", LLMTriggerDetector),
             (EMOTION, "emotion_mode", LLMEmotionAnalyzer),
-            (PROACTIVE, "proactive_mode", LLMProactiveReplyDetector),
             (CONFLICT, "conflict_mode", LLMConflictResolver),
             (RETRIEVAL, "retrieval_mode", LLMRetrievalRouter),
         ]

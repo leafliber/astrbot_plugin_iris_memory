@@ -207,30 +207,88 @@ class MessageProcessingDefaults:
 @dataclass
 class ProactiveReplyDefaults:
     """主动回复默认配置
-    
-    注意：触发关键词和检测规则直接在 ProactiveReplyDetector 中定义
+
+    v2 重构：三级漏斗检测 + 场景向量匹配 + 反馈学习。
+    用户可见的配置通过 AstrBot 管理界面修改，高级参数在此设置默认值。
     """
+    # ===== 用户可见配置 =====
     cooldown_seconds: int = 60
     max_daily_replies: int = 20
     max_reply_tokens: int = 150
     reply_temperature: float = 0.7
-    
+
     # 群聊白名单（空列表表示允许所有群聊）
     group_whitelist: list = field(default_factory=list)
-    
+
     # 群聊白名单模式（开启后需管理员用指令控制各群聊的主动回复开关）
     group_whitelist_mode: bool = False
-    
-    # 检测阈值（高级）
+
+    # 个性设定: reserved / balanced / proactive
+    personality: str = "balanced"
+
+    # 群聊黑名单
+    group_blacklist: list = field(default_factory=list)
+
+    # 静音时段 [start, end]，支持跨午夜，如 [23, 7] 表示 23:00-07:00
+    quiet_hours: list = field(default_factory=lambda: [23, 7])
+
+    # 每用户每日最大主动回复
+    max_daily_per_user: int = 5
+
+    # Web 界面开关
+    web_dashboard: bool = False
+
+    # 检测阈值（高级，保留旧配置向后兼容）
     high_emotion_threshold: float = 0.7
     question_threshold: float = 0.8
     mention_threshold: float = 0.9
-    
-    # 智能增强配置
+
+    # 旧版智能增强配置（保留向后兼容）
     smart_boost_enabled: bool = False
-    smart_boost_window_seconds: int = 60  # 1分钟窗口（不超过冷却时间）
-    smart_boost_score_multiplier: float = 1.2  # 分数乘数（降低升级幅度）
-    smart_boost_reply_threshold: float = 0.5  # 增强后触发回复的最低分数（与HIGH阈值一致，过滤低质量触发）
+    smart_boost_window_seconds: int = 60
+    smart_boost_score_multiplier: float = 1.2
+    smart_boost_reply_threshold: float = 0.5
+
+    # ===== 新系统高级配置 =====
+
+    # -- 上下文引擎 --
+    context_max_history: int = 10               # 最近消息条数
+    context_silence_threshold: int = 300         # 沉默阈值（秒）
+    context_max_text_tokens: int = 150           # 向量化文本最大 token 数
+
+    # -- L1: 规则检测器（私聊阈值更低，更容易触发）--
+    detector_rule_direct_reply_private: float = 0.6
+    detector_rule_direct_reply_group: float = 0.7
+    detector_rule_fast_reject_private: float = 0.15
+    detector_rule_fast_reject_group: float = 0.2
+
+    # -- L2: 向量检测器 --
+    detector_vector_collection: str = "proactive_scenes"
+    detector_vector_top_k: int = 5
+    detector_vector_threshold_high: float = 0.85
+    detector_vector_threshold_mid: float = 0.6
+
+    # -- L3: LLM 检测器（按 session 限流）--
+    detector_llm_max_per_hour_per_session: int = 5
+    detector_llm_prompt_tokens: int = 500
+
+    # -- 多轮跟进 --
+    followup_max_count: int = 2
+    followup_time_window: int = 120              # 秒
+    followup_similarity_threshold: float = 0.6
+
+    # -- 反馈追踪 --
+    feedback_tracking_window: int = 300          # 反馈追踪窗口（秒）
+    feedback_update_batch_size: int = 10
+    feedback_data_retention_days: int = 30
+
+    # -- 场景库 --
+    scene_embedding_model: str = "local"
+    scene_initial_batch_size: int = 100
+
+    # -- 冷启动 --
+    cold_start_exploration_threshold: int = 50
+    cold_start_calibration_threshold: int = 200
 
 
 @dataclass

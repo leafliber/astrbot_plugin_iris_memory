@@ -55,6 +55,27 @@ CONFIG_PROPERTIES: dict[str, _ConfigProp] = {
     "proactive_reply_group_whitelist_mode": _ConfigProp(
         "proactive_reply.group_whitelist_mode", False
     ),
+    "proactive_reply_personality": _ConfigProp(
+        "proactive_reply.personality",
+        DEFAULTS.proactive_reply.personality,
+    ),
+    "proactive_reply_quiet_hours": _ConfigProp(
+        "proactive_reply.quiet_hours",
+        DEFAULTS.proactive_reply.quiet_hours,
+    ),
+    "proactive_reply_max_daily_per_user": _ConfigProp(
+        "proactive_reply.max_daily_per_user",
+        DEFAULTS.proactive_reply.max_daily_per_user,
+    ),
+    "proactive_reply_web_dashboard": _ConfigProp(
+        "proactive_reply.web_dashboard",
+        DEFAULTS.proactive_reply.web_dashboard,
+    ),
+    # 旧版智能增强（保留向后兼容）
+    "smart_boost_enabled": _ConfigProp(
+        "proactive_reply.smart_boost",
+        DEFAULTS.proactive_reply.smart_boost_enabled,
+    ),
     "smart_boost_window_seconds": _ConfigProp(
         "proactive_reply.smart_boost_window_seconds",
         DEFAULTS.proactive_reply.smart_boost_window_seconds,

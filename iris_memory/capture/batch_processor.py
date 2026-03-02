@@ -31,7 +31,7 @@ from iris_memory.core.defaults import DEFAULTS
 from iris_memory.core.constants import BatchSessionConfig
 
 if TYPE_CHECKING:
-    from iris_memory.proactive.proactive_manager import ProactiveReplyManager
+    from iris_memory.proactive.manager import ProactiveManager
     from iris_memory.core.config_manager import ConfigManager
 
 logger = get_logger("batch_processor")
@@ -57,7 +57,7 @@ class MessageBatchProcessor:
         self,
         capture_engine: MemoryCaptureEngine,
         llm_processor: Optional[LLMMessageProcessor] = None,
-        proactive_manager: Optional['ProactiveReplyManager'] = None,
+        proactive_manager: Optional['ProactiveManager'] = None,
         threshold_count: int = DEFAULT_THRESHOLD_COUNT,
         threshold_interval: int = 300,
         processing_mode: str = BatchProcessingMode.HYBRID,
@@ -69,7 +69,7 @@ class MessageBatchProcessor:
     ) -> None:
         self.capture_engine: MemoryCaptureEngine = capture_engine
         self.llm_processor: Optional[LLMMessageProcessor] = llm_processor
-        self.proactive_manager: Optional['ProactiveReplyManager'] = proactive_manager
+        self.proactive_manager: Optional['ProactiveManager'] = proactive_manager
         self.threshold_count: int = threshold_count
         self.threshold_interval: int = threshold_interval
         self.processing_mode: str = processing_mode
@@ -626,16 +626,32 @@ class MessageBatchProcessor:
         """触发主动回复检查"""
         if not self.proactive_manager or not queue:
             return
-        
+
         try:
             last_msg = queue[-1]
-            await self.proactive_manager.handle_batch(
-                messages=[m.content for m in queue],
+            session_key = SessionKeyBuilder.build(last_msg.user_id, last_msg.group_id)
+            session_type = "group" if last_msg.group_id else "private"
+            messages = [
+                {
+                    "text": m.content,
+                    "sender_id": m.user_id,
+                    "sender_name": m.sender_name or "",
+                    "timestamp": m.timestamp,
+                }
+                for m in queue
+            ]
+            extra = {
+                "umo": last_msg.umo,
+                "persona_id": last_msg.persona_id,
+                **last_msg.context,
+            }
+            await self.proactive_manager.process_message(
+                messages=messages,
                 user_id=last_msg.user_id,
+                session_key=session_key,
+                session_type=session_type,
                 group_id=last_msg.group_id,
-                context=last_msg.context,
-                umo=last_msg.umo,
-                persona_id=last_msg.persona_id,
+                extra=extra,
             )
         except Exception as e:
             logger.warning(f"Proactive reply check failed: {e}")

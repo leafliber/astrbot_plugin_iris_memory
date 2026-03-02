@@ -112,81 +112,6 @@ class TestEndToEndPipeline:
 
 
 # =============================================================================
-# 主动回复集成测试
-# =============================================================================
-
-@pytest.mark.asyncio
-class TestProactiveReplyIntegration:
-    """主动回复集成测试"""
-    
-    async def test_proactive_reply_full_flow(self):
-        """测试主动回复完整流程"""
-        from iris_memory.proactive.proactive_reply_detector import ProactiveReplyDetector
-        from iris_memory.proactive.proactive_manager import ProactiveReplyManager
-        
-        # 模拟情感分析器
-        emotion_analyzer = Mock()
-        emotion_analyzer.analyze_emotion = AsyncMock(return_value={
-            "primary": "sad",
-            "intensity": 0.8,
-            "confidence": 0.9
-        })
-        
-        # 创建检测器
-        detector = ProactiveReplyDetector(
-            emotion_analyzer=emotion_analyzer
-        )
-        
-        # 测试需要回复的消息（多个信号叠加确保超过阈值）
-        # "难过"→情感, "压力"→情感(两个模式), "你觉得"→mention_bot, "怎么办呢？"→问题
-        result = await detector.analyze(
-            messages=["我好难过，压力好大，你觉得我该怎么办呢？"],
-            user_id="test_user"
-        )
-        
-        assert result.should_reply is True
-    
-    async def test_proactive_reply_with_cooldown(self):
-        """测试主动回复冷却机制"""
-        from iris_memory.proactive.proactive_manager import ProactiveReplyManager
-        
-        # 模拟组件
-        detector = Mock()
-        detector.analyze = AsyncMock(return_value=Mock(
-            should_reply=True,
-            urgency=Mock(value="high"),
-            reason="test",
-            suggested_delay=0,
-            reply_context={}
-        ))
-        
-        manager = ProactiveReplyManager(
-            reply_detector=detector,
-            event_queue=asyncio.Queue(),
-            astrbot_context=Mock(),
-            config={
-                "enable_proactive_reply": True,
-                "reply_cooldown": 60
-            }
-        )
-        await manager.initialize()
-        manager._startup_time = 0  # 跳过启动冷却
-        
-        try:
-            # 第一次处理
-            await manager.handle_batch(["消息1"], user_id="user1")
-            
-            # 立即第二次处理（在冷却期内）
-            await manager.handle_batch(["消息2"], user_id="user1")
-            
-            # 应该只有一个任务（冷却防重）
-            assert manager.pending_tasks.qsize() == 1
-            
-        finally:
-            await manager.stop()
-
-
-# =============================================================================
 # LLM集成测试
 # =============================================================================
 
@@ -284,44 +209,6 @@ class TestErrorRecovery:
             
         finally:
             await batch_processor.stop()
-    
-    async def test_proactive_manager_error_recovery(self):
-        """测试主动回复管理器错误恢复"""
-        from iris_memory.proactive.proactive_manager import ProactiveReplyManager
-        
-        # 模拟检测器
-        detector = Mock()
-        detector.analyze = AsyncMock(return_value=Mock(
-            should_reply=True,
-            urgency=Mock(value="high"),
-            reason="test",
-            suggested_delay=0,
-            reply_context={}
-        ))
-        
-        # 使用一个会在put_nowait时失败的事件队列来触发错误
-        mock_queue = asyncio.Queue()
-        mock_context = Mock()
-        
-        manager = ProactiveReplyManager(
-            reply_detector=detector,
-            event_queue=mock_queue,
-            astrbot_context=mock_context,
-            config={"enable_proactive_reply": True}
-        )
-        await manager.initialize()
-        
-        try:
-            # 发送消息，让任务入队
-            await manager.handle_batch(["消息"], "user1")
-            # 等待处理循环处理任务（会因 ProactiveMessageEvent 构造失败而记录错误）
-            await asyncio.sleep(0.5)
-            
-            # 验证管理器仍在运行（错误恢复）
-            assert manager.is_running is True
-            
-        finally:
-            await manager.stop()
 
 
 # =============================================================================

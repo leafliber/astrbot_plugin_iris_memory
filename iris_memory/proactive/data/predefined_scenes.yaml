@@ -1,0 +1,808 @@
+# 预定义场景库 (100个场景)
+# 分类: 技术问题(20), 情感支持(20), 日常闲聊(20), 寻求关注(15), 话题延续(15), 特殊时段(10)
+
+# ===== 技术问题类 (20) =====
+scene_001:
+  description: "用户询问代码报错，贴出错误信息，寻求帮助"
+  keywords: ["报错", "错误", "Exception", "怎么解决", "为什么"]
+  type: "question"
+  target_emotion: "neutral"
+  time_pattern: "any"
+  initial_success_rate: 0.6
+
+scene_002:
+  description: "用户询问工具使用方法，步骤不清"
+  keywords: ["怎么用", "如何", "步骤", "教程", "文档"]
+  type: "question"
+  target_emotion: "neutral"
+  time_pattern: "any"
+  initial_success_rate: 0.6
+
+scene_003:
+  description: "用户遇到安装配置问题，需要排查"
+  keywords: ["安装", "配置", "环境", "依赖", "版本"]
+  type: "question"
+  target_emotion: "neutral"
+  time_pattern: "any"
+  initial_success_rate: 0.6
+
+scene_004:
+  description: "用户询问编程语法或API用法"
+  keywords: ["语法", "函数", "API", "参数", "用法"]
+  type: "question"
+  target_emotion: "neutral"
+  time_pattern: "any"
+  initial_success_rate: 0.6
+
+scene_005:
+  description: "用户询问数据库或SQL相关问题"
+  keywords: ["数据库", "SQL", "查询", "表", "索引"]
+  type: "question"
+  target_emotion: "neutral"
+  time_pattern: "any"
+  initial_success_rate: 0.6
+
+scene_006:
+  description: "用户询问网络或服务器相关问题"
+  keywords: ["网络", "服务器", "连接", "超时", "端口"]
+  type: "question"
+  target_emotion: "neutral"
+  time_pattern: "any"
+  initial_success_rate: 0.6
+
+scene_007:
+  description: "用户讨论算法或数据结构选择"
+  keywords: ["算法", "时间复杂度", "排序", "查找", "优化"]
+  type: "question"
+  target_emotion: "neutral"
+  time_pattern: "any"
+  initial_success_rate: 0.6
+
+scene_008:
+  description: "用户询问框架选型或技术方案对比"
+  keywords: ["框架", "哪个好", "对比", "选择", "推荐"]
+  type: "question"
+  target_emotion: "neutral"
+  time_pattern: "any"
+  initial_success_rate: 0.6
+
+scene_009:
+  description: "用户遇到部署问题，寻求帮助"
+  keywords: ["部署", "上线", "Docker", "CI/CD", "运维"]
+  type: "question"
+  target_emotion: "neutral"
+  time_pattern: "any"
+  initial_success_rate: 0.6
+
+scene_010:
+  description: "用户讨论代码设计模式或架构"
+  keywords: ["设计模式", "架构", "重构", "解耦", "模块"]
+  type: "question"
+  target_emotion: "neutral"
+  time_pattern: "any"
+  initial_success_rate: 0.6
+
+scene_011:
+  description: "用户询问性能优化方案"
+  keywords: ["性能", "慢", "优化", "内存", "CPU"]
+  type: "question"
+  target_emotion: "neutral"
+  time_pattern: "any"
+  initial_success_rate: 0.6
+
+scene_012:
+  description: "用户遇到权限或安全问题"
+  keywords: ["权限", "安全", "认证", "授权", "漏洞"]
+  type: "question"
+  target_emotion: "neutral"
+  time_pattern: "any"
+  initial_success_rate: 0.6
+
+scene_013:
+  description: "用户在学习编程知识求解答"
+  keywords: ["学习", "入门", "基础", "概念", "理解"]
+  type: "question"
+  target_emotion: "neutral"
+  time_pattern: "any"
+  initial_success_rate: 0.6
+
+scene_014:
+  description: "用户求助调试技巧和方法"
+  keywords: ["调试", "debug", "日志", "断点", "排查"]
+  type: "question"
+  target_emotion: "neutral"
+  time_pattern: "any"
+  initial_success_rate: 0.6
+
+scene_015:
+  description: "用户询问版本管理和Git操作"
+  keywords: ["Git", "分支", "合并", "冲突", "回滚"]
+  type: "question"
+  target_emotion: "neutral"
+  time_pattern: "any"
+  initial_success_rate: 0.6
+
+scene_016:
+  description: "用户询问数学或统计相关问题"
+  keywords: ["数学", "公式", "计算", "统计", "概率"]
+  type: "question"
+  target_emotion: "neutral"
+  time_pattern: "any"
+  initial_success_rate: 0.6
+
+scene_017:
+  description: "用户询问AI或机器学习相关问题"
+  keywords: ["AI", "机器学习", "模型", "训练", "深度学习"]
+  type: "question"
+  target_emotion: "neutral"
+  time_pattern: "any"
+  initial_success_rate: 0.6
+
+scene_018:
+  description: "用户讨论前端开发问题"
+  keywords: ["前端", "CSS", "HTML", "React", "Vue"]
+  type: "question"
+  target_emotion: "neutral"
+  time_pattern: "any"
+  initial_success_rate: 0.6
+
+scene_019:
+  description: "用户遇到文件或数据处理问题"
+  keywords: ["文件", "读取", "解析", "JSON", "CSV"]
+  type: "question"
+  target_emotion: "neutral"
+  time_pattern: "any"
+  initial_success_rate: 0.6
+
+scene_020:
+  description: "用户询问跨平台兼容性问题"
+  keywords: ["兼容", "平台", "Windows", "Linux", "Mac"]
+  type: "question"
+  target_emotion: "neutral"
+  time_pattern: "any"
+  initial_success_rate: 0.6
+
+# ===== 情感支持类 (20) =====
+scene_021:
+  description: "用户表达工作压力大，感到疲惫焦虑"
+  keywords: ["压力", "累", "焦虑", "睡不着", "烦"]
+  type: "emotion"
+  target_emotion: "negative"
+  time_pattern: "evening"
+  initial_success_rate: 0.5
+
+scene_022:
+  description: "用户分享开心事，表达兴奋喜悦"
+  keywords: ["开心", "高兴", "成功了", "太好了", "庆祝"]
+  type: "emotion"
+  target_emotion: "positive"
+  time_pattern: "any"
+  initial_success_rate: 0.5
+
+scene_023:
+  description: "用户表达对某件事的失望沮丧"
+  keywords: ["失望", "沮丧", "不公平", "为什么这样", "想放弃"]
+  type: "emotion"
+  target_emotion: "negative"
+  time_pattern: "any"
+  initial_success_rate: 0.5
+
+scene_024:
+  description: "用户分享个人成就和进步"
+  keywords: ["做到了", "通过了", "升职", "加薪", "拿到了"]
+  type: "emotion"
+  target_emotion: "positive"
+  time_pattern: "any"
+  initial_success_rate: 0.5
+
+scene_025:
+  description: "用户表达对某人或某事的不满"
+  keywords: ["生气", "不爽", "受不了", "讨厌", "气死"]
+  type: "emotion"
+  target_emotion: "negative"
+  time_pattern: "any"
+  initial_success_rate: 0.5
+
+scene_026:
+  description: "用户感到孤独或想找人聊天"
+  keywords: ["孤独", "寂寞", "想聊天", "没人陪", "好闷"]
+  type: "emotion"
+  target_emotion: "negative"
+  time_pattern: "evening"
+  initial_success_rate: 0.5
+
+scene_027:
+  description: "用户表达对未来的迷茫担忧"
+  keywords: ["迷茫", "不知道", "前途", "方向", "出路"]
+  type: "emotion"
+  target_emotion: "negative"
+  time_pattern: "any"
+  initial_success_rate: 0.5
+
+scene_028:
+  description: "用户分享感动的瞬间"
+  keywords: ["感动", "泪目", "温暖", "感恩", "谢谢"]
+  type: "emotion"
+  target_emotion: "positive"
+  time_pattern: "any"
+  initial_success_rate: 0.5
+
+scene_029:
+  description: "用户表达学习或工作遇到瓶颈的挫败感"
+  keywords: ["瓶颈", "不会", "太难了", "学不会", "怎么办"]
+  type: "emotion"
+  target_emotion: "negative"
+  time_pattern: "any"
+  initial_success_rate: 0.5
+
+scene_030:
+  description: "用户表达对友情或亲情的感触"
+  keywords: ["朋友", "家人", "想念", "好久不见", "珍惜"]
+  type: "emotion"
+  target_emotion: "positive"
+  time_pattern: "any"
+  initial_success_rate: 0.5
+
+scene_031:
+  description: "用户分享健康方面的担忧"
+  keywords: ["身体", "不舒服", "生病", "检查", "休息"]
+  type: "emotion"
+  target_emotion: "negative"
+  time_pattern: "any"
+  initial_success_rate: 0.5
+
+scene_032:
+  description: "用户表达对某个爱好的热情"
+  keywords: ["喜欢", "热爱", "迷上了", "太帅了", "入坑"]
+  type: "emotion"
+  target_emotion: "positive"
+  time_pattern: "any"
+  initial_success_rate: 0.5
+
+scene_033:
+  description: "用户吐槽生活中的不如意"
+  keywords: ["吐槽", "无语", "倒霉", "服了", "太难了"]
+  type: "emotion"
+  target_emotion: "negative"
+  time_pattern: "any"
+  initial_success_rate: 0.5
+
+scene_034:
+  description: "用户表达对宠物的喜爱"
+  keywords: ["猫", "狗", "毛孩子", "可爱", "萌"]
+  type: "emotion"
+  target_emotion: "positive"
+  time_pattern: "any"
+  initial_success_rate: 0.5
+
+scene_035:
+  description: "用户因考试面试而紧张"
+  keywords: ["考试", "面试", "紧张", "准备", "希望"]
+  type: "emotion"
+  target_emotion: "negative"
+  time_pattern: "any"
+  initial_success_rate: 0.5
+
+scene_036:
+  description: "用户表达对新事物的期待"
+  keywords: ["期待", "盼望", "终于", "马上", "好想"]
+  type: "emotion"
+  target_emotion: "positive"
+  time_pattern: "any"
+  initial_success_rate: 0.5
+
+scene_037:
+  description: "用户表达社交压力或不安"
+  keywords: ["社恐", "尴尬", "不好意思", "不敢", "害怕"]
+  type: "emotion"
+  target_emotion: "negative"
+  time_pattern: "any"
+  initial_success_rate: 0.5
+
+scene_038:
+  description: "用户表达对项目完成的满足感"
+  keywords: ["完成", "搞定", "终于做完", "上线了", "发布"]
+  type: "emotion"
+  target_emotion: "positive"
+  time_pattern: "any"
+  initial_success_rate: 0.5
+
+scene_039:
+  description: "用户表达对天气环境的感受"
+  keywords: ["天气", "下雨", "冷", "热", "好天气"]
+  type: "emotion"
+  target_emotion: "neutral"
+  time_pattern: "any"
+  initial_success_rate: 0.5
+
+scene_040:
+  description: "用户感受节日或特殊日子的心情"
+  keywords: ["节日", "生日", "纪念日", "新年", "过节"]
+  type: "emotion"
+  target_emotion: "positive"
+  time_pattern: "any"
+  initial_success_rate: 0.5
+
+# ===== 日常闲聊类 (20) =====
+scene_041:
+  description: "用户分享日常生活，如美食、旅行、电影"
+  keywords: ["吃了", "去了", "看了", "推荐", "怎么样"]
+  type: "chat"
+  target_emotion: "any"
+  time_pattern: "any"
+  initial_success_rate: 0.4
+
+scene_042:
+  description: "群聊中讨论热点话题，用户发表观点"
+  keywords: ["我觉得", "你们看", "听说了吗", "怎么看"]
+  type: "chat"
+  target_emotion: "any"
+  time_pattern: "any"
+  initial_success_rate: 0.4
+
+scene_043:
+  description: "用户讨论最近看的电影或剧集"
+  keywords: ["电影", "电视剧", "追剧", "好看", "剧透"]
+  type: "chat"
+  target_emotion: "any"
+  time_pattern: "evening"
+  initial_success_rate: 0.4
+
+scene_044:
+  description: "用户分享或讨论美食"
+  keywords: ["好吃", "美食", "餐厅", "做饭", "买了"]
+  type: "chat"
+  target_emotion: "any"
+  time_pattern: "any"
+  initial_success_rate: 0.4
+
+scene_045:
+  description: "用户讨论游戏相关话题"
+  keywords: ["游戏", "玩", "打了一把", "段位", "角色"]
+  type: "chat"
+  target_emotion: "any"
+  time_pattern: "evening"
+  initial_success_rate: 0.4
+
+scene_046:
+  description: "用户分享旅行经历或计划"
+  keywords: ["旅行", "出去玩", "景点", "机票", "攻略"]
+  type: "chat"
+  target_emotion: "any"
+  time_pattern: "any"
+  initial_success_rate: 0.4
+
+scene_047:
+  description: "用户讨论音乐或歌曲"
+  keywords: ["歌", "音乐", "听了", "好听", "歌手"]
+  type: "chat"
+  target_emotion: "any"
+  time_pattern: "any"
+  initial_success_rate: 0.4
+
+scene_048:
+  description: "用户分享购物或产品体验"
+  keywords: ["买了", "产品", "推荐", "种草", "开箱"]
+  type: "chat"
+  target_emotion: "any"
+  time_pattern: "any"
+  initial_success_rate: 0.4
+
+scene_049:
+  description: "用户聊运动健身话题"
+  keywords: ["运动", "跑步", "健身", "减肥", "锻炼"]
+  type: "chat"
+  target_emotion: "any"
+  time_pattern: "any"
+  initial_success_rate: 0.4
+
+scene_050:
+  description: "用户讨论新闻时事"
+  keywords: ["新闻", "看到了", "发生了", "最新", "热搜"]
+  type: "chat"
+  target_emotion: "any"
+  time_pattern: "any"
+  initial_success_rate: 0.4
+
+scene_051:
+  description: "用户分享读书心得"
+  keywords: ["书", "读了", "推荐", "好书", "作者"]
+  type: "chat"
+  target_emotion: "any"
+  time_pattern: "any"
+  initial_success_rate: 0.4
+
+scene_052:
+  description: "用户讨论科技数码产品"
+  keywords: ["手机", "电脑", "新款", "配置", "性价比"]
+  type: "chat"
+  target_emotion: "any"
+  time_pattern: "any"
+  initial_success_rate: 0.4
+
+scene_053:
+  description: "用户聊天关于穿搭打扮"
+  keywords: ["穿搭", "衣服", "好看", "搭配", "买了"]
+  type: "chat"
+  target_emotion: "any"
+  time_pattern: "any"
+  initial_success_rate: 0.4
+
+scene_054:
+  description: "用户讨论宠物相关话题"
+  keywords: ["猫片", "狗子", "养了", "宠物", "铲屎"]
+  type: "chat"
+  target_emotion: "any"
+  time_pattern: "any"
+  initial_success_rate: 0.4
+
+scene_055:
+  description: "用户分享搞笑梗或段子"
+  keywords: ["哈哈", "搞笑", "笑死", "段子", "梗"]
+  type: "chat"
+  target_emotion: "any"
+  time_pattern: "any"
+  initial_success_rate: 0.4
+
+scene_056:
+  description: "用户讨论工作日常"
+  keywords: ["上班", "下班", "开会", "工作", "同事"]
+  type: "chat"
+  target_emotion: "any"
+  time_pattern: "any"
+  initial_success_rate: 0.4
+
+scene_057:
+  description: "用户讨论摄影相关话题"
+  keywords: ["拍照", "照片", "摄影", "风景", "美图"]
+  type: "chat"
+  target_emotion: "any"
+  time_pattern: "any"
+  initial_success_rate: 0.4
+
+scene_058:
+  description: "用户讨论综艺节目"
+  keywords: ["综艺", "节目", "选手", "好笑", "嘉宾"]
+  type: "chat"
+  target_emotion: "any"
+  time_pattern: "evening"
+  initial_success_rate: 0.4
+
+scene_059:
+  description: "用户讨论动漫或二次元"
+  keywords: ["动漫", "番剧", "角色", "up主", "二次元"]
+  type: "chat"
+  target_emotion: "any"
+  time_pattern: "any"
+  initial_success_rate: 0.4
+
+scene_060:
+  description: "用户分享创意或手工作品"
+  keywords: ["做了个", "手工", "创意", "画了", "设计"]
+  type: "chat"
+  target_emotion: "any"
+  time_pattern: "any"
+  initial_success_rate: 0.4
+
+# ===== 寻求关注类 (15) =====
+scene_061:
+  description: "用户@Bot或直呼名字，询问意见"
+  keywords: ["@bot", "你说", "你怎么看", "你觉得呢"]
+  type: "question"
+  target_emotion: "any"
+  time_pattern: "any"
+  initial_success_rate: 0.55
+
+scene_062:
+  description: "用户在群里喊人，寻求陪伴"
+  keywords: ["有人吗", "在吗", "出来聊天", "好无聊"]
+  type: "chat"
+  target_emotion: "neutral"
+  time_pattern: "evening"
+  initial_success_rate: 0.55
+
+scene_063:
+  description: "用户发出疑问但无人回应"
+  keywords: ["没人回", "都不说话", "冷场", "安静"]
+  type: "chat"
+  target_emotion: "neutral"
+  time_pattern: "any"
+  initial_success_rate: 0.55
+
+scene_064:
+  description: "用户主动引入新话题"
+  keywords: ["话说", "对了", "突然想到", "你们知道"]
+  type: "chat"
+  target_emotion: "any"
+  time_pattern: "any"
+  initial_success_rate: 0.55
+
+scene_065:
+  description: "用户寻求投票或选择帮助"
+  keywords: ["选哪个", "帮我选", "A还是B", "纠结"]
+  type: "question"
+  target_emotion: "neutral"
+  time_pattern: "any"
+  initial_success_rate: 0.55
+
+scene_066:
+  description: "用户分享截图或链接求讨论"
+  keywords: ["你们看这个", "分享一下", "这个怎么样"]
+  type: "chat"
+  target_emotion: "any"
+  time_pattern: "any"
+  initial_success_rate: 0.55
+
+scene_067:
+  description: "用户直接提问征求意见"
+  keywords: ["大家觉得", "你们说", "有建议吗", "什么看法"]
+  type: "question"
+  target_emotion: "neutral"
+  time_pattern: "any"
+  initial_success_rate: 0.55
+
+scene_068:
+  description: "用户打招呼开始对话"
+  keywords: ["大家好", "早上好", "晚上好", "在干嘛"]
+  type: "chat"
+  target_emotion: "positive"
+  time_pattern: "any"
+  initial_success_rate: 0.55
+
+scene_069:
+  description: "用户求推荐资源或内容"
+  keywords: ["推荐", "有没有好的", "求分享", "哪里找"]
+  type: "question"
+  target_emotion: "neutral"
+  time_pattern: "any"
+  initial_success_rate: 0.55
+
+scene_070:
+  description: "用户发出邀请或组织活动"
+  keywords: ["一起", "约", "组队", "谁要来", "活动"]
+  type: "chat"
+  target_emotion: "positive"
+  time_pattern: "any"
+  initial_success_rate: 0.55
+
+scene_071:
+  description: "用户提出对比讨论话题"
+  keywords: ["VS", "对比", "哪个好", "更好", "区别"]
+  type: "question"
+  target_emotion: "neutral"
+  time_pattern: "any"
+  initial_success_rate: 0.55
+
+scene_072:
+  description: "用户发出感叹引发讨论"
+  keywords: ["怎么会", "不可能", "真的吗", "居然", "竟然"]
+  type: "chat"
+  target_emotion: "any"
+  time_pattern: "any"
+  initial_success_rate: 0.55
+
+scene_073:
+  description: "用户在群里求科普解释"
+  keywords: ["科普", "解释一下", "这是什么", "啥意思"]
+  type: "question"
+  target_emotion: "neutral"
+  time_pattern: "any"
+  initial_success_rate: 0.55
+
+scene_074:
+  description: "用户发出挑战或趣味问题"
+  keywords: ["猜猜", "你们猜", "挑战", "谁能", "试试"]
+  type: "chat"
+  target_emotion: "positive"
+  time_pattern: "any"
+  initial_success_rate: 0.55
+
+scene_075:
+  description: "用户寻求确认或验证想法"
+  keywords: ["对吧", "是这样吗", "我理解的对吗", "没错吧"]
+  type: "question"
+  target_emotion: "neutral"
+  time_pattern: "any"
+  initial_success_rate: 0.55
+
+# ===== 话题延续类 (15) =====
+scene_076:
+  description: "用户延续之前的技术讨论"
+  keywords: ["接着说", "补充一下", "关于刚才", "还有一个问题"]
+  type: "followup"
+  target_emotion: "neutral"
+  time_pattern: "any"
+  initial_success_rate: 0.55
+
+scene_077:
+  description: "用户对之前的回答提出疑问"
+  keywords: ["但是", "不过", "那如果", "另外", "还有"]
+  type: "followup"
+  target_emotion: "neutral"
+  time_pattern: "any"
+  initial_success_rate: 0.55
+
+scene_078:
+  description: "用户在原话题基础上深入讨论"
+  keywords: ["深入", "展开说说", "具体", "详细", "举个例子"]
+  type: "followup"
+  target_emotion: "neutral"
+  time_pattern: "any"
+  initial_success_rate: 0.55
+
+scene_079:
+  description: "用户回应Bot的回复并继续对话"
+  keywords: ["说的对", "有道理", "但我觉得", "那怎么"]
+  type: "followup"
+  target_emotion: "neutral"
+  time_pattern: "any"
+  initial_success_rate: 0.55
+
+scene_080:
+  description: "用户分享相关经历延续话题"
+  keywords: ["我也是", "我之前也", "巧了", "一样的经历"]
+  type: "followup"
+  target_emotion: "any"
+  time_pattern: "any"
+  initial_success_rate: 0.55
+
+scene_081:
+  description: "用户提出话题的延伸思考"
+  keywords: ["说到这个", "让我想到", "联想到", "类似的"]
+  type: "followup"
+  target_emotion: "any"
+  time_pattern: "any"
+  initial_success_rate: 0.55
+
+scene_082:
+  description: "用户对前文做出总结或反馈"
+  keywords: ["总结一下", "所以说", "原来如此", "明白了"]
+  type: "followup"
+  target_emotion: "neutral"
+  time_pattern: "any"
+  initial_success_rate: 0.55
+
+scene_083:
+  description: "用户延续讨论并引入新角度"
+  keywords: ["换个角度", "从另一方面", "反过来想", "不同看法"]
+  type: "followup"
+  target_emotion: "neutral"
+  time_pattern: "any"
+  initial_success_rate: 0.55
+
+scene_084:
+  description: "多人讨论同一话题各抒己见"
+  keywords: ["我同意", "我不同意", "补充", "角度不同"]
+  type: "followup"
+  target_emotion: "any"
+  time_pattern: "any"
+  initial_success_rate: 0.55
+
+scene_085:
+  description: "用户延续之前的情感话题"
+  keywords: ["后来", "结果", "现在好多了", "还是那样"]
+  type: "followup"
+  target_emotion: "any"
+  time_pattern: "any"
+  initial_success_rate: 0.55
+
+scene_086:
+  description: "用户提出后续计划或行动"
+  keywords: ["打算", "准备", "下一步", "要去", "回来再说"]
+  type: "followup"
+  target_emotion: "neutral"
+  time_pattern: "any"
+  initial_success_rate: 0.55
+
+scene_087:
+  description: "用户对讨论结果表达立场"
+  keywords: ["我支持", "赞同", "反对", "我选择", "确定"]
+  type: "followup"
+  target_emotion: "neutral"
+  time_pattern: "any"
+  initial_success_rate: 0.55
+
+scene_088:
+  description: "用户回顾之前讨论并提新问题"
+  keywords: ["之前说的", "上次聊到", "继续", "那个问题"]
+  type: "followup"
+  target_emotion: "neutral"
+  time_pattern: "any"
+  initial_success_rate: 0.55
+
+scene_089:
+  description: "用户延续实践反馈的讨论"
+  keywords: ["试了", "果然", "确实", "按你说的", "有效"]
+  type: "followup"
+  target_emotion: "positive"
+  time_pattern: "any"
+  initial_success_rate: 0.55
+
+scene_090:
+  description: "用户延续讨论并寻求深入建议"
+  keywords: ["进一步", "更好的方法", "还能怎么", "更深入"]
+  type: "followup"
+  target_emotion: "neutral"
+  time_pattern: "any"
+  initial_success_rate: 0.55
+
+# ===== 特殊时段类 (10) =====
+scene_091:
+  description: "早晨用户发出问候或分享日常"
+  keywords: ["早安", "早上好", "起床了", "早饭"]
+  type: "chat"
+  target_emotion: "positive"
+  time_pattern: "morning"
+  initial_success_rate: 0.5
+
+scene_092:
+  description: "午间用户分享午餐或休息话题"
+  keywords: ["午饭", "吃什么", "午休", "中午好"]
+  type: "chat"
+  target_emotion: "neutral"
+  time_pattern: "afternoon"
+  initial_success_rate: 0.5
+
+scene_093:
+  description: "下午用户讨论摸鱼或打发时间"
+  keywords: ["摸鱼", "困了", "下午茶", "还有多久下班"]
+  type: "chat"
+  target_emotion: "neutral"
+  time_pattern: "afternoon"
+  initial_success_rate: 0.5
+
+scene_094:
+  description: "傍晚用户讨论下班或晚间活动"
+  keywords: ["下班", "今晚", "晚上做什么", "约饭"]
+  type: "chat"
+  target_emotion: "positive"
+  time_pattern: "evening"
+  initial_success_rate: 0.5
+
+scene_095:
+  description: "深夜用户还在活跃聊天"
+  keywords: ["还没睡", "失眠", "夜猫子", "熬夜"]
+  type: "emotion"
+  target_emotion: "neutral"
+  time_pattern: "evening"
+  initial_success_rate: 0.5
+
+scene_096:
+  description: "周末用户分享休闲活动"
+  keywords: ["周末", "放假", "出去玩", "休息", "睡懒觉"]
+  type: "chat"
+  target_emotion: "positive"
+  time_pattern: "any"
+  initial_success_rate: 0.5
+
+scene_097:
+  description: "节假日用户分享庆祝或计划"
+  keywords: ["放假", "假期", "出行", "回家", "聚会"]
+  type: "chat"
+  target_emotion: "positive"
+  time_pattern: "any"
+  initial_success_rate: 0.5
+
+scene_098:
+  description: "周一早晨用户表达对工作的不情愿"
+  keywords: ["周一", "不想上班", "又要上班", "Monday"]
+  type: "emotion"
+  target_emotion: "negative"
+  time_pattern: "morning"
+  initial_success_rate: 0.5
+
+scene_099:
+  description: "加班场景用户表达辛苦"
+  keywords: ["加班", "还在公司", "改不完", "赶工"]
+  type: "emotion"
+  target_emotion: "negative"
+  time_pattern: "evening"
+  initial_success_rate: 0.5
+
+scene_100:
+  description: "凌晨用户表达深夜感慨"
+  keywords: ["深夜", "凌晨", "安静", "思考人生", "夜深了"]
+  type: "emotion"
+  target_emotion: "neutral"
+  time_pattern: "evening"
+  initial_success_rate: 0.5
