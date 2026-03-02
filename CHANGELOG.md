@@ -3,6 +3,66 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.9.3] - 2026-03-02
+
+### Added
+- **连续回复限制机制** (`iris_memory/proactive/proactive_manager.py`)
+  - 新增 `_recent_replies` 跟踪短时间内各会话的主动回复次数
+  - 默认限制：5分钟内最多连续回复 3 次
+  - 新增 `_is_consecutive_limit_reached()` 和 `_record_reply_time()` 方法
+  - 新增 `replies_consecutive_limited` 统计计数器
+  - 防止特定群聊/用户的"滚雪球"式连续回复问题
+
+### Changed
+- **主动回复检测器阈值与权重调整** (`iris_memory/proactive/proactive_reply_detector.py`)
+  - MEDIUM 阈值从 0.3 提高到 0.4，降低误触发概率
+  - question 权重从 0.4 降低到 0.3
+  - emotional_support 权重从 0.3 降低到 0.25
+  - seeking_attention 权重从 0.3 降低到 0.25
+  - mention_bot 权重从 0.5 降低到 0.35
+  - expect_response 权重从 0.35 降低到 0.25
+  - chat_topics 权重从 0.25 降低到 0.2
+  - 积极情感触发阈值从 0.3 提高到 0.5，避免群聊"哈哈哈"误触发
+
+- **紧急度冷却乘数调整** (`iris_memory/core/constants.py`)
+  - CRITICAL 乘数从 0.25 提高到 0.5（冷却时间：60s × 0.5 = 30s）
+  - HIGH 乘数从 0.5 提高到 0.75（冷却时间：60s × 0.75 = 45s）
+  - 避免高紧急度回复冷却时间过短导致频繁触发
+
+- **智能增强参数调整** (`iris_memory/core/defaults.py`)
+  - smart_boost_window 从 120s 缩短到 60s（不超过冷却时间）
+  - smart_boost_threshold 从 0.25 提高到 0.35
+  - 确保智能增强窗口不会与冷却机制冲突
+
+### Fixed
+- **每日计数惰性重置** (`iris_memory/proactive/proactive_manager.py`)
+  - 新增 `_last_reset_date` 跟踪重置日期
+  - 新增 `_check_daily_reset()` 方法实现跨日自动重置
+  - 修复每日计数从未被重置的问题
+
+- **用户发言时间记录时机** (`iris_memory/proactive/proactive_manager.py`)
+  - 将 `_record_user_message()` 调用从 `_process_task` 移至 `handle_batch`
+  - 确保智能增强窗口基于用户发言时间而非 Bot 回复时间
+  - 避免 Bot 自身回复刷新窗口导致"滚雪球"效应
+
+- **冷却时间记录时机** (`iris_memory/proactive/proactive_manager.py`)
+  - 将 `last_reply_time` 记录从 `handle_batch` 移至 `_process_task` 发送成功后
+  - 确保冷却时间基于实际发送时间而非入队时间
+
+- **KV 持久化 is_async 配置错误** (`iris_memory/services/persistence_service.py`)
+  - 修复同步方法被错误标记为异步导致 `await` 报错的问题
+  - `serialize_whitelist`/`deserialize_whitelist` 设置 `is_async=False`
+  - `member_identity.serialize`/`deserialize` 设置 `is_async=False`
+  - `activity_tracker.serialize`/`deserialize` 设置 `is_async=False`
+  - 错误信息：`object list can't be used in 'await' expression`
+
+### Tests
+- **连续回复限制测试** (`tests/proactive/test_consecutive_limit.py`)
+  - 新增连续回复限制基本逻辑测试
+  - 新增窗口过期自动清理测试
+  - 新增会话隔离测试
+  - 新增 handle_batch 集成测试
+
 ## [v1.9.2] - 2026-03-02
 
 ### Added

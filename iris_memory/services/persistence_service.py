@@ -79,18 +79,21 @@ _KV_LOADERS: list[KVLoaderConfig] = [
         deserialize_method="deserialize_whitelist",
         default=[],
         log_message="Loaded proactive reply whitelist",
+        is_async=False,
     ),
     KVLoaderConfig(
         key=KVStoreKeys.MEMBER_IDENTITY,
         component_path="_member_identity",
         deserialize_method="deserialize",
         log_message="Loaded member identity data",
+        is_async=False,
     ),
     KVLoaderConfig(
         key=KVStoreKeys.GROUP_ACTIVITY,
         component_path="_activity_tracker",
         deserialize_method="deserialize",
         log_message="Loaded group activity states",
+        is_async=False,
     ),
     KVLoaderConfig(
         key=KVStoreKeys.USER_PERSONAS,
@@ -132,18 +135,21 @@ _KV_SAVERS: list[KVSaveConfig] = [
         component_path="_proactive.proactive_manager",
         serialize_method="serialize_whitelist",
         log_message="Saved proactive reply whitelist",
+        is_async=False,
     ),
     KVSaveConfig(
         key=KVStoreKeys.MEMBER_IDENTITY,
         component_path="_member_identity",
         serialize_method="serialize",
         log_message="Saved member identity data",
+        is_async=False,
     ),
     KVSaveConfig(
         key=KVStoreKeys.GROUP_ACTIVITY,
         component_path="_activity_tracker",
         serialize_method="serialize",
         log_message="Saved group activity states",
+        is_async=False,
     ),
     KVSaveConfig(
         key=KVStoreKeys.USER_PERSONAS,
