@@ -5,6 +5,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [v1.10.0] - 2026-03-02
 
+### ⚠️注意
+本次更新需要完全重启Nonebot，否则会导致主动回复模块初始化失败
+
 ### Verified
 - **ProactiveManager API 兼容性验证** (`iris_memory/capture/batch_processor.py`, `iris_memory/proactive/manager.py`)
   - 验证 `process_message` 参数格式正确匹配
