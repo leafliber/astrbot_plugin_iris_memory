@@ -3,6 +3,20 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.10.2] - 2026-03-04
+
+### Changed
+- **Markdown 去除器配置简化** (`iris_memory/processing/markdown_stripper.py`)
+  - 用户可见配置仅保留 `enable` 开关（通过 AstrBot 管理界面控制）
+  - 内部配置（`preserve_code_blocks`、`preserve_links`、`threshold_offset`、`strip_headers`、`strip_lists`）移至 `defaults.py` 统一管理
+  - 减少配置复杂度，默认行为：去除所有 Markdown 格式标记
+
+### Removed
+- 移除 `_conf_schema.json` 中 Markdown 去除器的 5 个内部配置项
+- 移除 `config_registry.py` 中对应的 5 个 `ConfigDefinition` 映射
+- 移除 `config_properties.py` 中对应的 5 个 `_ConfigProp` 属性定义
+- 移除测试文件中不再适用的配置变体测试用例
+
 ## [v1.10.1] - 2026-03-03
 
 ### Changed
