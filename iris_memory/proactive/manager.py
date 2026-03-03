@@ -27,6 +27,7 @@ from iris_memory.proactive.models import (
     ProactiveReplyResult,
     Signal,
 )
+from iris_memory.proactive.reply_sender import ProactiveReplySender
 from iris_memory.proactive.signal_generator import SignalGenerator
 from iris_memory.proactive.signal_queue import SignalQueue
 from iris_memory.proactive.storage.expectation_store import ExpectationStore
@@ -101,6 +102,12 @@ class ProactiveManager:
         self._initialized = False
         self._init_lock = asyncio.Lock()
 
+        # 主动回复发送器（由服务层注入）
+        self._reply_sender: Optional[ProactiveReplySender] = None
+
+        # 群组 UMO 映射（group_id -> unified_msg_origin）
+        self._group_umo_map: Dict[str, str] = {}
+
         # 日统计（简单内存计数）
         self._daily_reply_count: int = 0
         self._daily_reply_date: str = ""
@@ -119,6 +126,42 @@ class ProactiveManager:
     @property
     def is_initialized(self) -> bool:
         return self._initialized
+
+    def set_reply_sender(self, sender: ProactiveReplySender) -> None:
+        """注入主动回复发送器
+
+        由服务层在所有组件初始化完成后调用。
+
+        Args:
+            sender: ProactiveReplySender 实例
+        """
+        self._reply_sender = sender
+        logger.debug("Reply sender injected into ProactiveManager")
+
+    def set_context(
+        self,
+        astrbot_context: Any,
+        llm_provider_id: Optional[str] = None,
+    ) -> None:
+        """设置 AstrBot 上下文（用于 LLM 确认等内部调用）
+
+        Args:
+            astrbot_context: AstrBot Context
+            llm_provider_id: LLM Provider ID
+        """
+        self._astrbot_context = astrbot_context
+        self._llm_provider_id = llm_provider_id
+
+    def get_group_umo(self, group_id: str) -> Optional[str]:
+        """获取群组的 unified_msg_origin
+
+        Args:
+            group_id: 群组 ID
+
+        Returns:
+            UMO 字符串，未知返回 None
+        """
+        return self._group_umo_map.get(group_id)
 
     # ── 初始化 ──────────────────────────────────────────────────
 
@@ -238,6 +281,11 @@ class ProactiveManager:
             # 更新最后消息时间
             self._signal_queue.update_last_message_time(group_id)
 
+            # 记录群组 UMO（用于后续主动回复发送）
+            umo = (extra or {}).get("umo")
+            if umo and group_id:
+                self._group_umo_map[group_id] = umo
+
             # 确保群定时器运行
             if self._config.signal_queue_enabled and self._group_scheduler:
                 self._group_scheduler.ensure_timer(group_id)
@@ -348,6 +396,12 @@ class ProactiveManager:
     async def _handle_signal_reply(self, decision: AggregatedDecision) -> None:
         """处理 SignalQueue 聚合决策触发的回复
 
+        完整流程：
+        1. 检查 FollowUp 冲突和每日限额
+        2. 构建回复结果
+        3. 通过 ReplySender 发送（经过记忆/画像注入 → LLM → 平台发送）
+        4. 创建 FollowUp 期待
+
         Args:
             decision: 聚合决策
         """
@@ -371,13 +425,14 @@ class ProactiveManager:
         # 构建回复结果
         reply_result = self._build_signal_reply(decision)
 
-        # TODO: 通过事件系统发送实际回复
-        # 当前将结果存储，等待外部集成
-        logger.info(
-            f"Signal reply ready: group={decision.group_id}, "
-            f"user={decision.target_user_id}, "
-            f"weight={decision.aggregated_weight:.2f}"
-        )
+        # 通过 ReplySender 发送实际回复
+        bot_reply = await self._send_proactive_reply(reply_result)
+
+        if not bot_reply:
+            logger.debug(
+                f"Signal reply not sent for group {decision.group_id}"
+            )
+            return
 
         # 创建 FollowUp 期待
         if self._followup_planner and self._config.followup_enabled:
@@ -390,7 +445,7 @@ class ProactiveManager:
                 group_id=decision.group_id,
                 trigger_user_id=decision.target_user_id,
                 trigger_message=trigger_msg,
-                bot_reply_summary=reply_result.reason,
+                bot_reply_summary=bot_reply[:200],
                 recent_context=decision.recent_messages,
             )
 
@@ -401,17 +456,63 @@ class ProactiveManager:
         reply_result: ProactiveReplyResult,
         expectation: FollowUpExpectation,
     ) -> None:
-        """处理 FollowUp 触发的回复"""
+        """处理 FollowUp 触发的回复
+
+        完整流程：
+        1. 清除该群的信号队列
+        2. 通过 ReplySender 发送（经过记忆/画像注入 → LLM → 平台发送）
+        3. 记录发送结果
+
+        Args:
+            reply_result: 回复结果
+            expectation: 跟进期待
+        """
         # 清除该群的信号
         if self._signal_queue:
             self._signal_queue.clear_group(expectation.group_id)
 
-        # TODO: 通过事件系统发送实际回复
-        logger.info(
-            f"FollowUp reply ready: group={expectation.group_id}, "
-            f"user={expectation.trigger_user_id}, "
-            f"count={expectation.followup_count + 1}"
-        )
+        # 通过 ReplySender 发送实际回复
+        bot_reply = await self._send_proactive_reply(reply_result)
+
+        if bot_reply:
+            logger.info(
+                f"FollowUp reply sent: group={expectation.group_id}, "
+                f"user={expectation.trigger_user_id}, "
+                f"count={expectation.followup_count + 1}, "
+                f"reply_len={len(bot_reply)}"
+            )
+        else:
+            logger.debug(
+                f"FollowUp reply not sent for group={expectation.group_id}"
+            )
+
+    async def _send_proactive_reply(
+        self,
+        reply_result: ProactiveReplyResult,
+    ) -> Optional[str]:
+        """通过 ReplySender 发送主动回复
+
+        经过记忆上下文注入、LLM 生成、平台发送的完整流程。
+
+        Args:
+            reply_result: 主动回复结果
+
+        Returns:
+            Bot 回复文本，失败返回 None
+        """
+        if not self._reply_sender:
+            logger.warning(
+                "ProactiveManager: reply_sender not set, "
+                "cannot send proactive reply. "
+                "Ensure set_reply_sender() is called after initialization."
+            )
+            return None
+
+        try:
+            return await self._reply_sender.send_reply(reply_result)
+        except Exception as e:
+            logger.error(f"Failed to send proactive reply: {e}")
+            return None
 
     async def _handle_llm_confirm(
         self,
@@ -521,6 +622,8 @@ class ProactiveManager:
                 "temperature": 0.7,
             },
             reason=decision.reason,
+            group_id=decision.group_id,
+            session_key=decision.session_key,
             target_user=decision.target_user_id,
             recent_messages=decision.recent_messages,
             source="signal_queue",

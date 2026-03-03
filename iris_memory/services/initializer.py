@@ -354,6 +354,7 @@ class ServiceInitializer:
             embedding_manager=embedding_mgr,
             shared_state=self._deps.shared_state,
             llm_provider=llm_processor,
+            context=self._deps.context,
         )
 
     async def _init_image_analyzer(self) -> None:

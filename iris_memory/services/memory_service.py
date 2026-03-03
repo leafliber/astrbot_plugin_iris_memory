@@ -297,6 +297,9 @@ class MemoryService:
 
                 self._create_services()
 
+                # 在所有组件和服务就绪后，注入主动回复发送器
+                self._setup_proactive_reply_sender()
+
                 self._is_initialized = True
 
             except Exception as e:
@@ -346,6 +349,43 @@ class MemoryService:
 
         if self.capture.batch_processor:
             self.capture.batch_processor.on_save_callback = self._deferred_save_batch_queues
+
+    def _setup_proactive_reply_sender(self) -> None:
+        """创建并注入主动回复发送器
+
+        在所有组件和服务完成初始化后调用。
+        将 ProactiveReplySender 注入到 ProactiveManager，
+        使其能够通过完整的 LLM 流程发送主动回复（记忆注入、画像注入等）。
+        """
+        manager = self.proactive_manager
+        if not manager:
+            return
+
+        try:
+            from iris_memory.proactive.reply_sender import ProactiveReplySender
+            from iris_memory.utils.llm_helper import resolve_llm_provider
+
+            # 解析主动回复使用的 LLM provider
+            enhanced_pid = self.cfg.llm_enhanced_provider_id
+            llm_provider, llm_provider_id = resolve_llm_provider(
+                self.context,
+                enhanced_pid,
+                label="ProactiveReply",
+            )
+
+            sender = ProactiveReplySender(
+                astrbot_context=self.context,
+                prepare_llm_context=self.prepare_llm_context,
+                record_chat_message=self.record_chat_message,
+                get_group_umo=manager.get_group_umo,
+                llm_provider=llm_provider,
+                llm_provider_id=llm_provider_id,
+            )
+
+            self.proactive.setup_reply_sender(sender)
+            self.logger.info("Proactive reply sender wired successfully")
+        except Exception as e:
+            self.logger.warning(f"Failed to setup proactive reply sender: {e}")
 
     async def _deferred_save_batch_queues(self, put_kv_data=None) -> None:
         """延迟绑定的批量队列保存回调"""

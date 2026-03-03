@@ -88,6 +88,8 @@ class FollowUpPlanner:
 
         # group_id -> asyncio.Task (短期窗口定时器)
         self._short_window_timers: Dict[str, asyncio.Task] = {}
+        # group_id -> asyncio.Task (FollowUp 窗口超时定时器)
+        self._window_timeout_timers: Dict[str, asyncio.Task] = {}
         self._closed = False
 
     def set_followup_reply_callback(self, callback: FollowUpReplyCallback) -> None:
@@ -147,8 +149,9 @@ class FollowUpPlanner:
             recent_context=recent_context or [],
         )
 
-        # 取消旧的短期窗口定时器
+        # 取消旧的短期窗口定时器和窗口超时定时器
         self._cancel_short_window_timer(group_id)
+        self._cancel_window_timeout_timer(group_id)
 
         # 存储期待
         self._store.put(expectation)
@@ -236,6 +239,7 @@ class FollowUpPlanner:
     def clear_expectation(self, group_id: str) -> None:
         """清除某群的跟进期待"""
         self._cancel_short_window_timer(group_id)
+        self._cancel_window_timeout_timer(group_id)
         removed = self._store.remove(group_id)
         if removed:
             logger.debug(f"Expectation cleared for group {group_id}")
@@ -257,8 +261,7 @@ class FollowUpPlanner:
         if self._closed:
             return
 
-        # 使用一个独立 task 来处理 FollowUp 窗口到期
-        asyncio.create_task(
+        self._window_timeout_timers[group_id] = asyncio.create_task(
             self._followup_window_expired(group_id, delay),
             name=f"followup-window-{group_id}",
         )
@@ -297,6 +300,8 @@ class FollowUpPlanner:
 
             if self._closed:
                 return
+
+            self._window_timeout_timers.pop(group_id, None)
 
             # 使用 remove() 而非 get()：窗口计时器到期时 get() 会因窗口过期而
             # 自动删除并返回 None，导致跟进逻辑无法执行。remove() 跳过过期检查。
@@ -493,6 +498,8 @@ class FollowUpPlanner:
             trigger_prompt=trigger_prompt,
             reply_params={"max_tokens": 150, "temperature": 0.7},
             reason=reason,
+            group_id=expectation.group_id,
+            session_key=expectation.session_key,
             target_user=expectation.trigger_user_id,
             recent_messages=recent_messages,
             source="followup",
@@ -501,6 +508,12 @@ class FollowUpPlanner:
     def _cancel_short_window_timer(self, group_id: str) -> None:
         """取消短期窗口定时器"""
         task = self._short_window_timers.pop(group_id, None)
+        if task and not task.done():
+            task.cancel()
+
+    def _cancel_window_timeout_timer(self, group_id: str) -> None:
+        """取消 FollowUp 窗口超时定时器"""
+        task = self._window_timeout_timers.pop(group_id, None)
         if task and not task.done():
             task.cancel()
 
@@ -518,6 +531,12 @@ class FollowUpPlanner:
             if not task.done():
                 task.cancel()
         self._short_window_timers.clear()
+
+        # 取消所有窗口超时定时器
+        for group_id, task in list(self._window_timeout_timers.items()):
+            if not task.done():
+                task.cancel()
+        self._window_timeout_timers.clear()
 
         # 清除所有期待
         self._store.clear()

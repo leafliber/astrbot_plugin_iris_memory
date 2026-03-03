@@ -180,6 +180,8 @@ class ProactiveReplyResult:
         trigger_prompt: 系统指令 prompt（注入到 LLM 上下文）
         reply_params: LLM 生成参数
         reason: 触发原因
+        group_id: 目标群组 ID
+        session_key: 会话标识
         target_user: 目标用户
         recent_messages: 近期消息上下文
         emotion_summary: 用户情绪摘要
@@ -188,6 +190,8 @@ class ProactiveReplyResult:
     trigger_prompt: str
     reply_params: Dict[str, Any] = field(default_factory=dict)
     reason: str = ""
+    group_id: str = ""
+    session_key: str = ""
     target_user: str = ""
     recent_messages: List[Dict[str, Any]] = field(default_factory=list)
     emotion_summary: str = ""
