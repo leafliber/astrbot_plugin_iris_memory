@@ -403,6 +403,17 @@ class KnowledgeGraphDefaults:
 
 
 @dataclass
+class MarkdownStripperDefaults:
+    """Markdown 去除器默认配置"""
+    enable: bool = True                    # 功能总开关
+    preserve_code_blocks: bool = False     # 保留代码块格式
+    preserve_links: bool = False           # 保留链接格式
+    threshold_offset: int = 0              # 阈值偏移量
+    strip_headers: bool = True             # 去除标题标记
+    strip_lists: bool = True               # 去除列表标记
+
+
+@dataclass
 class WebUIDefaults:
     """Web管理界面默认配置"""
     enable: bool = False                   # 是否启用Web管理界面
@@ -470,6 +481,7 @@ class AllDefaults:
     llm_enhanced: LLMEnhancedDefaults = field(default_factory=LLMEnhancedDefaults)
     knowledge_graph: KnowledgeGraphDefaults = field(default_factory=KnowledgeGraphDefaults)
     persona_isolation: PersonaIsolationDefaults = field(default_factory=PersonaIsolationDefaults)
+    markdown_stripper: MarkdownStripperDefaults = field(default_factory=MarkdownStripperDefaults)
     web_ui: WebUIDefaults = field(default_factory=WebUIDefaults)
     semantic_extraction: SemanticExtractionDefaults = field(default_factory=SemanticExtractionDefaults)
 
@@ -508,8 +520,8 @@ def get_defaults_dict() -> Dict[str, Dict[str, Any]]:
                          'proactive_reply', 'image_analysis', 'log',
                          'persona', 'activity_adaptive', 'llm_providers',
                          'llm_enhanced', 'knowledge_graph',
-                         'persona_isolation', 'web_ui',
-                         'semantic_extraction']:
+                         'persona_isolation', 'markdown_stripper',
+                         'web_ui', 'semantic_extraction']:
         section_obj = getattr(DEFAULTS, section_name, None)
         if section_obj:
             result[section_name] = asdict(section_obj)

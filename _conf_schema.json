@@ -360,6 +360,18 @@
       }
     }
   },
+  "markdown_stripper": {
+    "description": "Markdown 格式去除器",
+    "type": "object",
+    "items": {
+      "enable": {
+        "description": "启用 Markdown 去除功能",
+        "type": "bool",
+        "default": true,
+        "hint": "当文本以纯文本形式发送时，自动去除 Markdown 格式标记（如 **粗体**、*斜体* 等），提升可读性"
+      }
+    }
+  },
   "web_ui": {
     "description": "Web管理界面设置",
     "type": "object",

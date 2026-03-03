@@ -536,6 +536,16 @@ def _build_registry() -> Dict[str, ConfigDefinition]:
             description="知识图谱是否按人格隔离查询",
             value_type=bool,
         ),
+
+        # ── Markdown 去除器 ──
+        ConfigDefinition(
+            key="markdown_stripper.enable",
+            section="markdown_stripper",
+            attr="enable",
+            default=True,
+            description="启用 Markdown 去除功能",
+            value_type=bool,
+        ),
     ]
 
     return {e.key: e for e in entries}

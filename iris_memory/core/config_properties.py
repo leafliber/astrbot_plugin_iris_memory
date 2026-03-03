@@ -217,6 +217,11 @@ CONFIG_PROPERTIES: dict[str, _ConfigProp] = {
         "persona_isolation.kg_query_by_persona", False
     ),
 
+    # ── Markdown 去除器 ──
+    "markdown_stripper_enabled": _ConfigProp(
+        "markdown_stripper.enable", DEFAULTS.markdown_stripper.enable
+    ),
+
     # ── Web UI ──
     "web_ui_enabled": _ConfigProp(
         "web_ui.enable", DEFAULTS.web_ui.enable

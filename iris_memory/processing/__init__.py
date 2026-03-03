@@ -17,6 +17,7 @@ from .llm_processor import (
     LLMSummaryResult
 )
 from .message_processor import MessageProcessor, ErrorFriendlyProcessor
+from .markdown_stripper import MarkdownStripper, T2IConfigReader
 
 # Re-exported from core for backward compatibility
 from iris_memory.core.upgrade_evaluator import (
@@ -36,6 +37,8 @@ __all__ = [
     'LLMSummaryResult',
     'MessageProcessor',
     'ErrorFriendlyProcessor',
+    'MarkdownStripper',
+    'T2IConfigReader',
     'UpgradeEvaluator',
     'UpgradeMode',
     'BaseDetectionResult',

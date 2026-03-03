@@ -30,6 +30,7 @@ from iris_memory.utils.logger import init_logging_from_config
 from iris_memory.commands import CommandHandlers
 from iris_memory.web.web_ui import WebUIManager
 from iris_memory.processing.message_processor import MessageProcessor, ErrorFriendlyProcessor
+from iris_memory.processing.markdown_stripper import MarkdownStripper
 from iris_memory.core.constants import PROACTIVE_EXTRA_KEY
 
 
@@ -66,6 +67,7 @@ class IrisMemoryPlugin(Star):
         self._web_ui: Optional[WebUIManager] = None
         self._message_processor: Optional[MessageProcessor] = None
         self._error_processor: Optional[ErrorFriendlyProcessor] = None
+        self._markdown_stripper: Optional[MarkdownStripper] = None
 
     async def initialize(self) -> None:
         """异步初始化插件"""
@@ -79,6 +81,10 @@ class IrisMemoryPlugin(Star):
         self._web_ui = WebUIManager(self._service)
         self._message_processor = MessageProcessor(self._service)
         self._error_processor = ErrorFriendlyProcessor(self._service.cfg)
+        self._markdown_stripper = MarkdownStripper(
+            context=self.context,
+            config=self._service.cfg,
+        )
 
         await self._web_ui.initialize()
 
@@ -208,14 +214,21 @@ class IrisMemoryPlugin(Star):
     @filter.on_decorating_result()
     async def on_decorating_result(self, event: AstrMessageEvent) -> None:
         """
-        消息发送前拦截，替换框架错误消息为友好提示
+        消息发送前拦截，处理链：
+        1. 错误消息友好化
+        2. Markdown 格式去除
         """
-        if not self._error_processor or not self._error_processor.should_process(event):
+        result = event.get_result()
+        if not result:
             return
 
-        result = event.get_result()
-        if result:
+        # 1. 错误消息友好化
+        if self._error_processor and self._error_processor.should_process(event):
             self._error_processor.process_result(result)
+
+        # 2. Markdown 格式去除
+        if self._markdown_stripper and self._markdown_stripper.should_process(event):
+            self._markdown_stripper.process_result(result)
 
     @filter.on_llm_request()
     async def on_llm_request(self, event: AstrMessageEvent, req: Any) -> None:
