@@ -3,6 +3,14 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.10.1] - 2026-03-03
+
+### Changed
+- **FollowUp 调试日志增强** (`iris_memory/proactive/manager.py`)
+  - `notify_bot_reply` 方法新增详细调试日志，输出初始化状态、配置开关状态
+  - 每个提前返回点新增日志说明具体跳过原因
+  - 便于排查 FollowUp 机制未触发问题
+
 ## [v1.10.0] - 2026-03-02
 
 ### ⚠️注意
