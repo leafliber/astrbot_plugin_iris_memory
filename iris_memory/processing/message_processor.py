@@ -80,6 +80,12 @@ class MessageProcessor:
 
         is_proactive = event.get_extra(PROACTIVE_EXTRA_KEY, False)
 
+        # 竞态防护：标记正常回复开始，阻止主动回复在 LLM 处理期间发送
+        if not is_proactive and group_id:
+            proactive_mgr = getattr(self._service, 'proactive_manager', None)
+            if proactive_mgr and hasattr(proactive_mgr, 'reply_coordinator'):
+                proactive_mgr.reply_coordinator.mark_normal_reply_start(group_id)
+
         if self._service.member_identity and not is_proactive:
             await self._service.member_identity.resolve_tag(
                 user_id, sender_name, group_id
@@ -194,6 +200,10 @@ class MessageProcessor:
             
             proactive_mgr = getattr(self._service, 'proactive_manager', None)
             if proactive_mgr:
+                # 竞态防护：标记正常回复结束，更新时间戳
+                if not is_proactive and group_id:
+                    if hasattr(proactive_mgr, 'reply_coordinator'):
+                        proactive_mgr.reply_coordinator.mark_normal_reply_end(group_id)
                 if not is_proactive:
                     proactive_mgr.clear_pending_tasks_for_session(user_id, group_id)
                 # FollowUp：所有 Bot 回复后创建跟进期待（由 config 控制）

@@ -27,6 +27,7 @@ from iris_memory.proactive.models import (
     ProactiveReplyResult,
     Signal,
 )
+from iris_memory.proactive.reply_coordinator import ReplyCoordinator
 from iris_memory.proactive.reply_sender import ProactiveReplySender
 from iris_memory.proactive.signal_generator import SignalGenerator
 from iris_memory.proactive.signal_queue import SignalQueue
@@ -117,14 +118,22 @@ class ProactiveManager:
         # 冷却时间控制（group_id -> 最后回复时间戳）
         self._last_reply_time: Dict[str, float] = {}
 
-        # 正常 LLM 回复时间（group_id -> 时间戳），用于抑制批处理器滞后触发的主动信号
-        self._last_normal_reply_time: Dict[str, float] = {}
+        # 回复协调器：集中管理正常回复与主动回复的竞态关系
+        self._reply_coordinator = ReplyCoordinator()
 
         # CooldownModule 状态检查回调（group_id -> 是否处于冷却中）
         # 由服务层注入，检查用户通过 /冷却 命令激活的冷却状态
         self._cooldown_checker: Optional[Callable[[str], bool]] = None
 
     # ── 属性 ──────────────────────────────────────────────────
+
+    @property
+    def reply_coordinator(self) -> ReplyCoordinator:
+        """回复协调器实例
+
+        供 MessageProcessor 等外部组件访问，用于标记正常回复的起止。
+        """
+        return self._reply_coordinator
 
     @property
     def enabled(self) -> bool:
@@ -274,16 +283,14 @@ class ProactiveManager:
         if self._is_quiet_hours():
             return None
 
-        # 正常 LLM 回复抑制：若近期已有正常回复（被动消息触发的 Bot 回复），
-        # 批处理器后续生成的主动信号不应再触发重复回复
-        if group_id and self._config.cooldown_seconds > 0:
-            import time
-            last_normal = self._last_normal_reply_time.get(group_id, 0.0)
-            elapsed = time.time() - last_normal
-            if elapsed < self._config.cooldown_seconds:
+        # 竞态防护：正常回复进行中或冷却期内，抑制信号生成
+        if group_id:
+            if not self._reply_coordinator.can_send_proactive(
+                group_id, self._config.cooldown_seconds
+            ):
                 logger.debug(
-                    f"Normal reply {elapsed:.0f}s ago (< {self._config.cooldown_seconds}s), "
-                    f"suppressing proactive signal for group {group_id}"
+                    f"Reply coordinator suppressed proactive signal "
+                    f"for group {group_id}"
                 )
                 return None
 
@@ -360,10 +367,11 @@ class ProactiveManager:
         """
         session_key = self._build_session_key(user_id, group_id)
 
-        # 记录正常回复时间，用于抑制批处理器稍后生成的主动信号
+        # 通过协调器记录正常回复完成，更新时间戳
         if group_id:
-            import time
-            self._last_normal_reply_time[group_id] = time.time()
+            self._reply_coordinator.mark_normal_reply_end(
+                group_id, self._config.cooldown_seconds
+            )
 
         if self._signal_queue:
             self._signal_queue.clear_session(session_key)
@@ -501,52 +509,63 @@ class ProactiveManager:
             )
             return
 
-        # 检查是否有活跃 FollowUp 期待 → 延迟
-        if self._followup_planner and self._followup_planner.has_active_expectation(
-            decision.group_id
-        ):
-            logger.debug(
-                f"Active FollowUp expectation for group {decision.group_id}, "
-                f"deferring signal reply"
-            )
-            return
-
-        # 检查每日限额
+        # 检查每日限额（锁外快速拒绝）
         if not self._check_daily_limit(decision.target_user_id):
             logger.debug(
                 f"Daily limit reached for user {decision.target_user_id}"
             )
             return
 
-        # 构建回复结果
-        reply_result = self._build_signal_reply(decision)
+        # 通过协调器守卫发送：获取群锁 + 二次校验正常回复状态 + FollowUp 检查
+        async with self._reply_coordinator.proactive_reply_guard(
+            decision.group_id, self._config.cooldown_seconds
+        ) as allowed:
+            if not allowed:
+                logger.debug(
+                    f"Reply coordinator blocked signal reply "
+                    f"for group {decision.group_id}"
+                )
+                return
 
-        # 通过 ReplySender 发送实际回复
-        bot_reply = await self._send_proactive_reply(reply_result)
+            # 锁内检查 FollowUp 期待（消除 TOCTOU 窗口）
+            if self._followup_planner and self._followup_planner.has_active_expectation(
+                decision.group_id
+            ):
+                logger.debug(
+                    f"Active FollowUp expectation for group {decision.group_id}, "
+                    f"deferring signal reply"
+                )
+                return
 
-        if not bot_reply:
-            logger.debug(
-                f"Signal reply not sent for group {decision.group_id}"
-            )
-            return
+            # 构建回复结果
+            reply_result = self._build_signal_reply(decision)
 
-        # 更新冷却时间
-        self._update_last_reply_time(decision.group_id)
+            # 通过 ReplySender 发送实际回复
+            bot_reply = await self._send_proactive_reply(reply_result)
 
-        # 创建 FollowUp 期待
-        if self._followup_planner and self._config.followup_enabled:
-            trigger_msg = ""
-            if decision.recent_messages:
-                trigger_msg = decision.recent_messages[-1].get("content", "")
+            if not bot_reply:
+                logger.debug(
+                    f"Signal reply not sent for group {decision.group_id}"
+                )
+                return
 
-            self._followup_planner.create_expectation(
-                session_key=decision.session_key,
-                group_id=decision.group_id,
-                trigger_user_id=decision.target_user_id,
-                trigger_message=trigger_msg,
-                bot_reply_summary=bot_reply[:200],
-                recent_context=decision.recent_messages,
-            )
+            # 更新冷却时间
+            self._update_last_reply_time(decision.group_id)
+
+            # 创建 FollowUp 期待
+            if self._followup_planner and self._config.followup_enabled:
+                trigger_msg = ""
+                if decision.recent_messages:
+                    trigger_msg = decision.recent_messages[-1].get("content", "")
+
+                self._followup_planner.create_expectation(
+                    session_key=decision.session_key,
+                    group_id=decision.group_id,
+                    trigger_user_id=decision.target_user_id,
+                    trigger_message=trigger_msg,
+                    bot_reply_summary=bot_reply[:200],
+                    recent_context=decision.recent_messages,
+                )
 
         self._increment_daily_count(decision.target_user_id)
 
@@ -590,7 +609,7 @@ class ProactiveManager:
             )
             return
 
-        # 检查每日限额
+        # 检查每日限额（锁外快速拒绝）
         if not self._check_daily_limit(expectation.trigger_user_id):
             logger.debug(
                 f"Daily limit reached for user {expectation.trigger_user_id}, "
@@ -598,28 +617,39 @@ class ProactiveManager:
             )
             return
 
-        # 清除该群的信号
-        if self._signal_queue:
-            self._signal_queue.clear_group(expectation.group_id)
+        # 通过协调器守卫发送：获取群锁 + 二次校验正常回复状态
+        async with self._reply_coordinator.proactive_reply_guard(
+            expectation.group_id, self._config.cooldown_seconds
+        ) as allowed:
+            if not allowed:
+                logger.debug(
+                    f"Reply coordinator blocked followup reply "
+                    f"for group {expectation.group_id}"
+                )
+                return
 
-        # 通过 ReplySender 发送实际回复
-        bot_reply = await self._send_proactive_reply(reply_result)
+            # 清除该群的信号
+            if self._signal_queue:
+                self._signal_queue.clear_group(expectation.group_id)
 
-        if bot_reply:
-            # 更新冷却时间和计数
-            self._update_last_reply_time(expectation.group_id)
-            self._increment_daily_count(expectation.trigger_user_id)
+            # 通过 ReplySender 发送实际回复
+            bot_reply = await self._send_proactive_reply(reply_result)
 
-            logger.info(
-                f"FollowUp reply sent: group={expectation.group_id}, "
-                f"user={expectation.trigger_user_id}, "
-                f"count={expectation.followup_count + 1}, "
-                f"reply_len={len(bot_reply)}"
-            )
-        else:
-            logger.debug(
-                f"FollowUp reply not sent for group={expectation.group_id}"
-            )
+            if bot_reply:
+                # 更新冷却时间和计数
+                self._update_last_reply_time(expectation.group_id)
+                self._increment_daily_count(expectation.trigger_user_id)
+
+                logger.info(
+                    f"FollowUp reply sent: group={expectation.group_id}, "
+                    f"user={expectation.trigger_user_id}, "
+                    f"count={expectation.followup_count + 1}, "
+                    f"reply_len={len(bot_reply)}"
+                )
+            else:
+                logger.debug(
+                    f"FollowUp reply not sent for group={expectation.group_id}"
+                )
 
     async def _send_proactive_reply(
         self,
@@ -986,6 +1016,8 @@ class ProactiveManager:
         self._signal_queue = None
         self._signal_generator = None
         self._expectation_store = None
+
+        self._reply_coordinator.clear_all()
 
         self._initialized = False
         logger.info("ProactiveManager v3 closed")

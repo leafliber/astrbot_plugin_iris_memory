@@ -732,3 +732,136 @@ class TestV2CompatParams:
             max_text_tokens=200,
         )
         assert m._config.max_reply_tokens == 200
+
+
+class TestReplyCoordinatorIntegration:
+    """ProactiveManager 与 ReplyCoordinator 集成测试"""
+
+    def test_coordinator_exposed(self, manager: ProactiveManager) -> None:
+        """reply_coordinator 属性可访问"""
+        coord = manager.reply_coordinator
+        assert coord is not None
+        from iris_memory.proactive.reply_coordinator import ReplyCoordinator
+        assert isinstance(coord, ReplyCoordinator)
+
+    @pytest.mark.asyncio
+    async def test_process_message_blocked_when_normal_reply_pending(
+        self, manager: ProactiveManager,
+    ) -> None:
+        """正常回复进行中时，process_message 不生成信号"""
+        await manager.initialize()
+
+        # 标记正常回复开始
+        manager.reply_coordinator.mark_normal_reply_start("g1")
+
+        await manager.process_message(
+            messages=[{"text": "帮我看看这个问题怎么解决？", "sender_name": "张三"}],
+            user_id="u1",
+            session_key="u1:g1",
+            session_type="group",
+            group_id="g1",
+        )
+
+        # 信号应被抑制
+        assert manager._signal_queue.total_signals == 0
+
+    @pytest.mark.asyncio
+    async def test_process_message_blocked_during_cooldown(
+        self, manager: ProactiveManager,
+    ) -> None:
+        """正常回复冷却期内，process_message 不生成信号"""
+        await manager.initialize()
+        manager._config.cooldown_seconds = 60
+
+        # 标记正常回复完成
+        manager.reply_coordinator.mark_normal_reply_end("g1")
+
+        await manager.process_message(
+            messages=[{"text": "帮我看看这个问题怎么解决？", "sender_name": "张三"}],
+            user_id="u1",
+            session_key="u1:g1",
+            session_type="group",
+            group_id="g1",
+        )
+
+        # 信号应被冷却抑制
+        assert manager._signal_queue.total_signals == 0
+
+    @pytest.mark.asyncio
+    async def test_process_message_allowed_after_cooldown_expires(
+        self, manager: ProactiveManager,
+    ) -> None:
+        """正常回复冷却过期后，process_message 正常工作"""
+        await manager.initialize()
+        manager._config.cooldown_seconds = 60
+
+        # 设置过去的时间戳
+        import time
+        manager.reply_coordinator._last_normal_reply_time["g1"] = time.time() - 120
+
+        await manager.process_message(
+            messages=[{"text": "帮我看看这个问题怎么解决？", "sender_name": "张三"}],
+            user_id="u1",
+            session_key="u1:g1",
+            session_type="group",
+            group_id="g1",
+        )
+
+        assert manager._signal_queue.total_signals > 0
+
+    @pytest.mark.asyncio
+    async def test_clear_pending_updates_coordinator(
+        self, manager: ProactiveManager,
+    ) -> None:
+        """clear_pending_tasks_for_session 通过协调器更新时间戳"""
+        await manager.initialize()
+
+        manager.clear_pending_tasks_for_session("u1", "g1")
+
+        ts = manager.reply_coordinator.get_last_normal_reply_time("g1")
+        assert ts > 0
+
+    @pytest.mark.asyncio
+    async def test_signal_reply_blocked_by_coordinator(
+        self, manager: ProactiveManager,
+    ) -> None:
+        """_handle_signal_reply 被协调器阻止（正常回复进行中）"""
+        await manager.initialize()
+        manager._reply_sender = AsyncMock()
+        manager._reply_sender.send_reply = AsyncMock(return_value="test reply")
+
+        manager.reply_coordinator.mark_normal_reply_start("g1")
+
+        decision = AggregatedDecision(
+            should_reply=True,
+            session_key="u1:g1",
+            group_id="g1",
+            target_user_id="u1",
+            aggregated_weight=0.9,
+            signals=[
+                Signal(
+                    signal_type=SignalType.RULE_MATCH,
+                    session_key="u1:g1",
+                    group_id="g1",
+                    user_id="u1",
+                    weight=0.9,
+                )
+            ],
+            reason="测试",
+            recent_messages=[],
+        )
+
+        await manager._handle_signal_reply(decision)
+
+        # ReplySender 不应被调用
+        manager._reply_sender.send_reply.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_coordinator_cleared_on_close(
+        self, manager: ProactiveManager,
+    ) -> None:
+        """关闭 Manager 时协调器状态被清理"""
+        await manager.initialize()
+        manager.reply_coordinator.mark_normal_reply_start("g1")
+        await manager.close()
+        assert not manager.reply_coordinator.is_normal_reply_pending("g1")
