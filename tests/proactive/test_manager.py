@@ -509,6 +509,32 @@ class TestNotifyBotReply:
         assert m._followup_planner.has_active_expectation("g1")
         await m.close()
 
+    @pytest.mark.asyncio
+    async def test_umo_recorded_for_followup(
+        self, tmp_path_fixture: Path,
+    ) -> None:
+        """notify_bot_reply 应记录 UMO 以便后续 FollowUp 回复发送"""
+        cfg = ProactiveConfig(
+            enabled=False,
+            quiet_hours=[],
+            followup_after_all_replies=True,
+            followup_enabled=True,
+        )
+        m = ProactiveManager(plugin_data_path=tmp_path_fixture, config=cfg)
+        await m.initialize()
+
+        m.notify_bot_reply(
+            user_id="u1",
+            group_id="g1",
+            user_message="你好",
+            bot_reply="你好呀",
+            umo="platform:g1",
+        )
+
+        # UMO 应被记录
+        assert m.get_group_umo("g1") == "platform:g1"
+        await m.close()
+
 
 class TestQuietHours:
     """静音时段测试"""

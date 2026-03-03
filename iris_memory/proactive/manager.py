@@ -422,6 +422,7 @@ class ProactiveManager:
         group_id: Optional[str],
         user_message: str,
         bot_reply: str,
+        umo: Optional[str] = None,
     ) -> None:
         """Bot 回复后通知，创建 FollowUp 跟进期待
 
@@ -433,6 +434,7 @@ class ProactiveManager:
             group_id: 群组 ID（私聊为 None，会跳过）
             user_message: 用户原始消息
             bot_reply: Bot 回复内容
+            umo: unified_msg_origin，用于后续主动回复发送
         """
         if not self._initialized:
             return
@@ -453,6 +455,10 @@ class ProactiveManager:
 
         if not self._followup_planner:
             return
+
+        # 记录群组 UMO（用于后续 FollowUp 回复发送）
+        if umo and group_id:
+            self._group_umo_map[group_id] = umo
 
         session_key = self._build_session_key(user_id, group_id)
 

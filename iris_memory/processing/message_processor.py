@@ -212,6 +212,7 @@ class MessageProcessor:
                     group_id=group_id,
                     user_message=message,
                     bot_reply=bot_reply,
+                    umo=event.unified_msg_origin,
                 )
 
         self._service.update_session_activity(user_id, group_id)
