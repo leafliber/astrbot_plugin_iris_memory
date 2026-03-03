@@ -212,6 +212,7 @@ class ProactiveReplyDefaults:
     用户可见的配置通过 AstrBot 管理界面修改，高级参数在此设置默认值。
     """
     # ===== 用户可见配置 =====
+    followup_after_all_replies: bool = False  # Bot 所有回复后都创建跟进期待（而非仅主动回复）
     cooldown_seconds: int = 60
     max_daily_replies: int = 20
     max_reply_tokens: int = 150

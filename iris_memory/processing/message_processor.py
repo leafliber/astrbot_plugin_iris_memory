@@ -191,10 +191,17 @@ class MessageProcessor:
                 session_user_id=user_id
             )
             
-            if not is_proactive:
-                proactive_mgr = getattr(self._service, 'proactive_manager', None)
-                if proactive_mgr:
+            proactive_mgr = getattr(self._service, 'proactive_manager', None)
+            if proactive_mgr:
+                if not is_proactive:
                     proactive_mgr.clear_pending_tasks_for_session(user_id, group_id)
+                # FollowUp：所有 Bot 回复后创建跟进期待（由 config 控制）
+                proactive_mgr.notify_bot_reply(
+                    user_id=user_id,
+                    group_id=group_id,
+                    user_message=message,
+                    bot_reply=bot_reply,
+                )
 
         self._service.update_session_activity(user_id, group_id)
 

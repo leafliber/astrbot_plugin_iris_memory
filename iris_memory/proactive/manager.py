@@ -267,6 +267,8 @@ class ProactiveManager:
         """清除会话的待处理任务
 
         当 Bot 正常回复后调用，清除该会话的信号和跟进期待。
+        注意：如果启用了 followup_after_all_replies，仅清除信号队列，
+        保留 FollowUp 期待（因为 notify_bot_reply 会重新创建）。
 
         Args:
             user_id: 用户 ID
@@ -277,10 +279,69 @@ class ProactiveManager:
         if self._signal_queue:
             self._signal_queue.clear_session(session_key)
 
-        if self._followup_planner and group_id:
-            self._followup_planner.clear_expectation(group_id)
+        # 仅在未启用 followup_after_all_replies 时清除 FollowUp 期待
+        if not self._config.followup_after_all_replies:
+            if self._followup_planner and group_id:
+                self._followup_planner.clear_expectation(group_id)
 
         logger.debug(f"Cleared pending tasks for session {session_key}")
+
+    def notify_bot_reply(
+        self,
+        user_id: str,
+        group_id: Optional[str],
+        user_message: str,
+        bot_reply: str,
+    ) -> None:
+        """Bot 回复后通知，创建 FollowUp 跟进期待
+
+        当 followup_after_all_replies 启用时，由 message_processor
+        在每次 Bot 回复后调用此方法，为群聊回复创建 FollowUp 期待。
+
+        Args:
+            user_id: 触发用户 ID
+            group_id: 群组 ID（私聊为 None，会跳过）
+            user_message: 用户原始消息
+            bot_reply: Bot 回复内容
+        """
+        if not self._initialized or not self._config.enabled:
+            return
+
+        if not self._config.followup_after_all_replies:
+            return
+
+        if not self._config.followup_enabled:
+            return
+
+        # 仅群聊创建期待
+        if not group_id:
+            return
+
+        # 白名单过滤
+        if not self.is_group_allowed(group_id):
+            return
+
+        if not self._followup_planner:
+            return
+
+        session_key = self._build_session_key(user_id, group_id)
+
+        # 先清除旧期待再创建新的
+        self._followup_planner.clear_expectation(group_id)
+
+        self._followup_planner.create_expectation(
+            session_key=session_key,
+            group_id=group_id,
+            trigger_user_id=user_id,
+            trigger_message=user_message,
+            bot_reply_summary=bot_reply[:200] if len(bot_reply) > 200 else bot_reply,
+            recent_context=[],
+        )
+
+        logger.debug(
+            f"FollowUp expectation created after bot reply: "
+            f"group={group_id}, user={user_id}"
+        )
 
     # ── 回调处理 ──────────────────────────────────────────────
 

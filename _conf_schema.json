@@ -292,6 +292,12 @@
         "default": false,
         "hint": "检测到对话信号后在沉默期自动主动发送消息"
       },
+      "followup_after_all_replies": {
+        "description": "Bot 所有回复后创建跟进期待",
+        "type": "bool",
+        "default": false,
+        "hint": "启用后 Bot 的每次回复（包括正常回复）都会创建 FollowUp 期待，以便在用户沉默时主动跟进。仅在启用主动回复时生效"
+      },
       "group_whitelist_mode": {
         "description": "群聊白名单模式",
         "type": "bool",

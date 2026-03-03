@@ -64,6 +64,9 @@ class ProactiveConfig:
     # FollowUp 开关（完全独立）
     followup_enabled: bool = True
 
+    # FollowUp 在所有 Bot 回复后创建期待（不仅限于主动回复）
+    followup_after_all_replies: bool = False
+
     # 用户可见配置
     followup_window_seconds: int = 120      # FollowUp 窗口时长
     max_followup_count: int = 2             # 最大跟进次数

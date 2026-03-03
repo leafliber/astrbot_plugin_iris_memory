@@ -48,6 +48,10 @@ CONFIG_PROPERTIES: dict[str, _ConfigProp] = {
 
     # ── 主动回复 ──
     "proactive_reply_enabled": _ConfigProp("proactive_reply.enable", False),
+    "proactive_followup_after_all_replies": _ConfigProp(
+        "proactive_reply.followup_after_all_replies",
+        DEFAULTS.proactive_reply.followup_after_all_replies,
+    ),
     "proactive_reply_max_daily": _ConfigProp(
         "proactive_reply.max_daily_replies",
         DEFAULTS.proactive_reply.max_daily_replies,

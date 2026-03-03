@@ -73,6 +73,7 @@ class ProactiveModule:
                 enabled=True,
                 signal_queue_enabled=True,
                 followup_enabled=True,
+                followup_after_all_replies=cfg.proactive_followup_after_all_replies,
                 group_whitelist_mode=group_whitelist_mode,
                 proactive_mode=proactive_mode,
                 quiet_hours=quiet_hours,

@@ -236,6 +236,254 @@ class TestClearPendingTasks:
         assert manager._signal_queue.get_signals("g1") == [] or \
             all(s.session_key != "u1:g1" for s in manager._signal_queue.get_signals("g1"))
 
+    @pytest.mark.asyncio
+    async def test_clear_preserves_followup_when_after_all_replies(
+        self, tmp_path_fixture: Path,
+    ) -> None:
+        """followup_after_all_replies 启用时，clear 不清除 FollowUp 期待"""
+        cfg = ProactiveConfig(
+            enabled=True,
+            quiet_hours=[],
+            followup_after_all_replies=True,
+        )
+        m = ProactiveManager(plugin_data_path=tmp_path_fixture, config=cfg)
+        await m.initialize()
+
+        # 手动创建期待
+        m._followup_planner.create_expectation(
+            session_key="u1:g1",
+            group_id="g1",
+            trigger_user_id="u1",
+            trigger_message="hi",
+            bot_reply_summary="hello",
+        )
+        assert m._followup_planner.has_active_expectation("g1")
+
+        m.clear_pending_tasks_for_session("u1", "g1")
+
+        # 期待应保留
+        assert m._followup_planner.has_active_expectation("g1")
+        await m.close()
+
+    @pytest.mark.asyncio
+    async def test_clear_removes_followup_when_after_all_replies_disabled(
+        self, manager: ProactiveManager,
+    ) -> None:
+        """followup_after_all_replies 禁用时（默认），clear 会清除 FollowUp 期待"""
+        await manager.initialize()
+        assert manager._config.followup_after_all_replies is False
+
+        manager._followup_planner.create_expectation(
+            session_key="u1:g1",
+            group_id="g1",
+            trigger_user_id="u1",
+            trigger_message="hi",
+            bot_reply_summary="hello",
+        )
+        assert manager._followup_planner.has_active_expectation("g1")
+
+        manager.clear_pending_tasks_for_session("u1", "g1")
+
+        # 期待应被清除
+        assert not manager._followup_planner.has_active_expectation("g1")
+
+
+class TestNotifyBotReply:
+    """Bot 回复后 FollowUp 通知测试"""
+
+    @pytest.mark.asyncio
+    async def test_creates_expectation_when_enabled(
+        self, tmp_path_fixture: Path,
+    ) -> None:
+        """followup_after_all_replies 启用时创建 FollowUp 期待"""
+        cfg = ProactiveConfig(
+            enabled=True,
+            quiet_hours=[],
+            followup_after_all_replies=True,
+            followup_enabled=True,
+        )
+        m = ProactiveManager(plugin_data_path=tmp_path_fixture, config=cfg)
+        await m.initialize()
+
+        m.notify_bot_reply(
+            user_id="u1",
+            group_id="g1",
+            user_message="你好",
+            bot_reply="你好呀！",
+        )
+
+        assert m._followup_planner.has_active_expectation("g1")
+        await m.close()
+
+    @pytest.mark.asyncio
+    async def test_no_expectation_when_disabled(
+        self, manager: ProactiveManager,
+    ) -> None:
+        """followup_after_all_replies 禁用时不创建 FollowUp 期待"""
+        await manager.initialize()
+        assert manager._config.followup_after_all_replies is False
+
+        manager.notify_bot_reply(
+            user_id="u1",
+            group_id="g1",
+            user_message="你好",
+            bot_reply="你好呀！",
+        )
+
+        assert not manager._followup_planner.has_active_expectation("g1")
+
+    @pytest.mark.asyncio
+    async def test_no_expectation_for_private_chat(
+        self, tmp_path_fixture: Path,
+    ) -> None:
+        """私聊不创建 FollowUp 期待"""
+        cfg = ProactiveConfig(
+            enabled=True,
+            quiet_hours=[],
+            followup_after_all_replies=True,
+        )
+        m = ProactiveManager(plugin_data_path=tmp_path_fixture, config=cfg)
+        await m.initialize()
+
+        m.notify_bot_reply(
+            user_id="u1",
+            group_id=None,
+            user_message="你好",
+            bot_reply="你好呀！",
+        )
+
+        # 没有群 ID，不应创建期待
+        assert m._followup_planner.active_expectation_count == 0
+        await m.close()
+
+    @pytest.mark.asyncio
+    async def test_whitelist_filters_notify(
+        self, tmp_path_fixture: Path,
+    ) -> None:
+        """白名单模式过滤不在白名单中的群"""
+        cfg = ProactiveConfig(
+            enabled=True,
+            quiet_hours=[],
+            followup_after_all_replies=True,
+            group_whitelist_mode=True,
+            group_whitelist=["allowed_g"],
+        )
+        m = ProactiveManager(plugin_data_path=tmp_path_fixture, config=cfg)
+        await m.initialize()
+
+        m.notify_bot_reply(
+            user_id="u1",
+            group_id="blocked_g",
+            user_message="你好",
+            bot_reply="你好呀！",
+        )
+        assert not m._followup_planner.has_active_expectation("blocked_g")
+
+        m.notify_bot_reply(
+            user_id="u1",
+            group_id="allowed_g",
+            user_message="你好",
+            bot_reply="你好呀！",
+        )
+        assert m._followup_planner.has_active_expectation("allowed_g")
+        await m.close()
+
+    @pytest.mark.asyncio
+    async def test_not_initialized_noop(
+        self, tmp_path_fixture: Path,
+    ) -> None:
+        """未初始化时 notify_bot_reply 不做任何事"""
+        cfg = ProactiveConfig(
+            enabled=True,
+            followup_after_all_replies=True,
+        )
+        m = ProactiveManager(plugin_data_path=tmp_path_fixture, config=cfg)
+        # 不调用 initialize
+        m.notify_bot_reply(
+            user_id="u1",
+            group_id="g1",
+            user_message="你好",
+            bot_reply="你好呀！",
+        )
+        # 不应崩溃
+
+    @pytest.mark.asyncio
+    async def test_followup_disabled_noop(
+        self, tmp_path_fixture: Path,
+    ) -> None:
+        """followup_enabled=False 时不创建期待"""
+        cfg = ProactiveConfig(
+            enabled=True,
+            quiet_hours=[],
+            followup_after_all_replies=True,
+            followup_enabled=False,
+        )
+        m = ProactiveManager(plugin_data_path=tmp_path_fixture, config=cfg)
+        await m.initialize()
+
+        m.notify_bot_reply(
+            user_id="u1",
+            group_id="g1",
+            user_message="你好",
+            bot_reply="你好呀！",
+        )
+
+        assert m._followup_planner.active_expectation_count == 0
+        await m.close()
+
+    @pytest.mark.asyncio
+    async def test_replaces_old_expectation(
+        self, tmp_path_fixture: Path,
+    ) -> None:
+        """新的 notify_bot_reply 调用会替换旧期待"""
+        cfg = ProactiveConfig(
+            enabled=True,
+            quiet_hours=[],
+            followup_after_all_replies=True,
+        )
+        m = ProactiveManager(plugin_data_path=tmp_path_fixture, config=cfg)
+        await m.initialize()
+
+        m.notify_bot_reply(
+            user_id="u1", group_id="g1",
+            user_message="消息1", bot_reply="回复1",
+        )
+        m.notify_bot_reply(
+            user_id="u2", group_id="g1",
+            user_message="消息2", bot_reply="回复2",
+        )
+
+        # 同群只有一个活跃期待
+        assert m._followup_planner.active_expectation_count == 1
+        exp = m._followup_planner._store.get("g1")
+        assert exp is not None
+        assert exp.trigger_user_id == "u2"
+        await m.close()
+
+    @pytest.mark.asyncio
+    async def test_long_reply_truncated(
+        self, tmp_path_fixture: Path,
+    ) -> None:
+        """长回复在存储时截断"""
+        cfg = ProactiveConfig(
+            enabled=True,
+            quiet_hours=[],
+            followup_after_all_replies=True,
+        )
+        m = ProactiveManager(plugin_data_path=tmp_path_fixture, config=cfg)
+        await m.initialize()
+
+        long_reply = "x" * 500
+        m.notify_bot_reply(
+            user_id="u1", group_id="g1",
+            user_message="msg", bot_reply=long_reply,
+        )
+
+        exp = m._followup_planner._store.get("g1")
+        assert exp is not None
+        assert len(exp.bot_reply_summary) <= 200
+        await m.close()
+
 
 class TestQuietHours:
     """静音时段测试"""
