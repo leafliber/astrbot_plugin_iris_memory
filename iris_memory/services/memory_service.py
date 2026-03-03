@@ -365,11 +365,12 @@ class MemoryService:
             from iris_memory.proactive.reply_sender import ProactiveReplySender
             from iris_memory.utils.llm_helper import resolve_llm_provider
 
-            # 解析主动回复使用的 LLM provider
-            enhanced_pid = self.cfg.llm_enhanced_provider_id
+            # 解析主动回复使用的 LLM provider（使用默认 provider，而非智能增强 provider）
+            # 主动回复检测使用智能增强 provider，但发送应使用与被动回复相同的默认 provider
+            default_pid = self.cfg.llm_provider_id
             llm_provider, llm_provider_id = resolve_llm_provider(
                 self.context,
-                enhanced_pid,
+                default_pid,
                 label="ProactiveReply",
             )
 
