@@ -231,14 +231,19 @@ class MarkdownStripper:
         """
         return bool(self._MARKDOWN_QUICK_RE.search(text))
 
+    # 代码块占位符前缀
+    _CODE_PLACEHOLDER = "\x00CODE:"  # noqa: RUF001
+
     def strip(self, text: str) -> str:
         """执行 Markdown 格式去除
 
         处理流程：
-        1. 保护转义字符（替换为占位符）
-        2. 按规则顺序处理所有 Markdown 标记
-        3. 恢复转义字符
-        4. 清理多余空白
+        1. 保护代码块内容（提取内部内容，替换为占位符）
+        2. 保护转义字符（替换为占位符）
+        3. 按规则顺序处理所有 Markdown 标记
+        4. 恢复转义字符
+        5. 恢复代码块内容（已去除标记）
+        6. 清理多余空白
 
         Args:
             text: 原始文本
@@ -246,25 +251,49 @@ class MarkdownStripper:
         Returns:
             去除格式后的文本
         """
-        # 1. 保护转义字符：\* → 占位符
-        placeholders: list[str] = []
+        result = text
+        code_placeholders: list[str] = []
+        escape_placeholders: list[str] = []
 
+        # 1. 保护代码块内容：提取内部内容，替换为占位符
+        def _replace_code_block(m: re.Match) -> str:
+            idx = len(code_placeholders)
+            # 提取代码块内部内容（去除 ``` 和语言标记）
+            code_content = m.group(1) if m.lastindex else m.group(0)
+            # 去除围栏标记后的内容
+            code_content = re.sub(r"^```(?:\w*)\n?", "", code_content)
+            code_content = re.sub(r"```$", "", code_content)
+            # 去除行内代码的反引号
+            code_content = re.sub(r"^`(.+)`$", r"\1", code_content)
+            code_placeholders.append(code_content)
+            return f"{self._CODE_PLACEHOLDER}{idx}\x00"
+
+        # 保护围栏代码块（匹配 ```...```）
+        result = re.sub(r"```(?:\w*)\n?([\s\S]*?)```", _replace_code_block, result)
+        # 保护行内代码（匹配 `...`）
+        result = re.sub(r"`([^`]+)`", _replace_code_block, result)
+
+        # 2. 保护转义字符：\* → 占位符
         def _replace_escape(m: re.Match) -> str:
-            idx = len(placeholders)
-            placeholders.append(m.group(1))
+            idx = len(escape_placeholders)
+            escape_placeholders.append(m.group(1))
             return f"{self._ESC_PLACEHOLDER}{idx}\x00"
 
-        result = self._ESCAPE_RE.sub(_replace_escape, text)
+        result = self._ESCAPE_RE.sub(_replace_escape, result)
 
-        # 2. 执行 Markdown 去除
+        # 3. 执行 Markdown 去除
         for pattern, replacement in self._strip_rules:
             result = pattern.sub(replacement, result)
 
-        # 3. 恢复转义字符
-        for idx, char in enumerate(placeholders):
+        # 4. 恢复转义字符
+        for idx, char in enumerate(escape_placeholders):
             result = result.replace(f"{self._ESC_PLACEHOLDER}{idx}\x00", char)
 
-        # 4. 清理多余空白
+        # 5. 恢复代码块内容（已去除标记）
+        for idx, code in enumerate(code_placeholders):
+            result = result.replace(f"{self._CODE_PLACEHOLDER}{idx}\x00", code)
+
+        # 6. 清理多余空白
         result = self._cleanup_whitespace(result)
         return result
 
@@ -317,7 +346,10 @@ class MarkdownStripper:
         rules.append((re.compile(r"__(.+?)__"), r"\1"))
 
         # ── 斜体 ──
-        rules.append((re.compile(r"\*(.+?)\*"), r"\1"))
+        # 修复：避免匹配数学表达式（如 3*4*5 或 a*b*c）
+        # 策略：斜体标记要求内容以字母/中文开头和结尾，或两侧有空格
+        # 匹配 *斜体*、*italic* 但不匹配 *4*、*b*（单字母变量）
+        rules.append((re.compile(r"\*(?=[a-zA-Z\u4e00-\u9fa5])([a-zA-Z\u4e00-\u9fa5].*?[a-zA-Z\u4e00-\u9fa5])\*"), r"\1"))
         rules.append((re.compile(r"(?<!\w)_(.+?)_(?!\w)"), r"\1"))
 
         # ── 删除线 ──

@@ -513,14 +513,76 @@ class TestEdgeCases:
         assert stripper.strip(text) == text
 
     def test_code_block_with_markdown_inside(self, stripper):
-        """代码块内的 Markdown 语法也被提取（代码块本身被去除）"""
+        """代码块内的 Markdown 语法被保护（代码块标记被去除，但内部 ** 保留）"""
         text = "```\n**bold** in code\n```"
         result = stripper.strip(text)
-        # 代码块去除后，内容中的 **bold** 会被进一步处理
+        # 代码块标记被去除，但内部的 **bold** 被保护
         assert "```" not in result
+        assert "**bold**" in result  # 内部的 Markdown 标记被保护
 
     def test_multiple_inline_code(self, stripper):
         """多个行内代码"""
         text = "`foo` 和 `bar` 和 `baz`"
         result = stripper.strip(text)
         assert result == "foo 和 bar 和 baz"
+
+    # ── 数学表达式保护 ──
+
+    def test_preserve_math_expression(self, stripper):
+        """数学表达式中的星号不被删除"""
+        assert stripper.strip("3*4*5") == "3*4*5"
+        assert stripper.strip("2*3*4*5") == "2*3*4*5"
+        assert stripper.strip("计算 3*4*5 的结果") == "计算 3*4*5 的结果"
+
+    def test_preserve_math_with_spaces(self, stripper):
+        """带空格的数学表达式"""
+        assert stripper.strip("3 * 4 * 5") == "3 * 4 * 5"
+
+    def test_italic_still_works(self, stripper):
+        """正常的斜体仍然被去除"""
+        assert stripper.strip("*斜体文本*") == "斜体文本"
+        assert stripper.strip("这是*斜体*文字") == "这是斜体文字"
+
+    def test_mixed_math_and_italic(self, stripper):
+        """混合数学表达式和斜体"""
+        text = "计算 3*4*5 和 *斜体文本*"
+        result = stripper.strip(text)
+        assert "3*4*5" in result      # 数学表达式保留
+        assert "斜体文本" in result   # 斜体被去除
+        assert "*斜体文本*" not in result
+
+    # ── 代码块保护 ──
+
+    def test_code_block_preserved(self, stripper):
+        """代码块内部 Markdown 被保护，但标记被去除"""
+        text = "```\n**bold** and *italic*\n```"
+        result = stripper.strip(text)
+        # 代码块标记被去除，但内部的 ** 和 * 被保护
+        assert "```" not in result
+        assert "**bold**" in result      # 内部的 ** 被保护
+        assert "*italic*" in result      # 内部的 * 被保护
+
+    def test_inline_code_preserved(self, stripper):
+        """行内代码内部 Markdown 被保护，但反引号被去除"""
+        text = "使用 `**kwargs` 和 `*args` 参数"
+        result = stripper.strip(text)
+        # 反引号被去除，但内部的 ** 和 * 被保护
+        assert "`**kwargs`" not in result
+        assert "**kwargs" in result       # 内部的 ** 被保护
+        assert "*args" in result         # 内部的 * 被保护
+
+    def test_code_block_with_math(self, stripper):
+        """代码块内的数学表达式被保护，标记被去除"""
+        text = "```python\nresult = 3*4*5\n```"
+        result = stripper.strip(text)
+        assert "3*4*5" in result         # 数学表达式保留
+        assert "```python" not in result  # 代码块标记被去除
+
+    def test_mixed_code_and_text(self, stripper):
+        """代码块和普通文本混合"""
+        text = "**粗体** 和 `*代码*` 以及 *斜体文本*"
+        result = stripper.strip(text)
+        assert "粗体" in result          # 外部粗体被去除
+        assert "*代码*" in result        # 代码块内的 * 被保护，反引号被去除
+        assert "斜体文本" in result      # 外部斜体被去除
+        assert "*斜体文本*" not in result
