@@ -83,6 +83,10 @@ class ProactiveConfig:
     # 静音时段
     quiet_hours: list = field(default_factory=lambda: [23, 7])
 
+    # 智能静音：群活跃豁免窗口（分钟数，0=禁用）
+    # 若群组在此窗口内有用户发言，则自动豁免静音时段限制
+    quiet_hours_activity_exempt_minutes: int = 20
+
     # 时区配置（UTC 偏移小时数，默认 +8 北京时间）
     timezone_offset: int = 8
 

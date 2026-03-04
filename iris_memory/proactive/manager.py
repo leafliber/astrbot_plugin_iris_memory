@@ -118,6 +118,9 @@ class ProactiveManager:
         # 冷却时间控制（group_id -> 最后回复时间戳）
         self._last_reply_time: Dict[str, float] = {}
 
+        # 群组最近用户活动时间（用于智能静音豁免，group_id -> datetime）
+        self._group_last_activity: BoundedDict[str, datetime] = BoundedDict(max_size=2000)
+
         # 回复协调器：集中管理正常回复与主动回复的竞态关系
         self._reply_coordinator = ReplyCoordinator()
 
@@ -279,8 +282,11 @@ class ProactiveManager:
         if session_type == "private" or not group_id:
             return None
 
+        # 追踪群组活动时间（用于智能静音豁免）
+        self._group_last_activity[group_id] = datetime.now()
+
         # 静音时段检查
-        if self._is_quiet_hours():
+        if self._is_quiet_hours(group_id):
             return None
 
         # 竞态防护：正常回复进行中或冷却期内，抑制信号生成
@@ -507,7 +513,7 @@ class ProactiveManager:
             decision: 聚合决策
         """
         # 检查静音时段
-        if self._is_quiet_hours():
+        if self._is_quiet_hours(decision.group_id):
             logger.debug(
                 f"Quiet hours, skipping signal reply for group {decision.group_id}"
             )
@@ -592,7 +598,7 @@ class ProactiveManager:
         self,
         reply_result: ProactiveReplyResult,
         expectation: FollowUpExpectation,
-    ) -> None:
+    ) -> bool:
         """处理 FollowUp 触发的回复
 
         完整流程：
@@ -604,13 +610,16 @@ class ProactiveManager:
         Args:
             reply_result: 回复结果
             expectation: 跟进期待
+
+        Returns:
+            True 表示回复已成功发送，False 表示被阻断（静音/冷却等）
         """
         # 检查静音时段
-        if self._is_quiet_hours():
+        if self._is_quiet_hours(expectation.group_id):
             logger.debug(
                 f"Quiet hours, skipping followup reply for group {expectation.group_id}"
             )
-            return
+            return False
 
         # 检查冷却时间
         if not self._check_rate_limit(expectation.group_id):
@@ -618,7 +627,7 @@ class ProactiveManager:
                 f"Rate limit: group {expectation.group_id} in cooldown, "
                 f"skipping followup"
             )
-            return
+            return False
 
         # 检查 CooldownModule（用户通过 /冷却 命令激活的冷却状态）
         if self._cooldown_checker and self._cooldown_checker(expectation.group_id):
@@ -626,7 +635,7 @@ class ProactiveManager:
                 f"CooldownModule active for group {expectation.group_id}, "
                 f"skipping followup reply"
             )
-            return
+            return False
 
         # 检查每日限额（锁外快速拒绝）
         if not self._check_daily_limit(expectation.trigger_user_id):
@@ -634,9 +643,10 @@ class ProactiveManager:
                 f"Daily limit reached for user {expectation.trigger_user_id}, "
                 f"skipping followup"
             )
-            return
+            return False
 
         # 通过协调器守卫发送：获取群锁 + 二次校验正常回复状态
+        reply_sent = False
         async with self._reply_coordinator.proactive_reply_guard(
             expectation.group_id, self._config.cooldown_seconds
         ) as allowed:
@@ -645,7 +655,7 @@ class ProactiveManager:
                     f"Reply coordinator blocked followup reply "
                     f"for group {expectation.group_id}"
                 )
-                return
+                return False
 
             # 清除该群的信号
             if self._signal_queue:
@@ -658,6 +668,7 @@ class ProactiveManager:
                 # 更新冷却时间和计数
                 self._update_last_reply_time(expectation.group_id)
                 self._increment_daily_count(expectation.trigger_user_id)
+                reply_sent = True
 
                 logger.info(
                     f"FollowUp reply sent: group={expectation.group_id}, "
@@ -669,6 +680,8 @@ class ProactiveManager:
                 logger.debug(
                     f"FollowUp reply not sent for group={expectation.group_id}"
                 )
+
+        return reply_sent
 
     async def _send_proactive_reply(
         self,
@@ -890,11 +903,14 @@ class ProactiveManager:
             self._per_user_daily.clear()
             self._daily_reply_date = today
 
-    def _is_quiet_hours(self) -> bool:
+    def _is_quiet_hours(self, group_id: Optional[str] = None) -> bool:
         """检查是否在静音时段
 
         使用配置的时区偏移（默认 UTC+8 北京时间）来判断当前小时，
         避免服务器时区与用户时区不一致导致静音失效。
+
+        Args:
+            group_id: 群组 ID，用于智能静音豁免检测
         """
         quiet = self._config.quiet_hours
         if not quiet or len(quiet) < 2:
@@ -905,10 +921,27 @@ class ProactiveManager:
         start, end = quiet[0], quiet[1]
 
         if start <= end:
-            return start <= hour < end
+            in_quiet = start <= hour < end
         else:
             # 跨午夜
-            return hour >= start or hour < end
+            in_quiet = hour >= start or hour < end
+
+        if not in_quiet:
+            return False
+
+        # 智能静音：若群组近期有用户活动，豁免静音时段
+        exempt_minutes = self._config.quiet_hours_activity_exempt_minutes
+        if exempt_minutes > 0 and group_id and group_id in self._group_last_activity:
+            last_activity = self._group_last_activity[group_id]
+            elapsed = (datetime.now() - last_activity).total_seconds() / 60
+            if elapsed <= exempt_minutes:
+                logger.debug(
+                    f"Smart quiet hours: group {group_id} was active "
+                    f"{elapsed:.1f}min ago, exempting from quiet hours"
+                )
+                return False
+
+        return True
 
     # ── 白名单管理（v2 兼容）──────────────────────────────────
 

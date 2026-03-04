@@ -25,9 +25,10 @@ from iris_memory.utils.logger import get_logger
 logger = get_logger("proactive.followup_planner")
 
 # 回调类型
+# 返回 True 表示回复已成功发送，False 表示被静音/冷却等阅断
 FollowUpReplyCallback = Callable[
     [ProactiveReplyResult, FollowUpExpectation],
-    Coroutine[Any, Any, None],
+    Coroutine[Any, Any, bool],
 ]
 
 # LLM 判断回调
@@ -375,15 +376,24 @@ class FollowUpPlanner:
         reply_result = self._build_followup_reply(expectation, decision)
 
         # 执行回复
+        reply_sent = False
         if self._on_followup_reply:
             try:
-                await self._on_followup_reply(reply_result, expectation)
+                reply_sent = await self._on_followup_reply(reply_result, expectation)
             except Exception as e:
                 logger.error(f"FollowUp reply callback failed: {e}")
 
+        # 被静音/冷却阻断时，不消耗跟进次数，直接结束
+        self._store.remove(expectation.group_id)
+        if not reply_sent:
+            logger.debug(
+                f"FollowUp reply was blocked (quiet hours/rate limit), "
+                f"not incrementing count for group {expectation.group_id}"
+            )
+            return
+
         # 更新跟进次数并创建新期待
         new_count = expectation.followup_count + 1
-        self._store.remove(expectation.group_id)
 
         if new_count < self._config.max_followup_count:
             # 创建新的期待
