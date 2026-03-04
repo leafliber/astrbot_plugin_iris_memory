@@ -145,28 +145,84 @@ class ServiceInitializer:
         self._module_init_status["core"] = True
 
     async def _init_phase_enhanced(self) -> None:
-        """阶段2: 增强组件初始化（失败则降级运行）"""
+        """阶段2: 增强组件初始化（失败则降级运行）
+
+        优化：非关键模块并行初始化，缩短热重载等待时间
+        """
         await self._init_upgrade_evaluator_safe()
 
-        enhanced_modules = [
-            ("knowledge_graph", self._init_knowledge_graph),
-            ("activity_adaptive", self._init_activity_adaptive),
+        # 关键模块先初始化（有依赖关系）
+        await self._init_module_safe("knowledge_graph", self._init_knowledge_graph)
+        await self._init_module_safe("activity_adaptive", self._init_activity_adaptive)
+
+        # 非关键模块并行初始化（无依赖关系）
+        parallel_modules = [
             ("message_processing", self._init_message_processing),
             ("persona_extractor", self._init_persona_extractor),
             ("proactive_reply", self._init_proactive_reply),
             ("image_analyzer", self._init_image_analyzer),
         ]
 
-        for name, init_fn in enhanced_modules:
-            await self._init_module_safe(name, init_fn)
+        # 使用 gather 并行执行，return_exceptions=True 确保一个失败不影响其他
+        results = await asyncio.gather(
+            *[self._init_module_safe_parallel(name, fn) for name, fn in parallel_modules],
+            return_exceptions=True
+        )
+
+        # 记录结果
+        for (name, _), result in zip(parallel_modules, results):
+            if isinstance(result, Exception):
+                self._module_init_status[name] = False
+                self._logger.warning(f"Module '{name}' initialization failed: {result}")
+            else:
+                self._module_init_status[name] = result
+
+    async def _init_module_safe_parallel(self, name: str, init_fn: Callable) -> bool:
+        """并行安全初始化模块，返回是否成功"""
+        try:
+            await init_fn()
+            return True
+        except Exception as e:
+            self._logger.warning(f"Module '{name}' initialization failed: {e}")
+            return False
 
     async def _init_phase_finalize(self) -> None:
-        """阶段3: 收尾初始化"""
-        await self._apply_config()
+        """阶段3: 收尾初始化
+
+        优化：配置应用和处理器初始化并行执行
+        """
+        # 配置应用与其他初始化并行
+        config_task = asyncio.create_task(self._apply_config())
+        batch_task = asyncio.create_task(self._init_batch_processor_safe())
+        persona_batch_task = asyncio.create_task(self._init_persona_batch_processor_safe())
+
+        # 等待所有任务完成
+        await config_task
         self._module_init_status["config"] = True
 
-        await self._init_module_safe("batch_processor", self._init_batch_processor)
-        await self._init_module_safe("persona_batch_processor", self._init_persona_batch_processor)
+        batch_result = await batch_task
+        self._module_init_status["batch_processor"] = batch_result
+
+        persona_result = await persona_batch_task
+        self._module_init_status["persona_batch_processor"] = persona_result
+
+    async def _init_batch_processor_safe(self) -> bool:
+        """安全初始化批量处理器"""
+        try:
+            await self._init_batch_processor()
+            return True
+        except Exception as e:
+            self._logger.warning(f"Batch processor initialization failed: {e}")
+            return False
+
+    async def _init_persona_batch_processor_safe(self) -> bool:
+        """安全初始化画像批量处理器"""
+        try:
+            await self._init_persona_batch_processor()
+            return True
+        except Exception as e:
+            self._logger.warning(f"Persona batch processor initialization failed: {e}")
+            return False
 
     async def _init_module_safe(self, name: str, init_fn: Callable) -> None:
         """安全初始化模块，失败时记录并继续"""

@@ -80,7 +80,7 @@ class WebUIManager:
 
         if self._server_task:
             try:
-                await asyncio.wait_for(self._server_task, timeout=5.0)
+                await asyncio.wait_for(self._server_task, timeout=3.0)
             except asyncio.TimeoutError:
                 logger.warning("[Hot-Reload] Web server task did not stop in time, cancelling...")
                 self._server_task.cancel()

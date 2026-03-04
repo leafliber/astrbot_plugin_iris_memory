@@ -274,7 +274,7 @@ class IrisMemoryPlugin(Star):
 
         try:
             await asyncio.wait_for(
-                self._service.save_to_kv(self.put_kv_data), timeout=5.0
+                self._service.save_to_kv(self.put_kv_data), timeout=3.0
             )
         except asyncio.TimeoutError:
             self._service.logger.warning("[Hot-Reload] Save KV data timed out")
