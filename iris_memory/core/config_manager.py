@@ -40,7 +40,7 @@ class ConfigManager:
         cache_ttl: Optional[float] = None,
         plugin_data_path: Optional[Path] = None,
     ):
-        self._store: ConfigStore = ConfigStore(
+        self._store: ConfigStore = init_store(
             user_config=user_config,
             plugin_data_path=plugin_data_path,
             cache_ttl=cache_ttl,
