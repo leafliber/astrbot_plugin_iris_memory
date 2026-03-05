@@ -35,7 +35,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from astrbot.api import AstrBotConfig
 from astrbot.api.star import Context
 
-from iris_memory.config import ConfigManager
+from iris_memory.core.config_manager import ConfigManager
 from iris_memory.core.constants import LogTemplates
 from iris_memory.services.initializer import InitializerDeps, ServiceInitializer
 from iris_memory.services.modules.analysis_module import AnalysisModule
