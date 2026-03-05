@@ -83,7 +83,7 @@ class LLMEnhancedModule:
 
     async def initialize(self, cfg: Any, context: Any) -> None:
         """初始化所有 LLM 增强组件"""
-        if not cfg.llm_enhanced_enabled:
+        if not cfg.get("llm_enhanced.enable", False):
             logger.debug("LLM enhanced: all modules using rule mode")
             return
 
@@ -94,9 +94,9 @@ class LLMEnhancedModule:
         from iris_memory.capture.conflict.llm_conflict_resolver import LLMConflictResolver
         from iris_memory.retrieval.llm_retrieval_router import LLMRetrievalRouter
 
-        provider_id = cfg.llm_enhanced_provider_id
+        provider_id = cfg.get("llm_enhanced.provider_id", None)
         logger.debug(f"[DEBUG] enhanced_provider_id from config: {repr(provider_id)}")
-        logger.debug(f"[DEBUG] raw config value: {repr(cfg.get('llm_providers.enhanced_provider_id'))}")
+        logger.debug(f"[DEBUG] raw config value: {repr(cfg.get('llm_enhanced.provider_id'))}")
         modes: list[str] = []
 
         _MAPPING = [
@@ -108,7 +108,7 @@ class LLMEnhancedModule:
         ]
 
         for name, cfg_attr, cls in _MAPPING:
-            mode_str = getattr(cfg, cfg_attr)
+            mode_str = cfg.get(f"llm_enhanced.{cfg_attr}", "rule")
             if mode_str != "rule":
                 detector = cls(
                     astrbot_context=context,
@@ -144,7 +144,7 @@ class LLMEnhancedModule:
                 "message_processing.llm_max_tokens_for_summary",
                 500,
             ),
-            provider_id=cfg.llm_provider_id,
+            provider_id=cfg.get("llm_providers.provider_id", None),
         )
         llm_ready = await self._llm_processor.initialize()
         if llm_ready and lifecycle_manager:

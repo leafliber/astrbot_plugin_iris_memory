@@ -293,7 +293,7 @@ class ServiceInitializer:
         """初始化记忆升级评估器的 LLM provider"""
         from iris_memory.core.upgrade_evaluator import UpgradeMode
 
-        upgrade_mode = self._deps.cfg.upgrade_mode
+        upgrade_mode = self._deps.cfg.get("memory_storage.upgrade_mode", "rule")
 
         if upgrade_mode in ("llm", "hybrid"):
             self._logger.debug(f"Initializing upgrade evaluator LLM provider (mode={upgrade_mode})")
@@ -351,7 +351,7 @@ class ServiceInitializer:
         if self._deps.storage.session_manager:
             self._deps.storage.session_manager._activity_tracker = self._activity_tracker
 
-        enabled = self._deps.cfg.enable_activity_adaptive
+        enabled = self._deps.cfg.get("activity_adaptive.enable", True)
         self._activity_provider = self._deps.cfg.init_activity_provider(
             tracker=self._activity_tracker,
             enabled=enabled,
@@ -365,7 +365,7 @@ class ServiceInitializer:
         self._logger.debug(LogTemplates.COMPONENT_INIT.format(component="message processing"))
 
         enable_batch = get_store().get("message_processing.batch_threshold_count", 20) > 0
-        use_llm = self._deps.cfg.use_llm
+        use_llm = self._deps.cfg.get("message_processing.use_llm", False)
 
         if not enable_batch:
             self._logger.debug(LogTemplates.COMPONENT_INIT_DISABLED.format(component="Batch processing"))
@@ -410,21 +410,21 @@ class ServiceInitializer:
         """初始化图片分析器"""
         self._logger.debug(LogTemplates.COMPONENT_INIT.format(component="image analyzer"))
 
-        if not self._deps.cfg.image_analysis_enabled:
+        if not self._deps.cfg.get("image_analysis.enable", False):
             self._logger.debug(LogTemplates.COMPONENT_INIT_DISABLED.format(component="Image analysis"))
             return
 
         from iris_memory.multimodal.image_analyzer import ImageAnalyzer
 
-        daily_budget = self._deps.cfg.image_analysis_daily_budget
-        session_budget = self._deps.cfg.image_analysis_session_budget
+        daily_budget = self._deps.cfg.get("image_analysis.daily_budget", 50)
+        session_budget = self._deps.cfg.get("image_analysis.session_budget", 10)
 
         self._image_analyzer = ImageAnalyzer(
             astrbot_context=self._deps.context,
             config={
-                "enable_image_analysis": self._deps.cfg.image_analysis_enabled,
-                "default_level": self._deps.cfg.image_analysis_mode,
-                "max_images_per_message": self._deps.cfg.image_analysis_max_images,
+                "enable_image_analysis": self._deps.cfg.get("image_analysis.enable", False),
+                "default_level": self._deps.cfg.get("image_analysis.mode", "detailed"),
+                "max_images_per_message": self._deps.cfg.get("image_analysis.max_images", 9),
                 "skip_sticker": get_store().get("image_analysis.skip_sticker"),
                 "analysis_cooldown": get_store().get("image_analysis.analysis_cooldown"),
                 "cache_ttl": get_store().get("image_analysis.cache_ttl"),
@@ -433,12 +433,12 @@ class ServiceInitializer:
                 "session_analysis_budget": session_budget if session_budget > 0 else UNLIMITED_BUDGET,
                 "similar_image_window": get_store().get("image_analysis.similar_image_window"),
                 "recent_image_limit": get_store().get("image_analysis.recent_image_limit"),
-                "require_context_relevance": self._deps.cfg.image_analysis_require_context,
+                "require_context_relevance": self._deps.cfg.get("image_analysis.require_context", False),
             },
-            provider_id=self._deps.cfg.image_analysis_provider_id,
+            provider_id=self._deps.cfg.get("image_analysis.provider_id", None),
         )
 
-        self._logger.debug(f"Image analyzer initialized: mode={self._deps.cfg.image_analysis_mode}")
+        self._logger.debug(f"Image analyzer initialized: mode={self._deps.cfg.get('image_analysis.mode', 'detailed')}")
 
     async def _apply_config(self) -> None:
         """将配置应用到各模块"""
