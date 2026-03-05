@@ -149,7 +149,6 @@ class GroupScheduler:
             signals: 有效信号列表
         """
         aggregated_weight = self._signal_queue.aggregate_weight(group_id)
-        sq_config = self._config.signal_queue
 
         # 找到权重最高的信号对应的用户
         best_signal = max(signals, key=lambda s: s.weight)
@@ -167,7 +166,7 @@ class GroupScheduler:
                     "timestamp": s.created_at.isoformat(),
                 })
 
-        if aggregated_weight >= sq_config.weight_direct_reply:
+        if aggregated_weight >= self._config.signal_weight_direct_reply:
             # 高权重 → 直接回复
             decision = AggregatedDecision(
                 should_reply=True,
@@ -176,14 +175,14 @@ class GroupScheduler:
                 target_user_id=target_user_id,
                 aggregated_weight=aggregated_weight,
                 signals=list(signals),
-                reason=f"聚合权重 {aggregated_weight:.2f} >= {sq_config.weight_direct_reply}",
+                reason=f"聚合权重 {aggregated_weight:.2f} >= {self._config.signal_weight_direct_reply}",
                 recent_messages=recent_messages,
                 llm_confirmed=False,
             )
             await self._execute_reply(decision)
 
         elif (
-            aggregated_weight >= sq_config.weight_llm_confirm
+            aggregated_weight >= self._config.signal_weight_llm_confirm
             and self._config.proactive_mode == "hybrid"
         ):
             # 中等权重 + hybrid 模式 → LLM 确认

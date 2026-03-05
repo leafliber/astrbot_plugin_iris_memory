@@ -243,10 +243,10 @@ class ProactiveReplyDefaults:
     signal_weight_llm_confirm: float = 0.5      # LLM 确认阈值
 
     # ===== v3 FollowUp 高级配置 =====
-    followup_window_seconds: int = 120          # FollowUp 窗口时长
-    max_followup_count: int = 2                 # 最大跟进次数
+    followup_window_seconds: int = 150          # FollowUp 窗口时长
+    max_followup_count: int = 3                 # 最大跟进次数
     followup_short_window_seconds: int = 10     # 短期窗口
-    followup_llm_max_tokens: int = 500          # LLM 判断最大 token
+    followup_llm_max_tokens: int = 1000          # LLM 判断最大 token
     followup_llm_temperature: float = 0.3       # LLM 判断温度
     followup_fallback_to_rule: bool = True      # LLM 失败时降级到规则判断
 
