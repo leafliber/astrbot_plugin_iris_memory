@@ -60,8 +60,8 @@ class LocalProvider(EmbeddingProvider):
             bool: 依赖检查是否通过（True 表示后台加载已启动）
         """
         try:
-            from iris_memory.core.config_manager import get_config_manager
-            cfg = get_config_manager()
+            from iris_memory.config import get_store
+            cfg = get_store()
 
             # 检查依赖
             try:

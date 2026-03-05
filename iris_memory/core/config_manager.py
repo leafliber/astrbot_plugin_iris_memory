@@ -2,7 +2,7 @@
 配置管理器 — 向后兼容适配层
 
 将所有配置读取委托给 ``iris_memory.config.ConfigStore``，
-保留原有公共 API (get / __getattr__ / get_config_manager / init_config_manager)。
+保留原有公共 API。
 
 新代码推荐直接使用::
 
@@ -228,41 +228,4 @@ class ConfigManager:
         return self.default_persona_id
 
 
-# ━━━ 全局公共 API（向后兼容）━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-def get_config_manager() -> ConfigManager:
-    """获取全局配置管理器（线程安全）"""
-    from iris_memory.core.service_container import ServiceContainer
-    container = ServiceContainer.instance()
-    mgr = container.get("config_manager")
-    if mgr is None:
-        mgr = ConfigManager()
-        container.register("config_manager", mgr)
-    return mgr
-
-
-def init_config_manager(
-    user_config: Any,
-    plugin_data_path: Optional[Path] = None,
-) -> ConfigManager:
-    """初始化全局配置管理器（线程安全）
-
-    同时初始化底层 ConfigStore 全局单例。
-    """
-    from iris_memory.core.service_container import ServiceContainer
-    container = ServiceContainer.instance()
-
-    # 初始化全局 ConfigStore
-    store = init_store(user_config, plugin_data_path)
-
-    mgr = ConfigManager(user_config, plugin_data_path=plugin_data_path)
-    container.register("config_manager", mgr)
-    return mgr
-
-
-def reset_config_manager() -> None:
-    """重置配置管理器（主要用于测试）"""
-    from iris_memory.core.service_container import ServiceContainer
-    container = ServiceContainer.instance()
-    container.unregister("config_manager")
-    reset_store()

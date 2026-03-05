@@ -12,7 +12,7 @@ import json
 from datetime import datetime, timedelta
 from typing import Any, Callable, Coroutine, Dict, List, Optional
 
-from iris_memory.proactive.config import ProactiveConfig
+from iris_memory.config import get_store
 from iris_memory.proactive.models import (
     FollowUpDecision,
     FollowUpExpectation,
@@ -79,12 +79,11 @@ class FollowUpPlanner:
 
     def __init__(
         self,
-        config: ProactiveConfig,
         expectation_store: Optional[ExpectationStore] = None,
         on_followup_reply: Optional[FollowUpReplyCallback] = None,
         on_llm_decide: Optional[LLMFollowUpCallback] = None,
     ) -> None:
-        self._config = config
+        self._cfg = get_store()
         self._store = expectation_store or ExpectationStore()
         self._on_followup_reply = on_followup_reply
         self._on_llm_decide = on_llm_decide
@@ -127,18 +126,19 @@ class FollowUpPlanner:
         Returns:
             FollowUpExpectation 对象，如果达到上限则返回 None
         """
-        if not self._config.followup_enabled:
+        if not self._cfg.get("proactive_reply.followup_enabled", True):
             return None
 
         # 检查跟进次数上限
-        if followup_count >= self._config.max_followup_count:
+        max_followup = self._cfg.get("proactive_reply.max_followup_count", 3)
+        if followup_count >= max_followup:
             logger.debug(
                 f"FollowUp count {followup_count} >= max "
-                f"{self._config.max_followup_count}, not creating expectation"
+                f"{max_followup}, not creating expectation"
             )
             return None
 
-        window_seconds = self._config.followup_window_seconds
+        window_seconds = self._cfg.get("proactive_reply.followup_window_seconds", 150)
         now = datetime.now()
 
         expectation = FollowUpExpectation(
@@ -212,7 +212,7 @@ class FollowUpPlanner:
         })
 
         # 设置/重置短期窗口
-        short_window = self._config.followup_short_window_seconds
+        short_window = self._cfg.get("proactive_reply.followup_short_window_seconds", 10)
         now = datetime.now()
         new_short_end = now + timedelta(seconds=short_window)
 
@@ -362,7 +362,8 @@ class FollowUpPlanner:
 
             # followup_after_all_replies 模式下不等待用户发言，直接触发跟进
             # 其他情况下只有用户有发言时才判断
-            if expectation.has_aggregated_messages or self._config.followup_after_all_replies:
+            followup_after_all = self._cfg.get("proactive_reply.followup_after_all_replies", False)
+            if expectation.has_aggregated_messages or followup_after_all:
                 logger.info(
                     f"FollowUp window expired for group {group_id}: "
                     f"messages={len(expectation.aggregated_messages)}, "
@@ -450,8 +451,9 @@ class FollowUpPlanner:
 
         # 更新跟进次数并创建新期待
         new_count = expectation.followup_count + 1
+        max_followup = self._cfg.get("proactive_reply.max_followup_count", 3)
 
-        if new_count < self._config.max_followup_count:
+        if new_count < max_followup:
             # 创建新的期待
             self.create_expectation(
                 session_key=expectation.session_key,
@@ -485,7 +487,8 @@ class FollowUpPlanner:
             except Exception as e:
                 logger.warning(f"LLM followup decision failed: {e}")
 
-                if not self._config.followup_fallback_to_rule_on_llm_error:
+                fallback = self._cfg.get("proactive_reply.followup_fallback_to_rule", True)
+                if not fallback:
                     return None
 
                 logger.debug("Falling back to rule-based followup decision")
@@ -501,8 +504,9 @@ class FollowUpPlanner:
         followup_after_all_replies 模式：即使无用户回应也主动跟进。
         普通模式：有聚合消息才回复。
         """
+        followup_after_all = self._cfg.get("proactive_reply.followup_after_all_replies", False)
         if not expectation.has_aggregated_messages:
-            if self._config.followup_after_all_replies:
+            if followup_after_all:
                 return FollowUpDecision(
                     should_reply=True,
                     reason="主动跟进（Bot 回复后，用户尚未回应）",

@@ -21,7 +21,6 @@ import numpy as np
 
 from iris_memory.models.memory import Memory
 from iris_memory.core.types import MemoryType, StorageLayer
-from iris_memory.core.defaults import DEFAULTS
 from iris_memory.utils.logger import get_logger
 
 logger = get_logger("semantic_clustering")
@@ -63,13 +62,13 @@ class SemanticClustering:
 
     def __init__(
         self,
-        min_confidence: float = DEFAULTS.semantic_extraction.min_confidence,
-        min_age_days: int = DEFAULTS.semantic_extraction.min_age_days,
-        min_cluster_size: int = DEFAULTS.semantic_extraction.min_cluster_size,
-        cluster_time_window_days: int = DEFAULTS.semantic_extraction.cluster_time_window_days,
-        similarity_threshold: float = DEFAULTS.semantic_extraction.similarity_threshold,
-        max_clusters_per_run: int = DEFAULTS.semantic_extraction.max_clusters_per_run,
-        max_memories_per_cluster: int = DEFAULTS.semantic_extraction.max_memories_per_cluster,
+        min_confidence: float = 0.4,
+        min_age_days: int = 30,
+        min_cluster_size: int = 3,
+        cluster_time_window_days: int = 90,
+        similarity_threshold: float = 0.75,
+        max_clusters_per_run: int = 20,
+        max_memories_per_cluster: int = 15,
     ) -> None:
         self.min_confidence = min_confidence
         self.min_age_days = min_age_days

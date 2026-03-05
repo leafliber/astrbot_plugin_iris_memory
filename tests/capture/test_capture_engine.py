@@ -17,7 +17,8 @@ from iris_memory.core.types import (
 )
 from iris_memory.analysis.emotion.emotion_analyzer import EmotionAnalyzer
 from iris_memory.analysis.rif_scorer import RIFScorer
-from iris_memory.core.defaults import DEFAULTS
+from iris_memory.config import get_store
+
 
 
 class TestMemoryCaptureEngine:
@@ -62,8 +63,8 @@ class TestMemoryCaptureEngine:
         assert engine.trigger_detector is not None
         assert engine.sensitivity_detector is not None
         assert engine.auto_capture is True
-        assert engine.min_confidence == DEFAULTS.memory.min_confidence
-        assert engine.rif_threshold == DEFAULTS.memory.rif_threshold
+        assert engine.min_confidence == get_store().get("memory.min_confidence")
+        assert engine.rif_threshold == get_store().get("memory.rif_threshold")
 
     def test_engine_initialization_custom(self, mock_emotion_analyzer, mock_rif_scorer):
         """测试使用自定义组件初始化"""

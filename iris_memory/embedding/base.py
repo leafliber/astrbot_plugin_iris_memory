@@ -61,8 +61,8 @@ class EmbeddingProvider(ABC):
         """获取嵌入维度"""
         if self._dimension is None:
             # 延迟加载期间返回配置的默认维度
-            from iris_memory.core.config_manager import get_config_manager
-            return get_config_manager().embedding_local_dimension
+            from iris_memory.config import get_store
+            return get_store().get("embedding.local_dimension", 512)
         return self._dimension
 
     @property

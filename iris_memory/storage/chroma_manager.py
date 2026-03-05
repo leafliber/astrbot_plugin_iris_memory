@@ -72,15 +72,14 @@ class ChromaManager:
         self.collection = None
         self._is_ready: bool = False
         
-        from iris_memory.core.config_manager import get_config_manager
-        from iris_memory.core.defaults import DEFAULTS
+        from iris_memory.config import get_store
 
-        cfg = get_config_manager()
+        cfg = get_store()
 
         self.embedding_model_name = cfg.embedding_local_model
         self.embedding_dimension = cfg.embedding_local_dimension
-        self.collection_name = DEFAULTS.embedding.collection_name
-        self.auto_detect_dimension = DEFAULTS.embedding.auto_detect_dimension
+        self.collection_name = cfg.get("embedding.collection_name")
+        self.auto_detect_dimension = cfg.get("embedding.auto_detect_dimension")
         self.reimport_on_dimension_conflict = cfg.get("embedding.reimport_on_dimension_conflict", True)
 
         from iris_memory.embedding.manager import EmbeddingManager

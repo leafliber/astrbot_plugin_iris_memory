@@ -69,7 +69,7 @@ class StorageModule:
         from iris_memory.storage.lifecycle_manager import SessionLifecycleManager
         from iris_memory.storage.cache import CacheManager
         from iris_memory.storage.chat_history_buffer import ChatHistoryBuffer
-        from iris_memory.core.defaults import DEFAULTS
+        from iris_memory.config import get_store
 
         # ChromaManager
         self._chroma_manager = ChromaManager(config, plugin_data_path, context)
@@ -78,7 +78,7 @@ class StorageModule:
         # SessionManager
         self._session_manager = SessionManager(
             max_working_memory=cfg.max_working_memory,
-            max_sessions=DEFAULTS.session.max_sessions,
+            max_sessions=get_store().get("session.max_sessions"),
             ttl=cfg.session_timeout,
         )
 
@@ -90,8 +90,8 @@ class StorageModule:
             session_manager=self._session_manager,
             chroma_manager=self._chroma_manager,
             upgrade_mode=cfg.upgrade_mode,
-            llm_upgrade_batch_size=DEFAULTS.memory.llm_upgrade_batch_size,
-            llm_upgrade_threshold=DEFAULTS.memory.llm_upgrade_threshold,
+            llm_upgrade_batch_size=get_store().get("memory.llm_upgrade_batch_size"),
+            llm_upgrade_threshold=get_store().get("memory.llm_upgrade_threshold"),
         )
         # 注入 AstrBot 上下文供语义提取 LLM 调用使用
         self._lifecycle_manager.set_astrbot_context(context, cfg.llm_provider_id)
@@ -114,34 +114,34 @@ class StorageModule:
 
     def apply_config(self, cfg: Any) -> None:
         """将用户配置应用到各存储组件"""
-        from iris_memory.core.defaults import DEFAULTS
+        from iris_memory.config import get_store
         from iris_memory.storage.cache import CacheManager
 
         if self._cache_manager:
             self._cache_manager = CacheManager({
                 "embedding_cache": {
-                    "max_size": DEFAULTS.cache.embedding_cache_size,
-                    "strategy": DEFAULTS.cache.embedding_cache_strategy,
+                    "max_size": get_store().get("cache.embedding_cache_size"),
+                    "strategy": get_store().get("cache.embedding_cache_strategy"),
                 },
                 "working_cache": {
-                    "max_sessions": DEFAULTS.session.max_sessions,
+                    "max_sessions": get_store().get("session.max_sessions"),
                     "max_memories_per_session": cfg.max_working_memory,
-                    "ttl": DEFAULTS.cache.working_cache_ttl,
+                    "ttl": get_store().get("cache.working_cache_ttl"),
                 },
                 "compression": {
-                    "max_length": DEFAULTS.cache.compression_max_length,
+                    "max_length": get_store().get("cache.compression_max_length"),
                 },
             })
 
         if self._session_manager:
             self._session_manager.max_working_memory = cfg.max_working_memory
-            self._session_manager.max_sessions = DEFAULTS.session.max_sessions
+            self._session_manager.max_sessions = get_store().get("session.max_sessions")
             self._session_manager.ttl = cfg.session_timeout
 
         if self._lifecycle_manager:
-            self._lifecycle_manager.cleanup_interval = DEFAULTS.session.session_cleanup_interval
+            self._lifecycle_manager.cleanup_interval = get_store().get("session.session_cleanup_interval")
             self._lifecycle_manager.session_timeout = cfg.session_timeout
-            self._lifecycle_manager.inactive_timeout = DEFAULTS.session.session_inactive_timeout
+            self._lifecycle_manager.inactive_timeout = get_store().get("session.session_inactive_timeout")
 
         if self._chat_history_buffer:
             self._chat_history_buffer.set_max_messages(cfg.chat_context_count)

@@ -11,7 +11,7 @@ import asyncio
 from datetime import datetime
 from typing import Any, Callable, Coroutine, Dict, List, Optional, Set
 
-from iris_memory.proactive.config import ProactiveConfig
+from iris_memory.config import get_store
 from iris_memory.proactive.models import AggregatedDecision, Signal
 from iris_memory.proactive.signal_queue import SignalQueue
 from iris_memory.utils.logger import get_logger
@@ -45,12 +45,11 @@ class GroupScheduler:
 
     def __init__(
         self,
-        config: ProactiveConfig,
         signal_queue: SignalQueue,
         on_reply: Optional[ReplyCallback] = None,
         on_llm_confirm: Optional[LLMConfirmCallback] = None,
     ) -> None:
-        self._config = config
+        self._cfg = get_store()
         self._signal_queue = signal_queue
         self._on_reply = on_reply
         self._on_llm_confirm = on_llm_confirm
@@ -96,8 +95,8 @@ class GroupScheduler:
         Args:
             group_id: 群组 ID
         """
-        check_interval = self._config.signal_check_interval_seconds
-        silence_timeout = self._config.signal_silence_timeout_seconds
+        check_interval = self._cfg.get("proactive_reply.signal_check_interval_seconds", 30)
+        silence_timeout = self._cfg.get("proactive_reply.signal_silence_timeout_seconds", 600)
 
         try:
             while not self._closed:
@@ -119,7 +118,7 @@ class GroupScheduler:
                     break
 
                 # 检查是否达到最小沉默时间
-                min_silence = self._config.signal_min_silence_seconds
+                min_silence = self._cfg.get("proactive_reply.signal_min_silence_seconds", 60)
                 if silence < min_silence:
                     continue  # 群还在活跃，跳过
 
@@ -166,7 +165,11 @@ class GroupScheduler:
                     "timestamp": s.created_at.isoformat(),
                 })
 
-        if aggregated_weight >= self._config.signal_weight_direct_reply:
+        weight_direct = self._cfg.get("proactive_reply.signal_weight_direct_reply", 0.8)
+        weight_llm = self._cfg.get("proactive_reply.signal_weight_llm_confirm", 0.5)
+        proactive_mode = self._cfg.get("llm_enhanced.proactive_mode", "rule")
+
+        if aggregated_weight >= weight_direct:
             # 高权重 → 直接回复
             decision = AggregatedDecision(
                 should_reply=True,
@@ -175,15 +178,15 @@ class GroupScheduler:
                 target_user_id=target_user_id,
                 aggregated_weight=aggregated_weight,
                 signals=list(signals),
-                reason=f"聚合权重 {aggregated_weight:.2f} >= {self._config.signal_weight_direct_reply}",
+                reason=f"聚合权重 {aggregated_weight:.2f} >= {weight_direct}",
                 recent_messages=recent_messages,
                 llm_confirmed=False,
             )
             await self._execute_reply(decision)
 
         elif (
-            aggregated_weight >= self._config.signal_weight_llm_confirm
-            and self._config.proactive_mode == "hybrid"
+            aggregated_weight >= weight_llm
+            and proactive_mode == "hybrid"
         ):
             # 中等权重 + hybrid 模式 → LLM 确认
             should_reply = await self._try_llm_confirm(

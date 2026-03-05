@@ -13,7 +13,8 @@ from unittest.mock import Mock, MagicMock, patch
 
 import pytest
 
-from iris_memory.core.test_utils import setup_test_config, reset_config_manager
+from iris_memory.core.test_utils import setup_test_config
+from iris_memory.config import reset_store
 from iris_memory.processing.markdown_stripper import (
     T2IConfigReader,
     MarkdownStripper,
@@ -41,8 +42,8 @@ def mock_config():
         },
         "error_friendly": {"enable": True},
     })
-    from iris_memory.core.config_manager import get_config_manager
-    return get_config_manager()
+    from iris_memory.config import get_store
+    return get_store()
 
 
 @pytest.fixture()
@@ -161,8 +162,8 @@ class TestMarkdownStripperShouldStrip:
         setup_test_config({
             "markdown_stripper": {"enable": False},
         })
-        from iris_memory.core.config_manager import get_config_manager
-        config = get_config_manager()
+        from iris_memory.config import get_store
+        config = get_store()
         stripper = MarkdownStripper(mock_context, config)
         assert stripper.should_strip("**粗体**") is False
 
@@ -415,8 +416,8 @@ class TestProcessResult:
     def test_should_process_disabled(self, mock_context):
         """功能禁用时 should_process 返回 False"""
         setup_test_config({"markdown_stripper": {"enable": False}})
-        from iris_memory.core.config_manager import get_config_manager
-        config = get_config_manager()
+        from iris_memory.config import get_store
+        config = get_store()
         s = MarkdownStripper(mock_context, config)
 
         event = Mock()

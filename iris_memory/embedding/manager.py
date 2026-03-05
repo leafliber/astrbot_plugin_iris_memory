@@ -190,8 +190,8 @@ class EmbeddingManager:
     async def initialize(self) -> bool:
         logger.debug("Initializing embedding manager...")
 
-        from iris_memory.core.config_manager import get_config_manager
-        cfg = get_config_manager()
+        from iris_memory.config import get_store
+        cfg = get_store()
         source_str = cfg.embedding_source.lower()
 
         try:
@@ -500,8 +500,8 @@ class EmbeddingManager:
         """
         if self.current_provider:
             return self.current_provider.dimension
-        from iris_memory.core.config_manager import get_config_manager
-        return get_config_manager().embedding_local_dimension
+        from iris_memory.config import get_store
+        return get_store().get("embedding.local_dimension", 512)
 
     def get_model(self) -> str:
         """获取当前提供者的模型名称

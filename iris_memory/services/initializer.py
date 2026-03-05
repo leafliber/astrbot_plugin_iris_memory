@@ -21,9 +21,8 @@ from typing import Any, Callable, Dict, Optional
 from astrbot.api import AstrBotConfig
 from astrbot.api.star import Context
 
-from iris_memory.core.config_manager import ConfigManager
+from iris_memory.config import ConfigStore, get_store
 from iris_memory.core.constants import LogTemplates, UNLIMITED_BUDGET
-from iris_memory.core.defaults import DEFAULTS
 from iris_memory.services.modules.storage_module import StorageModule
 from iris_memory.services.modules.analysis_module import AnalysisModule
 from iris_memory.services.modules.llm_enhanced_module import LLMEnhancedModule
@@ -44,7 +43,7 @@ class InitializerDeps:
     context: Context
     config: AstrBotConfig
     plugin_data_path: Path
-    cfg: ConfigManager
+    cfg: ConfigStore
 
     storage: StorageModule = field(default_factory=StorageModule)
     analysis: AnalysisModule = field(default_factory=AnalysisModule)
@@ -365,7 +364,7 @@ class ServiceInitializer:
         """初始化分层消息处理组件"""
         self._logger.debug(LogTemplates.COMPONENT_INIT.format(component="message processing"))
 
-        enable_batch = DEFAULTS.message_processing.batch_threshold_count > 0
+        enable_batch = get_store().get("message_processing.batch_threshold_count", 20) > 0
         use_llm = self._deps.cfg.use_llm
 
         if not enable_batch:
@@ -400,15 +399,9 @@ class ServiceInitializer:
 
     async def _init_proactive_reply(self) -> None:
         """初始化主动回复组件"""
-        chroma_mgr = self._deps.storage.chroma_manager
-        embedding_mgr = chroma_mgr.embedding_manager if chroma_mgr else None
         llm_processor = self._deps.llm_enhanced.llm_processor
         await self._deps.proactive.initialize(
-            cfg=self._deps.cfg,
             plugin_data_path=self._deps.plugin_data_path,
-            chroma_manager=chroma_mgr,
-            embedding_manager=embedding_mgr,
-            shared_state=self._deps.shared_state,
             llm_provider=llm_processor,
             context=self._deps.context,
         )
@@ -432,14 +425,14 @@ class ServiceInitializer:
                 "enable_image_analysis": self._deps.cfg.image_analysis_enabled,
                 "default_level": self._deps.cfg.image_analysis_mode,
                 "max_images_per_message": self._deps.cfg.image_analysis_max_images,
-                "skip_sticker": DEFAULTS.image_analysis.skip_sticker,
-                "analysis_cooldown": DEFAULTS.image_analysis.analysis_cooldown,
-                "cache_ttl": DEFAULTS.image_analysis.cache_ttl,
-                "max_cache_size": DEFAULTS.image_analysis.max_cache_size,
+                "skip_sticker": get_store().get("image_analysis.skip_sticker"),
+                "analysis_cooldown": get_store().get("image_analysis.analysis_cooldown"),
+                "cache_ttl": get_store().get("image_analysis.cache_ttl"),
+                "max_cache_size": get_store().get("image_analysis.max_cache_size"),
                 "daily_analysis_budget": daily_budget if daily_budget > 0 else UNLIMITED_BUDGET,
                 "session_analysis_budget": session_budget if session_budget > 0 else UNLIMITED_BUDGET,
-                "similar_image_window": DEFAULTS.image_analysis.similar_image_window,
-                "recent_image_limit": DEFAULTS.image_analysis.recent_image_limit,
+                "similar_image_window": get_store().get("image_analysis.similar_image_window"),
+                "recent_image_limit": get_store().get("image_analysis.recent_image_limit"),
                 "require_context_relevance": self._deps.cfg.image_analysis_require_context,
             },
             provider_id=self._deps.cfg.image_analysis_provider_id,

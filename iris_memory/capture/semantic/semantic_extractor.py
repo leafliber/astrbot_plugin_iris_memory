@@ -14,7 +14,6 @@ import numpy as np
 
 from iris_memory.models.memory import Memory
 from iris_memory.core.types import MemoryType, StorageLayer, QualityLevel
-from iris_memory.core.defaults import DEFAULTS
 from iris_memory.capture.semantic.semantic_clustering import (
     SemanticClustering,
     MemoryCluster,
@@ -106,8 +105,8 @@ class SemanticExtractor:
         provider_id: str = "",
         clustering: Optional[SemanticClustering] = None,
         confidence_calculator: Optional[SemanticConfidenceCalculator] = None,
-        source_expiry_days: int = DEFAULTS.semantic_extraction.source_expiry_days,
-        llm_max_tokens: int = DEFAULTS.semantic_extraction.llm_max_tokens,
+        source_expiry_days: int = 0,
+        llm_max_tokens: int = 500,
         use_vector_clustering: bool = False,
     ) -> None:
         self.chroma_manager = chroma_manager

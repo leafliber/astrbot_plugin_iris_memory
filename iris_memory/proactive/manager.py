@@ -13,7 +13,7 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
-from iris_memory.proactive.config import ProactiveConfig
+from iris_memory.config import get_store
 from iris_memory.proactive.followup_planner import (
     FollowUpPlanner,
     build_followup_prompt,
@@ -59,12 +59,11 @@ class ProactiveManager:
     def __init__(
         self,
         plugin_data_path: Path,
-        config: Optional[ProactiveConfig] = None,
         llm_provider: Optional[Any] = None,
         enabled: bool = True,
         group_whitelist_mode: bool = False,
         proactive_mode: str = "rule",
-        # 以下为 v2 兼容参数（部分映射到 config）
+        # 以下为 v2 兼容参数（已废弃，仅保留接口兼容性）
         chroma_manager: Optional[Any] = None,
         embedding_manager: Optional[Any] = None,
         shared_state: Optional[Any] = None,
@@ -72,27 +71,23 @@ class ProactiveManager:
         quiet_hours: Optional[List[int]] = None,
         max_history: int = 10,
         max_text_tokens: int = 150,
+        config: Optional[Any] = None,  # 已废弃，保留用于兼容旧测试
     ) -> None:
         self._plugin_data_path = plugin_data_path
         self._llm_provider = llm_provider
         self._astrbot_context: Optional[Any] = None
         self._llm_provider_id: Optional[str] = None
 
-        # 构建配置
-        if config:
-            self._config = config
-        else:
-            self._config = ProactiveConfig(
-                enabled=enabled,
-                group_whitelist_mode=group_whitelist_mode,
-                proactive_mode=proactive_mode,
-                quiet_hours=quiet_hours or [23, 7],
-                max_reply_tokens=max_text_tokens,
-            )
+        # 配置直接从全局 get_store() 获取
+        self._cfg = get_store()
 
         # 白名单状态（持久化到 KV 存储）
-        self._group_whitelist: List[str] = list(self._config.group_whitelist)
-        self._group_whitelist_mode: bool = self._config.group_whitelist_mode
+        self._group_whitelist: List[str] = list(
+            self._cfg.get("proactive_reply.group_whitelist", [])
+        )
+        self._group_whitelist_mode: bool = self._cfg.get(
+            "proactive_reply.group_whitelist_mode", False
+        )
 
         # 核心组件（延迟初始化）
         self._signal_queue: Optional[SignalQueue] = None
@@ -124,6 +119,10 @@ class ProactiveManager:
         # 回复协调器：集中管理正常回复与主动回复的竞态关系
         self._reply_coordinator = ReplyCoordinator()
 
+    def _get_cfg(self, key: str, default: Any = None) -> Any:
+        """辅助方法：从配置存储获取值"""
+        return self._cfg.get(f"proactive_reply.{key}", default)
+
         # CooldownModule 状态检查回调（group_id -> 是否处于冷却中）
         # 由服务层注入，检查用户通过 /冷却 命令激活的冷却状态
         self._cooldown_checker: Optional[Callable[[str], bool]] = None
@@ -140,11 +139,7 @@ class ProactiveManager:
 
     @property
     def enabled(self) -> bool:
-        return self._config.enabled
-
-    @enabled.setter
-    def enabled(self, value: bool) -> None:
-        self._config.enabled = value
+        return self._cfg.get("proactive_reply.enable", False)
 
     @property
     def is_initialized(self) -> bool:
@@ -209,28 +204,27 @@ class ProactiveManager:
             logger.info("Initializing ProactiveManager v3...")
 
             # 1. SignalQueue
-            self._signal_queue = SignalQueue(self._config)
+            self._signal_queue = SignalQueue()
 
             # 2. SignalGenerator
-            self._signal_generator = SignalGenerator(self._config)
+            self._signal_generator = SignalGenerator()
 
             # 3. ExpectationStore
             self._expectation_store = ExpectationStore()
 
             # 4. GroupScheduler
             self._group_scheduler = GroupScheduler(
-                config=self._config,
                 signal_queue=self._signal_queue,
             )
             self._group_scheduler.set_reply_callback(self._handle_signal_reply)
-            if self._llm_provider and self._config.proactive_mode == "hybrid":
+            proactive_mode = self._cfg.get("llm_enhanced.proactive_mode", "rule")
+            if self._llm_provider and proactive_mode == "hybrid":
                 self._group_scheduler.set_llm_confirm_callback(
                     self._handle_llm_confirm
                 )
 
             # 5. FollowUpPlanner
             self._followup_planner = FollowUpPlanner(
-                config=self._config,
                 expectation_store=self._expectation_store,
             )
             self._followup_planner.set_followup_reply_callback(
@@ -271,7 +265,7 @@ class ProactiveManager:
         Returns:
             None（v3 通过异步回调触发回复）
         """
-        if not self._config.enabled or not self._initialized:
+        if not self._get_cfg("enable", False) or not self._initialized:
             return None
 
         # 白名单过滤
@@ -292,7 +286,7 @@ class ProactiveManager:
         # 竞态防护：正常回复进行中或冷却期内，抑制信号生成
         if group_id:
             if not self._reply_coordinator.can_send_proactive(
-                group_id, self._config.cooldown_seconds
+                group_id, self._get_cfg("cooldown_seconds", 60)
             ):
                 logger.debug(
                     f"Reply coordinator suppressed proactive signal "
@@ -336,7 +330,7 @@ class ProactiveManager:
                 self._group_umo_map[group_id] = umo
 
             # 确保群定时器运行
-            if self._config.signal_queue_enabled and self._group_scheduler:
+            if True and self._group_scheduler:
                 self._group_scheduler.ensure_timer(group_id)
 
             # 通知 FollowUpPlanner（如有活跃期待）
@@ -376,14 +370,14 @@ class ProactiveManager:
         # 通过协调器记录正常回复完成，更新时间戳
         if group_id:
             self._reply_coordinator.mark_normal_reply_end(
-                group_id, self._config.cooldown_seconds
+                group_id, self._get_cfg("cooldown_seconds", 60)
             )
 
         if self._signal_queue:
             self._signal_queue.clear_session(session_key)
 
         # 仅在未启用 followup_after_all_replies 时清除 FollowUp 期待
-        if not self._config.followup_after_all_replies:
+        if not self._get_cfg("followup_after_all_replies", False):
             if self._followup_planner and group_id:
                 self._followup_planner.clear_expectation(group_id)
 
@@ -442,22 +436,24 @@ class ProactiveManager:
             bot_reply: Bot 回复内容
             umo: unified_msg_origin，用于后续主动回复发送
         """
+        followup_after_all = self._get_cfg("followup_after_all_replies", False)
+        followup_enabled = self._get_cfg("followup_enabled", True)
         logger.debug(
             f"notify_bot_reply called: user={user_id}, group={group_id}, "
             f"initialized={self._initialized}, "
-            f"followup_after_all={self._config.followup_after_all_replies}, "
-            f"followup_enabled={self._config.followup_enabled}"
+            f"followup_after_all={followup_after_all}, "
+            f"followup_enabled={followup_enabled}"
         )
         
         if not self._initialized:
             logger.debug("notify_bot_reply: not initialized, skipping")
             return
 
-        if not self._config.followup_after_all_replies:
+        if not self._get_cfg("followup_after_all_replies", False):
             logger.debug("notify_bot_reply: followup_after_all_replies disabled, skipping")
             return
 
-        if not self._config.followup_enabled:
+        if not self._get_cfg("followup_enabled", True):
             logger.debug("notify_bot_reply: followup_enabled disabled, skipping")
             return
 
@@ -508,7 +504,7 @@ class ProactiveManager:
         # 恢复聚合消息并重新启动短期窗口定时器
         if new_exp and carried_messages:
             new_exp.aggregated_messages = carried_messages
-            short_window = self._config.followup_short_window_seconds
+            short_window = self._get_cfg("followup_short_window_seconds", 10)
             self._followup_planner.restart_short_window_timer(
                 group_id, short_window
             )
@@ -563,7 +559,7 @@ class ProactiveManager:
 
         # 通过协调器守卫发送：获取群锁 + 二次校验正常回复状态 + FollowUp 检查
         async with self._reply_coordinator.proactive_reply_guard(
-            decision.group_id, self._config.cooldown_seconds
+            decision.group_id, self._get_cfg("cooldown_seconds", 60)
         ) as allowed:
             if not allowed:
                 logger.debug(
@@ -598,7 +594,7 @@ class ProactiveManager:
             self._update_last_reply_time(decision.group_id)
 
             # 创建 FollowUp 期待
-            if self._followup_planner and self._config.followup_enabled:
+            if self._followup_planner and self._get_cfg("followup_enabled", True):
                 trigger_msg = ""
                 if decision.recent_messages:
                     trigger_msg = decision.recent_messages[-1].get("content", "")
@@ -668,7 +664,7 @@ class ProactiveManager:
         # 通过协调器守卫发送：获取群锁 + 二次校验正常回复状态
         reply_sent = False
         async with self._reply_coordinator.proactive_reply_guard(
-            expectation.group_id, self._config.cooldown_seconds
+            expectation.group_id, self._get_cfg("cooldown_seconds", 60)
         ) as allowed:
             if not allowed:
                 logger.debug(
@@ -872,7 +868,7 @@ class ProactiveManager:
         Returns:
             True 如果可以通过（冷却时间已过），False 如果还在冷却中
         """
-        cooldown = self._config.cooldown_seconds
+        cooldown = self._get_cfg("cooldown_seconds", 60)
         if cooldown <= 0:
             return True
 
@@ -900,11 +896,11 @@ class ProactiveManager:
         """检查每日限额"""
         self._refresh_daily_counter()
 
-        if self._daily_reply_count >= self._config.max_daily_replies:
+        if self._daily_reply_count >= self._get_cfg("max_daily_replies", 20):
             return False
 
         user_count = self._per_user_daily.get(user_id, 0)
-        if user_count >= self._config.max_daily_per_user:
+        if user_count >= self._get_cfg("max_daily_per_user", 5):
             return False
 
         return True
@@ -932,11 +928,11 @@ class ProactiveManager:
         Args:
             group_id: 群组 ID，用于智能静音豁免检测
         """
-        quiet = self._config.quiet_hours
+        quiet = self._cfg.get("proactive_reply.quiet_hours", [23, 7])
         if not quiet or len(quiet) < 2:
             return False
 
-        tz = timezone(timedelta(hours=self._config.timezone_offset))
+        tz = timezone(timedelta(hours=self._cfg.get("proactive_reply.timezone_offset", 8)))
         hour = datetime.now(tz).hour
         start, end = quiet[0], quiet[1]
 
@@ -950,7 +946,7 @@ class ProactiveManager:
             return False
 
         # 智能静音：若群组近期有用户活动，豁免静音时段
-        exempt_minutes = self._config.quiet_hours_activity_exempt_minutes
+        exempt_minutes = self._cfg.get("proactive_reply.quiet_hours_activity_exempt_minutes", 20)
         if exempt_minutes > 0 and group_id and group_id in self._group_last_activity:
             last_activity = self._group_last_activity[group_id]
             elapsed = (datetime.now() - last_activity).total_seconds() / 60
@@ -1057,10 +1053,10 @@ class ProactiveManager:
     async def get_stats(self, days: int = 7) -> Dict[str, Any]:
         """获取统计数据"""
         return {
-            "enabled": self._config.enabled,
-            "mode": self._config.proactive_mode,
-            "signal_queue_enabled": self._config.signal_queue_enabled,
-            "followup_enabled": self._config.followup_enabled,
+            "enabled": self._get_cfg("enable", False),
+            "mode": self._cfg.get("llm_enhanced.proactive_mode", "rule"),
+            "signal_queue_enabled": True,
+            "followup_enabled": self._get_cfg("followup_enabled", True),
             "daily_reply_count": self._daily_reply_count,
             "total_signals": (
                 self._signal_queue.total_signals if self._signal_queue else 0

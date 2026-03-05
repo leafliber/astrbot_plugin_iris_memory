@@ -10,7 +10,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Dict, List, Optional
 
-from iris_memory.proactive.config import ProactiveConfig
+from iris_memory.config import get_store
 from iris_memory.proactive.models import Signal, SignalType
 from iris_memory.utils.logger import get_logger
 
@@ -30,8 +30,8 @@ class SignalQueue:
     - clear_group：清除某群的所有信号
     """
 
-    def __init__(self, config: ProactiveConfig) -> None:
-        self._config = config
+    def __init__(self) -> None:
+        self._cfg = get_store()
         # group_id -> List[Signal]
         self._queues: Dict[str, List[Signal]] = {}
         # group_id -> 最近一条消息的时间戳
@@ -51,7 +51,7 @@ class SignalQueue:
             self._queues[group_id] = []
 
         # 容量检查
-        max_signals = self._config.signal_max_signals_per_group
+        max_signals = self._cfg.get("proactive_reply.signal_max_signals_per_group", 50)
         if len(self._queues[group_id]) >= max_signals:
             # 移除权重最低的信号（保留高权重信号）
             min_idx = min(

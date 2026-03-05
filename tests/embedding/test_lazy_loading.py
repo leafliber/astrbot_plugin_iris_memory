@@ -14,7 +14,7 @@ from iris_memory.embedding.base import EmbeddingProvider, EmbeddingRequest
 from iris_memory.embedding.manager import EmbeddingManager
 from iris_memory.embedding.local_provider import LocalProvider
 from iris_memory.embedding.fallback_provider import FallbackProvider
-from iris_memory.core.config_manager import init_config_manager, reset_config_manager
+from iris_memory.config import init_store, reset_store
 
 
 class MockConfig:
@@ -40,10 +40,10 @@ class MockConfig:
 @pytest.fixture(autouse=True)
 def _reset_global_config_manager():
     """每个测试用例前后重置全局配置管理器，避免状态污染。"""
-    reset_config_manager()
-    init_config_manager(MockConfig())
+    reset_store()
+    init_store(MockConfig())
     yield
-    reset_config_manager()
+    reset_store()
 
 
 # ==================== 基类 is_ready 属性测试 ====================
@@ -144,7 +144,7 @@ class TestLocalProviderBackgroundLoading:
     async def test_initialize_starts_background_thread(self):
         """initialize() 应启动后台线程"""
         provider = LocalProvider(MockConfig())
-        init_config_manager(MockConfig())
+        init_store(MockConfig())
 
         with patch.object(provider, '_start_background_load') as mock_start:
             with patch('torch.cuda.is_available', return_value=False):
@@ -156,7 +156,7 @@ class TestLocalProviderBackgroundLoading:
     async def test_initialize_returns_false_without_dependencies(self):
         """缺少依赖时 initialize() 应返回 False"""
         provider = LocalProvider(MockConfig())
-        init_config_manager(MockConfig())
+        init_store(MockConfig())
 
         real_import = __import__
 
@@ -173,7 +173,7 @@ class TestLocalProviderBackgroundLoading:
     def test_background_load_updates_dimension_on_success(self):
         """后台加载成功时应更新维度"""
         provider = LocalProvider(MockConfig())
-        init_config_manager(MockConfig())
+        init_store(MockConfig())
 
         # 模拟模型实例
         mock_model = Mock()

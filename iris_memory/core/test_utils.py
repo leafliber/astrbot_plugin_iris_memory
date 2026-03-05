@@ -28,21 +28,15 @@ def setup_test_config(config_dict: Dict[str, Any] = None):
                 'proactive_reply': {'enable': False}
             }
     """
-    from iris_memory.core.config_manager import init_config_manager
-    
+    from iris_memory.config import init_store
+
     mock_config = Mock()
-    
+
     if config_dict:
         for section, values in config_dict.items():
             if isinstance(values, dict):
                 setattr(mock_config, section, values)
             else:
                 setattr(mock_config, section, values)
-    
-    init_config_manager(mock_config)
 
-
-def reset_config_manager():
-    """重置配置管理器（测试清理用）"""
-    from iris_memory.core.config_manager import reset_config_manager as _reset
-    _reset()
+    init_store(mock_config)

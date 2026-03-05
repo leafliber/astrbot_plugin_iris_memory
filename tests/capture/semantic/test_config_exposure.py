@@ -15,7 +15,7 @@ import pytest
 from pathlib import Path
 from unittest.mock import MagicMock
 
-from iris_memory.core.defaults import DEFAULTS
+from iris_memory.config import get_store
 
 
 _SCHEMA_PATH = Path(__file__).resolve().parents[3] / "_conf_schema.json"
@@ -31,22 +31,22 @@ class TestConfigSchemaHidden:
         assert "semantic_extraction" not in schema
 
     def test_defaults_have_semantic_extraction(self):
-        """DEFAULTS 中有完整的语义提取默认值"""
-        se = DEFAULTS.semantic_extraction
-        assert hasattr(se, "enabled")
-        assert hasattr(se, "min_age_days")
-        assert hasattr(se, "min_cluster_size")
-        assert hasattr(se, "min_confidence")
-        assert hasattr(se, "extraction_interval")
+        """ConfigStore 中有完整的语义提取默认值"""
+        cfg = get_store()
+        assert cfg.get("semantic_extraction.enabled") is not None
+        assert cfg.get("semantic_extraction.min_age_days") is not None
+        assert cfg.get("semantic_extraction.min_cluster_size") is not None
+        assert cfg.get("semantic_extraction.min_confidence") is not None
+        assert cfg.get("semantic_extraction.extraction_interval") is not None
 
     def test_defaults_values_reasonable(self):
         """默认值合理"""
-        se = DEFAULTS.semantic_extraction
-        assert se.enabled is True
-        assert se.min_age_days >= 1
-        assert se.min_cluster_size >= 2
-        assert 0.0 <= se.min_confidence <= 1.0
-        assert se.extraction_interval >= 60
+        cfg = get_store()
+        assert cfg.get("semantic_extraction.enabled") is True
+        assert cfg.get("semantic_extraction.min_age_days") >= 1
+        assert cfg.get("semantic_extraction.min_cluster_size") >= 2
+        assert 0.0 <= cfg.get("semantic_extraction.min_confidence") <= 1.0
+        assert cfg.get("semantic_extraction.extraction_interval") >= 60
 
 
 class TestAstrBotContextInjection:
@@ -122,8 +122,8 @@ class TestConfigWiring:
             session_manager=MagicMock(),
             chroma_manager=MagicMock(),
         )
-        assert mgr._semantic_extraction_enabled == DEFAULTS.semantic_extraction.enabled
-        assert mgr._semantic_extraction_interval == DEFAULTS.semantic_extraction.extraction_interval
+        assert mgr._semantic_extraction_enabled == get_store().get("semantic_extraction.enabled")
+        assert mgr._semantic_extraction_interval == get_store().get("semantic_extraction.extraction_interval")
         assert mgr._semantic_extraction_config == {}
 
     def test_lifecycle_manager_config_override(self):

@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 from iris_memory.embedding.manager import EmbeddingManager, EmbeddingSource
 from iris_memory.embedding.base import EmbeddingRequest
-from iris_memory.core.config_manager import init_config_manager, reset_config_manager
+from iris_memory.config import init_store, reset_store
 
 
 class MockConfig:
@@ -33,10 +33,10 @@ class MockConfig:
 @pytest.fixture(autouse=True)
 def _reset_global_config_manager():
     """每个测试前后重置全局配置，确保不会触发真实本地模型加载。"""
-    reset_config_manager()
-    init_config_manager(MockConfig())
+    reset_store()
+    init_store(MockConfig())
     yield
-    reset_config_manager()
+    reset_store()
 
 
 @pytest.mark.asyncio

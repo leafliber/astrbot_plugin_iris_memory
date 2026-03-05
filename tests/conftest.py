@@ -6,7 +6,8 @@ pytest测试配置文件
 
 import pytest
 from unittest.mock import Mock
-from iris_memory.core.test_utils import setup_test_config, reset_config_manager
+from iris_memory.core.test_utils import setup_test_config
+from iris_memory.config import reset_store
 
 
 @pytest.fixture(autouse=True, scope="function")
@@ -38,7 +39,7 @@ def setup_test_environment():
     
     yield
     
-    reset_config_manager()
+    reset_store()
 
 
 @pytest.fixture

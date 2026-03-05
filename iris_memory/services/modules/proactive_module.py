@@ -29,33 +29,28 @@ class ProactiveModule:
 
     async def initialize(
         self,
-        cfg: Any,
         plugin_data_path: Optional[Path] = None,
-        chroma_manager: Any = None,
-        embedding_manager: Any = None,
-        shared_state: Any = None,
         llm_provider: Any = None,
-        # 兼容占位符，不再使用
         context: Any = None,
-        emotion_analyzer: Any = None,
-        llm_proactive_reply_detector: Any = None,
     ) -> None:
         """初始化主动回复组件（v3）
 
         Args:
-            cfg: 配置管理器
             plugin_data_path: 插件数据目录
-            chroma_manager: ChromaDB 管理器（v3 不再依赖）
-            embedding_manager: 嵌入管理器（v3 不再依赖）
-            shared_state: SharedState 共享状态（v3 不再依赖）
             llm_provider: LLM 提供者（用于 hybrid 模式 LLM 确认）
+            context: AstrBot 上下文（用于 LLM 确认等内部调用）
         """
+        from iris_memory.config import get_store
         from iris_memory.core.constants import LogTemplates
+
+        cfg = get_store()
 
         logger.debug(LogTemplates.COMPONENT_INIT.format(component="proactive reply"))
 
-        followup_after_all = cfg.proactive_followup_after_all_replies
-        if not cfg.proactive_reply_enabled and not followup_after_all:
+        followup_after_all = cfg.get("proactive_reply.followup_after_all_replies", False)
+        proactive_enabled = cfg.get("proactive_reply.enable", False)
+        
+        if not proactive_enabled and not followup_after_all:
             logger.debug(LogTemplates.COMPONENT_INIT_DISABLED.format(component="Proactive reply"))
             return
 
@@ -65,11 +60,8 @@ class ProactiveModule:
 
         try:
             from iris_memory.proactive.manager import ProactiveManager
-            from iris_memory.proactive.config import ProactiveConfig
-            from iris_memory.core.defaults import DEFAULTS
 
-            # 直接从全局 defaults 创建配置，简化调用链条
-            config = ProactiveConfig(DEFAULTS.proactive_reply)
+            config = None  # 不再需要，ProactiveManager 内部直接使用 get_store()
 
             self._manager = ProactiveManager(
                 plugin_data_path=plugin_data_path,
@@ -81,7 +73,7 @@ class ProactiveModule:
             # 设置 AstrBot 上下文（用于 LLM 确认等内部调用）
             # 使用智能增强模块的 LLM 提供者（llm_providers.enhanced_provider_id）
             if context:
-                llm_provider_id = cfg.llm_enhanced_provider_id or None
+                llm_provider_id = cfg.get("llm_enhanced.enhanced_provider_id", None)
                 self._manager.set_context(
                     astrbot_context=context,
                     llm_provider_id=llm_provider_id,

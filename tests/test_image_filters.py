@@ -2,7 +2,7 @@
 import pytest
 from datetime import datetime
 from iris_memory.multimodal import ImageAnalyzer, ImageAnalysisLevel, ImageInfo
-from iris_memory.core.defaults import DEFAULTS
+from iris_memory.config import get_store
 
 
 class MockContext:
@@ -14,13 +14,14 @@ class MockContext:
 @pytest.fixture
 def analyzer():
     """创建配置好的图片分析器"""
+    cfg = get_store()
     return ImageAnalyzer(MockContext(), {
-        'enable_image_analysis': DEFAULTS.image_analysis.enable_image_analysis,
+        'enable_image_analysis': cfg.get("image_analysis.enable", True),
         'daily_analysis_budget': 5,  # 测试用的小值
         'session_analysis_budget': 2,  # 测试用的小值
-        'similar_image_window': DEFAULTS.image_analysis.similar_image_window,
-        'recent_image_limit': DEFAULTS.image_analysis.recent_image_limit,
-        'require_context_relevance': DEFAULTS.image_analysis.require_context_relevance
+        'similar_image_window': cfg.get("image_analysis.similar_image_window", 60),
+        'recent_image_limit': cfg.get("image_analysis.recent_image_limit", 20),
+        'require_context_relevance': cfg.get("image_analysis.require_context_relevance", True),
     })
 
 

@@ -27,12 +27,11 @@ from iris_memory.capture.message_merger import QueuedMessage, MessageMerger
 from iris_memory.models.memory import Memory
 from iris_memory.processing.llm_processor import LLMMessageProcessor, LLMSummaryResult
 from iris_memory.core.constants import BatchProcessingMode
-from iris_memory.core.defaults import DEFAULTS
 from iris_memory.core.constants import BatchSessionConfig
 
 if TYPE_CHECKING:
     from iris_memory.proactive.manager import ProactiveManager
-    from iris_memory.core.config_manager import ConfigManager
+    from iris_memory.config import ConfigStore
 
 logger = get_logger("batch_processor")
 
@@ -47,7 +46,7 @@ class MessageBatchProcessor:
     """
     
     AUTO_SAVE_INTERVAL: Final[int] = 60
-    DEFAULT_THRESHOLD_COUNT: Final[int] = DEFAULTS.message_processing.batch_threshold_count
+    DEFAULT_THRESHOLD_COUNT: Final[int] = 20  # schema default: message_processing.batch_threshold_count
     DEFAULT_LLM_COOLDOWN: Final[int] = 60
     DEFAULT_SUMMARY_INTERVAL: Final[int] = 300
     MAX_TRACKED_SESSIONS: Final[int] = BatchSessionConfig.MAX_TRACKED_SESSIONS
@@ -65,7 +64,7 @@ class MessageBatchProcessor:
         summary_prompt: Optional[str] = None,
         on_save_callback: Optional[Callable[[], Any]] = None,
         config: Optional[Dict[str, Any]] = None,
-        config_manager: Optional['ConfigManager'] = None
+        config_manager: Optional['ConfigStore'] = None
     ) -> None:
         self.capture_engine: MemoryCaptureEngine = capture_engine
         self.llm_processor: Optional[LLMMessageProcessor] = llm_processor
@@ -76,7 +75,7 @@ class MessageBatchProcessor:
         self.use_llm_summary: bool = use_llm_summary
         self.summary_prompt: Optional[str] = summary_prompt
         self.on_save_callback: Optional[Callable[[], Any]] = on_save_callback
-        self._config_manager: Optional['ConfigManager'] = config_manager
+        self._config_manager: Optional['ConfigStore'] = config_manager
         
         cfg: Dict[str, Any] = config or {}
         

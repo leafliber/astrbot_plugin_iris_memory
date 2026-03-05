@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 from iris_memory.storage.session_manager import SessionManager
 from iris_memory.models.memory import Memory
 from iris_memory.core.types import StorageLayer
-from iris_memory.core.defaults import DEFAULTS
+from iris_memory.config import get_store
 
 
 @pytest.fixture
@@ -55,7 +55,7 @@ class TestSessionManagerInit:
 
         assert manager.working_memory_cache == {}
         assert manager.session_metadata == {}
-        assert manager.max_working_memory == DEFAULTS.memory.max_working_memory
+        assert manager.max_working_memory == get_store().get("memory.max_working_memory")
 
     def test_init_custom_max(self):
         """测试自定义最大工作记忆数"""

@@ -16,7 +16,8 @@ from iris_memory.models.memory import Memory
 from iris_memory.core.types import (
     StorageLayer, MemoryType, ModalityType, QualityLevel, SensitivityLevel
 )
-from iris_memory.core.test_utils import setup_test_config, reset_config_manager
+from iris_memory.core.test_utils import setup_test_config
+from iris_memory.config import reset_store
 
 
 @pytest.fixture(autouse=True)
@@ -31,7 +32,7 @@ def setup_config():
         }
     })
     yield
-    reset_config_manager()
+    reset_store()
 
 
 @pytest.fixture
@@ -90,10 +91,10 @@ class TestChromaManagerInit:
     @pytest.mark.asyncio
     async def test_config_values_from_manager(self, chroma_manager):
         """测试配置值来自配置管理器"""
-        from iris_memory.core.config_manager import get_config_manager
-        cfg = get_config_manager()
-        assert chroma_manager.embedding_model_name == cfg.embedding_local_model
-        assert chroma_manager.embedding_dimension == cfg.embedding_local_dimension
+        from iris_memory.config import get_store
+        cfg = get_store()
+        assert chroma_manager.embedding_model_name == cfg.get("embedding.local_model")
+        assert chroma_manager.embedding_dimension == cfg.get("embedding.local_dimension")
 
 
 class TestChromaManagerInitialization:

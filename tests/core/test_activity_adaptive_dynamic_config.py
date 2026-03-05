@@ -4,7 +4,8 @@ from unittest.mock import Mock
 
 from iris_memory.core.activity_config import GroupActivityTracker
 from iris_memory.core.config_manager import ConfigManager
-from iris_memory.core.defaults import ACTIVITY_PRESETS, DEFAULTS, GroupActivityLevel
+from iris_memory.config import get_store
+from iris_memory.core.defaults import ACTIVITY_PRESETS, GroupActivityLevel
 
 
 def _build_user_config_with_advanced(**overrides):
@@ -88,10 +89,10 @@ class TestActivityAdaptiveDynamicConfig:
         cfg.init_activity_provider(tracker=GroupActivityTracker(), enabled=False)
 
         group_id = "group-default"
-        assert cfg.get_cooldown_seconds(group_id) == DEFAULTS.proactive_reply.cooldown_seconds
-        assert cfg.get_max_daily_replies(group_id) == DEFAULTS.proactive_reply.max_daily_replies
-        assert cfg.get_batch_threshold_count(group_id) == DEFAULTS.message_processing.batch_threshold_count
-        assert cfg.get_batch_threshold_interval(group_id) == DEFAULTS.message_processing.batch_threshold_interval
-        assert cfg.get_daily_analysis_budget(group_id) == DEFAULTS.image_analysis.daily_analysis_budget
-        assert cfg.get_chat_context_count(group_id) == DEFAULTS.llm_integration.chat_context_count
-        assert cfg.get_reply_temperature(group_id) == DEFAULTS.proactive_reply.reply_temperature
+        assert cfg.get_cooldown_seconds(group_id) == get_store().get("proactive_reply.cooldown_seconds", 60)
+        assert cfg.get_max_daily_replies(group_id) == get_store().get("proactive_reply.max_daily_replies", 20)
+        assert cfg.get_batch_threshold_count(group_id) == get_store().get("message_processing.batch_threshold_count", 20)
+        assert cfg.get_batch_threshold_interval(group_id) == get_store().get("message_processing.batch_threshold_interval", 300)
+        assert cfg.get_daily_analysis_budget(group_id) == get_store().get("image_analysis.daily_analysis_budget", 100)
+        assert cfg.get_chat_context_count(group_id) == get_store().get("advanced.chat_context_count", 15)
+        assert cfg.get_reply_temperature(group_id) == get_store().get("proactive_reply.reply_temperature", 0.7)

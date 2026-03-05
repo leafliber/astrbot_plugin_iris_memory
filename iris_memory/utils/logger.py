@@ -169,15 +169,14 @@ def get_logger(name: str) -> logging.Logger:
 
 def init_logging_from_config(config: Any, plugin_data_path: Path) -> None:
     """从配置初始化日志系统"""
-    from iris_memory.core.defaults import DEFAULTS
-    from iris_memory.core.config_manager import get_config_manager
-    
-    cfg = get_config_manager()
+    from iris_memory.config import get_store
+
+    cfg = get_store()
     level = cfg.log_level
-    
+
     log_dir = plugin_data_path / "logs"
-    max_bytes = DEFAULTS.log.max_file_size * 1024 * 1024
-    backup_count = DEFAULTS.log.backup_count
+    max_bytes = get_store().get("log.max_file_size", 10) * 1024 * 1024
+    backup_count = get_store().get("log.backup_count", 5)
     
     # 清理旧的日志文件（可选）
     _cleanup_old_logs(log_dir)

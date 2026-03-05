@@ -11,7 +11,7 @@ from typing import Optional, Dict, Any, List
 from iris_memory.utils.logger import get_logger
 from iris_memory.core.types import StorageLayer
 from iris_memory.core.upgrade_evaluator import UpgradeEvaluator, UpgradeMode
-from iris_memory.core.defaults import DEFAULTS
+from iris_memory.config import get_store
 
 # 模块logger
 logger = get_logger("lifecycle_manager")
@@ -90,8 +90,8 @@ class SessionLifecycleManager:
         
         # 语义提取器（延迟初始化）
         self._semantic_extractor = None
-        self._semantic_extraction_enabled = DEFAULTS.semantic_extraction.enabled
-        self._semantic_extraction_interval = DEFAULTS.semantic_extraction.extraction_interval
+        self._semantic_extraction_enabled = get_store().get("semantic_extraction.enabled")
+        self._semantic_extraction_interval = get_store().get("semantic_extraction.extraction_interval")
         self._semantic_extraction_config: Dict[str, Any] = {}  # 内部聚类参数
         self._astrbot_context: Any = None  # AstrBot 上下文（用于 LLM 调用）
         self._semantic_provider_id: str = ""  # 语义提取 LLM provider ID

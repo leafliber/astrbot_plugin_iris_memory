@@ -44,8 +44,8 @@ class WebUIManager:
         Returns:
             bool: 是否成功启动
         """
-        from iris_memory.core.config_manager import get_config_manager
-        config_mgr = get_config_manager()
+        from iris_memory.config import get_store
+        config_mgr = get_store()
 
         if not config_mgr.web_ui_enabled:
             return False

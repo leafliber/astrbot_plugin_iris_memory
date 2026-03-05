@@ -11,7 +11,7 @@ import re
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
 
-from iris_memory.proactive.config import ProactiveConfig
+from iris_memory.config import get_store
 from iris_memory.proactive.models import Signal, SignalType
 from iris_memory.utils.logger import get_logger
 
@@ -95,8 +95,8 @@ class SignalGenerator:
     3. 情感强度检测 → 生成 emotion_high 信号
     """
 
-    def __init__(self, config: ProactiveConfig) -> None:
-        self._config = config
+    def __init__(self) -> None:
+        self._cfg = get_store()
 
     def generate(
         self,
@@ -189,7 +189,7 @@ class SignalGenerator:
         if score < 0.2:  # 低于最低阈值，不生成信号
             return None
 
-        ttl = self._config.signal_ttl_rule_match
+        ttl = self._cfg.get("proactive_reply.signal_ttl_rule_match", 300)
         return Signal(
             signal_type=SignalType.RULE_MATCH,
             session_key=session_key,
@@ -218,7 +218,7 @@ class SignalGenerator:
         if emotion_intensity < 0.7:
             return None
 
-        ttl = self._config.signal_ttl_emotion_high
+        ttl = self._cfg.get("proactive_reply.signal_ttl_emotion_high", 180)
         weight = min(1.0, 0.7 + (emotion_intensity - 0.7) * 1.0)
 
         return Signal(

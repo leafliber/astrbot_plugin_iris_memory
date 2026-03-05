@@ -13,7 +13,7 @@ from iris_memory.utils.command_utils import SessionKeyBuilder
 from iris_memory.utils.logger import get_logger
 
 from iris_memory.models.memory import Memory
-from iris_memory.core.defaults import DEFAULTS
+from iris_memory.config import get_store
 from iris_memory.core.activity_config import GroupActivityTracker
 
 # 模块logger
@@ -52,9 +52,9 @@ class SessionManager:
         self.session_metadata: Dict[str, Dict[str, Any]] = {}
         
         # 配置
-        self.max_working_memory = max_working_memory or DEFAULTS.memory.max_working_memory
-        self.max_sessions = max_sessions or DEFAULTS.session.max_sessions
-        self.ttl = ttl or DEFAULTS.cache.working_cache_ttl
+        self.max_working_memory = max_working_memory or get_store().get("memory.max_working_memory")
+        self.max_sessions = max_sessions or get_store().get("session.max_sessions")
+        self.ttl = ttl or get_store().get("cache.working_cache_ttl")
         
         # 会话访问顺序（用于LRU淘汰）
         self._session_order: List[str] = []

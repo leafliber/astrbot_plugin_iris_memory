@@ -35,7 +35,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from astrbot.api import AstrBotConfig
 from astrbot.api.star import Context
 
-from iris_memory.core.config_manager import init_config_manager
+from iris_memory.config import init_store
 from iris_memory.core.constants import LogTemplates
 from iris_memory.services.initializer import InitializerDeps, ServiceInitializer
 from iris_memory.services.modules.analysis_module import AnalysisModule
@@ -100,7 +100,7 @@ class MemoryService:
         self.context = context
         self.config = config
         self.plugin_data_path = plugin_data_path
-        self.cfg = init_config_manager(config, plugin_data_path)
+        self.cfg = init_store(config, plugin_data_path)
         self.logger = get_logger("memory_service")
 
         self._is_initialized: bool = False

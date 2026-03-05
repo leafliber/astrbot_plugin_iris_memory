@@ -87,7 +87,7 @@ class CaptureModule:
     ) -> None:
         """初始化消息分类器"""
         from iris_memory.capture.message_classifier import MessageClassifier
-        from iris_memory.core.defaults import DEFAULTS
+        from iris_memory.config import get_store
 
         self._message_classifier = MessageClassifier(
             trigger_detector=(
@@ -98,9 +98,9 @@ class CaptureModule:
             emotion_analyzer=emotion_analyzer,
             llm_processor=llm_processor,
             config={
-                "llm_processing_mode": DEFAULTS.message_processing.llm_processing_mode,
-                "immediate_trigger_confidence": DEFAULTS.message_processing.immediate_trigger_confidence,
-                "immediate_emotion_intensity": DEFAULTS.message_processing.immediate_emotion_intensity,
+                "llm_processing_mode": get_store().get("message_processing.llm_processing_mode"),
+                "immediate_trigger_confidence": get_store().get("message_processing.immediate_trigger_confidence"),
+                "immediate_emotion_intensity": get_store().get("message_processing.immediate_emotion_intensity"),
             },
         )
         logger.debug("MessageClassifier initialized")
@@ -114,7 +114,7 @@ class CaptureModule:
     ) -> None:
         """初始化批量消息处理器"""
         from iris_memory.capture.batch_processor import MessageBatchProcessor
-        from iris_memory.core.defaults import DEFAULTS
+        from iris_memory.config import get_store
 
         batch_config = {
             "short_message_threshold": cfg.short_message_threshold,
@@ -132,8 +132,8 @@ class CaptureModule:
             llm_processor=llm_processor,
             proactive_manager=proactive_manager,
             threshold_count=threshold_count,
-            threshold_interval=DEFAULTS.message_processing.batch_threshold_interval,
-            processing_mode=DEFAULTS.message_processing.batch_processing_mode,
+            threshold_interval=get_store().get("message_processing.batch_threshold_interval"),
+            processing_mode=get_store().get("message_processing.batch_processing_mode"),
             use_llm_summary=use_llm and llm_processor is not None,
             on_save_callback=on_save_callback,
             config=batch_config,
@@ -146,13 +146,13 @@ class CaptureModule:
 
     def apply_config(self, cfg: Any) -> None:
         """应用配置到 CaptureEngine"""
-        from iris_memory.core.defaults import DEFAULTS
+        from iris_memory.config import get_store
 
         if self._capture_engine:
             self._capture_engine.set_config(
                 {
                     "auto_capture": cfg.enable_memory,
-                    "min_confidence": DEFAULTS.memory.min_confidence,
+                    "min_confidence": get_store().get("memory.min_confidence"),
                     "rif_threshold": cfg.rif_threshold,
                 }
             )

@@ -23,12 +23,12 @@ import time
 from re import Pattern
 from typing import Any, Callable, Optional, TYPE_CHECKING
 
-from iris_memory.core.defaults import DEFAULTS
+from iris_memory.config import get_store
 from iris_memory.utils.logger import get_logger
 
 if TYPE_CHECKING:
     from astrbot.api.star import Context
-    from iris_memory.core.config_manager import ConfigManager
+    from iris_memory.config import ConfigStore
 
 logger = get_logger("markdown_stripper")
 
@@ -143,7 +143,7 @@ class MarkdownStripper:
     def __init__(
         self,
         context: Context,
-        config: ConfigManager,
+        config: "ConfigStore",
     ) -> None:
         self._context = context
         self._config = config
@@ -213,7 +213,7 @@ class MarkdownStripper:
 
         # t2i 全局启用 → 短文本纯文本发送，长文本转图
         threshold = self._t2i_reader.get_t2i_threshold()
-        offset = DEFAULTS.markdown_stripper.threshold_offset
+        offset = get_store().get("markdown_stripper.threshold_offset")
         effective_threshold = max(1, threshold + offset)
 
         return len(text) < effective_threshold
@@ -313,7 +313,7 @@ class MarkdownStripper:
         rules: list[tuple[Pattern[str], str]] = []
 
         # ── 代码块与行内代码（优先处理） ──
-        if not DEFAULTS.markdown_stripper.preserve_code_blocks:
+        if not get_store().get("markdown_stripper.preserve_code_blocks"):
             # 围栏代码块：提取内容，去除围栏标记
             rules.append(
                 (re.compile(r"```(?:\w*)\n?([\s\S]*?)```"), r"\1")
@@ -329,7 +329,7 @@ class MarkdownStripper:
         )
 
         # ── 链接 ──
-        if not DEFAULTS.markdown_stripper.preserve_links:
+        if not get_store().get("markdown_stripper.preserve_links"):
             rules.append(
                 (re.compile(r"\[([^\]]+)\]\([^)]+\)"), r"\1")
             )
@@ -356,14 +356,14 @@ class MarkdownStripper:
         rules.append((re.compile(r"~~(.+?)~~"), r"\1"))
 
         # ── 标题 ──
-        if DEFAULTS.markdown_stripper.strip_headers:
+        if get_store().get("markdown_stripper.strip_headers"):
             rules.append((re.compile(r"^#{1,6}\s+", re.MULTILINE), ""))
 
         # ── 引用 ──
         rules.append((re.compile(r"^>\s*", re.MULTILINE), ""))
 
         # ── 列表 ──
-        if DEFAULTS.markdown_stripper.strip_lists:
+        if get_store().get("markdown_stripper.strip_lists"):
             rules.append((re.compile(r"^[*\-+]\s+", re.MULTILINE), ""))
             rules.append((re.compile(r"^\d+\.\s+", re.MULTILINE), ""))
 

@@ -20,8 +20,8 @@ from iris_memory.capture.detector.sensitivity_detector import SensitivityDetecto
 from iris_memory.capture.conflict.similarity_calculator import sanitize_for_log
 from iris_memory.capture.conflict.conflict_resolver import ConflictResolver
 from iris_memory.analysis.rif_scorer import RIFScorer
-from iris_memory.core.defaults import DEFAULTS
 from iris_memory.capture.capture_logger import capture_log
+from iris_memory.config import get_store
 from iris_memory.utils.logger import get_logger
 
 if TYPE_CHECKING:
@@ -97,11 +97,11 @@ class MemoryCaptureEngine:
 
         # 配置（优先使用注入值，否则回退到 DEFAULTS）
         self.auto_capture = True
-        self.min_confidence = min_confidence if min_confidence is not None else DEFAULTS.memory.min_confidence
-        self.rif_threshold = rif_threshold if rif_threshold is not None else DEFAULTS.memory.rif_threshold
-        self.enable_duplicate_check = enable_duplicate_check if enable_duplicate_check is not None else DEFAULTS.memory.enable_duplicate_check
-        self.enable_conflict_check = enable_conflict_check if enable_conflict_check is not None else DEFAULTS.memory.enable_conflict_check
-        self.enable_entity_extraction = enable_entity_extraction if enable_entity_extraction is not None else DEFAULTS.memory.enable_entity_extraction
+        self.min_confidence = min_confidence if min_confidence is not None else get_store().get("memory.min_confidence")
+        self.rif_threshold = rif_threshold if rif_threshold is not None else get_store().get("memory.rif_threshold")
+        self.enable_duplicate_check = enable_duplicate_check if enable_duplicate_check is not None else get_store().get("memory.enable_duplicate_check")
+        self.enable_conflict_check = enable_conflict_check if enable_conflict_check is not None else get_store().get("memory.enable_conflict_check")
+        self.enable_entity_extraction = enable_entity_extraction if enable_entity_extraction is not None else get_store().get("memory.enable_entity_extraction")
     
     async def capture_memory(
         self,
@@ -610,11 +610,11 @@ class MemoryCaptureEngine:
             config: 配置字典
         """
         self.auto_capture = config.get("auto_capture", True)
-        self.min_confidence = config.get("min_confidence", DEFAULTS.memory.min_confidence)
-        self.rif_threshold = config.get("rif_threshold", DEFAULTS.memory.rif_threshold)
-        self.enable_duplicate_check = config.get("enable_duplicate_check", DEFAULTS.memory.enable_duplicate_check)
-        self.enable_conflict_check = config.get("enable_conflict_check", DEFAULTS.memory.enable_conflict_check)
-        self.enable_entity_extraction = config.get("enable_entity_extraction", DEFAULTS.memory.enable_entity_extraction)
+        self.min_confidence = config.get("min_confidence", get_store().get("memory.min_confidence"))
+        self.rif_threshold = config.get("rif_threshold", get_store().get("memory.rif_threshold"))
+        self.enable_duplicate_check = config.get("enable_duplicate_check", get_store().get("memory.enable_duplicate_check"))
+        self.enable_conflict_check = config.get("enable_conflict_check", get_store().get("memory.enable_conflict_check"))
+        self.enable_entity_extraction = config.get("enable_entity_extraction", get_store().get("memory.enable_entity_extraction"))
     
     async def _detect_triggers(self, message: str, user_id: str = "") -> List[TriggerMatch]:
         """检测触发器（支持LLM增强）

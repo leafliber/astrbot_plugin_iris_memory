@@ -53,16 +53,16 @@ class RetrievalModule:
 
     def apply_config(self, cfg: Any) -> None:
         """应用配置到检索引擎"""
-        from iris_memory.core.defaults import DEFAULTS
+        from iris_memory.config import get_store
 
         if self._retrieval_engine:
             self._retrieval_engine.set_config(
                 {
                     "max_context_memories": cfg.max_context_memories,
-                    "enable_time_aware": DEFAULTS.llm_integration.enable_time_aware,
-                    "enable_emotion_aware": DEFAULTS.llm_integration.enable_emotion_aware,
+                    "enable_time_aware": get_store().get("llm_integration.enable_time_aware"),
+                    "enable_emotion_aware": get_store().get("llm_integration.enable_emotion_aware"),
                     "enable_token_budget": cfg.enable_inject,
                     "token_budget": cfg.token_budget,
-                    "coordination_strategy": DEFAULTS.llm_integration.coordination_strategy,
+                    "coordination_strategy": get_store().get("llm_integration.coordination_strategy"),
                 }
             )
