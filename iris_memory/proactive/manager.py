@@ -481,10 +481,22 @@ class ProactiveManager:
 
         session_key = self._build_session_key(user_id, group_id)
 
+        # 检查是否有活跃期待且包含待处理的聚合消息
+        # 如果有，保留聚合消息并携带到新期待中，避免丢失用户消息和取消正在运行的定时器
+        existing = self._followup_planner.get_expectation(group_id)
+        if existing and existing.has_aggregated_messages:
+            carried_messages = list(existing.aggregated_messages)
+            logger.info(
+                f"notify_bot_reply: carrying over {len(carried_messages)} "
+                f"aggregated messages from old expectation for group {group_id}"
+            )
+        else:
+            carried_messages = []
+
         # 先清除旧期待再创建新的
         self._followup_planner.clear_expectation(group_id)
 
-        self._followup_planner.create_expectation(
+        new_exp = self._followup_planner.create_expectation(
             session_key=session_key,
             group_id=group_id,
             trigger_user_id=user_id,
@@ -492,6 +504,14 @@ class ProactiveManager:
             bot_reply_summary=bot_reply[:200] if len(bot_reply) > 200 else bot_reply,
             recent_context=[],
         )
+
+        # 恢复聚合消息并重新启动短期窗口定时器
+        if new_exp and carried_messages:
+            new_exp.aggregated_messages = carried_messages
+            short_window = self._config.followup.short_window_seconds
+            self._followup_planner.restart_short_window_timer(
+                group_id, short_window
+            )
 
         logger.debug(
             f"FollowUp expectation created after bot reply: "

@@ -37,7 +37,7 @@ class FollowUpConfig:
     """FollowUpPlanner 高级配置（用户无需修改）"""
 
     # 时间窗口
-    short_window_seconds: int = 10          # 短期窗口
+    short_window_seconds: int = 15          # 短期窗口
 
     # LLM 判断
     llm_max_tokens: int = 500
@@ -68,8 +68,8 @@ class ProactiveConfig:
     followup_after_all_replies: bool = False
 
     # 用户可见配置
-    followup_window_seconds: int = 120      # FollowUp 窗口时长
-    max_followup_count: int = 2             # 最大跟进次数
+    followup_window_seconds: int = 180      # FollowUp 窗口时长
+    max_followup_count: int = 3             # 最大跟进次数
     max_reply_tokens: int = 150             # 最大回复 token 数
     reply_temperature: float = 0.7          # 回复温度
     cooldown_seconds: int = 60              # 回复冷却时间

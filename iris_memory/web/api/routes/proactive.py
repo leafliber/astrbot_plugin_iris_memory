@@ -91,3 +91,13 @@ def register_proactive_routes(app: Any, proactive_service: Any) -> None:
         except Exception as e:
             logger.error(f"Proactive stats error: {e}")
             return error_response("获取统计失败", 500)
+
+    @app.route("/api/proactive/followup_status", methods=["GET"])
+    async def proactive_followup_status():
+        """获取 FollowUp 跟进状态"""
+        try:
+            status = await proactive_service.get_followup_status()
+            return success_response(status)
+        except Exception as e:
+            logger.error(f"Proactive followup status error: {e}")
+            return error_response("获取 FollowUp 状态失败", 500)

@@ -154,3 +154,41 @@ class ProactiveWebService:
                 "daily_counts": {}
             }
         return await manager.get_stats()
+
+    async def get_followup_status(self) -> Dict[str, Any]:
+        """获取 FollowUp 跟进状态
+
+        Returns:
+            活跃期待列表和统计信息
+        """
+        manager = self._get_proactive_manager()
+        if not manager:
+            return {"error": "主动回复模块未初始化", "active_expectations": [], "total": 0}
+
+        planner = getattr(manager, "_followup_planner", None)
+        if not planner:
+            return {"error": "FollowUp planner 未初始化", "active_expectations": [], "total": 0}
+
+        store = getattr(planner, "_store", None)
+        if not store:
+            return {"error": "ExpectationStore 未初始化", "active_expectations": [], "total": 0}
+
+        expectations = store.get_all()
+
+        return {
+            "active_expectations": [
+                {
+                    "group_id": e.group_id,
+                    "trigger_user": e.trigger_user_id,
+                    "followup_count": e.followup_count,
+                    "messages_count": len(e.aggregated_messages),
+                    "window_end": e.followup_window_end.isoformat(),
+                    "short_window_end": (
+                        e.short_window_end.isoformat() if e.short_window_end else None
+                    ),
+                    "created_at": e.created_at.isoformat(),
+                }
+                for e in expectations
+            ],
+            "total": len(expectations),
+        }
