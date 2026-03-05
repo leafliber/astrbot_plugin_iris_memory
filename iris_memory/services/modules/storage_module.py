@@ -77,9 +77,9 @@ class StorageModule:
 
         # SessionManager
         self._session_manager = SessionManager(
-            max_working_memory=cfg.max_working_memory,
+            max_working_memory=cfg.get("memory_storage.max_working_memory", 10),
             max_sessions=get_store().get("session.max_sessions"),
-            ttl=cfg.session_timeout,
+            ttl=cfg.get("memory_storage.session_timeout", 3600),
         )
 
         # CacheManager
@@ -89,12 +89,12 @@ class StorageModule:
         self._lifecycle_manager = SessionLifecycleManager(
             session_manager=self._session_manager,
             chroma_manager=self._chroma_manager,
-            upgrade_mode=cfg.upgrade_mode,
+            upgrade_mode=cfg.get("memory_storage.upgrade_mode", "rule"),
             llm_upgrade_batch_size=get_store().get("memory.llm_upgrade_batch_size"),
             llm_upgrade_threshold=get_store().get("memory.llm_upgrade_threshold"),
         )
         # 注入 AstrBot 上下文供语义提取 LLM 调用使用
-        self._lifecycle_manager.set_astrbot_context(context, cfg.llm_provider_id)
+        self._lifecycle_manager.set_astrbot_context(context, cfg.get("llm_providers.provider_id", None))
         await self._lifecycle_manager.start()
 
         # ChatHistoryBuffer
@@ -125,7 +125,7 @@ class StorageModule:
                 },
                 "working_cache": {
                     "max_sessions": get_store().get("session.max_sessions"),
-                    "max_memories_per_session": cfg.max_working_memory,
+                    "max_memories_per_session": cfg.get("memory_storage.max_working_memory", 10),
                     "ttl": get_store().get("cache.working_cache_ttl"),
                 },
                 "compression": {
@@ -134,17 +134,17 @@ class StorageModule:
             })
 
         if self._session_manager:
-            self._session_manager.max_working_memory = cfg.max_working_memory
+            self._session_manager.max_working_memory = cfg.get("memory_storage.max_working_memory", 10)
             self._session_manager.max_sessions = get_store().get("session.max_sessions")
-            self._session_manager.ttl = cfg.session_timeout
+            self._session_manager.ttl = cfg.get("memory_storage.session_timeout", 3600)
 
         if self._lifecycle_manager:
             self._lifecycle_manager.cleanup_interval = get_store().get("session.session_cleanup_interval")
-            self._lifecycle_manager.session_timeout = cfg.session_timeout
+            self._lifecycle_manager.session_timeout = cfg.get("memory_storage.session_timeout", 3600)
             self._lifecycle_manager.inactive_timeout = get_store().get("session.session_inactive_timeout")
 
         if self._chat_history_buffer:
-            self._chat_history_buffer.set_max_messages(cfg.chat_context_count)
+            self._chat_history_buffer.set_max_messages(cfg.get("memory_storage.chat_context_count", 20))
 
     # ── 生命周期 ──
 

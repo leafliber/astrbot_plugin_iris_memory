@@ -65,7 +65,7 @@ class MessageProcessor:
             req.system_prompt += "\n\n[系统提示：记忆插件正在初始化，暂时无法提供服务]\n"
             return
 
-        if not hasattr(self._service, 'cfg') or not self._service.cfg.enable_inject:
+        if not hasattr(self._service, 'cfg') or not self._service.cfg.get("retrieval.enable_inject", True):
             return
 
         if not self._service.is_embedding_ready():
@@ -124,7 +124,7 @@ class MessageProcessor:
                 )
 
         raw_persona_id = get_event_persona_id(event)
-        query_persona = self._service.cfg.get_persona_id_for_query(raw_persona_id, "memory")
+        query_persona = self._service.cfg.get("persona.query_persona_id", raw_persona_id)
         context = await self._service.prepare_llm_context(
             query=query,
             user_id=user_id,
@@ -170,7 +170,7 @@ class MessageProcessor:
         if not getattr(self._service, 'is_initialized', False):
             return
 
-        if not hasattr(self._service, 'cfg') or not self._service.cfg.enable_memory:
+        if not hasattr(self._service, 'cfg') or not self._service.cfg.get("memory_capture.enable", True):
             return
 
         user_id = event.get_sender_id()
@@ -226,7 +226,7 @@ class MessageProcessor:
             capture_message = f"{message}\n{reply_info.format_for_buffer()}"
 
         raw_persona_id = get_event_persona_id(event)
-        store_persona = self._service.cfg.get_persona_id_for_storage(raw_persona_id)
+        store_persona = self._service.cfg.get("persona.storage_persona_id", raw_persona_id)
         memory = await self._service.capture_and_store_memory(
             message=capture_message,
             user_id=user_id,
@@ -329,7 +329,7 @@ class MessageProcessor:
             enriched_message = f"{message}\n{reply_info.format_for_buffer()}"
 
         raw_persona_id = get_event_persona_id(event)
-        store_persona = self._service.cfg.get_persona_id_for_storage(raw_persona_id)
+        store_persona = self._service.cfg.get("persona.storage_persona_id", raw_persona_id)
 
         # 将图片分析和批量处理放到后台任务，避免阻塞 LLM 响应（这些是记忆写入操作，
         # 不需要在 Bot 回复前完成）

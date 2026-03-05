@@ -83,7 +83,7 @@ class CommandHandlers:
         sender_name = get_sender_name(event)
 
         raw_persona_id = get_event_persona_id(event)
-        store_persona = self._service.cfg.get_persona_id_for_storage(raw_persona_id)
+        store_persona = self._service.cfg.get("persona.storage_persona_id", raw_persona_id)
 
         memory = await self._service.capture_and_store_memory(
             message=content,
@@ -126,7 +126,7 @@ class CommandHandlers:
         group_id = get_group_id(event)
 
         raw_persona_id = get_event_persona_id(event)
-        query_persona = self._service.cfg.get_persona_id_for_query(raw_persona_id, "memory")
+        query_persona = self._service.cfg.get("persona.query_persona_id", raw_persona_id)
 
         memories = await self._service.search_memories(
             query=parsed.content,
@@ -476,12 +476,12 @@ class CommandHandlers:
             f"📊 当前群活跃度：{label}",
             f"消息频率：约 {mph:.0f} 条/小时\n",
             "当前自适应配置：",
-            f"  • 主动回复冷却：{cfg.get('cooldown_seconds', '?')}秒",
-            f"  • 每日回复上限：{cfg.get('max_daily_replies', '?')}次",
-            f"  • 批处理阈值：{cfg.get('batch_threshold_count', '?')}条",
-            f"  • 处理间隔：{cfg.get('batch_threshold_interval', '?')}秒",
-            f"  • 图片分析预算：{cfg.get('daily_analysis_budget', '?')}次/日",
-            f"  • 上下文条数：{cfg.get('chat_context_count', '?')}条",
+            f"  • 主动回复冷却：{cfg.get('proactive_reply.cooldown_seconds', '?')}秒",
+            f"  • 每日回复上限：{cfg.get('proactive_reply.max_daily_replies', '?')}次",
+            f"  • 批处理阈值：{cfg.get('message_processing.batch_threshold_count', '?')}条",
+            f"  • 处理间隔：{cfg.get('message_processing.batch_threshold_interval', '?')}秒",
+            f"  • 图片分析预算：{cfg.get('image_analysis.daily_budget', '?')}次/日",
+            f"  • 上下文条数：{cfg.get('memory_storage.chat_context_count', '?')}条",
         ]
         return "\n".join(result_lines)
 

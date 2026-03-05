@@ -102,7 +102,7 @@ class ContextBuilder:
                 query=query,
                 user_id=user_id,
                 group_id=group_id,
-                top_k=self._cfg.max_context_memories,
+                top_k=self._cfg.get("retrieval.max_context_memories", 10),
                 emotional_state=emotional_state,
                 persona_id=persona_id,
             )
@@ -270,7 +270,7 @@ class ContextBuilder:
         if not chat_history_buffer:
             return ""
 
-        chat_context_count = self._cfg.get_chat_context_count(group_id)
+        chat_context_count = self._cfg.get("memory_storage.chat_context_count", 20)
         if chat_context_count <= 0:
             return ""
 

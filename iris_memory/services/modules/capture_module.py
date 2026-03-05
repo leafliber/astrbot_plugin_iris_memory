@@ -117,15 +117,15 @@ class CaptureModule:
         from iris_memory.config import get_store
 
         batch_config = {
-            "short_message_threshold": cfg.short_message_threshold,
-            "merge_time_window": cfg.merge_time_window,
-            "max_merge_count": cfg.max_merge_count,
+            "short_message_threshold": cfg.get("message_processing.short_message_threshold", 50),
+            "merge_time_window": cfg.get("message_processing.merge_time_window", 30),
+            "max_merge_count": cfg.get("message_processing.max_merge_count", 10),
             "llm_cooldown_seconds": 60,
             "summary_interval_seconds": 300,
         }
 
-        threshold_count = cfg.batch_threshold_count
-        use_llm = cfg.use_llm
+        threshold_count = cfg.get("message_processing.batch_threshold_count", 20)
+        use_llm = cfg.get("message_processing.use_llm", False)
 
         self._batch_processor = MessageBatchProcessor(
             capture_engine=self._capture_engine,
@@ -151,9 +151,9 @@ class CaptureModule:
         if self._capture_engine:
             self._capture_engine.set_config(
                 {
-                    "auto_capture": cfg.enable_memory,
+                    "auto_capture": cfg.get("memory_capture.enable", True),
                     "min_confidence": get_store().get("memory.min_confidence"),
-                    "rif_threshold": cfg.rif_threshold,
+                    "rif_threshold": cfg.get("memory_capture.rif_threshold", 0.7),
                 }
             )
 

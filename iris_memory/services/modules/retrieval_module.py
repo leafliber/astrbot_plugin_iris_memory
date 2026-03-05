@@ -58,11 +58,11 @@ class RetrievalModule:
         if self._retrieval_engine:
             self._retrieval_engine.set_config(
                 {
-                    "max_context_memories": cfg.max_context_memories,
+                    "max_context_memories": cfg.get("retrieval.max_context_memories", 10),
                     "enable_time_aware": get_store().get("llm_integration.enable_time_aware"),
                     "enable_emotion_aware": get_store().get("llm_integration.enable_emotion_aware"),
-                    "enable_token_budget": cfg.enable_inject,
-                    "token_budget": cfg.token_budget,
+                    "enable_token_budget": cfg.get("retrieval.enable_inject", True),
+                    "token_budget": cfg.get("retrieval.token_budget", 4000),
                     "coordination_strategy": get_store().get("llm_integration.coordination_strategy"),
                 }
             )

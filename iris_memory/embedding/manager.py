@@ -192,7 +192,7 @@ class EmbeddingManager:
 
         from iris_memory.config import get_store
         cfg = get_store()
-        source_str = cfg.embedding_source.lower()
+        source_str = cfg.get("embedding.source", "auto").lower()
 
         try:
             self.current_source = EmbeddingSource(source_str)
@@ -319,7 +319,7 @@ class EmbeddingManager:
         provider = AstrBotProvider(
             self.config,
             astrbot_context=self.plugin_context,
-            provider_id=cfg.embedding_astrbot_provider_id,
+            provider_id=cfg.get("embedding.astrbot_provider_id", None),
         )
         success = await provider.initialize()
         if success:

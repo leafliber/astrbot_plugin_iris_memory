@@ -175,8 +175,8 @@ _FIELDS: List[ConfigField] = [
        alias="llm_enhanced_provider_id", normalize_provider=True),
 
     # ── 记忆核心设置 ─────────────────────────────────
-    _f("memory.max_context_memories", int, 3,
-       "最大上下文记忆数", access=RO, min_val=1, max_val=20,
+    _f("memory.max_context_memories", int, 10,
+       "最大上下文记忆数", access=RO, min_val=1, max_val=100,
        alias="max_context_memories"),
     _f("memory.max_working_memory", int, 10,
        "最大工作记忆数", access=RO, min_val=1, max_val=100,

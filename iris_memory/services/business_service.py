@@ -262,7 +262,7 @@ class BusinessService:
 
             # 即时处理路径（降级或未启用批量处理器）
             persona_extractor = self._analysis.persona_extractor
-            if persona_extractor and self._cfg.persona_extraction_mode != "rule":
+            if persona_extractor and self._cfg.get("persona.extraction_mode", "rule") != "rule":
                 result = await persona_extractor.extract(
                     content=content,
                     summary=summary,
@@ -419,9 +419,9 @@ class BusinessService:
             if self._storage.session_manager:
                 from iris_memory.storage.session_manager import SessionManager
                 self._storage._session_manager = SessionManager(
-                    max_working_memory=self._cfg.max_working_memory,
+                    max_working_memory=self._cfg.get("memory_storage.max_working_memory", 10),
                     max_sessions=self._cfg.get("session.max_sessions", 3),
-                    ttl=self._cfg.session_timeout,
+                    ttl=self._cfg.get("memory_storage.session_timeout", 3600),
                     activity_tracker=self._activity_tracker,
                 )
 
@@ -520,7 +520,7 @@ class BusinessService:
             return "", ""
 
         try:
-            daily_budget = self._cfg.get_daily_analysis_budget(group_id)
+            daily_budget = self._cfg.get("image_analysis.daily_budget", 50)
             effective_daily_budget = daily_budget if daily_budget > 0 else UNLIMITED_BUDGET
 
             image_results = await self._image_analyzer.analyze_message_images(
