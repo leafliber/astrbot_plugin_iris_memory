@@ -279,7 +279,7 @@ class IrisMemoryPlugin(Star):
         """插件终止时的清理工作"""
         if self._service:
             await self._service.save_to_kv(self.put_kv_data)
-            await self._service.cleanup()
+            await self._service.terminate()
 
         if self._web_ui:
             await self._web_ui.cleanup()

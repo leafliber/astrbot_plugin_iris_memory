@@ -31,7 +31,7 @@ from iris_memory.core.constants import BatchSessionConfig
 
 if TYPE_CHECKING:
     from iris_memory.proactive.manager import ProactiveManager
-    from iris_memory.config import ConfigStore
+    from iris_memory.core.config_manager import ConfigManager
 
 logger = get_logger("batch_processor")
 
@@ -64,7 +64,7 @@ class MessageBatchProcessor:
         summary_prompt: Optional[str] = None,
         on_save_callback: Optional[Callable[[], Any]] = None,
         config: Optional[Dict[str, Any]] = None,
-        config_manager: Optional['ConfigStore'] = None
+        config_manager: Optional['ConfigManager'] = None
     ) -> None:
         self.capture_engine: MemoryCaptureEngine = capture_engine
         self.llm_processor: Optional[LLMMessageProcessor] = llm_processor
@@ -75,7 +75,7 @@ class MessageBatchProcessor:
         self.use_llm_summary: bool = use_llm_summary
         self.summary_prompt: Optional[str] = summary_prompt
         self.on_save_callback: Optional[Callable[[], Any]] = on_save_callback
-        self._config_manager: Optional['ConfigStore'] = config_manager
+        self._config_manager: Optional['ConfigManager'] = config_manager
         
         cfg: Dict[str, Any] = config or {}
         

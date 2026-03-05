@@ -22,6 +22,7 @@ from astrbot.api import AstrBotConfig
 from astrbot.api.star import Context
 
 from iris_memory.config import ConfigStore, get_store
+from iris_memory.core.config_manager import ConfigManager
 from iris_memory.core.constants import LogTemplates, UNLIMITED_BUDGET
 from iris_memory.services.modules.storage_module import StorageModule
 from iris_memory.services.modules.analysis_module import AnalysisModule
@@ -43,7 +44,7 @@ class InitializerDeps:
     context: Context
     config: AstrBotConfig
     plugin_data_path: Path
-    cfg: ConfigStore
+    cfg: ConfigManager
 
     storage: StorageModule = field(default_factory=StorageModule)
     analysis: AnalysisModule = field(default_factory=AnalysisModule)
