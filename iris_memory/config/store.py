@@ -113,8 +113,18 @@ class ConfigStore:
             if field is not None:
                 val = field.default if default is None else default
                 self._cache[key] = (val, now + self._cache_ttl)
+                logger.warning(
+                    "配置 '%s' 未设置，使用Schema默认值: %s",
+                    key,
+                    val
+                )
                 return val
 
+            logger.warning(
+                "配置 '%s' 未设置，使用退化值: %s",
+                key,
+                default
+            )
             return default
 
     def get_typed(self, key: str, tp: type, default: Any = None) -> Any:
@@ -125,6 +135,44 @@ class ConfigStore:
                 return tp(value)
             except (ValueError, TypeError):
                 return default
+        return value
+
+    def get_with_warning(self, key: str, default: Any = None, context: str = "") -> Any:
+        """获取配置值，如果使用了默认值则输出 warning
+
+        Args:
+            key: 配置键
+            default: 默认值（当配置不存在时使用）
+            context: 上下文信息，用于日志标识调用位置
+
+        Returns:
+            配置值或默认值
+        """
+        # 检查配置键是否在 schema 中定义
+        field = SCHEMA.get(key)
+        if field is None:
+            logger.warning(
+                "[Config Warning] 配置键 '%s' 未在 schema 中定义%s，使用退化值: %s",
+                key,
+                f" [{context}]" if context else "",
+                default
+            )
+            return default
+
+        # 获取实际值
+        value = self.get(key, default)
+
+        # 检查是否使用了默认值（配置未设置或值为 None）
+        if key not in self._data or self._data.get(key) is None:
+            actual_default = field.default if default is None else default
+            if value == actual_default:
+                logger.warning(
+                    "[Config Warning] 配置 '%s' 未设置%s，使用退化值: %s",
+                    key,
+                    f" [{context}]" if context else "",
+                    value
+                )
+
         return value
 
     def __contains__(self, key: str) -> bool:

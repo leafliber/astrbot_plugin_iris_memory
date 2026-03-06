@@ -454,7 +454,11 @@ _FIELDS: List[ConfigField] = [
     _f("proactive_reply.followup_llm_temperature", float, 0.3,
        "跟进 LLM 温度", access=INT),
     _f("proactive_reply.followup_fallback_to_rule", bool, True,
-       "跟进 LLM 失败降级到规则", access=INT),    # 记忆回顾强化
+       "跟进 LLM 失败降级到规则", access=INT),
+    _f("proactive_reply.timezone_offset", int, 8,
+       "时区偏移（小时）", access=RW),
+    _f("proactive_reply.quiet_hours_activity_exempt_minutes", int, 20,
+       "静音时段活动豁免分钟数", access=RW),    # 记忆回顾强化
 
     # ── 场景自适应 ────────────────────────────────────
     _f("activity_adaptive.enable", bool, True,

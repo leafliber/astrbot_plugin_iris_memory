@@ -419,9 +419,9 @@ class BusinessService:
             if self._storage.session_manager:
                 from iris_memory.storage.session_manager import SessionManager
                 self._storage._session_manager = SessionManager(
-                    max_working_memory=self._cfg.get("memory_storage.max_working_memory", 10),
+                    max_working_memory=self._cfg.get("memory.max_working_memory", 10),
                     max_sessions=self._cfg.get("session.max_sessions", 3),
-                    ttl=self._cfg.get("memory_storage.session_timeout", 3600),
+                    ttl=self._cfg.get("session.session_timeout", 3600),
                     activity_tracker=self._activity_tracker,
                 )
 

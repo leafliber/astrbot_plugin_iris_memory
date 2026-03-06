@@ -296,7 +296,7 @@ class ServiceInitializer:
         """初始化记忆升级评估器的 LLM provider"""
         from iris_memory.core.upgrade_evaluator import UpgradeMode
 
-        upgrade_mode = self._deps.cfg.get("memory_storage.upgrade_mode", "rule")
+        upgrade_mode = self._deps.cfg.get("memory.upgrade_mode", "rule")
 
         if upgrade_mode in ("llm", "hybrid"):
             self._logger.debug(f"Initializing upgrade evaluator LLM provider (mode={upgrade_mode})")

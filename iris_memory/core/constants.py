@@ -68,7 +68,7 @@ class ConfigKeys:
     MAX_CONTEXT_MEMORIES: Final[str] = "memory.max_context_memories"
     MAX_WORKING_MEMORY: Final[str] = "memory.max_working_memory"
     UPGRADE_MODE: Final[str] = "memory.upgrade_mode"
-    CHAT_CONTEXT_COUNT: Final[str] = "memory.chat_context_count"
+    CHAT_CONTEXT_COUNT: Final[str] = "advanced.chat_context_count"
     USE_LLM: Final[str] = "memory.use_llm"
     
     PROACTIVE_REPLY_ENABLE: Final[str] = "proactive_reply.enable"

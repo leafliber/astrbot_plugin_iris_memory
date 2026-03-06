@@ -130,7 +130,7 @@ class AnalysisModule:
             apply_result_callback: 结果应用回调
             working_memory_callback: 工作记忆查询回调 (user_id, group_id) -> List[Memory]
         """
-        if not cfg.get("persona_analysis.batch_enabled", False):
+        if not cfg.get("persona.batch_enabled", False):
             logger.debug("Persona batch processor disabled by config")
             return
 
@@ -144,9 +144,9 @@ class AnalysisModule:
 
         self._persona_batch_processor = PersonaBatchProcessor(
             persona_extractor=self._persona_extractor,
-            batch_threshold=cfg.get("persona_analysis.batch_threshold", 5),
-            flush_interval=cfg.get("persona_analysis.batch_flush_interval", 300),
-            batch_max_size=cfg.get("persona_analysis.batch_max_size", 20),
+            batch_threshold=cfg.get("persona.batch_threshold", 20),
+            flush_interval=cfg.get("persona.batch_flush_interval", 21600),
+            batch_max_size=cfg.get("persona.batch_max_size", 20),
             apply_result_callback=apply_result_callback,
             working_memory_callback=working_memory_callback,
         )
