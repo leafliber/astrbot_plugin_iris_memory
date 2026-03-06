@@ -140,19 +140,35 @@ class Reranker:
         activity_score = self._calculate_activity_score(memory, context)
 
         # 综合得分（注意：RIF已包含时近性40%，time_score仅作微调补充）
+        # 9维综合重排序（含图中心性维度）
         comprehensive_score = (
-            0.25 * quality_score +
-            0.25 * rif_score +
+            0.22 * quality_score +
+            0.22 * rif_score +
             0.05 * time_score +
             0.10 * sender_score +
-            0.05 * activity_score +
-            0.10 * access_score +
+            0.04 * activity_score +
+            0.09 * access_score +
             0.05 * emotion_score
         )
 
         # 如果有向量相似度，加入计算
         if vector_score > 0:
             comprehensive_score += 0.15 * vector_score
+
+        # 图中心性得分（第9维）
+        graph_score = getattr(memory, 'graph_centrality', 0.0)
+        if graph_score <= 0:
+            graph_score = 0.5  # 无图数据时取中间值
+        comprehensive_score += 0.08 * graph_score
+
+        # 图扩展来源微调加分
+        if memory.metadata.get("_source") == "graph_expansion":
+            comprehensive_score *= 1.05
+
+        # 情感共鸣/冲突微调
+        emotion_bonus = memory.metadata.get("_emotion_bonus", 0.0)
+        emotion_penalty = memory.metadata.get("_emotion_penalty", 0.0)
+        comprehensive_score += emotion_bonus - emotion_penalty
 
         return comprehensive_score
 

@@ -1,12 +1,11 @@
 """Core module for iris memory"""
-from iris_memory.core.defaults import (
-    DEFAULTS, get_default, get_defaults_dict,
-    GroupActivityLevel, ActivityBasedPresets, ACTIVITY_PRESETS,
-)
 from iris_memory.core.config_manager import ConfigManager
 from iris_memory.core.activity_config import (
     GroupActivityTracker,
     ActivityAwareConfigProvider,
+    GroupActivityLevel,
+    ActivityBasedPresets,
+    ACTIVITY_PRESETS,
 )
 from iris_memory.core.service_container import ServiceContainer
 from iris_memory.core.upgrade_evaluator import UpgradeEvaluator, UpgradeMode
@@ -34,9 +33,6 @@ from iris_memory.config import (
 )
 
 __all__ = [
-    'DEFAULTS',
-    'get_default',
-    'get_defaults_dict',
     'GroupActivityLevel',
     'ActivityBasedPresets',
     'ACTIVITY_PRESETS',

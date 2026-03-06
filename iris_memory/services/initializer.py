@@ -177,6 +177,9 @@ class ServiceInitializer:
             else:
                 self._module_init_status[name] = result
 
+        # 回顾强化引擎（依赖 storage + proactive 已初始化）
+        await self._init_module_safe("reinforcement", self._init_reinforcement_engine)
+
     async def _init_module_safe_parallel(self, name: str, init_fn: Callable) -> bool:
         """并行安全初始化模块，返回是否成功"""
         try:
@@ -446,6 +449,29 @@ class ServiceInitializer:
         self._deps.storage.apply_config(self._deps.cfg)
         self._deps.capture.apply_config(self._deps.cfg)
         self._deps.retrieval.apply_config(self._deps.cfg)
+
+    async def _init_reinforcement_engine(self) -> None:
+        """初始化记忆回顾强化引擎
+
+        通过 notify_callback 闭包注入通知能力，而非直接持有 ProactiveManager。
+        """
+        proactive_manager = self._deps.proactive.manager
+
+        async def _notify_callback(
+            user_id: str, group_id, text: str, metadata: dict,
+        ) -> None:
+            if proactive_manager:
+                await proactive_manager.send_direct_message(
+                    user_id=user_id,
+                    group_id=group_id,
+                    text=text,
+                    metadata=metadata,
+                )
+
+        await self._deps.analysis.init_reinforcement_engine(
+            chroma_manager=self._deps.storage.chroma_manager,
+            notify_callback=_notify_callback,
+        )
 
     async def _init_batch_processor(self) -> None:
         """初始化批量处理器"""

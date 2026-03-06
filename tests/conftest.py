@@ -4,8 +4,28 @@ pytest测试配置文件
 为所有测试提供基础fixtures，统一配置管理器初始化。
 """
 
-import pytest
+import sys
+from types import ModuleType
 from unittest.mock import Mock
+
+# 在任何 iris_memory 导入之前，确保 astrbot 模块存在（stub）
+# 这样即使环境中没有安装 astrbot 也能正常运行测试
+_ASTRBOT_STUBS = [
+    "astrbot",
+    "astrbot.api",
+    "astrbot.api.event",
+    "astrbot.api.message_components",
+    "astrbot.api.star",
+    "astrbot.api.all",
+    "astrbot.core",
+    "astrbot.core.config",
+    "astrbot.core.config.default",
+]
+for mod_name in _ASTRBOT_STUBS:
+    if mod_name not in sys.modules:
+        sys.modules[mod_name] = Mock()
+
+import pytest
 from iris_memory.core.test_utils import setup_test_config
 from iris_memory.config import reset_store
 

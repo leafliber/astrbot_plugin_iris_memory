@@ -96,12 +96,23 @@ class RIFScorer:
         再根据记忆特征（情感权重、用户请求、重要性）进行调整，
         确保与 Reranker 等其他模块的时间算法一致。
         
+        情感记忆使用 EmotionDecayProfile 差异化衰减模型：
+        - 正面情感：慢衰减（~60天半衰期），保留美好回忆
+        - 负面情感：快衰减（~7天半衰期），加速情感愈合
+        
         Args:
             memory: 记忆对象
             
         Returns:
             float: 时近性得分（0-1）
         """
+        # ===== 情感记忆：使用专属差异化衰减模型 =====
+        if memory.type == MemoryType.EMOTION and memory.subtype:
+            from iris_memory.analysis.emotion_decay import EmotionDecayProfile
+            emotion_time_score = EmotionDecayProfile.calculate_emotion_time_score(memory)
+            return min(1.0, max(0.0, emotion_time_score))
+
+        # ===== 非情感记忆：保持原有逻辑 =====
         # 统一的基础时间得分（基于 last_access_time）
         base_time_score = memory.calculate_time_score(use_created_time=False)
         
@@ -129,6 +140,10 @@ class RIFScorer:
         if creation_hours < 24:
             new_memory_bonus = 1.0 + (24 - creation_hours) / 120  # 最大 +0.2
             modifier *= new_memory_bonus
+        
+        # 保护标记全局加成
+        if hasattr(memory, 'is_protected') and memory.is_protected:
+            modifier *= 1.1
         
         # 限制修正因子上限，防止累积过高（理论最大约 1.85 → 限制到 1.5）
         modifier = min(modifier, 1.5)

@@ -15,17 +15,96 @@
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple
 
-from iris_memory.core.defaults import (
-    ACTIVITY_HYSTERESIS_RATIO,
-    ACTIVITY_PRESETS,
-    ACTIVITY_THRESHOLDS,
-    ACTIVITY_WINDOW_HOURS,
-    DEFAULTS,
-    GroupActivityLevel,
-)
+from iris_memory.config.schema import SCHEMA
 from iris_memory.utils.logger import get_logger
+
+
+# ========== 群活跃度枚举 ==========
+
+class GroupActivityLevel(str, Enum):
+    """群活跃度等级"""
+    QUIET = "quiet"          # < 5条/小时
+    MODERATE = "moderate"    # 5-20条/小时
+    ACTIVE = "active"        # 20-50条/小时
+    INTENSIVE = "intensive"  # > 50条/小时
+
+
+# ========== 活跃度分级配置预设 ==========
+
+@dataclass
+class ActivityBasedPresets:
+    """活跃度分级配置预设
+
+    每个字段为 {GroupActivityLevel.value: int/float} 的映射。
+    "温和型"陪伴风格：安静群更克制，活跃群更参与但不过度。
+    """
+    cooldown_seconds: Dict[str, int] = field(default_factory=lambda: {
+        "quiet": 120,
+        "moderate": 60,
+        "active": 45,
+        "intensive": 30,
+    })
+    max_daily_replies: Dict[str, int] = field(default_factory=lambda: {
+        "quiet": 8,
+        "moderate": 15,
+        "active": 22,
+        "intensive": 25,
+    })
+    batch_threshold_count: Dict[str, int] = field(default_factory=lambda: {
+        "quiet": 10,
+        "moderate": 15,
+        "active": 30,
+        "intensive": 50,
+    })
+    batch_threshold_interval: Dict[str, int] = field(default_factory=lambda: {
+        "quiet": 600,
+        "moderate": 300,
+        "active": 180,
+        "intensive": 120,
+    })
+    daily_analysis_budget: Dict[str, int] = field(default_factory=lambda: {
+        "quiet": 30,
+        "moderate": 60,
+        "active": 100,
+        "intensive": 150,
+    })
+    chat_context_count: Dict[str, int] = field(default_factory=lambda: {
+        "quiet": 10,
+        "moderate": 15,
+        "active": 20,
+        "intensive": 25,
+    })
+    reply_temperature: Dict[str, float] = field(default_factory=lambda: {
+        "quiet": 0.6,
+        "moderate": 0.7,
+        "active": 0.75,
+        "intensive": 0.8,
+    })
+
+    def get(self, key: str, level: GroupActivityLevel) -> Any:
+        """按 key 和等级获取预设值"""
+        mapping = getattr(self, key, None)
+        if mapping is None:
+            return None
+        return mapping.get(level.value)
+
+
+# 全局活跃度预设实例
+ACTIVITY_PRESETS = ActivityBasedPresets()
+
+# 活跃度阈值定义（条/小时）
+ACTIVITY_THRESHOLDS: Dict[str, int] = {
+    "quiet_upper": 5,
+    "moderate_upper": 20,
+    "active_upper": 50,
+}
+
+# 滑动窗口和防抖配置
+ACTIVITY_WINDOW_HOURS: int = 3          # 滑动窗口小时数
+ACTIVITY_HYSTERESIS_RATIO: float = 0.2  # 升降级需比阈值多/少 20%
 
 logger = get_logger("activity_config")
 
@@ -88,7 +167,7 @@ class GroupActivityTracker:
         self,
         window_hours: int = ACTIVITY_WINDOW_HOURS,
         hysteresis_ratio: float = ACTIVITY_HYSTERESIS_RATIO,
-        calc_interval: int = DEFAULTS.activity_adaptive.activity_calc_interval,
+        calc_interval: int = SCHEMA["activity_adaptive.activity_calc_interval"].default,
     ):
         self._window_hours = window_hours
         self._hysteresis_ratio = hysteresis_ratio
@@ -294,22 +373,22 @@ class ActivityAwareConfigProvider:
     2. 全局默认值（从 DEFAULTS 获取）
     """
 
-    # 支持的配置键及其在 DEFAULTS 中的位置
-    _DEFAULT_FALLBACKS: Dict[str, Tuple[str, str]] = {
-        "cooldown_seconds": ("proactive_reply", "cooldown_seconds"),
-        "max_daily_replies": ("proactive_reply", "max_daily_replies"),
-        "batch_threshold_count": ("message_processing", "batch_threshold_count"),
-        "batch_threshold_interval": ("message_processing", "batch_threshold_interval"),
-        "daily_analysis_budget": ("image_analysis", "daily_analysis_budget"),
-        "chat_context_count": ("llm_integration", "chat_context_count"),
-        "reply_temperature": ("proactive_reply", "reply_temperature"),
+    # 支持的配置键到 Schema 路径的映射
+    _DEFAULT_SCHEMA_KEYS: Dict[str, str] = {
+        "cooldown_seconds": "proactive_reply.cooldown_seconds",
+        "max_daily_replies": "proactive_reply.max_daily_replies",
+        "batch_threshold_count": "message_processing.batch_threshold_count",
+        "batch_threshold_interval": "message_processing.batch_threshold_interval",
+        "daily_analysis_budget": "image_analysis.daily_analysis_budget",
+        "chat_context_count": "llm_integration.chat_context_count",
+        "reply_temperature": "proactive_reply.reply_temperature",
     }
 
     def __init__(
         self,
         tracker: GroupActivityTracker,
         enabled: bool = True,
-        cache_ttl: int = DEFAULTS.activity_adaptive.config_cache_ttl,
+        cache_ttl: int = SCHEMA["activity_adaptive.config_cache_ttl"].default,
     ):
         self._tracker = tracker
         self._enabled = enabled
@@ -408,13 +487,11 @@ class ActivityAwareConfigProvider:
     # ---------- 内部方法 ----------
 
     def _get_default(self, key: str) -> Any:
-        """获取默认配置值"""
-        fb = self._DEFAULT_FALLBACKS.get(key)
-        if fb:
-            section_name, attr_name = fb
-            section = getattr(DEFAULTS, section_name, None)
-            if section:
-                return getattr(section, attr_name, None)
+        """获取默认配置值（从当前配置存储读取）"""
+        schema_key = self._DEFAULT_SCHEMA_KEYS.get(key)
+        if schema_key:
+            from iris_memory.config import get_store
+            return get_store().get(schema_key)
         return None
 
     def _get_from_cache(self, group_id: str, key: str) -> Any:

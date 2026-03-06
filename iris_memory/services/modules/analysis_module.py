@@ -1,7 +1,7 @@
 """
-分析模块 — 聚合情感分析、RIF评分、画像提取等分析能力
+分析模块 — 聚合情感分析、RIF评分、画像提取、回顾强化等分析能力
 
-包含：EmotionAnalyzer, RIFScorer, PersonaExtractor, PersonaBatchProcessor
+包含：EmotionAnalyzer, RIFScorer, PersonaExtractor, PersonaBatchProcessor, MemoryReinforcementEngine
 """
 from __future__ import annotations
 
@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from iris_memory.analysis.rif_scorer import RIFScorer
     from iris_memory.analysis.persona.persona_extractor import PersonaExtractor
     from iris_memory.analysis.persona.persona_batch_processor import PersonaBatchProcessor
+    from iris_memory.analysis.reinforcement import MemoryReinforcementEngine
 
 logger = get_logger("module.analysis")
 
@@ -22,7 +23,7 @@ logger = get_logger("module.analysis")
 class AnalysisModule:
     """分析模块
 
-    聚合情感分析器、RIF评分器、画像提取器、画像批量处理器四个分析组件。
+    聚合情感分析器、RIF评分器、画像提取器、画像批量处理器、回顾强化引擎五个分析组件。
     """
 
     def __init__(self) -> None:
@@ -30,6 +31,7 @@ class AnalysisModule:
         self._rif_scorer: Optional[RIFScorer] = None
         self._persona_extractor: Optional[PersonaExtractor] = None
         self._persona_batch_processor: Optional[PersonaBatchProcessor] = None
+        self._reinforcement_engine: Optional[MemoryReinforcementEngine] = None
 
     @property
     def emotion_analyzer(self) -> Optional[EmotionAnalyzer]:
@@ -46,6 +48,10 @@ class AnalysisModule:
     @property
     def persona_batch_processor(self) -> Optional[PersonaBatchProcessor]:
         return self._persona_batch_processor
+
+    @property
+    def reinforcement_engine(self) -> Optional[MemoryReinforcementEngine]:
+        return self._reinforcement_engine
 
     def initialize(self, config: Any) -> None:
         """初始化核心分析组件（同步）"""
@@ -152,11 +158,43 @@ class AnalysisModule:
             f"working_memory={'enabled' if working_memory_callback else 'disabled'})"
         )
 
+    async def init_reinforcement_engine(
+        self,
+        chroma_manager: Any = None,
+        notify_callback: Any = None,
+    ) -> None:
+        """初始化并启动记忆回顾强化引擎
+
+        依赖 ConfigStore 读取 memory.reinforcement.* 配置。
+        若 memory.reinforcement.enable == False 则跳过。
+        """
+        from iris_memory.config import get_store
+
+        cfg = get_store()
+        if not cfg.get("memory.reinforcement.enable", True):
+            logger.debug("Reinforcement engine disabled by config")
+            return
+
+        from iris_memory.analysis.reinforcement import MemoryReinforcementEngine
+
+        self._reinforcement_engine = MemoryReinforcementEngine(
+            chroma_manager=chroma_manager,
+            notify_callback=notify_callback,
+        )
+        await self._reinforcement_engine.start()
+        logger.debug("Reinforcement engine initialized and started")
+
     async def stop(self) -> None:
-        """停止画像批量处理器"""
+        """停止后台分析组件（画像批处理器 + 回顾强化引擎）"""
         if self._persona_batch_processor:
             try:
                 await self._persona_batch_processor.stop()
                 logger.debug("[Hot-Reload] Persona batch processor stopped")
             except Exception as e:
                 logger.warning(f"[Hot-Reload] Error stopping persona batch processor: {e}")
+        if self._reinforcement_engine:
+            try:
+                await self._reinforcement_engine.stop()
+                logger.debug("[Hot-Reload] Reinforcement engine stopped")
+            except Exception as e:
+                logger.warning(f"[Hot-Reload] Error stopping reinforcement engine: {e}")

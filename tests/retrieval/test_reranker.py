@@ -129,15 +129,21 @@ class TestReranker:
         # 计算活跃度得分（无service，默认0.5）
         activity_score = reranker._calculate_activity_score(memory, {})
 
-        # 计算期望的综合得分（新权重分配：RIF已含时近性，time_score仅微调）
+        # 计算图中心性得分（第9维）
+        graph_score = getattr(memory, 'graph_centrality', 0.0)
+        if graph_score <= 0:
+            graph_score = 0.5
+
+        # 计算期望的综合得分（9维权重分配）
         expected_score = (
-            0.25 * quality_score +  # 质量等级
-            0.25 * rif_score +     # RIF评分（内含时近性40%+相关性30%+频率30%）
+            0.22 * quality_score +  # 质量等级
+            0.22 * rif_score +     # RIF评分（内含时近性40%+相关性30%+频率30%）
             0.05 * time_score +    # 时间衰减（微调补充）
             0.10 * sender_score +  # 发送者匹配
-            0.05 * activity_score + # 活跃度
-            0.10 * access_score +   # 访问频率
-            0.05 * emotion_score   # 情感一致性
+            0.04 * activity_score + # 活跃度
+            0.09 * access_score +   # 访问频率
+            0.05 * emotion_score + # 情感一致性
+            0.08 * graph_score     # 图中心性
         )
 
         # 加上向量相似度

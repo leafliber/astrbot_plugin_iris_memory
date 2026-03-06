@@ -95,6 +95,10 @@ class MemoryCaptureEngine:
         # 知识图谱存储层（用于冲突解决时同步删除关联边）
         self._kg_storage = kg_storage
 
+        # 快速通道评估器
+        from iris_memory.capture.fast_track import FastTrackEvaluator
+        self._fast_track_evaluator = FastTrackEvaluator()
+
         # 配置（优先使用注入值，否则回退到 DEFAULTS）
         self.auto_capture = True
         self.min_confidence = min_confidence if min_confidence is not None else get_store().get("memory.min_confidence")
@@ -565,24 +569,46 @@ class MemoryCaptureEngine:
     def _determine_storage_layer(self, memory: Memory, is_user_requested: bool):
         """确定初始存储层
         
-        优化后的存储层判断逻辑：
-        - 用户请求 -> 直接 EPISODIC
-        - 高质量 (HIGH_CONFIDENCE/CONFIRMED) -> EPISODIC 或 SEMANTIC
-        - 高情感权重 (>0.6) -> EPISODIC
-        - 高置信度 (>=0.7) -> EPISODIC
-        - 普通置信度 -> WORKING
+        优化后的存储层判断逻辑（快速通道优先）：
+        - 阶段0: 自动评估保护标记
+        - 阶段1: 快速通道评估（核心身份 / 用户请求 / CONFIRMED）→ 直达 SEMANTIC
+        - 阶段2: 常规通道
+          - 用户请求 -> EPISODIC
+          - 高质量 (HIGH_CONFIDENCE) -> EPISODIC
+          - 高情感权重 (>0.6) -> EPISODIC
+          - 高置信度 (>=0.7) -> EPISODIC
+          - 普通置信度 -> WORKING
         
         Args:
             memory: 记忆对象
             is_user_requested: 是否用户显式请求
         """
+        from iris_memory.models.protection import ProtectionRules
+        from iris_memory.analysis.emotion_decay import EmotionDecayProfile
+
+        # ===== 阶段0: 自动评估保护标记 =====
+        memory.protection_flags |= ProtectionRules.evaluate(memory)
+
+        # ===== 阶段0.5: 自动填充情感衰减元数据 =====
+        if memory.type == MemoryType.EMOTION and memory.subtype:
+            if memory.emotion_valence is None:
+                memory.emotion_valence = EmotionDecayProfile.get_valence(memory.subtype)
+            if memory.emotion_decay_rate is None:
+                memory.emotion_decay_rate = EmotionDecayProfile.get_decay_rate(memory.subtype)
+
+        # ===== 阶段1: 快速通道评估 =====
+        fast_result = self._fast_track_evaluator.evaluate(memory, is_user_requested)
+        if fast_result is not None:
+            memory.storage_layer = fast_result
+            memory.importance_score = max(memory.importance_score, 0.9)
+            memory.source_type = "fast_track"
+            return
+
+        # ===== 阶段2: 常规通道（保持现有逻辑）=====
         if is_user_requested:
             memory.storage_layer = StorageLayer.EPISODIC
             memory.importance_score = max(memory.importance_score, 0.8)
-            return
-        
-        if memory.quality_level == QualityLevel.CONFIRMED:
-            memory.storage_layer = StorageLayer.SEMANTIC
+            memory.metadata["upgrade_candidate"] = True
             return
         
         if memory.quality_level == QualityLevel.HIGH_CONFIDENCE:

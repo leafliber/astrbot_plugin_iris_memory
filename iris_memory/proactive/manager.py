@@ -727,6 +727,78 @@ class ProactiveManager:
             logger.error(f"Failed to send proactive reply: {e}")
             return None
 
+    async def send_direct_message(
+        self,
+        user_id: str,
+        group_id: Optional[str],
+        text: str,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> bool:
+        """发送预格式化文本消息（不经过 LLM 生成）
+
+        用于记忆回顾通知等需要直接投递文本的场景。
+
+        Args:
+            user_id: 目标用户 ID
+            group_id: 目标群组 ID
+            text: 要发送的文本
+            metadata: 可选的附加元数据
+
+        Returns:
+            是否发送成功
+        """
+        if not self._reply_sender:
+            logger.warning(
+                "ProactiveManager.send_direct_message: "
+                "reply_sender not set, cannot send message"
+            )
+            return False
+
+        umo = self._group_umo_map.get(group_id) if group_id else None
+        if not umo:
+            logger.warning(
+                f"ProactiveManager.send_direct_message: "
+                f"no UMO for group={group_id}, cannot send message"
+            )
+            return False
+
+        try:
+            await self._reply_sender.send_text(umo, text)
+            logger.debug(
+                f"Direct message sent: user={user_id}, group={group_id}"
+            )
+            return True
+        except Exception as e:
+            logger.error(f"Failed to send direct message: {e}")
+            return False
+
+    async def send_review_prompt(
+        self,
+        user_id: str,
+        group_id: Optional[str],
+        prompt: str,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> bool:
+        """发送记忆回顾提示（不经过 LLM 生成）
+
+        用于宽限期回顾等需要直接投递提示文本的场景。
+
+        Args:
+            user_id: 目标用户 ID
+            group_id: 目标群组 ID
+            prompt: 提示文本
+            metadata: 可选的附加元数据
+
+        Returns:
+            是否发送成功
+        """
+        return await self.send_direct_message(
+            user_id=user_id,
+            group_id=group_id,
+            text=prompt,
+            metadata=metadata,
+        )
+
     async def _handle_llm_confirm(
         self,
         group_id: str,

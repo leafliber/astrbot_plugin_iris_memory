@@ -204,7 +204,39 @@ _FIELDS: List[ConfigField] = [
        "启用冲突检测", access=INT),
     _f("memory.enable_entity_extraction", bool, True,
        "启用实体提取", access=INT),
+    # ── 快速通道 ────────────────────────────────────────
+    _f("memory.fast_track.enable", bool, True,
+       "启用核心信息快速通道", access=RO),
+    _f("memory.fast_track.confidence", float, 0.9,
+       "快速通道置信度阈值", access=INT, min_val=0.8, max_val=1.0),
 
+    # ── 情感差异化衰减 ──────────────────────────────────
+    _f("memory.emotion_decay.enable", bool, True,
+       "启用情感差异化衰减", access=RO),
+    _f("memory.emotion_decay.negative_halflife_days", int, 7,
+       "负面情绪半衰期（天）", access=INT, min_val=1, max_val=30),
+    _f("memory.emotion_decay.positive_halflife_days", int, 60,
+       "正面情绪半衰期（天）", access=INT, min_val=30, max_val=365),
+
+    # ── 温和遗忘宽限期 ────────────────────────────────────
+    _f("memory.grace_period.enable", bool, True,
+       "启用记忆遗忘宽限期", access=RO),
+    _f("memory.grace_period.days", int, 7,
+       "宽限期天数", access=INT, min_val=1, max_val=30),
+    _f("memory.grace_period.notify_user", bool, True,
+       "宽限期通知用户", access=INT),
+
+    # ── 可见性分类 ────────────────────────────────────────
+    _f("memory.scope_classifier.llm_enable", bool, False,
+       "启用 LLM 可见性分类", access=RO),
+
+    # ── 记忆回顾强化 ────────────────────────────────────
+    _f("memory.reinforcement.enable", bool, True,
+       "启用记忆回顾强化", access=RO),
+    _f("memory.reinforcement.max_daily", int, 3,
+       "每用户每日回顾上限", access=INT, min_val=1, max_val=10),
+    _f("memory.reinforcement.interval_hours", int, 6,
+       "回顾调度间隔（小时）", access=INT, min_val=1, max_val=24),
     # ── 用户画像 ──────────────────────────────────────
     _f("persona.enabled", bool, True,
        "启用用户画像功能", access=RO),
@@ -422,7 +454,7 @@ _FIELDS: List[ConfigField] = [
     _f("proactive_reply.followup_llm_temperature", float, 0.3,
        "跟进 LLM 温度", access=INT),
     _f("proactive_reply.followup_fallback_to_rule", bool, True,
-       "跟进 LLM 失败降级到规则", access=INT),
+       "跟进 LLM 失败降级到规则", access=INT),    # 记忆回顾强化
 
     # ── 场景自适应 ────────────────────────────────────
     _f("activity_adaptive.enable", bool, True,
@@ -595,6 +627,14 @@ _FIELDS: List[ConfigField] = [
        "源记忆过期天数", access=INT),
     _f("semantic_extraction.llm_max_tokens", int, 500,
        "LLM 最大 token", access=INT),
+
+    # ── 图增强检索 ────────────────────────────────────────
+    _f("retrieval.graph_augmented.enable", bool, True,
+       "启用图增强混合检索", access=RO),
+    _f("retrieval.graph_augmented.top_n", int, 5,
+       "图扩展候选数", access=INT, min_val=1, max_val=20),
+    _f("retrieval.graph_augmented.depth", int, 1,
+       "图扩展跳数", access=INT, min_val=1, max_val=3),
 ]
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

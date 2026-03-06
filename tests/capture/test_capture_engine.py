@@ -353,8 +353,8 @@ class TestMemoryCaptureEngine:
         memory = await engine.capture_memory(message, user_id, is_user_requested=True)
 
         assert memory is not None
-        # 用户请求应该被重视，可能会到EPISODIC
-        assert memory.storage_layer in [StorageLayer.WORKING, StorageLayer.EPISODIC]
+        # 用户请求应该被重视，可能会到EPISODIC或SEMANTIC（快速通道）
+        assert memory.storage_layer in [StorageLayer.WORKING, StorageLayer.EPISODIC, StorageLayer.SEMANTIC]
 
     @pytest.mark.asyncio
     async def test_storage_layer_semantic(self, engine):
@@ -374,9 +374,9 @@ class TestMemoryCaptureEngine:
         memory = await engine.capture_memory(message, user_id, is_user_requested=True)
 
         assert memory is not None
-        # 显式触发器"记住"会给高置信度，加上用户请求，应该存到情景记忆或语义记忆
-        # 由于confidence可能达不到0.9（CONFIRMED），但会满足min_confidence
-        assert memory.storage_layer in [StorageLayer.WORKING, StorageLayer.EPISODIC]
+        # 显式触发器"记住"会给高置信度，加上用户请求或CONFIRMED质量，
+        # 快速通道会直接送入SEMANTIC
+        assert memory.storage_layer in [StorageLayer.WORKING, StorageLayer.EPISODIC, StorageLayer.SEMANTIC]
 
     # ========== 去重检查测试 ==========
 
@@ -673,7 +673,7 @@ class TestMemoryCaptureEngine:
         assert memory.confidence >= 0.75
         assert memory.quality_level.value >= QualityLevel.HIGH_CONFIDENCE.value
         assert 0.0 <= memory.rif_score <= 1.0  # RIF评分应该在0-1之间
-        assert memory.storage_layer in [StorageLayer.WORKING, StorageLayer.EPISODIC]
+        assert memory.storage_layer in [StorageLayer.WORKING, StorageLayer.EPISODIC, StorageLayer.SEMANTIC]
 
     @pytest.mark.asyncio
     async def test_capture_auto_capture_disabled(self, engine):

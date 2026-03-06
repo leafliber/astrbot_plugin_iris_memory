@@ -5,7 +5,7 @@ from unittest.mock import Mock
 from iris_memory.core.activity_config import GroupActivityTracker
 from iris_memory.core.config_manager import ConfigManager
 from iris_memory.config import get_store
-from iris_memory.core.defaults import ACTIVITY_PRESETS, GroupActivityLevel
+from iris_memory.core.activity_config import ACTIVITY_PRESETS, GroupActivityLevel
 
 
 def _build_user_config_with_advanced(**overrides):

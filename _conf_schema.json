@@ -144,6 +144,66 @@
         "type": "bool",
         "default": false,
         "hint": "开启后使用LLM进行消息批量摘要、智能分类（质量更高但消耗token）"
+      },
+      "fast_track": {
+        "description": "核心信息快速通道",
+        "type": "object",
+        "items": {
+          "enable": {
+            "description": "启用快速通道",
+            "type": "bool",
+            "default": true,
+            "hint": "高置信身份信息（如姓名、生日）直接进入语义记忆，跳过情景阶段"
+          }
+        }
+      },
+      "emotion_decay": {
+        "description": "情感差异化衰减",
+        "type": "object",
+        "items": {
+          "enable": {
+            "description": "启用情感差异化衰减",
+            "type": "bool",
+            "default": true,
+            "hint": "正面情绪记忆缓慢衰减，负面情绪记忆加速遗忘，接近人类记忆特性"
+          }
+        }
+      },
+      "grace_period": {
+        "description": "温和遗忘宽限期",
+        "type": "object",
+        "items": {
+          "enable": {
+            "description": "启用宽限期",
+            "type": "bool",
+            "default": true,
+            "hint": "记忆被删除前进入宽限期，给予用户知情权和保留机会"
+          }
+        }
+      },
+      "scope_classifier": {
+        "description": "记忆可见性分类",
+        "type": "object",
+        "items": {
+          "llm_enable": {
+            "description": "启用LLM可见性分类",
+            "type": "bool",
+            "default": false,
+            "hint": "使用LLM判断记忆应为私聊可见还是群内共享（消耗token）"
+          }
+        }
+      },
+      "reinforcement": {
+        "description": "记忆回顾强化",
+        "type": "object",
+        "items": {
+          "enable": {
+            "description": "启用记忆回顾",
+            "type": "bool",
+            "default": true,
+            "hint": "定期主动提及重要记忆，通过间隔重复强化记忆持久度"
+          }
+        }
       }
     }
   },
@@ -327,6 +387,24 @@
         "type": "bool",
         "default": true,
         "hint": "根据群活跃度自动调整主动回复频率、批量处理参数等配置，实现温和型陪伴风格。使用 /activity_status 查看各群状态"
+      }
+    }
+  },
+  "retrieval": {
+    "description": "检索增强设置",
+    "type": "object",
+    "items": {
+      "graph_augmented": {
+        "description": "图增强混合检索",
+        "type": "object",
+        "items": {
+          "enable": {
+            "description": "启用图增强检索",
+            "type": "bool",
+            "default": true,
+            "hint": "向量检索结果结合知识图谱关系进行扩展，发现关联记忆"
+          }
+        }
       }
     }
   },

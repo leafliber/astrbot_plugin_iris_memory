@@ -20,10 +20,11 @@ from iris_memory.core.types import (
     DecayRate
 )
 from iris_memory.core.memory_scope import MemoryScope
+from iris_memory.models.protection import ProtectionMixin
 
 
 @dataclass
-class Memory:
+class Memory(ProtectionMixin):
     """记忆数据模型
     
     完整实现companion-memory框架中定义的Memory数据结构
@@ -102,6 +103,28 @@ class Memory:
     last_validated: Optional[datetime] = None  # 最后验证时间
     review_status: Optional[str] = None  # "approved" / "pending_review" / "rejected" (None=无需审核)
     
+    # ========== 保护机制 ==========
+    protection_flags: int = 0
+    """保护标记位掩码 (见 ProtectionFlag 枚举)"""
+
+    # ========== 温和遗忘 ==========
+    grace_period_expires_at: Optional[datetime] = None
+    """宽限期截止时间，非 None 表示处于待审核状态"""
+    grace_period_notified: bool = False
+    """是否已通知用户进入宽限期"""
+
+    # ========== 情感衰减 ==========
+    emotion_valence: Optional[str] = None
+    """情感效价: 'positive' / 'negative' / 'neutral'"""
+    emotion_decay_rate: Optional[float] = None
+    """情感特定衰减率，覆盖默认 DecayRate。None 使用类型默认值"""
+
+    # ========== 图增强 ==========
+    graph_centrality: float = 0.0
+    """知识图谱中的中心性得分 (0-1)"""
+    graph_neighbor_count: int = 0
+    """直接关联的图邻居数量"""
+
     # ========== 元数据 ==========
     metadata: Dict[str, Any] = field(default_factory=dict)  # 额外元数据
     
@@ -133,6 +156,15 @@ class Memory:
         
         # 兼容无 persona_id 的旧数据
         data.setdefault("persona_id", "default")
+
+        # 兼容无新字段的旧数据（三层记忆重构 v2.0）
+        data.setdefault("protection_flags", 0)
+        data.setdefault("grace_period_expires_at", None)
+        data.setdefault("grace_period_notified", False)
+        data.setdefault("emotion_valence", None)
+        data.setdefault("emotion_decay_rate", None)
+        data.setdefault("graph_centrality", 0.0)
+        data.setdefault("graph_neighbor_count", 0)
         
         # 处理特殊字段
         if 'embedding' in data and data['embedding'] is not None:
@@ -151,6 +183,10 @@ class Memory:
         if 'last_validated' in data and data['last_validated'] is not None:
             if isinstance(data['last_validated'], str):
                 data['last_validated'] = datetime.fromisoformat(data['last_validated'])
+
+        if 'grace_period_expires_at' in data and data['grace_period_expires_at'] is not None:
+            if isinstance(data['grace_period_expires_at'], str):
+                data['grace_period_expires_at'] = datetime.fromisoformat(data['grace_period_expires_at'])
         
         # 转换字符串为Enum
         enum_mappings = {
@@ -247,6 +283,7 @@ class Memory:
         - 90天未被访问
         - RIF评分低于0.3
         - 非用户主动请求保存的记忆
+        - 无保护标记
         """
         if self.storage_layer != StorageLayer.SEMANTIC:
             return False
@@ -257,6 +294,10 @@ class Memory:
         
         # CONFIRMED 质量的记忆不降级
         if self.quality_level == QualityLevel.CONFIRMED:
+            return False
+        
+        # 有保护标记的记忆不降级
+        if self.is_protected:
             return False
         
         days_since_access = (datetime.now() - self.last_access_time).days

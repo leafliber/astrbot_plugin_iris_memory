@@ -83,6 +83,33 @@ class ConfigKeys:
     IMAGE_ANALYSIS_REQUIRE_CONTEXT: Final[str] = "image_analysis.require_context"
     
     ERROR_FRIENDLY_ENABLE: Final[str] = "error_friendly.enable"
+    
+    # 快速通道
+    FAST_TRACK_ENABLE: Final[str] = "memory.fast_track.enable"
+    FAST_TRACK_CONFIDENCE: Final[str] = "memory.fast_track.confidence"
+    
+    # 情感衰减
+    EMOTION_DECAY_ENABLE: Final[str] = "memory.emotion_decay.enable"
+    EMOTION_DECAY_NEGATIVE_HALFLIFE: Final[str] = "memory.emotion_decay.negative_halflife_days"
+    EMOTION_DECAY_POSITIVE_HALFLIFE: Final[str] = "memory.emotion_decay.positive_halflife_days"
+    
+    # 温和遗忘
+    GRACE_PERIOD_ENABLE: Final[str] = "memory.grace_period.enable"
+    GRACE_PERIOD_DAYS: Final[str] = "memory.grace_period.days"
+    GRACE_PERIOD_NOTIFY: Final[str] = "memory.grace_period.notify_user"
+    
+    # 记忆回顾
+    REINFORCEMENT_ENABLE: Final[str] = "memory.reinforcement.enable"
+    REINFORCEMENT_MAX_DAILY: Final[str] = "memory.reinforcement.max_daily"
+    REINFORCEMENT_INTERVAL_HOURS: Final[str] = "memory.reinforcement.interval_hours"
+    
+    # 图增强检索
+    GRAPH_AUGMENTED_ENABLE: Final[str] = "retrieval.graph_augmented.enable"
+    GRAPH_AUGMENTED_TOP_N: Final[str] = "retrieval.graph_augmented.top_n"
+    GRAPH_AUGMENTED_DEPTH: Final[str] = "retrieval.graph_augmented.depth"
+    
+    # 可见性分类
+    SCOPE_CLASSIFIER_LLM_ENABLE: Final[str] = "memory.scope_classifier.llm_enable"
 
 
 class SessionScope:

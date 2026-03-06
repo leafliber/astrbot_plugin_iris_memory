@@ -12,6 +12,7 @@ from iris_memory.utils.logger import get_logger
 from iris_memory.core.types import StorageLayer
 from iris_memory.core.upgrade_evaluator import UpgradeEvaluator, UpgradeMode
 from iris_memory.config import get_store
+from iris_memory.storage.grace_period import GracePeriodManager
 
 # 模块logger
 logger = get_logger("lifecycle_manager")
@@ -95,6 +96,10 @@ class SessionLifecycleManager:
         self._semantic_extraction_config: Dict[str, Any] = {}  # 内部聚类参数
         self._astrbot_context: Any = None  # AstrBot 上下文（用于 LLM 调用）
         self._semantic_provider_id: str = ""  # 语义提取 LLM provider ID
+        
+        # 宽限期管理器（延迟初始化，需要 chroma_manager）
+        self._grace_period_manager: Optional[GracePeriodManager] = None
+        self._grace_period_enabled: bool = get_store().get("memory.grace_period.enable", True)
     
     def set_chroma_manager(self, chroma_manager):
         """设置Chroma管理器（用于延迟注入）
@@ -137,6 +142,12 @@ class SessionLifecycleManager:
             return
         
         self.is_running = True
+        
+        # 初始化宽限期管理器
+        if self.chroma_manager and self._grace_period_enabled:
+            self._grace_period_manager = GracePeriodManager(self.chroma_manager)
+            logger.debug("GracePeriodManager initialized")
+        
         self.cleanup_task = asyncio.create_task(self._cleanup_loop())
         
         # 新增：启动记忆升级定时任务
@@ -511,6 +522,23 @@ class SessionLifecycleManager:
                 f"Session cleanup completed: {cleaned_count} closed, "
                 f"{archived_count} archived"
             )
+        
+        # 宽限期到期检查：清理已过期的宽限期记忆
+        if self._grace_period_manager and self.chroma_manager:
+            try:
+                pending = await self._grace_period_manager.get_pending_review_memories()
+                expired_count = 0
+                for memory in pending:
+                    if memory.grace_period_expires_at and memory.grace_period_expires_at <= now:
+                        try:
+                            await self.chroma_manager.delete_memory(memory.id)
+                            expired_count += 1
+                        except Exception as e:
+                            logger.warning(f"Failed to delete expired grace period memory {memory.id}: {e}")
+                if expired_count > 0:
+                    logger.debug(f"Grace period cleanup: {expired_count} expired memories deleted")
+            except Exception as e:
+                logger.warning(f"Grace period cleanup error: {e}")
     
     def _update_session_state(
         self,
@@ -567,6 +595,7 @@ class SessionLifecycleManager:
             # 收集需要升级的记忆
             upgraded_memories = []
             discarded_memories = []
+            grace_period_memories = []
             
             for memory in working_memories:
                 result = evaluation_results.get(memory.id)
@@ -579,14 +608,27 @@ class SessionLifecycleManager:
                         f"Memory {memory.id} marked for upgrade WORKING→EPISODIC "
                         f"(confidence={confidence:.2f}, reason={reason})"
                     )
+                elif self._grace_period_manager:
+                    # 不满足升级条件 → 走宽限期评估
+                    gp_result = await self._grace_period_manager.evaluate_and_apply(memory)
+                    if gp_result == "protected":
+                        memory.storage_layer = StorageLayer.EPISODIC
+                        upgraded_memories.append(memory)
+                    elif gp_result == "grace_period":
+                        memory.storage_layer = StorageLayer.EPISODIC
+                        grace_period_memories.append(memory)
+                    else:
+                        # silent_delete 或其他
+                        discarded_memories.append(memory)
                 else:
                     # 不满足升级条件的工作记忆将被清除
                     discarded_memories.append(memory)
             
             # 持久化升级后的记忆到Chroma
             # 注意：工作记忆从未存入Chroma，所以需要使用add_memory而非update_memory
-            if upgraded_memories and self.chroma_manager:
-                for memory in upgraded_memories:
+            all_persist = upgraded_memories + grace_period_memories
+            if all_persist and self.chroma_manager:
+                for memory in all_persist:
                     try:
                         # 添加到Chroma（工作记忆首次进入持久化存储）
                         await self.chroma_manager.add_memory(memory)
@@ -605,6 +647,7 @@ class SessionLifecycleManager:
                 logger.debug(
                     f"Archived session {session_key}: "
                     f"{len(upgraded_memories)} memories upgraded to EPISODIC, "
+                    f"{len(grace_period_memories)} memories in grace period, "
                     f"{len(discarded_memories)} memories discarded"
                 )
                 return True

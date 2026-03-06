@@ -196,6 +196,15 @@ class ProactiveReplySender:
             )
             return None
 
+    async def send_text(self, umo: str, text: str) -> None:
+        """通过 AstrBot 平台 API 发送纯文本消息（不经过 LLM）
+
+        Args:
+            umo: unified_msg_origin，目标会话标识
+            text: 消息文本
+        """
+        await self._send_message(umo, text)
+
     async def _send_message(self, umo: str, text: str) -> None:
         """通过 AstrBot 平台 API 发送消息
 
