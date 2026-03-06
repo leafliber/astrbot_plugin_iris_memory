@@ -59,3 +59,29 @@ def register_persona_routes(app: Any, persona_service: Any) -> None:
         except Exception as e:
             logger.error(f"Emotion state error: {e}")
             return error_response("获取情感状态失败", 500)
+
+    @app.route("/api/personas/delete", methods=["DELETE"])
+    async def persona_delete():
+        try:
+            user_id = request.args.get("user_id")
+            if not user_id:
+                return error_response("缺少 user_id")
+
+            result = await persona_service.delete_persona(user_id)
+            if result.get("success"):
+                return success_response(result)
+            return error_response(result.get("message", "删除失败"), 404)
+        except Exception as e:
+            logger.error(f"Persona delete error: {e}")
+            return error_response("删除失败", 500)
+
+    @app.route("/api/personas/clear", methods=["DELETE"])
+    async def personas_clear():
+        try:
+            result = await persona_service.clear_all_personas()
+            if result.get("success"):
+                return success_response(result)
+            return error_response(result.get("message", "清空失败"), 500)
+        except Exception as e:
+            logger.error(f"Personas clear error: {e}")
+            return error_response("清空失败", 500)

@@ -97,6 +97,27 @@ class PersonaRepository(ABC):
         """获取所有用户 ID"""
         pass
 
+    @abstractmethod
+    async def delete_by_user_id(self, user_id: str) -> Tuple[bool, str]:
+        """删除指定用户的画像
+
+        Args:
+            user_id: 用户 ID
+
+        Returns:
+            Tuple[bool, str]: (是否成功, 消息)
+        """
+        pass
+
+    @abstractmethod
+    async def clear_all(self) -> Tuple[bool, str, int]:
+        """清空所有用户画像
+
+        Returns:
+            Tuple[bool, str, int]: (是否成功, 消息, 清空数量)
+        """
+        pass
+
 
 class EmotionRepository(ABC):
     """情感状态仓库接口"""

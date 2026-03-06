@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from iris_memory.utils.logger import get_logger
 
@@ -212,6 +212,42 @@ class PersonaRepositoryImpl:
             return list(personas.keys())
         except Exception:
             return []
+
+    async def delete_by_user_id(self, user_id: str) -> Tuple[bool, str]:
+        """删除指定用户的画像
+
+        Args:
+            user_id: 用户 ID
+
+        Returns:
+            Tuple[bool, str]: (是否成功, 消息)
+        """
+        try:
+            if not user_id:
+                return False, "用户 ID 不能为空"
+
+            deleted = self._service._shared_state.delete_user_persona(user_id)
+            if deleted:
+                logger.info(f"Deleted persona for user: {user_id}")
+                return True, f"已删除用户 {user_id} 的画像"
+            return False, f"用户 {user_id} 的画像不存在"
+        except Exception as e:
+            logger.error(f"Delete persona error: {e}")
+            return False, f"删除失败: {str(e)}"
+
+    async def clear_all(self) -> Tuple[bool, str, int]:
+        """清空所有用户画像
+
+        Returns:
+            Tuple[bool, str, int]: (是否成功, 消息, 清空数量)
+        """
+        try:
+            count = self._service._shared_state.clear_all_user_personas()
+            logger.info(f"Cleared all personas, count: {count}")
+            return True, f"已清空所有用户画像", count
+        except Exception as e:
+            logger.error(f"Clear all personas error: {e}")
+            return False, f"清空失败: {str(e)}", 0
 
 
 class EmotionRepositoryImpl:

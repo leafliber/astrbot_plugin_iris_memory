@@ -58,9 +58,9 @@
 
 发送以下命令检查：
 
-- `/memory_save 我最喜欢喝冰美式`
-- `/memory_search 喜欢喝什么`
-- `/memory_stats`
+- `/memory save 我最喜欢喝冰美式`
+- `/memory search 喜欢喝什么`
+- `/memory stats`
 
 能检索到刚刚保存的内容，即表示核心链路正常。
 
@@ -68,31 +68,53 @@
 
 ## 常用指令
 
-### 基础指令
+### 主入口命令
 
-| 指令 | 说明 |
+插件提供两个统一入口命令，所有子命令通过参数传递：
+
+#### `/memory` - 记忆管理
+
+| 命令 | 说明 |
 |------|------|
-| `/memory_save <内容>` | 手动保存一条记忆（通常置信度更高） |
-| `/memory_search <关键词>` | 搜索相关记忆（支持语义检索） |
-| `/memory_clear` | 清除当前会话的所有记忆 |
-| `/memory_stats` | 查看当前会话记忆统计 |
-| `/activity_status` | 查看各群活跃度状态（场景自适应） |
+| `/memory` | 显示帮助信息 |
+| `/memory save <内容>` | 手动保存一条记忆（通常置信度更高） |
+| `/memory search <关键词>` | 搜索相关记忆（支持语义检索） |
+| `/memory clear` | 清除当前会话的所有记忆 |
+| `/memory stats` | 查看当前会话记忆统计 |
+| `/memory review` | 查看待审核的语义记忆（管理员） |
+| `/memory approve <ID前缀>` | 批准待审核记忆（管理员） |
+| `/memory reject <ID前缀>` | 拒绝待审核记忆（管理员） |
 
-### 管理类指令
+#### `/iris` - 系统管理
+
+| 命令 | 说明 |
+|------|------|
+| `/iris` | 显示帮助信息 |
+| `/iris activity` | 查看当前群活跃度状态 |
+| `/iris activity all` | 查看所有群活跃度概览（管理员） |
+| `/iris proactive on` | 开启当前群的主动回复（管理员） |
+| `/iris proactive off` | 关闭当前群的主动回复（管理员） |
+| `/iris proactive status` | 查看当前群的主动回复状态 |
+| `/iris proactive list` | 查看所有已开启主动回复的群聊 |
+| `/iris cooldown` | 开启群冷却（默认20分钟） |
+| `/iris cooldown 30` | 冷却30分钟 |
+| `/iris cooldown 1h` | 冷却1小时 |
+| `/iris cooldown status` | 查看冷却状态 |
+| `/iris cooldown off` | 取消冷却 |
+| `/iris persona` | 查看当前用户画像状态 |
+| `/iris persona reset` | 重置当前用户的画像 |
+| `/iris persona reset <用户ID>` | 重置指定用户的画像（管理员） |
+| `/iris persona clear all` | 清空所有用户画像（超管） |
+| `/iris reset confirm` | 重置所有插件数据（超管，谨慎使用） |
+
+### 删除记忆
 
 ```bash
-/memory_delete
-/memory_delete current
-/memory_delete private
-/memory_delete group [shared|private|all]
-/memory_delete all confirm
-
-/proactive_reply on
-/proactive_reply off
-/proactive_reply status
-/proactive_reply list
-
-/iris_reset confirm          # 超管：重置所有插件数据（谨慎使用）
+/memory delete              # 删除当前会话记忆
+/memory delete current      # 删除当前会话记忆
+/memory delete private      # 删除我的私聊记忆
+/memory delete group [shared|private|all]  # 删除群聊记忆（管理员）
+/memory delete all confirm  # 删除所有记忆（超管）
 ```
 
 ---
@@ -181,7 +203,7 @@ Web UI 启用后默认访问：`http://127.0.0.1:8089`
 
 ### 3. 搜索不到刚保存的记忆？
 
-- 先用 `/memory_stats` 看当前会话是否有记录。
+- 先用 `/memory stats` 看当前会话是否有记录。
 - 再确认你查询的是同一会话（私聊与群聊是隔离的）。
 - 可尝试更语义化关键词，而不是只搜原句片段。
 
@@ -206,7 +228,7 @@ Web UI 启用后默认访问：`http://127.0.0.1:8089`
 ### 7. 主动回复没反应？
 
 - 需先开启 `proactive_reply.enable=true`。
-- 若开了白名单模式，还需要在群里执行 `/proactive_reply on`。
+- 若开了白名单模式，还需要在群里执行 `/iris proactive on`。
 
 ### 8. 数据会上传到云端吗？
 
@@ -217,7 +239,7 @@ Web UI 启用后默认访问：`http://127.0.0.1:8089`
 
 使用超管指令：
 ```
-/iris_reset confirm
+/iris reset confirm
 ```
 
 这会删除：

@@ -143,7 +143,7 @@ class MemoryCaptureEngine:
             user_id: 用户唯一标识
             group_id: 群组ID（私聊时为None，决定记忆scope）
             context: 上下文信息（对话历史、情感状态等）
-            is_user_requested: 是否用户显式请求保存（/memory_save指令）
+            is_user_requested: 是否用户显式请求保存（/memory save指令）
 
         Returns:
             Optional[Memory]: 捕获的记忆对象，如果不满足条件则返回None

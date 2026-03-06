@@ -89,64 +89,20 @@ class IrisMemoryPlugin(Star):
 
         await self._web_ui.initialize()
 
-    @filter.command("memory_save")
-    async def save_memory(self, event: AstrMessageEvent) -> AsyncGenerator[Any, None]:
-        """手动保存记忆指令：/memory_save <内容>"""
-        result = await self._command_handlers.handle_save_memory(event)
-        yield event.plain_result(result)
-
-    @filter.command("memory_search")
-    async def search_memory(self, event: AstrMessageEvent) -> AsyncGenerator[Any, None]:
-        """搜索记忆指令：/memory_search <查询内容>"""
-        result = await self._command_handlers.handle_search_memory(event)
-        yield event.plain_result(result)
-
-    @filter.command("memory_clear")
-    async def clear_memory(self, event: AstrMessageEvent) -> AsyncGenerator[Any, None]:
-        """清除当前会话记忆指令：/memory_clear"""
-        result = await self._command_handlers.handle_clear_memory(event)
-        yield event.plain_result(result)
-
-    @filter.command("memory_stats")
-    async def memory_stats(self, event: AstrMessageEvent) -> AsyncGenerator[Any, None]:
-        """记忆统计指令：/memory_stats"""
-        result = await self._command_handlers.handle_memory_stats(event)
-        yield event.plain_result(result)
-
-    @filter.command("memory_delete")
-    async def delete_memory(self, event: AstrMessageEvent) -> AsyncGenerator[Any, None]:
-        """统一删除记忆指令：/memory_delete [scope]"""
-        result = await self._command_handlers.handle_delete_memory(
-            event, self.delete_kv_data
+    @filter.command("memory")
+    async def memory_command(self, event: AstrMessageEvent) -> AsyncGenerator[Any, None]:
+        """记忆管理统一入口：/memory <子命令> [参数]"""
+        result = await self._command_handlers.handle_memory_command(
+            event, self.delete_kv_data, self.put_kv_data
         )
         yield event.plain_result(result)
 
-    @filter.command("proactive_reply")
-    async def proactive_reply_control(self, event: AstrMessageEvent) -> AsyncGenerator[Any, None]:
-        """群聊主动回复开关指令：/proactive_reply <on|off|status|list>"""
-        result = await self._command_handlers.handle_proactive_reply(
-            event, self.put_kv_data
+    @filter.command("iris")
+    async def iris_command(self, event: AstrMessageEvent) -> AsyncGenerator[Any, None]:
+        """Iris 管理统一入口：/iris <子命令> [参数]"""
+        result = await self._command_handlers.handle_iris_command(
+            event, self.delete_kv_data, self.put_kv_data
         )
-        yield event.plain_result(result)
-
-    @filter.command("activity_status")
-    async def activity_status(self, event: AstrMessageEvent) -> AsyncGenerator[Any, None]:
-        """查看群活跃度状态指令：/activity_status [all]"""
-        result = await self._command_handlers.handle_activity_status(event)
-        yield event.plain_result(result)
-
-    @filter.command("iris_reset")
-    async def iris_reset(self, event: AstrMessageEvent) -> AsyncGenerator[Any, None]:
-        """重置 Iris Memory 所有数据：/iris_reset confirm"""
-        result = await self._command_handlers.handle_iris_reset(
-            event, self.delete_kv_data
-        )
-        yield event.plain_result(result)
-
-    @filter.command("cooldown")
-    async def cooldown(self, event: AstrMessageEvent) -> AsyncGenerator[Any, None]:
-        """群冷却指令：/cooldown [action] [duration]"""
-        result = await self._command_handlers.handle_cooldown(event)
         yield event.plain_result(result)
 
     # ── LLM 工具：群冷却 ──

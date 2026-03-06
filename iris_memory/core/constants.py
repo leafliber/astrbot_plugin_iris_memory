@@ -43,12 +43,8 @@ UNLIMITED_BUDGET: Final[int] = 999999
 class CommandPrefix:
     """指令前缀常量"""
     SLASH: Final[str] = "/"
-    MEMORY_SAVE: Final[Set[str]] = frozenset(["/memory_save", "memory_save"])
-    MEMORY_SEARCH: Final[Set[str]] = frozenset(["/memory_search", "memory_search"])
-    MEMORY_CLEAR: Final[Set[str]] = frozenset(["/memory_clear", "memory_clear"])
-    MEMORY_STATS: Final[Set[str]] = frozenset(["/memory_stats", "memory_stats"])
-    MEMORY_DELETE: Final[Set[str]] = frozenset(["/memory_delete", "memory_delete"])
-    PROACTIVE_REPLY: Final[Set[str]] = frozenset(["/proactive_reply", "proactive_reply"])
+    MEMORY: Final[Set[str]] = frozenset(["/memory", "memory"])
+    IRIS: Final[Set[str]] = frozenset(["/iris", "iris"])
 
 
 class DeleteMainScope(Enum):
@@ -141,7 +137,7 @@ class ErrorMessages:
     GROUP_ONLY: Final[str] = "此命令仅限群聊使用"
     ADMIN_REQUIRED: Final[str] = "权限不足，仅管理员可以执行此操作"
     GROUP_ADMIN_REQUIRED: Final[str] = "权限不足，仅管理员可以删除群聊记忆"
-    DELETE_CONFIRM_REQUIRED: Final[str] = "警告：此操作将删除所有记忆！\n请使用 '/memory_delete all confirm' 确认操作"
+    DELETE_CONFIRM_REQUIRED: Final[str] = "警告：此操作将删除所有记忆！\n请使用 '/memory delete all confirm' 确认操作"
     INVALID_SCOPE_PARAM: Final[str] = "参数错误，请使用: shared, private 或 all"
     INVALID_DELETE_SCOPE: Final[str] = "参数错误，可用范围: current, private, group [shared|private|all], all confirm"
     CAPTURE_FAILED: Final[str] = "未能保存记忆，可能不满足捕获条件"
@@ -368,11 +364,11 @@ class UrgencyCooldownMultiplier:
 class CooldownMessages:
     """群冷却响应消息模板"""
     USAGE: Final[str] = (
-        "用法：/cooldown [action] [duration]\n"
-        "- /cooldown 或 /cooldown 20  — 开启冷却（默认20分钟）\n"
-        "- /cooldown 1h              — 冷却1小时\n"
-        "- /cooldown status          — 查看状态\n"
-        "- /cooldown off             — 取消冷却"
+        "用法：/iris cooldown [action] [duration]\n"
+        "- /iris cooldown 或 /iris cooldown 20  — 开启冷却（默认20分钟）\n"
+        "- /iris cooldown 1h              — 冷却1小时\n"
+        "- /iris cooldown status          — 查看状态\n"
+        "- /iris cooldown off             — 取消冷却"
     )
     GROUP_ONLY: Final[str] = "冷却模式仅限群聊使用"
     INVALID_DURATION: Final[str] = "无效的时长格式，请使用数字或 30m / 1h 格式"

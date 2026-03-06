@@ -47,6 +47,30 @@ class SharedState:
             self._user_personas[user_id] = UserPersona(user_id=user_id)
         return self._user_personas[user_id]
 
+    def delete_user_persona(self, user_id: str) -> bool:
+        """删除指定用户的画像
+
+        Args:
+            user_id: 用户 ID
+
+        Returns:
+            bool: 是否成功删除（用户存在则返回 True）
+        """
+        if user_id in self._user_personas:
+            del self._user_personas[user_id]
+            return True
+        return False
+
+    def clear_all_user_personas(self) -> int:
+        """清空所有用户画像
+
+        Returns:
+            int: 被清空的画像数量
+        """
+        count = len(self._user_personas)
+        self._user_personas.clear()
+        return count
+
     # ── 记忆注入追踪 ──
 
     def filter_recently_injected(self, memories: list, session_key: str) -> list:

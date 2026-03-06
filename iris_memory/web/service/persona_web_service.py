@@ -55,3 +55,24 @@ class PersonaWebService:
         if not user_id:
             return None
         return await self._emotion_repo.get_by_user_id(user_id)
+
+    async def delete_persona(self, user_id: str) -> Dict[str, Any]:
+        """删除指定用户的画像
+
+        Args:
+            user_id: 用户 ID
+
+        Returns:
+            Dict: {success: bool, message: str}
+        """
+        success, message = await self._persona_repo.delete_by_user_id(user_id)
+        return {"success": success, "message": message}
+
+    async def clear_all_personas(self) -> Dict[str, Any]:
+        """清空所有用户画像
+
+        Returns:
+            Dict: {success: bool, message: str, count: int}
+        """
+        success, message, count = await self._persona_repo.clear_all()
+        return {"success": success, "message": message, "count": count}
