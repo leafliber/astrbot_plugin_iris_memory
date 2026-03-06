@@ -66,6 +66,9 @@ class ConfigStore:
         self._loader = ConfigLoader(user_config, plugin_data_path)
         self._data: Dict[str, Any] = self._loader.load()
 
+        # Debug 输出：记录初始化后所有载入的最终配置
+        logger.debug("ConfigStore initialized with final config: %s", json.dumps(self._data, ensure_ascii=False, indent=2))
+
         # TTL 缓存（兼容旧 ConfigManager 行为）
         self._cache: Dict[str, Tuple[Any, float]] = {}
 
