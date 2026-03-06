@@ -497,7 +497,7 @@ class CommandHandlers:
     async def _handle_iris_persona(self, event: AstrMessageEvent, put_kv_func: Any) -> str:
         """用户画像管理"""
         parsed = CommandParser.parse(event.message_str, CommandPrefix.IRIS)
-        action = parsed.args[2].lower() if len(parsed.args) > 2 else ""
+        action = parsed.args[1].lower() if len(parsed.args) > 1 else ""
 
         if action == "" or action == "status":
             user_id = event.get_sender_id()
@@ -509,7 +509,7 @@ class CommandHandlers:
             return f"用户 {user_id} 暂无画像数据"
 
         if action == "reset":
-            target_user_id = parsed.args[3] if len(parsed.args) > 3 else None
+            target_user_id = parsed.args[2] if len(parsed.args) > 2 else None
             if target_user_id:
                 if not self._perms.is_admin(event):
                     return ErrorMessages.ADMIN_REQUIRED
@@ -525,7 +525,7 @@ class CommandHandlers:
             return f"用户 {user_id} 的画像不存在，无需重置"
 
         if action == "clear":
-            target = parsed.args[3].lower() if len(parsed.args) > 3 else ""
+            target = parsed.args[2].lower() if len(parsed.args) > 2 else ""
             if target != "all":
                 return "用法：/iris persona clear all\n此操作需要管理员权限"
             if not self._perms.is_admin(event):
