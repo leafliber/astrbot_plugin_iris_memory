@@ -217,7 +217,7 @@ class ProactiveManager:
                 signal_queue=self._signal_queue,
             )
             self._group_scheduler.set_reply_callback(self._handle_signal_reply)
-            proactive_mode = self._cfg.get("llm_enhanced.proactive_mode", "rule")
+            proactive_mode = self._cfg.get("proactive_reply.proactive_mode", "rule")
             if self._llm_provider and proactive_mode == "hybrid":
                 self._group_scheduler.set_llm_confirm_callback(
                     self._handle_llm_confirm
@@ -1126,7 +1126,7 @@ class ProactiveManager:
         """获取统计数据"""
         return {
             "enabled": self._get_cfg("enable", False),
-            "mode": self._cfg.get("llm_enhanced.proactive_mode", "rule"),
+            "mode": self._cfg.get("proactive_reply.proactive_mode", "rule"),
             "signal_queue_enabled": True,
             "followup_enabled": self._get_cfg("followup_enabled", True),
             "daily_reply_count": self._daily_reply_count,

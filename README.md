@@ -151,12 +151,12 @@
 
 | 配置组 | 关键项 | 默认值 |
 |--------|--------|--------|
-| `llm_enhanced` | `sensitivity_mode` / `trigger_mode` / `emotion_mode` / `proactive_mode` / `conflict_mode` / `retrieval_mode` | `rule` |
+| `llm_enhanced` | `sensitivity_mode` / `trigger_mode` / `emotion_mode` / `conflict_mode` / `retrieval_mode` | `rule` |
 | `knowledge_graph` | `enabled` / `extraction_mode` / `max_depth` / `max_nodes_per_hop` / `max_facts` / `min_confidence` | `true` / `rule` / `3` / `10` / `8` / `0.3` |
 | `persona` | `enabled` / `extraction_mode` | `true` / `rule` |
 | `embedding` | `source` / `local_model` / `local_dimension` / `reimport_on_dimension_conflict` | `auto` / `BAAI/bge-small-zh-v1.5` / `512` / `true` |
 | `image_analysis` | `enable` / `mode` / `daily_budget` | `true` / `auto` / `100` |
-| `proactive_reply` | `enable` / `group_whitelist_mode` / `smart_boost` | `false` / `false` / `false` |
+| `proactive_reply` | `enable` / `proactive_mode` / `group_whitelist_mode` / `smart_boost` | `false` / `rule` / `false` / `false` |
 | `activity_adaptive` | `enable` | `true` |
 | `persona_isolation` | `memory_query_by_persona` / `kg_query_by_persona` | `false` / `false` |
 | `error_friendly` | `enable` | `true` |

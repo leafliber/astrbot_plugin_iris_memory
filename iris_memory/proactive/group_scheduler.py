@@ -167,7 +167,7 @@ class GroupScheduler:
 
         weight_direct = self._cfg.get("proactive_reply.signal_weight_direct_reply", 0.8)
         weight_llm = self._cfg.get("proactive_reply.signal_weight_llm_confirm", 0.5)
-        proactive_mode = self._cfg.get("llm_enhanced.proactive_mode", "rule")
+        proactive_mode = self._cfg.get("proactive_reply.proactive_mode", "rule")
 
         if aggregated_weight >= weight_direct:
             # 高权重 → 直接回复

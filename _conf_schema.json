@@ -273,6 +273,12 @@
     "description": "LLM智能增强",
     "type": "object",
     "items": {
+      "enable": {
+        "description": "启用 LLM 智能增强",
+        "type": "bool",
+        "default": false,
+        "hint": "启用后可使用 LLM 进行敏感度检测、触发检测、情感分析等智能增强，关闭后，所有记忆增强流程都走纯规则流程"
+      },
       "sensitivity_mode": {
         "description": "敏感度检测模式",
         "type": "string",
@@ -293,13 +299,6 @@
         "default": "rule",
         "options": ["rule", "llm", "hybrid"],
         "hint": "rule-词典+规则（默认），llm-深度理解，hybrid-混合（推荐）"
-      },
-      "proactive_mode": {
-        "description": "主动回复模式",
-        "type": "string",
-        "default": "rule",
-        "options": ["rule", "hybrid"],
-        "hint": "rule-仅规则信号聚合（默认），hybrid-对中置信信号进行 LLM 确认（推荐）"
       },
       "conflict_mode": {
         "description": "冲突解决模式",
@@ -375,6 +374,13 @@
         "type": "int",
         "default": 2,
         "hint": "单次主动回复后最大连续跟进回复的次数"
+      },
+      "proactive_mode": {
+        "description": "主动回复模式",
+        "type": "string",
+        "default": "rule",
+        "options": ["rule", "hybrid"],
+        "hint": "rule-仅规则信号聚合（默认），hybrid-对中置信信号进行 LLM 确认（推荐）"
       }
     }
   },

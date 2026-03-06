@@ -125,7 +125,7 @@ class ConfigManager:
 
     @property
     def proactive_mode(self) -> str:
-        return self.get("llm_enhanced.proactive_mode", "rule")
+        return self.get("proactive_reply.proactive_mode", "rule")
 
     @property
     def llm_enhanced_enabled(self) -> bool:
