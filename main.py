@@ -217,7 +217,7 @@ class IrisMemoryPlugin(Star):
             formatted.append(f"{i}. {r.memory.content} (置信度：{r.memory.confidence})")
         return "\n".join(formatted)
 
-    @filter.on_all_messages()
+    @filter.event_message_type(filter.EventMessageType.ALL)
     async def on_all_messages(self, event: AstrMessageEvent) -> None:
         """处理所有消息（包括不触发 LLM 的消息）
 
