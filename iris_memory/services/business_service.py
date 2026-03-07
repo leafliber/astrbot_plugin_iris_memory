@@ -420,8 +420,8 @@ class BusinessService:
                 from iris_memory.storage.session_manager import SessionManager
                 self._storage._session_manager = SessionManager(
                     max_working_memory=self._cfg.get("memory.max_working_memory", 10),
-                    max_sessions=self._cfg.get("session.max_sessions", 3),
-                    ttl=self._cfg.get("session.session_timeout", 3600),
+                    max_sessions=self._cfg.get("session.max_sessions", 100),
+                    ttl=self._cfg.get("session.session_timeout", 86400),
                     activity_tracker=self._activity_tracker,
                 )
 
@@ -520,7 +520,7 @@ class BusinessService:
             return "", ""
 
         try:
-            daily_budget = self._cfg.get("image_analysis.daily_budget", 50)
+            daily_budget = self._cfg.get("image_analysis.daily_budget", 100)
             effective_daily_budget = daily_budget if daily_budget > 0 else UNLIMITED_BUDGET
 
             image_results = await self._image_analyzer.analyze_message_images(

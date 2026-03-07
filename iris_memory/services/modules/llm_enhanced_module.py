@@ -144,7 +144,7 @@ class LLMEnhancedModule:
                 "message_processing.llm_max_tokens_for_summary",
                 500,
             ),
-            provider_id=cfg.get("llm_providers.provider_id", None),
+            provider_id=cfg.get("llm_providers.memory_provider_id", None),
         )
         llm_ready = await self._llm_processor.initialize()
         if llm_ready and lifecycle_manager:

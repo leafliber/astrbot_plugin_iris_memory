@@ -14,7 +14,6 @@ from iris_memory.utils.persona_utils import get_event_persona_id
 from iris_memory.utils.command_utils import SessionKeyBuilder, MessageFilter
 from iris_memory.core.constants import (
     InputValidationConfig,
-    ConfigKeys,
     PROACTIVE_EXTRA_KEY,
     PROACTIVE_CONTEXT_KEY,
 )
@@ -65,7 +64,7 @@ class MessageProcessor:
             req.system_prompt += "\n\n[系统提示：记忆插件正在初始化，暂时无法提供服务]\n"
             return
 
-        if not hasattr(self._service, 'cfg') or not self._service.cfg.get("retrieval.enable_inject", True):
+        if not hasattr(self._service, 'cfg') or not self._service.cfg.get("basic.enable_inject", True):
             return
 
         if not self._service.is_embedding_ready():
@@ -124,7 +123,7 @@ class MessageProcessor:
                 )
 
         raw_persona_id = get_event_persona_id(event)
-        query_persona = self._service.cfg.get("persona.query_persona_id", raw_persona_id)
+        query_persona = self._service.cfg.get("persona_isolation.default_persona_id", raw_persona_id)
         context = await self._service.prepare_llm_context(
             query=query,
             user_id=user_id,
@@ -170,7 +169,7 @@ class MessageProcessor:
         if not getattr(self._service, 'is_initialized', False):
             return
 
-        if not hasattr(self._service, 'cfg') or not self._service.cfg.get("memory_capture.enable", True):
+        if not hasattr(self._service, 'cfg') or not self._service.cfg.get("basic.enable_memory", True):
             return
 
         user_id = event.get_sender_id()
@@ -226,7 +225,7 @@ class MessageProcessor:
             capture_message = f"{message}\n{reply_info.format_for_buffer()}"
 
         raw_persona_id = get_event_persona_id(event)
-        store_persona = self._service.cfg.get("persona.storage_persona_id", raw_persona_id)
+        store_persona = self._service.cfg.get("persona_isolation.default_persona_id", raw_persona_id)
         memory = await self._service.capture_and_store_memory(
             message=capture_message,
             user_id=user_id,
@@ -329,7 +328,7 @@ class MessageProcessor:
             enriched_message = f"{message}\n{reply_info.format_for_buffer()}"
 
         raw_persona_id = get_event_persona_id(event)
-        store_persona = self._service.cfg.get("persona.storage_persona_id", raw_persona_id)
+        store_persona = self._service.cfg.get("persona_isolation.default_persona_id", raw_persona_id)
 
         # 将图片分析和批量处理放到后台任务，避免阻塞 LLM 响应（这些是记忆写入操作，
         # 不需要在 Bot 回复前完成）
@@ -581,7 +580,7 @@ class ErrorFriendlyProcessor:
 
             # 回退到 get 方法（点分隔键或 ConfigManager）
             if hasattr(self._config, "get"):
-                return bool(self._config.get(ConfigKeys.ERROR_FRIENDLY_ENABLE, True))
+                return bool(self._config.get("error_friendly.enable", True))
 
             return True
         except Exception:

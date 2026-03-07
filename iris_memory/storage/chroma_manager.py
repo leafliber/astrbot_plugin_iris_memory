@@ -76,8 +76,8 @@ class ChromaManager:
 
         cfg = get_store()
 
-        self.embedding_model_name = cfg.get("embedding.local_model", "bge-m3")
-        self.embedding_dimension = cfg.get("embedding.local_dimension", 1024)
+        self.embedding_model_name = cfg.get("embedding.local_model", "BAAI/bge-small-zh-v1.5")
+        self.embedding_dimension = cfg.get("embedding.local_dimension", 512)
         self.collection_name = cfg.get("embedding.collection_name")
         self.auto_detect_dimension = cfg.get("embedding.auto_detect_dimension")
         self.reimport_on_dimension_conflict = cfg.get("embedding.reimport_on_dimension_conflict", True)

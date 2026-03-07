@@ -270,7 +270,7 @@ class ContextBuilder:
         if not chat_history_buffer:
             return ""
 
-        chat_context_count = self._cfg.get("advanced.chat_context_count", 20)
+        chat_context_count = self._cfg.get("advanced.chat_context_count", 15)
         if chat_context_count <= 0:
             return ""
 

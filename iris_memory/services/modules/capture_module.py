@@ -126,7 +126,7 @@ class CaptureModule:
         }
 
         threshold_count = cfg.get("message_processing.batch_threshold_count", 20)
-        use_llm = cfg.get("message_processing.use_llm", False)
+        use_llm = cfg.get("memory.use_llm", False)
 
         self._batch_processor = MessageBatchProcessor(
             capture_engine=self._capture_engine,

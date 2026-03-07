@@ -368,7 +368,7 @@ class ServiceInitializer:
         self._logger.debug(LogTemplates.COMPONENT_INIT.format(component="message processing"))
 
         enable_batch = get_store().get("message_processing.batch_threshold_count", 20) > 0
-        use_llm = self._deps.cfg.get("message_processing.use_llm", False)
+        use_llm = self._deps.cfg.get("memory.use_llm", False)
 
         if not enable_batch:
             self._logger.debug(LogTemplates.COMPONENT_INIT_DISABLED.format(component="Batch processing"))
@@ -419,15 +419,15 @@ class ServiceInitializer:
 
         from iris_memory.multimodal.image_analyzer import ImageAnalyzer
 
-        daily_budget = self._deps.cfg.get("image_analysis.daily_budget", 50)
-        session_budget = self._deps.cfg.get("image_analysis.session_budget", 10)
+        daily_budget = self._deps.cfg.get("image_analysis.daily_budget", 100)
+        session_budget = self._deps.cfg.get("image_analysis.session_analysis_budget", 20)
 
         self._image_analyzer = ImageAnalyzer(
             astrbot_context=self._deps.context,
             config={
                 "enable_image_analysis": self._deps.cfg.get("image_analysis.enable", False),
-                "default_level": self._deps.cfg.get("image_analysis.mode", "detailed"),
-                "max_images_per_message": self._deps.cfg.get("image_analysis.max_images", 9),
+                "default_level": self._deps.cfg.get("image_analysis.mode", "auto"),
+                "max_images_per_message": self._deps.cfg.get("image_analysis.max_images_per_message", 2),
                 "skip_sticker": get_store().get("image_analysis.skip_sticker"),
                 "analysis_cooldown": get_store().get("image_analysis.analysis_cooldown"),
                 "cache_ttl": get_store().get("image_analysis.cache_ttl"),
@@ -436,9 +436,9 @@ class ServiceInitializer:
                 "session_analysis_budget": session_budget if session_budget > 0 else UNLIMITED_BUDGET,
                 "similar_image_window": get_store().get("image_analysis.similar_image_window"),
                 "recent_image_limit": get_store().get("image_analysis.recent_image_limit"),
-                "require_context_relevance": self._deps.cfg.get("image_analysis.require_context", False),
+                "require_context_relevance": self._deps.cfg.get("image_analysis.require_context_relevance", True),
             },
-            provider_id=self._deps.cfg.get("image_analysis.provider_id", None),
+            provider_id=self._deps.cfg.get("llm_providers.image_analysis_provider_id", None),
         )
 
         self._logger.debug(f"Image analyzer initialized: mode={self._deps.cfg.get('image_analysis.mode', 'detailed')}")

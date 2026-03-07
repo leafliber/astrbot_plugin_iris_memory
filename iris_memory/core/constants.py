@@ -55,59 +55,6 @@ class DeleteMainScope(Enum):
     ALL = "all"
 
 
-class ConfigKeys:
-    """配置键常量"""
-    ENABLE_MEMORY: Final[str] = "basic.enable_memory"
-    ENABLE_INJECT: Final[str] = "basic.enable_inject"
-    LOG_LEVEL: Final[str] = "logging.log_level"
-    
-    MAX_CONTEXT_MEMORIES: Final[str] = "memory.max_context_memories"
-    MAX_WORKING_MEMORY: Final[str] = "memory.max_working_memory"
-    UPGRADE_MODE: Final[str] = "memory.upgrade_mode"
-    CHAT_CONTEXT_COUNT: Final[str] = "advanced.chat_context_count"
-    USE_LLM: Final[str] = "memory.use_llm"
-    
-    PROACTIVE_REPLY_ENABLE: Final[str] = "proactive_reply.enable"
-    PROACTIVE_REPLY_MAX_DAILY: Final[str] = "proactive_reply.max_daily"
-    PROACTIVE_REPLY_GROUP_WHITELIST_MODE: Final[str] = "proactive_reply.group_whitelist_mode"
-    
-    IMAGE_ANALYSIS_ENABLE: Final[str] = "image_analysis.enable"
-    IMAGE_ANALYSIS_MODE: Final[str] = "image_analysis.mode"
-    IMAGE_ANALYSIS_MAX_IMAGES: Final[str] = "image_analysis.max_images"
-    IMAGE_ANALYSIS_DAILY_BUDGET: Final[str] = "image_analysis.daily_budget"
-    IMAGE_ANALYSIS_SESSION_BUDGET: Final[str] = "image_analysis.session_budget"
-    IMAGE_ANALYSIS_REQUIRE_CONTEXT: Final[str] = "image_analysis.require_context"
-    
-    ERROR_FRIENDLY_ENABLE: Final[str] = "error_friendly.enable"
-    
-    # 快速通道
-    FAST_TRACK_ENABLE: Final[str] = "memory.fast_track.enable"
-    FAST_TRACK_CONFIDENCE: Final[str] = "memory.fast_track.confidence"
-    
-    # 情感衰减
-    EMOTION_DECAY_ENABLE: Final[str] = "memory.emotion_decay.enable"
-    EMOTION_DECAY_NEGATIVE_HALFLIFE: Final[str] = "memory.emotion_decay.negative_halflife_days"
-    EMOTION_DECAY_POSITIVE_HALFLIFE: Final[str] = "memory.emotion_decay.positive_halflife_days"
-    
-    # 温和遗忘
-    GRACE_PERIOD_ENABLE: Final[str] = "memory.grace_period.enable"
-    GRACE_PERIOD_DAYS: Final[str] = "memory.grace_period.days"
-    GRACE_PERIOD_NOTIFY: Final[str] = "memory.grace_period.notify_user"
-    
-    # 记忆回顾
-    REINFORCEMENT_ENABLE: Final[str] = "memory.reinforcement.enable"
-    REINFORCEMENT_MAX_DAILY: Final[str] = "memory.reinforcement.max_daily"
-    REINFORCEMENT_INTERVAL_HOURS: Final[str] = "memory.reinforcement.interval_hours"
-    
-    # 图增强检索
-    GRAPH_AUGMENTED_ENABLE: Final[str] = "retrieval.graph_augmented.enable"
-    GRAPH_AUGMENTED_TOP_N: Final[str] = "retrieval.graph_augmented.top_n"
-    GRAPH_AUGMENTED_DEPTH: Final[str] = "retrieval.graph_augmented.depth"
-    
-    # 可见性分类
-    SCOPE_CLASSIFIER_LLM_ENABLE: Final[str] = "memory.scope_classifier.llm_enable"
-
-
 class SessionScope:
     """会话作用域"""
     PRIVATE: Final[str] = "private"

@@ -93,7 +93,6 @@ class SessionLifecycleManager:
         self._semantic_extractor = None
         self._semantic_extraction_enabled = get_store().get("semantic_extraction.enabled")
         self._semantic_extraction_interval = get_store().get("semantic_extraction.extraction_interval")
-        self._semantic_extraction_config: Dict[str, Any] = {}  # 内部聚类参数
         self._astrbot_context: Any = None  # AstrBot 上下文（用于 LLM 调用）
         self._semantic_provider_id: str = ""  # 语义提取 LLM provider ID
         
@@ -232,20 +231,26 @@ class SessionLifecycleManager:
             return
         from iris_memory.capture.semantic.semantic_extractor import SemanticExtractor
         from iris_memory.capture.semantic.semantic_clustering import SemanticClustering
+        from iris_memory.config.store import get_store
 
-        # 从内部配置覆盖聚类参数
-        clustering_kwargs: Dict[str, Any] = {}
-        if self._semantic_extraction_config:
-            for key in ("min_confidence", "min_age_days", "min_cluster_size"):
-                if key in self._semantic_extraction_config:
-                    clustering_kwargs[key] = self._semantic_extraction_config[key]
+        store = get_store()
 
-        clustering = SemanticClustering(**clustering_kwargs) if clustering_kwargs else None
+        clustering = SemanticClustering(
+            min_confidence=store.get("semantic_extraction.min_confidence"),
+            min_age_days=store.get("semantic_extraction.min_age_days"),
+            min_cluster_size=store.get("semantic_extraction.min_cluster_size"),
+            cluster_time_window_days=store.get("semantic_extraction.cluster_time_window_days"),
+            similarity_threshold=store.get("semantic_extraction.similarity_threshold"),
+            max_clusters_per_run=store.get("semantic_extraction.max_clusters_per_run"),
+            max_memories_per_cluster=store.get("semantic_extraction.max_memories_per_cluster"),
+        )
         self._semantic_extractor = SemanticExtractor(
             chroma_manager=self.chroma_manager,
             astrbot_context=self._astrbot_context,
             provider_id=self._semantic_provider_id,
             clustering=clustering,
+            source_expiry_days=store.get("semantic_extraction.source_expiry_days"),
+            llm_max_tokens=store.get("semantic_extraction.llm_max_tokens"),
         )
         logger.debug("SemanticExtractor initialized")
     
