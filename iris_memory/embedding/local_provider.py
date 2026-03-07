@@ -158,6 +158,7 @@ class LocalProvider(EmbeddingProvider):
         """生成嵌入向量
         
         如果模型尚未加载完成，会在线程池中等待（不阻塞事件循环）。
+        单次编码操作有 60 秒超时保护。
         
         Args:
             request: 嵌入请求对象
@@ -169,12 +170,15 @@ class LocalProvider(EmbeddingProvider):
         await asyncio.to_thread(self._wait_for_model)
         
         try:
-            # CPU 密集型编码放到线程池执行
-            embedding = await asyncio.to_thread(
-                self._model_instance.encode,
-                request.text,
-                convert_to_numpy=True,
-                normalize_embeddings=True,  # 标准化向量
+            # CPU 密集型编码放到线程池执行（带超时保护）
+            embedding = await asyncio.wait_for(
+                asyncio.to_thread(
+                    self._model_instance.encode,
+                    request.text,
+                    convert_to_numpy=True,
+                    normalize_embeddings=True,  # 标准化向量
+                ),
+                timeout=60.0,
             )
             
             # 维度适配（如果需要）
@@ -189,6 +193,8 @@ class LocalProvider(EmbeddingProvider):
                 metadata=request.metadata
             )
             
+        except asyncio.TimeoutError:
+            raise RuntimeError("Local embedding encode timed out after 60s")
         except Exception as e:
             logger.error(f"Failed to generate embedding with local model: {e}")
             raise

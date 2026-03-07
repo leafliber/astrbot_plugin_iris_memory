@@ -49,6 +49,9 @@ class FallbackProvider(EmbeddingProvider):
     async def embed(self, request: EmbeddingRequest) -> EmbeddingResponse:
         """生成嵌入向量（伪随机）
         
+        使用文本哈希作为种子的确定性伪随机向量，相同文本始终生成相同向量。
+        所有维度都携带信息，而非仅前几维有值。
+        
         Args:
             request: 嵌入请求对象
             
@@ -57,23 +60,15 @@ class FallbackProvider(EmbeddingProvider):
         """
         dimension = request.dimension or self._dimension
         
-        # 使用哈希生成确定性的伪随机向量
-        # 相同的文本总是生成相同的向量
-        hash_obj = hashlib.md5(request.text.encode())
-        hash_bytes = hash_obj.digest()
+        # 使用 SHA-256 哈希作为 PRNG 种子，确保确定性
+        hash_bytes = hashlib.sha256(request.text.encode('utf-8')).digest()
+        seed = int.from_bytes(hash_bytes[:4], 'big')
+        rng = np.random.RandomState(seed)
         
-        # 将哈希转换为浮点数向量
-        embedding = []
-        for i in range(0, min(len(hash_bytes), dimension // 4)):
-            byte_val = hash_bytes[i]
-            embedding.append(byte_val / 255.0)
+        # 生成所有维度的伪随机向量
+        embedding_array = rng.randn(dimension).astype(np.float32)
         
-        # 填充到指定维度
-        while len(embedding) < dimension:
-            embedding.append(0.0)
-        
-        # 归一化向量（L2标准化）
-        embedding_array = np.array(embedding, dtype=np.float32)
+        # L2 归一化
         norm = np.linalg.norm(embedding_array)
         if norm > 0:
             embedding_array = embedding_array / norm

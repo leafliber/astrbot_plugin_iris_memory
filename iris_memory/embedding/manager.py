@@ -9,6 +9,7 @@
 所有模式均由 embedding.source 控制，不再支持额外的降级配置选项。
 """
 
+import asyncio
 from enum import Enum
 from typing import List, Dict, Any, Optional
 from collections import OrderedDict
@@ -77,6 +78,7 @@ class EmbeddingManager:
         self._cache_ttl: float = CacheDefaults.EMBEDDING_CACHE_TTL
         self._cache_enabled = True
         self._cache_model_key: str = ""
+        self._cache_lock = asyncio.Lock()
 
         # 插件上下文（用于 AstrBot API）
         self.plugin_context = None
@@ -110,6 +112,8 @@ class EmbeddingManager:
     def _get_from_cache(self, cache_key: str) -> Optional[List[float]]:
         """从缓存获取 embedding（命中时移至末尾以实现 LRU，并检查 TTL）
 
+        注意：调用方应在 _cache_lock 保护下调用此方法。
+
         Args:
             cache_key: 缓存键
 
@@ -131,6 +135,8 @@ class EmbeddingManager:
     def _add_to_cache(self, cache_key: str, embedding: List[float]):
         """添加 embedding 到缓存
 
+        注意：调用方应在 _cache_lock 保护下调用此方法。
+
         Args:
             cache_key: 缓存键
             embedding: 嵌入向量
@@ -150,6 +156,12 @@ class EmbeddingManager:
             logger.debug(f"Cache eviction: removed oldest entry {evicted_key[:16]}...")
 
         self._embedding_cache[cache_key] = (embedding, expire_at)
+
+    async def clear_cache_async(self):
+        """异步清空缓存（带锁保护）"""
+        async with self._cache_lock:
+            self._embedding_cache.clear()
+        logger.debug("Embedding cache cleared")
 
     def clear_cache(self):
         self._embedding_cache.clear()
@@ -384,19 +396,21 @@ class EmbeddingManager:
                 f"Embedding model changed from '{self._cache_model_key}' to '{current_model}', "
                 f"clearing cache ({len(self._embedding_cache)} entries)"
             )
-            self.clear_cache()
+            async with self._cache_lock:
+                self._embedding_cache.clear()
         self._cache_model_key = current_model
 
-        # 1. 检查缓存
+        # 1. 检查缓存（加锁保护）
         cache_key = self._get_cache_key(text, dimension)
-        cached_embedding = self._get_from_cache(cache_key)
+        async with self._cache_lock:
+            cached_embedding = self._get_from_cache(cache_key)
         if cached_embedding is not None:
             self.stats["cache_hits"] += 1
             return cached_embedding
 
         self.stats["cache_misses"] += 1
 
-        # 2. 使用当前提供者生成嵌入
+        # 2. 使用当前提供者生成嵌入（在锁外进行，避免阻塞其他缓存操作）
         embedding_result = None
         if self.current_provider:
             provider_name = self._get_provider_name(self.current_provider)
@@ -417,8 +431,9 @@ class EmbeddingManager:
         if embedding_result is None:
             embedding_result = await self._embed_with_fallback(text, dimension)
 
-        # 4. 添加到缓存
-        self._add_to_cache(cache_key, embedding_result)
+        # 4. 添加到缓存（加锁保护）
+        async with self._cache_lock:
+            self._add_to_cache(cache_key, embedding_result)
 
         return embedding_result
 

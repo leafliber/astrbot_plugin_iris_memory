@@ -4,10 +4,12 @@ AstrBot 嵌入提供者 - 使用 AstrBot Embedding API
 """
 
 from typing import List, Dict, Any, Optional
+import asyncio
 import numpy as np
 
 from .base import EmbeddingProvider, EmbeddingRequest, EmbeddingResponse
 from iris_memory.utils.logger import get_logger
+from iris_memory.core.provider_utils import extract_provider_id
 
 # 模块logger
 logger = get_logger("astrbot_provider")
@@ -34,6 +36,7 @@ class AstrBotProvider(EmbeddingProvider):
         self.provider_id = provider_id
         self._dimension = 512  # 默认维度，会在初始化时更新
         self._model = "astrbot-embedding"
+        self._timeout: float = 30.0  # API 调用超时（秒）
 
     def set_context(self, context: Any):
         """设置AstrBot上下文
@@ -117,8 +120,6 @@ class AstrBotProvider(EmbeddingProvider):
             return providers[0]
         
         # 按 provider_id 匹配
-        from iris_memory.core.provider_utils import extract_provider_id
-        
         for provider in providers:
             pid = extract_provider_id(provider)
             if pid and pid == self.provider_id:
@@ -168,17 +169,26 @@ class AstrBotProvider(EmbeddingProvider):
             raise RuntimeError("AstrBot embedding provider not initialized. Call initialize() first.")
 
         try:
-            # 调用 AstrBot 的嵌入接口
+            # 调用 AstrBot 的嵌入接口（带超时保护）
             # 根据 AstrBot EmbeddingProvider 的接口调用
             if hasattr(self.embedding_provider, 'embed'):
                 # 新接口
-                result = await self.embedding_provider.embed(request.text)
+                result = await asyncio.wait_for(
+                    self.embedding_provider.embed(request.text),
+                    timeout=self._timeout
+                )
             elif hasattr(self.embedding_provider, 'get_embedding'):
                 # 备选接口
-                result = await self.embedding_provider.get_embedding(request.text)
+                result = await asyncio.wait_for(
+                    self.embedding_provider.get_embedding(request.text),
+                    timeout=self._timeout
+                )
             elif hasattr(self.embedding_provider, 'encode'):
                 # 另一种可能的接口
-                result = await self.embedding_provider.encode(request.text)
+                result = await asyncio.wait_for(
+                    self.embedding_provider.encode(request.text),
+                    timeout=self._timeout
+                )
             else:
                 raise RuntimeError("No suitable embedding method found in provider")
             
@@ -200,6 +210,10 @@ class AstrBotProvider(EmbeddingProvider):
                 metadata={"provider": "astrbot"}
             )
             
+        except asyncio.TimeoutError:
+            raise RuntimeError(
+                f"AstrBot embedding API call timed out after {self._timeout}s"
+            )
         except Exception as e:
             logger.error(f"Failed to generate embedding: {e}")
             raise RuntimeError(f"Embedding generation failed: {e}")
