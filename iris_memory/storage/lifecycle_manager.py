@@ -231,7 +231,7 @@ class SessionLifecycleManager:
             return
         from iris_memory.capture.semantic.semantic_extractor import SemanticExtractor
         from iris_memory.capture.semantic.semantic_clustering import SemanticClustering
-        from iris_memory.config.store import get_store
+        from iris_memory.config import get_store
 
         store = get_store()
 
