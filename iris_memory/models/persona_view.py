@@ -18,6 +18,8 @@ if TYPE_CHECKING:
 def build_injection_view(persona: "UserPersona") -> Dict[str, Any]:
     """生成精简的画像视图（供 prompt 注入使用，不含审计日志）
 
+    情感字段通过委托访问器从 EmotionalState 读取（如果已绑定）。
+
     Args:
         persona: UserPersona 实例
 
@@ -26,12 +28,17 @@ def build_injection_view(persona: "UserPersona") -> Dict[str, Any]:
     """
     view: Dict[str, Any] = {}
 
-    # 情感摘要
-    if persona.emotional_baseline != DEFAULT_EMOTION or persona.emotional_trajectory:
+    emotional_baseline = persona.get_emotional_baseline()
+    emotional_trajectory = persona.get_emotional_trajectory()
+    emotional_volatility = persona.get_emotional_volatility()
+    negative_ratio = persona.get_negative_ratio()
+
+    if emotional_baseline != DEFAULT_EMOTION or emotional_trajectory:
         emotional: Dict[str, Any] = {
-            "baseline": persona.emotional_baseline,
-            "trajectory": persona.emotional_trajectory,
-            "volatility": round(persona.emotional_volatility, 2),
+            "baseline": emotional_baseline,
+            "trajectory": emotional_trajectory,
+            "volatility": round(emotional_volatility, 2),
+            "negative_ratio": round(negative_ratio, 3),
         }
         if persona.emotional_triggers:
             emotional["triggers"] = persona.emotional_triggers[:5]

@@ -42,10 +42,27 @@ class SharedState:
         return self._user_emotional_states[user_id]
 
     def get_or_create_user_persona(self, user_id: str) -> UserPersona:
-        """获取或创建用户画像"""
+        """获取或创建用户画像
+
+        创建时自动绑定对应的 EmotionalState，建立委托关系。
+        EmotionalState 作为情感数据的唯一数据源。
+        """
         if user_id not in self._user_personas:
-            self._user_personas[user_id] = UserPersona(user_id=user_id)
+            persona = UserPersona(user_id=user_id)
+            emotional_state = self.get_or_create_emotional_state(user_id)
+            persona.bind_emotional_state(emotional_state)
+            self._user_personas[user_id] = persona
         return self._user_personas[user_id]
+
+    def bind_persona_to_emotional_state(self, user_id: str) -> None:
+        """为已存在的画像建立委托关系
+
+        用于处理从持久化恢复的画像对象。
+        """
+        if user_id in self._user_personas:
+            persona = self._user_personas[user_id]
+            emotional_state = self.get_or_create_emotional_state(user_id)
+            persona.bind_emotional_state(emotional_state)
 
     def delete_user_persona(self, user_id: str) -> bool:
         """删除指定用户的画像

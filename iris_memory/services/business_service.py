@@ -191,11 +191,15 @@ class BusinessService:
         """画像闭环：从记忆更新用户画像并记录 DEBUG 日志
 
         批量处理策略：
-        - emotion 类型消息 → 即时处理（情感时效性要求高）
+        - emotion 类型消息 → 即时更新 EmotionalState（情感时效性要求高）
         - 其他消息 → 若启用 persona_batch_processor 则入队批量处理
         - 批量处理器不可用时 → 自动降级到即时处理
 
         同时同步 sender_name 到 persona.display_name
+
+        情感数据流：
+        - EmotionalState 是情感数据的唯一数据源
+        - UserPersona 通过委托模式从 EmotionalState 读取情感字段
         """
         if not self._cfg.get("persona.enabled", True):
             return
@@ -214,16 +218,16 @@ class BusinessService:
             group_id = getattr(memory, "group_id", None)
             sender_name = getattr(memory, "sender_name", None)
 
-            # 同步 sender_name 到 display_name（如果提供了且当前为空）
             if sender_name and not persona.display_name:
                 persona.display_name = sender_name
                 logger.debug(f"Updated display_name for user={user_id}: {sender_name}")
 
-            # 情感类记忆保持即时处理
             if mem_type in ("emotion",):
-                changes.extend(persona._update_emotional(memory, mem_id, confidence))
+                emotional_state = self._state.get_or_create_emotional_state(user_id)
+                changes.extend(self._update_emotional_state_from_memory(
+                    emotional_state, memory, mem_id, confidence
+                ))
 
-            # 尝试走批量处理通道
             persona_batch = self._analysis.persona_batch_processor
             if persona_batch and mem_type not in ("emotion",):
                 try:
@@ -242,11 +246,9 @@ class BusinessService:
                         f"Persona update queued for batch: "
                         f"user={user_id}, memory={mem_id}"
                     )
-                    # 仍然更新活跃时段（轻量操作，不需要批量）
                     created = getattr(memory, "created_time", None)
                     if created and isinstance(created, datetime):
                         persona.hourly_distribution[created.hour] += 1.0
-                    # 如果有情感变更（emotion 路径），也记录
                     if changes:
                         persona_log.update_applied(
                             user_id,
@@ -258,9 +260,7 @@ class BusinessService:
                         f"Persona batch enqueue failed, "
                         f"falling back to immediate: {e}"
                     )
-                    # 降级到即时处理（下面的逻辑）
 
-            # 即时处理路径（降级或未启用批量处理器）
             persona_extractor = self._analysis.persona_extractor
             if persona_extractor and self._cfg.get("persona.extraction_mode", "rule") != "rule":
                 result = await persona_extractor.extract(
@@ -299,6 +299,67 @@ class BusinessService:
         except Exception as e:
             persona_log.update_error(user_id, e)
             logger.warning(f"Failed to update persona from memory: {e}")
+
+    def _update_emotional_state_from_memory(
+        self,
+        emotional_state: Any,
+        memory: Any,
+        mem_id: Optional[str],
+        confidence: float,
+    ) -> List[Any]:
+        """从 Memory 更新 EmotionalState
+
+        EmotionalState 是情感数据的唯一数据源。
+        此方法替代原先的 UserPersona._update_emotional()。
+
+        Args:
+            emotional_state: EmotionalState 实例
+            memory: Memory 对象
+            mem_id: 记忆 ID
+            confidence: 置信度
+
+        Returns:
+            变更记录列表（用于日志）
+        """
+        from iris_memory.core.types import EmotionType
+        from iris_memory.models.persona_change import PersonaChangeRecord
+
+        changes: List[PersonaChangeRecord] = []
+        subtype = getattr(memory, "subtype", None)
+        weight = getattr(memory, "emotional_weight", 0.0)
+
+        if not subtype:
+            return changes
+
+        try:
+            emotion_type = EmotionType(subtype)
+        except ValueError:
+            logger.warning(f"Unknown emotion type: {subtype}")
+            return changes
+
+        emotional_state.update_current_emotion(
+            primary=emotion_type,
+            intensity=weight,
+            confidence=confidence,
+        )
+
+        changes.append(PersonaChangeRecord(
+            timestamp=datetime.now().isoformat(),
+            field_name="emotional_state",
+            old_value=None,
+            new_value={
+                "primary": subtype,
+                "intensity": weight,
+                "confidence": confidence,
+            },
+            source_memory_id=mem_id,
+            memory_type="emotion",
+            rule_id="emotional_state_update",
+            confidence=confidence,
+            evidence_type="confirmed",
+        ))
+
+        return changes
 
     # ── 记忆检索 ──
 

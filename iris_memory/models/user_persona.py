@@ -359,19 +359,16 @@ class UserPersona:
     # 从记忆更新画像（规则引擎）
     # ------------------------------------------------------------------
     def update_from_memory(self, memory) -> List[PersonaChangeRecord]:
-        """从一条 Memory 推导并更新画像字段，返回本次变更列表。"""
+        """从一条 Memory 推导并更新画像字段，返回本次变更列表。
+
+        注意：emotion 类型记忆不再在此处理，由 BusinessService 直接更新 EmotionalState。
+        """
         changes: List[PersonaChangeRecord] = []
         mem_id = getattr(memory, "id", None)
         mem_type_raw = getattr(memory, "type", None)
         mem_type = mem_type_raw.value if hasattr(mem_type_raw, "value") else str(mem_type_raw)
         confidence = getattr(memory, "confidence", 0.5)
 
-        # 分发到维度处理器
-        if mem_type in (MemoryType.EMOTION.value, "emotion"):
-            try:
-                changes.extend(self._update_emotional(memory, mem_id, confidence))
-            except Exception as e:
-                logger.warning(f"update_from_memory emotional update failed: {e}")
         if mem_type in (MemoryType.FACT.value, "fact"):
             try:
                 changes.extend(self._update_facts(memory, mem_id, confidence))
@@ -439,146 +436,6 @@ class UserPersona:
             memory_type=memory_type,
             base_confidence=base_confidence,
         )
-
-    # --- 情感维度 ---
-    def _update_emotional(self, memory, mem_id, confidence) -> List[PersonaChangeRecord]:
-        changes: List[PersonaChangeRecord] = []
-        subtype = getattr(memory, "subtype", None)
-        weight = getattr(memory, "emotional_weight", 0.0)
-        content = getattr(memory, "content", "") or ""
-
-        # 更新情感模式统计
-        if subtype:
-            old_count = self.emotional_patterns.get(subtype, 0)
-            self.emotional_patterns[subtype] = old_count + 1
-            changes.append(PersonaChangeRecord(
-                timestamp=datetime.now().isoformat(),
-                field_name="emotional_patterns",
-                old_value={subtype: old_count},
-                new_value={subtype: old_count + 1},
-                source_memory_id=mem_id,
-                memory_type="emotion",
-                rule_id="emotion_pattern_count",
-                confidence=confidence,
-                evidence_type="confirmed",
-            ))
-
-        # 基线更新（仅高强度）
-        if weight > 0.7 and subtype:
-            rec = self.apply_change(
-                "emotional_baseline", subtype,
-                source_memory_id=mem_id, memory_type="emotion",
-                rule_id="emotion_baseline_high_weight",
-                confidence=confidence, evidence_type="confirmed",
-            )
-            if rec:
-                changes.append(rec)
-
-        # 重新计算负面占比
-        total = sum(self.emotional_patterns.values()) or 1
-        neg_count = sum(self.emotional_patterns.get(k, 0) for k in NEGATIVE_EMOTION_STRINGS)
-        new_ratio = round(neg_count / total, 3)
-        rec = self.apply_change(
-            "negative_ratio", new_ratio,
-            source_memory_id=mem_id, memory_type="emotion",
-            rule_id="negative_ratio_recalc", confidence=0.8,
-            evidence_type="confirmed",
-        )
-        if rec:
-            changes.append(rec)
-
-        # 计算情感轨迹
-        trajectory = self._infer_trajectory()
-        if trajectory != self.emotional_trajectory:
-            rec = self.apply_change(
-                "emotional_trajectory", trajectory,
-                source_memory_id=mem_id, memory_type="emotion",
-                rule_id="trajectory_inference", confidence=0.6,
-                evidence_type="inferred",
-            )
-            if rec:
-                changes.append(rec)
-
-        # 计算情感波动性（基于情感模式多样性和负面占比差异）
-        new_volatility = self._compute_volatility()
-        if abs(new_volatility - self.emotional_volatility) > 0.02:
-            rec = self.apply_change(
-                "emotional_volatility", round(new_volatility, 3),
-                source_memory_id=mem_id, memory_type="emotion",
-                rule_id="volatility_recalc", confidence=0.7,
-                evidence_type="inferred",
-            )
-            if rec:
-                changes.append(rec)
-
-        # 情感触发器推断（高强度负面情绪时，尝试提取触发上下文）
-        if weight > 0.6 and subtype in NEGATIVE_EMOTION_STRINGS and content:
-            trigger_snippet = content[:50].strip()
-            if trigger_snippet and trigger_snippet not in self.emotional_triggers:
-                rec = self.apply_change(
-                    "emotional_triggers", trigger_snippet,
-                    source_memory_id=mem_id, memory_type="emotion",
-                    rule_id="emotion_trigger_high_weight",
-                    confidence=confidence * 0.6,
-                    evidence_type="inferred",
-                )
-                if rec:
-                    changes.append(rec)
-
-        return changes
-
-    def _compute_volatility(self) -> float:
-        """根据情感模式多样性和变化频率计算波动性
-
-        波动性 = 情感类型多样性 × 负面-正面比例偏差
-        范围: 0.0 (完全稳定) ~ 1.0 (高度波动)
-        """
-        if not self.emotional_patterns:
-            return 0.5  # 默认中等
-
-        total = sum(self.emotional_patterns.values())
-        if total < 3:
-            return 0.5  # 样本不足
-
-        # 因子1：情感类型多样性（Shannon 熵归一化）
-        import math
-        n_types = len(self.emotional_patterns)
-        if n_types <= 1:
-            diversity = 0.0
-        else:
-            entropy = 0.0
-            for count in self.emotional_patterns.values():
-                p = count / total
-                if p > 0:
-                    entropy -= p * math.log2(p)
-            max_entropy = math.log2(n_types) if n_types > 1 else 1.0
-            diversity = entropy / max_entropy if max_entropy > 0 else 0.0
-
-        # 因子2：负面占比偏离中性的程度
-        neg_count = sum(self.emotional_patterns.get(k, 0) for k in NEGATIVE_EMOTION_STRINGS)
-        neg_ratio = neg_count / total
-        # 偏离0.3（理想中性点）越远越波动
-        deviation = abs(neg_ratio - 0.3) * 2.0
-
-        volatility = min(1.0, diversity * 0.6 + deviation * 0.4)
-        return volatility
-
-    def _infer_trajectory(self) -> Optional[str]:
-        """根据情感模式推断趋势"""
-        if not self.emotional_patterns:
-            return None
-        total = sum(self.emotional_patterns.values())
-        if total < 3:
-            return None
-        neg_count = sum(self.emotional_patterns.get(k, 0) for k in NEGATIVE_EMOTION_STRINGS)
-        ratio = neg_count / total
-        if ratio > 0.6:
-            return "deteriorating"
-        elif ratio > 0.4:
-            return "volatile"
-        elif ratio < 0.2:
-            return "improving"
-        return "stable"
 
     # --- 事实维度 ---
     def _update_facts(
