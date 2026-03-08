@@ -32,6 +32,7 @@ from iris_memory.web.web_ui import WebUIManager
 from iris_memory.processing.message_processor import MessageProcessor, ErrorFriendlyProcessor
 from iris_memory.processing.markdown_stripper import MarkdownStripper
 from iris_memory.core.constants import PROACTIVE_EXTRA_KEY
+from iris_memory.stats import get_stats_registry
 
 
 @register("astrbot_plugin_iris_memory", "Iris Memory", "基于 companion-memory 框架的三层记忆插件", "1.10.3")
@@ -77,6 +78,10 @@ class IrisMemoryPlugin(Star):
         await self._service.initialize()
 
         await self._service.load_from_kv(self.get_kv_data)
+
+        stats = get_stats_registry()
+        stats.set_kv_interface(self.get_kv_data, self.put_kv_data)
+        await stats.initialize()
 
         self._command_handlers = CommandHandlers(self._service)
         self._web_ui = WebUIManager(self._service)
@@ -255,3 +260,6 @@ class IrisMemoryPlugin(Star):
 
         if self._web_ui:
             await self._web_ui.stop()
+
+        stats = get_stats_registry()
+        await stats.flush()

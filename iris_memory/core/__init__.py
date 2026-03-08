@@ -14,11 +14,6 @@ from iris_memory.core.provider_utils import (
     get_provider_by_id,
     get_default_provider,
 )
-from iris_memory.core.detection import (
-    BaseDetectionResult,
-    DetectionMode,
-    LLMEnhancedDetector,
-)
 
 from iris_memory.config import (
     ConfigStore,
@@ -29,6 +24,16 @@ from iris_memory.config import (
     AccessLevel,
     config_events,
 )
+
+def __getattr__(name: str):
+    if name in ('BaseDetectionResult', 'DetectionMode', 'LLMEnhancedDetector'):
+        from iris_memory.core.detection import (
+            BaseDetectionResult,
+            DetectionMode,
+            LLMEnhancedDetector,
+        )
+        return locals()[name]
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 __all__ = [
     'GroupActivityLevel',

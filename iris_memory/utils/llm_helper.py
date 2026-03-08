@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Protocol, runtime_checkable
 
@@ -191,69 +192,117 @@ async def call_llm(
     Returns:
         LLMCallResult
     """
+    start_time = time.time()
     is_multimodal = bool(image_urls)
+    result = LLMCallResult(success=False, error="No suitable LLM method found")
+    
+    try:
+        if not is_multimodal and context and hasattr(context, "llm_generate") and provider_id:
+            try:
+                logger.debug(f"Calling context.llm_generate with provider_id={repr(provider_id)}, prompt_length={len(prompt)}")
+                resp = await context.llm_generate(
+                    chat_provider_id=provider_id,
+                    prompt=prompt,
+                )
+                if resp and hasattr(resp, "completion_text"):
+                    text = (resp.completion_text or "").strip()
+                    tokens = _estimate_tokens(prompt + text)
+                    logger.debug(f"llm_generate success, response_length={len(text)}, tokens={tokens}")
+                    result = LLMCallResult(
+                        success=True,
+                        content=text,
+                        parsed_json=parse_llm_json(text) if parse_json else None,
+                        tokens_used=tokens,
+                    )
+            except Exception as e:
+                error_type = type(e).__name__
+                error_msg = str(e)
+                logger.warning(
+                    f"llm_generate failed: [{error_type}] {error_msg} | "
+                    f"provider_id={repr(provider_id)}, prompt_length={len(prompt)}, "
+                    f"prompt_preview={repr(prompt[:100])}..."
+                )
+                result = LLMCallResult(
+                    success=False,
+                    error=f"[{error_type}] {error_msg}",
+                )
 
-    # ① 尝试 context.llm_generate（不支持多模态，跳过）
-    if not is_multimodal and context and hasattr(context, "llm_generate") and provider_id:
-        try:
-            logger.debug(f"Calling context.llm_generate with provider_id={repr(provider_id)}, prompt_length={len(prompt)}")
-            resp = await context.llm_generate(
-                chat_provider_id=provider_id,
-                prompt=prompt,
-            )
-            if resp and hasattr(resp, "completion_text"):
-                text = (resp.completion_text or "").strip()
+        if not result.success and provider and hasattr(provider, "text_chat"):
+            resolved_pid = provider_id or extract_provider_id(provider) or "unknown"
+            try:
+                kwargs: Dict[str, Any] = {"prompt": prompt, "context": []}
+                if is_multimodal:
+                    kwargs["image_urls"] = image_urls
+                    logger.debug(
+                        f"Calling provider.text_chat with multimodal, "
+                        f"provider_id={repr(resolved_pid)}, prompt_length={len(prompt)}, "
+                        f"image_count={len(image_urls)}"
+                    )
+                resp = await provider.text_chat(**kwargs)
+                text = _extract_text(resp)
                 tokens = _estimate_tokens(prompt + text)
-                logger.debug(f"llm_generate success, response_length={len(text)}, tokens={tokens}")
-                return LLMCallResult(
+                result = LLMCallResult(
                     success=True,
                     content=text,
                     parsed_json=parse_llm_json(text) if parse_json else None,
                     tokens_used=tokens,
                 )
-        except Exception as e:
-            error_type = type(e).__name__
-            error_msg = str(e)
-            logger.warning(
-                f"llm_generate failed: [{error_type}] {error_msg} | "
-                f"provider_id={repr(provider_id)}, prompt_length={len(prompt)}, "
-                f"prompt_preview={repr(prompt[:100])}..."
-            )
-
-    # ② provider.text_chat（支持多模态）
-    if provider and hasattr(provider, "text_chat"):
-        resolved_pid = provider_id or extract_provider_id(provider) or "unknown"
-        try:
-            kwargs: Dict[str, Any] = {"prompt": prompt, "context": []}
-            if is_multimodal:
-                kwargs["image_urls"] = image_urls
-                logger.debug(
-                    f"Calling provider.text_chat with multimodal, "
+            except Exception as e:
+                error_type = type(e).__name__
+                error_msg = str(e)
+                logger.warning(
+                    f"text_chat failed: [{error_type}] {error_msg} | "
                     f"provider_id={repr(resolved_pid)}, prompt_length={len(prompt)}, "
-                    f"image_count={len(image_urls)}"
+                    f"prompt_preview={repr(prompt[:100])}..."
                 )
-            resp = await provider.text_chat(**kwargs)
-            text = _extract_text(resp)
-            tokens = _estimate_tokens(prompt + text)
-            return LLMCallResult(
-                success=True,
-                content=text,
-                parsed_json=parse_llm_json(text) if parse_json else None,
-                tokens_used=tokens,
-            )
-        except Exception as e:
-            error_type = type(e).__name__
-            error_msg = str(e)
-            logger.warning(
-                f"text_chat failed: [{error_type}] {error_msg} | "
-                f"provider_id={repr(resolved_pid)}, prompt_length={len(prompt)}, "
-                f"prompt_preview={repr(prompt[:100])}..."
-            )
+                result = LLMCallResult(
+                    success=False,
+                    error=f"[{error_type}] {error_msg}",
+                )
+    finally:
+        duration_ms = (time.time() - start_time) * 1000
+        _record_stats(
+            provider_id=provider_id or (extract_provider_id(provider) if provider else None),
+            result=result,
+            duration_ms=duration_ms,
+            prompt=prompt,
+            is_multimodal=is_multimodal,
+            image_count=len(image_urls) if image_urls else 0,
+        )
+    
+    return result
 
-    return LLMCallResult(
-        success=False,
-        error=f"No suitable LLM method found (provider_id={repr(provider_id)}, multimodal={is_multimodal})"
-    )
+
+def _record_stats(
+    provider_id: Optional[str],
+    result: LLMCallResult,
+    duration_ms: float,
+    prompt: str,
+    is_multimodal: bool,
+    image_count: int,
+) -> None:
+    """记录 LLM 调用统计（内部方法）"""
+    try:
+        from iris_memory.stats import get_stats_registry
+        import asyncio
+        
+        registry = get_stats_registry()
+        
+        asyncio.create_task(
+            registry.record_call(
+                provider_id=provider_id,
+                success=result.success,
+                tokens_used=result.tokens_used,
+                duration_ms=duration_ms,
+                prompt=prompt,
+                response=result.content,
+                error=result.error if not result.success else None,
+                is_multimodal=is_multimodal,
+                image_count=image_count,
+            )
+        )
+    except Exception as e:
+        logger.debug(f"Failed to record stats: {e}")
 
 
 def _extract_text(resp: Any) -> str:
