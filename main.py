@@ -182,6 +182,7 @@ class IrisMemoryPlugin(Star):
         """
         from iris_memory.models.memory import Memory
         from iris_memory.core.memory_scope import MemoryScope
+        from iris_memory.utils.event_utils import get_group_id
 
         scope = MemoryScope.PRIVATE if not get_group_id(event) else MemoryScope.GROUP
         memory = Memory(
