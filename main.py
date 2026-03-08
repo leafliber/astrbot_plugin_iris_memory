@@ -246,10 +246,6 @@ class IrisMemoryPlugin(Star):
         if self._message_processor:
             await self._message_processor.handle_llm_response(event, resp)
 
-        # 主动回复：检测用户是否需要帮助
-        if self._service.proactive and self._service.cfg.get("proactive_reply.enable", False):
-            await self._service.proactive.signal_queue.enqueue(event)
-
     async def terminate(self) -> None:
         """插件终止时的清理工作"""
         if self._service:

@@ -233,15 +233,38 @@ class ChromaQueries:
     def _extract_query_results(self, results: Dict) -> List[Dict[str, Any]]:
         """从Chroma查询结果中提取数据"""
         extracted = []
-        if results['ids'] and results['ids'][0]:
-            for i in range(len(results['ids'][0])):
-                extracted.append({
-                    'id': results['ids'][0][i],
-                    'content': results['documents'][0][i] if results.get('documents') and len(results['documents']) > 0 else '',
-                    'embedding': results['embeddings'][0][i] if results.get('embeddings') and len(results['embeddings']) > 0 else None,
-                    'metadata': results['metadatas'][0][i] if results.get('metadatas') and len(results['metadatas']) > 0 else {},
-                    'distance': results['distances'][0][i] if results.get('distances') and len(results['distances']) > 0 else None
-                })
+        ids = results.get('ids')
+        if ids is not None and len(ids) > 0 and ids[0] is not None and len(ids[0]) > 0:
+            ids_list = ids[0]
+            documents = results.get('documents')
+            embeddings = results.get('embeddings')
+            metadatas = results.get('metadatas')
+            distances = results.get('distances')
+            
+            for i in range(len(ids_list)):
+                item = {'id': ids_list[i]}
+                
+                if documents is not None and len(documents) > 0 and documents[0] is not None and len(documents[0]) > i:
+                    item['content'] = documents[0][i]
+                else:
+                    item['content'] = ''
+                
+                if embeddings is not None and len(embeddings) > 0 and embeddings[0] is not None and len(embeddings[0]) > i:
+                    item['embedding'] = embeddings[0][i]
+                else:
+                    item['embedding'] = None
+                
+                if metadatas is not None and len(metadatas) > 0 and metadatas[0] is not None and len(metadatas[0]) > i:
+                    item['metadata'] = metadatas[0][i]
+                else:
+                    item['metadata'] = {}
+                
+                if distances is not None and len(distances) > 0 and distances[0] is not None and len(distances[0]) > i:
+                    item['distance'] = distances[0][i]
+                else:
+                    item['distance'] = None
+                
+                extracted.append(item)
         return extracted
 
     async def get_all_memories(
@@ -360,8 +383,9 @@ class ChromaQueries:
     def _results_to_memories(self, results: Dict) -> List:
         """将Chroma get结果转换为Memory对象列表"""
         memories = []
-        if results['ids']:
-            for i in range(len(results['ids'])):
+        ids = results.get('ids')
+        if ids is not None and len(ids) > 0:
+            for i in range(len(ids)):
                 memory_data = self._manager._extract_memory_data(results, i)
                 memory = self._manager._result_to_memory(memory_data)
                 memories.append(memory)
@@ -410,8 +434,9 @@ class ChromaQueries:
             self._manager.collection.get,
             where=self._manager._build_where_clause(where_shared)
         )
-        if results['ids']:
-            all_ids.update(results['ids'])
+        ids = results.get('ids')
+        if ids is not None and len(ids) > 0:
+            all_ids.update(ids)
 
         where_private = {"user_id": user_id, "group_id": group_id, "scope": MemoryScope.GROUP_PRIVATE.value}
         if storage_layer:
@@ -423,8 +448,9 @@ class ChromaQueries:
             self._manager.collection.get,
             where=self._manager._build_where_clause(where_private)
         )
-        if results['ids']:
-            all_ids.update(results['ids'])
+        ids = results.get('ids')
+        if ids is not None and len(ids) > 0:
+            all_ids.update(ids)
 
         where_global = {"scope": MemoryScope.GLOBAL.value}
         if storage_layer:
@@ -436,8 +462,9 @@ class ChromaQueries:
             self._manager.collection.get,
             where=self._manager._build_where_clause(where_global)
         )
-        if results['ids']:
-            all_ids.update(results['ids'])
+        ids = results.get('ids')
+        if ids is not None and len(ids) > 0:
+            all_ids.update(ids)
 
         return all_ids
 
@@ -460,8 +487,9 @@ class ChromaQueries:
             self._manager.collection.get,
             where=self._manager._build_where_clause(where_user_private)
         )
-        if results['ids']:
-            all_ids.update(results['ids'])
+        ids = results.get('ids')
+        if ids is not None and len(ids) > 0:
+            all_ids.update(ids)
 
         where_global = {"scope": MemoryScope.GLOBAL.value}
         if storage_layer:
@@ -473,8 +501,9 @@ class ChromaQueries:
             self._manager.collection.get,
             where=self._manager._build_where_clause(where_global)
         )
-        if results['ids']:
-            all_ids.update(results['ids'])
+        ids = results.get('ids')
+        if ids is not None and len(ids) > 0:
+            all_ids.update(ids)
 
         return all_ids
 
@@ -495,8 +524,9 @@ class ChromaQueries:
             )
 
             memories = []
-            if results['ids']:
-                for i in range(min(len(results['ids']), limit)):
+            ids = results.get('ids')
+            if ids is not None and len(ids) > 0:
+                for i in range(min(len(ids), limit)):
                     memory_data = self._manager._extract_memory_data(results, i)
                     memory = self._manager._result_to_memory(memory_data)
                     memories.append(memory)
@@ -535,8 +565,9 @@ class ChromaQueries:
             )
 
             memories = []
-            if results['ids']:
-                for i in range(min(len(results['ids']), limit)):
+            ids = results.get('ids')
+            if ids is not None and len(ids) > 0:
+                for i in range(min(len(ids), limit)):
                     memory_data = self._manager._extract_memory_data(results, i)
                     memory = self._manager._result_to_memory(memory_data)
                     memories.append(memory)
