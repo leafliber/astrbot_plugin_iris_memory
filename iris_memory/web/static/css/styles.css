@@ -357,4 +357,33 @@ input[type="checkbox"] { width:16px; height:16px; accent-color:var(--accent); }
   .relationship-grid { grid-template-columns:1fr; }
   .meta-grid { grid-template-columns:repeat(2,1fr); }
   .interests-grid { grid-template-columns:1fr; }
+  .dashboard-row { flex-direction:column; }
+  .dashboard-col { min-width:100%; }
 }
+
+/* Dashboard Merged Styles */
+.dashboard-row { display:flex; gap:16px; margin-bottom:20px; }
+.dashboard-col { flex:1; min-width:0; }
+
+/* System Overview */
+.system-overview-grid { display:flex; gap:16px; margin-bottom:12px; }
+.system-stat { display:flex; align-items:center; gap:10px; flex:1; background:var(--bg3); border-radius:8px; padding:12px; }
+.system-stat-icon { font-size:20px; width:36px; height:36px; display:flex; align-items:center; justify-content:center; border-radius:8px; background:var(--bg2); }
+.system-stat-content { display:flex; flex-direction:column; }
+.system-stat-value { font-size:14px; font-weight:600; }
+.system-stat-label { font-size:11px; color:var(--text2); }
+
+.component-health-compact { display:flex; flex-wrap:wrap; gap:8px; padding-top:12px; border-top:1px solid var(--border); }
+.component-item { display:flex; align-items:center; gap:6px; background:var(--bg3); padding:4px 10px; border-radius:12px; font-size:11px; }
+.component-name { color:var(--text2); }
+
+/* LLM Overview */
+.llm-overview-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:12px; }
+.llm-stat { text-align:center; background:var(--bg3); border-radius:8px; padding:12px; }
+.llm-stat-value { font-size:18px; font-weight:600; }
+.llm-stat-label { font-size:11px; color:var(--text2); margin-top:4px; }
+
+.llm-provider-compact, .llm-source-compact { padding-top:10px; border-top:1px solid var(--border); margin-top:10px; }
+.compact-title { font-size:11px; color:var(--text2); margin-bottom:6px; }
+.compact-items { display:flex; flex-wrap:wrap; gap:6px; }
+.compact-tag { background:var(--bg3); padding:3px 8px; border-radius:10px; font-size:11px; color:var(--text); }

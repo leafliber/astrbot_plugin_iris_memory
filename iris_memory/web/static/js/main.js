@@ -27,9 +27,7 @@ import {
 } from './pages/proactive.js';
 import { switchIoTab, exportMemories, exportKg, handleFileDrop, handleFileSelect } from './pages/io.js';
 import { loadCooldown } from './pages/cooldown.js';
-import { loadLlm } from './pages/llm.js';
 import { loadConfig, filterConfig, showDiff, exportSnapshot } from './pages/config.js';
-import { loadSystem } from './pages/system.js';
 
 const pageLoaders = {
   dashboard: loadDashboard,
@@ -39,9 +37,7 @@ const pageLoaders = {
   proactive: () => { if (!proactiveGetState().loaded) loadProactiveStatus(); },
   io: () => {},
   cooldown: loadCooldown,
-  llm: loadLlm,
   config: loadConfig,
-  system: loadSystem,
 };
 
 function showSection(name) {

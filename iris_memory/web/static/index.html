@@ -18,9 +18,7 @@
       <div class="nav-item" data-section="proactive"><span class="icon">💬</span><span>主动回复</span></div>
       <div class="nav-item" data-section="io"><span class="icon">📦</span><span>导入导出</span></div>
       <div class="nav-item" data-section="cooldown"><span class="icon">❄️</span><span>冷却管理</span></div>
-      <div class="nav-item" data-section="llm"><span class="icon">🤖</span><span>LLM监控</span></div>
       <div class="nav-item" data-section="config"><span class="icon">⚙️</span><span>配置管理</span></div>
-      <div class="nav-item" data-section="system"><span class="icon">🖥️</span><span>系统监控</span></div>
     </nav>
   </aside>
   <main class="main">
@@ -38,12 +36,24 @@
       </div>
       <div id="stats-grid" class="stats-grid"></div>
       <div id="type-distribution" class="stats-grid" style="margin-bottom:20px"></div>
+      <div class="dashboard-row">
+        <div class="dashboard-col">
+          <div id="system-overview-container"></div>
+        </div>
+        <div class="dashboard-col">
+          <div id="llm-overview-container"></div>
+        </div>
+      </div>
       <div class="card">
         <div class="card-title">📈 记忆增长趋势</div>
         <div class="chart-container">
           <div id="trend-bars" class="chart-bar-wrap"></div>
           <div id="trend-labels" class="chart-labels"></div>
         </div>
+      </div>
+      <div id="llm-recent-section" class="card" style="display:none">
+        <div class="card-title">🤖 LLM 最近调用</div>
+        <div id="llm-recent-container"></div>
       </div>
     </section>
 
@@ -305,14 +315,6 @@
       <div id="cooldown-container"></div>
     </section>
 
-    <!-- LLM -->
-    <section id="sec-llm" class="section">
-      <div class="section-header">
-        <h2>LLM 监控</h2>
-      </div>
-      <div id="llm-container"></div>
-    </section>
-
     <!-- Config -->
     <section id="sec-config" class="section">
       <div class="section-header">
@@ -325,14 +327,6 @@
         <input type="text" id="config-filter" placeholder="搜索配置项..." oninput="filterConfig()">
       </div>
       <div id="config-container"></div>
-    </section>
-
-    <!-- System -->
-    <section id="sec-system" class="section">
-      <div class="section-header">
-        <h2>系统监控</h2>
-      </div>
-      <div id="system-container"></div>
     </section>
   </main>
 </div>
