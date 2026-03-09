@@ -33,21 +33,43 @@ export async function searchPersonas() {
   }
 
   container.innerHTML = items.map(p => {
-    const traits = [];
+    const importantTraits = [];
     if (p.interests) {
       const entries = typeof p.interests === 'object' ? Object.keys(p.interests).slice(0, 3) : [];
-      traits.push(...entries);
+      importantTraits.push(...entries);
     }
-    if (p.work_style) traits.push(p.work_style);
-    if (p.lifestyle) traits.push(p.lifestyle);
+    if (p.work_style) importantTraits.push(p.work_style);
+    if (p.lifestyle) importantTraits.push(p.lifestyle);
+
+    const displayName = p.display_name || p.user_id;
+    const lastUpdated = fmtTime(p.last_updated);
 
     return `<div class="persona-card" onclick="window.__persona.showDetail('${esc(p.user_id)}')">
       <div class="persona-header">
-        <span class="persona-uid">${esc(p.user_id)}</span>
-        <span class="persona-meta">v${p.version ?? 1} | 更新 ${p.update_count ?? 0} 次</span>
+        <div class="persona-identity">
+          <span class="persona-name">${esc(displayName)}</span>
+          ${p.display_name ? `<span class="persona-uid-small">${esc(p.user_id)}</span>` : ''}
+        </div>
+        <div class="persona-time-badge">${esc(lastUpdated)}</div>
+      </div>
+      <div class="persona-stats-row">
+        <div class="persona-stat">
+          <span class="stat-icon">📊</span>
+          <span class="stat-value">${p.update_count ?? 0}</span>
+          <span class="stat-label">次更新</span>
+        </div>
+        <div class="persona-stat">
+          <span class="stat-icon">🎯</span>
+          <span class="stat-value">${p.all_interests_count ?? 0}</span>
+          <span class="stat-label">个兴趣</span>
+        </div>
+        <div class="persona-stat">
+          <span class="stat-icon">💭</span>
+          <span class="stat-value">${esc(p.emotional_baseline || 'neutral')}</span>
+        </div>
       </div>
       ${renderMiniPersonality(p.personality)}
-      <div class="persona-traits">${traits.map(t => `<span class="persona-trait">${esc(t)}</span>`).join('')}</div>
+      ${importantTraits.length ? `<div class="persona-traits">${importantTraits.slice(0, 4).map(t => `<span class="persona-trait">${esc(t)}</span>`).join('')}</div>` : ''}
     </div>`;
   }).join('');
 
@@ -73,15 +95,39 @@ export async function showDetail(userId) {
   if (!res || res.status !== 'ok') { toast.err('无法加载画像详情'); return; }
   const p = res.data;
 
+  const displayName = p.display_name || userId;
+  const lastUpdated = fmtTime(p.last_updated);
+
   const html = `
-    <h3>◉ ${esc(userId)} 的用户画像</h3>
-    ${renderPersonalitySection(p.personality)}
-    ${renderCommunicationSection(p.communication_style)}
-    ${renderInterestsSection(p.interests)}
-    ${renderRelationshipSection(p.relationship)}
-    ${renderWorkLifeSection(p)}
-    ${renderEmotionSection(p.emotion)}
-    ${renderMetaSection(p)}
+    <div class="detail-header">
+      <div class="detail-avatar">${esc(displayName.charAt(0).toUpperCase())}</div>
+      <div class="detail-info">
+        <h3>${esc(displayName)}</h3>
+        ${p.display_name ? `<div class="detail-user-id">${esc(userId)}</div>` : ''}
+        <div class="detail-meta">
+          <span>v${p.version ?? 3}</span>
+          <span>•</span>
+          <span>${p.update_count ?? 0} 次更新</span>
+          <span>•</span>
+          <span>${esc(lastUpdated)}</span>
+        </div>
+      </div>
+    </div>
+    
+    ${renderQuickStats(p)}
+    
+    <div class="detail-sections">
+      ${renderPersonalitySection(p.personality)}
+      ${renderCommunicationSection(p.communication_style)}
+      ${renderInterestsSection(p.interests)}
+      ${renderRelationshipSection(p)}
+      ${renderWorkLifeSection(p)}
+      ${renderEmotionSection(p)}
+      ${renderBehaviorSection(p)}
+      ${renderPreferencesSection(p)}
+      ${renderMetaSection(p)}
+    </div>
+    
     <div class="modal-actions">
       <button class="btn btn-outline" onclick="window.__persona.closeDetail()">关闭</button>
       <button class="btn btn-danger" onclick="window.__persona.deletePersona('${esc(userId)}')">删除画像</button>
@@ -101,101 +147,375 @@ export function deletePersona(uid) {
 
 // ── 渲染组件 ──
 
+function renderQuickStats(p) {
+  const stats = [
+    { icon: '🎯', label: '兴趣', value: p.interests ? Object.keys(p.interests).length : 0 },
+    { icon: '🤝', label: '信任', value: formatPercent(p.trust_level), isPercent: true },
+    { icon: '💕', label: '亲密', value: formatPercent(p.intimacy_level), isPercent: true },
+    { icon: '💭', label: '情绪', value: p.emotional_baseline || 'neutral' },
+  ];
+  return `<div class="quick-stats">${stats.map(s => `
+    <div class="quick-stat">
+      <span class="quick-stat-icon">${s.icon}</span>
+      <div class="quick-stat-content">
+        <span class="quick-stat-value">${s.isPercent ? s.value : esc(String(s.value))}</span>
+        <span class="quick-stat-label">${s.label}</span>
+      </div>
+    </div>
+  `).join('')}</div>`;
+}
+
 function renderMiniPersonality(p) {
   if (!p) return '';
   const bars = [
-    ['O', p.openness], ['C', p.conscientiousness], ['E', p.extraversion],
-    ['A', p.agreeableness], ['N', p.neuroticism],
+    ['O', p.openness, '开放性'], ['C', p.conscientiousness, '尽责性'], ['E', p.extraversion, '外向性'],
+    ['A', p.agreeableness, '宜人性'], ['N', p.neuroticism, '神经质'],
   ].filter(([, v]) => v != null);
   if (!bars.length) return '';
-  return `<div style="display:flex;gap:4px;margin:6px 0">${bars.map(([l, v]) =>
-    `<div style="flex:1;text-align:center"><div style="font-size:10px;color:var(--text2)">${l}</div>` +
-    `<div class="persona-bar"><div class="persona-bar-fill" style="width:${(v * 100).toFixed(0)}%;background:var(--accent)"></div></div></div>`
+  return `<div style="display:flex;gap:4px;margin:6px 0">${bars.map(([l, v, title]) =>
+    `<div style="flex:1;text-align:center" title="${title}">
+      <div style="font-size:10px;color:var(--text2)">${l}</div>
+      <div class="persona-bar"><div class="persona-bar-fill" style="width:${(v * 100).toFixed(0)}%;background:${getBarColor(v)}"></div></div>
+    </div>`
   ).join('')}</div>`;
 }
 
 function renderPersonalitySection(p) {
   if (!p) return '';
   const items = [
-    ['开放性', p.openness], ['尽责性', p.conscientiousness], ['外向性', p.extraversion],
-    ['宜人性', p.agreeableness], ['神经质', p.neuroticism],
+    ['开放性', p.openness, '好奇心、创造力、尝试新事物'],
+    ['尽责性', p.conscientiousness, '自律、组织性、可靠性'],
+    ['外向性', p.extraversion, '社交活跃度、精力来源'],
+    ['宜人性', p.agreeableness, '合作性、同理心、信任'],
+    ['神经质', p.neuroticism, '情绪稳定性、焦虑倾向'],
   ];
-  return `<div class="card"><div class="card-title">🧠 大五人格</div>${items.map(([label, val]) =>
-    val != null ? renderPersonalityBar(label, val) : ''
-  ).join('')}</div>`;
-}
-
-function renderPersonalityBar(label, value) {
-  const pct = (value * 100).toFixed(0);
-  const color = value > 0.7 ? 'var(--success)' : value < 0.3 ? 'var(--danger)' : 'var(--accent)';
-  return `<div style="margin-bottom:8px"><div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:2px">
-    <span>${esc(label)}</span><span style="color:var(--text2)">${pct}%</span></div>
-    <div class="persona-bar"><div class="persona-bar-fill" style="width:${pct}%;background:${color}"></div></div></div>`;
+  const validItems = items.filter(([, val]) => val != null);
+  if (!validItems.length) return '';
+  
+  return `<div class="detail-section">
+    <div class="section-title"><span class="section-icon">🧠</span>大五人格</div>
+    <div class="personality-grid">
+      ${validItems.map(([label, val, desc]) => `
+        <div class="personality-item">
+          <div class="personality-header">
+            <span class="personality-label">${esc(label)}</span>
+            <span class="personality-value">${formatPercent(val)}</span>
+          </div>
+          <div class="personality-bar-wrap">
+            <div class="personality-bar-bg">
+              <div class="personality-bar-fill" style="width:${(val * 100).toFixed(0)}%;background:${getBarColor(val)}"></div>
+            </div>
+          </div>
+          <div class="personality-desc">${esc(desc)}</div>
+        </div>
+      `).join('')}
+    </div>
+  </div>`;
 }
 
 function renderCommunicationSection(cs) {
   if (!cs) return '';
-  const items = [['正式度', cs.formality], ['直接性', cs.directness], ['幽默感', cs.humor], ['同理心', cs.empathy]];
-  return `<div class="card"><div class="card-title">💬 沟通风格</div>${items.map(([l, v]) =>
-    v != null ? renderPersonalityBar(l, v) : ''
-  ).join('')}</div>`;
+  const items = [
+    ['正式度', cs.formality, '非正式 ←→ 正式'],
+    ['直接性', cs.directness, '委婉 ←→ 直接'],
+    ['幽默感', cs.humor, '严肃 ←→ 幽默'],
+    ['同理心', cs.empathy, '理性 ←→ 感性'],
+  ];
+  const validItems = items.filter(([, v]) => v != null);
+  if (!validItems.length) return '';
+  
+  return `<div class="detail-section">
+    <div class="section-title"><span class="section-icon">💬</span>沟通风格</div>
+    <div class="comm-grid">
+      ${validItems.map(([label, val, scale]) => `
+        <div class="comm-item">
+          <div class="comm-header">
+            <span class="comm-label">${esc(label)}</span>
+            <span class="comm-value">${formatPercent(val)}</span>
+          </div>
+          <div class="comm-bar-wrap">
+            <div class="comm-bar-bg">
+              <div class="comm-bar-fill" style="width:${(val * 100).toFixed(0)}%;background:${getBarColor(val)}"></div>
+            </div>
+          </div>
+          <div class="comm-scale">${esc(scale)}</div>
+        </div>
+      `).join('')}
+    </div>
+  </div>`;
 }
 
 function renderInterestsSection(interests) {
   if (!interests || !Object.keys(interests).length) return '';
-  return `<div class="card"><div class="card-title">🎯 兴趣</div>
-    <div style="display:flex;flex-wrap:wrap;gap:6px">${Object.entries(interests).map(([k, v]) =>
-      `<span class="badge" style="padding:4px 10px">${esc(k)}${v ? ` (${esc(v)})` : ''}</span>`
-    ).join('')}</div></div>`;
+  const sorted = Object.entries(interests).sort((a, b) => b[1] - a[1]);
+  
+  return `<div class="detail-section">
+    <div class="section-title"><span class="section-icon">🎯</span>兴趣爱好</div>
+    <div class="interests-grid">
+      ${sorted.map(([name, weight]) => `
+        <div class="interest-item">
+          <div class="interest-content">
+            <span class="interest-name">${esc(name)}</span>
+            <span class="interest-weight">${formatPercent(weight)}</span>
+          </div>
+          <div class="interest-bar">
+            <div class="interest-bar-fill" style="width:${(weight * 100).toFixed(0)}%;background:${getBarColor(weight)}"></div>
+          </div>
+        </div>
+      `).join('')}
+    </div>
+  </div>`;
 }
 
-function renderRelationshipSection(r) {
-  if (!r) return '';
+function renderRelationshipSection(p) {
   const items = [];
-  if (r.trust != null) items.push(['信任度', r.trust]);
-  if (r.intimacy != null) items.push(['亲密度', r.intimacy]);
-  if (r.social_style) items.push(['社交风格', null, r.social_style]);
-  if (r.emotional_baseline) items.push(['情绪基线', null, r.emotional_baseline]);
-  if (!items.length) return '';
-  return `<div class="card"><div class="card-title">🤝 关系</div>${items.map(([l, v, txt]) =>
-    v != null ? renderPersonalityBar(l, v) : `<div style="margin-bottom:6px"><span style="font-size:12px;color:var(--text2)">${esc(l)}: </span>${esc(txt)}</div>`
-  ).join('')}</div>`;
+  if (p.trust_level != null) items.push(['信任度', p.trust_level]);
+  if (p.intimacy_level != null) items.push(['亲密度', p.intimacy_level]);
+  
+  const textItems = [];
+  if (p.social_style) textItems.push(['社交风格', p.social_style]);
+  
+  if (!items.length && !textItems.length) return '';
+  
+  return `<div class="detail-section">
+    <div class="section-title"><span class="section-icon">🤝</span>关系维度</div>
+    ${items.length ? `
+      <div class="relationship-grid">
+        ${items.map(([label, val]) => `
+          <div class="relationship-item">
+            <div class="relationship-header">
+              <span class="relationship-label">${esc(label)}</span>
+              <span class="relationship-value">${formatPercent(val)}</span>
+            </div>
+            <div class="relationship-bar">
+              <div class="relationship-bar-fill" style="width:${(val * 100).toFixed(0)}%;background:${getBarColor(val)}"></div>
+            </div>
+          </div>
+        `).join('')}
+      </div>
+    ` : ''}
+    ${textItems.length ? `
+      <div class="text-items">
+        ${textItems.map(([label, val]) => `
+          <div class="text-item">
+            <span class="text-label">${esc(label)}</span>
+            <span class="text-value">${esc(val)}</span>
+          </div>
+        `).join('')}
+      </div>
+    ` : ''}
+  </div>`;
 }
 
 function renderWorkLifeSection(p) {
-  const items = [];
-  if (p.work_style) items.push(`<div><strong>工作风格: </strong>${esc(p.work_style)}</div>`);
-  if (p.lifestyle) items.push(`<div><strong>生活方式: </strong>${esc(p.lifestyle)}</div>`);
-  if (p.goals?.length) items.push(`<div><strong>目标: </strong>${p.goals.map(g => esc(g)).join(', ')}</div>`);
-  if (p.habits?.length) items.push(`<div><strong>习惯: </strong>${p.habits.map(h => esc(h)).join(', ')}</div>`);
-  if (!items.length) return '';
-  return `<div class="card"><div class="card-title">🏠 工作与生活</div>${items.join('')}</div>`;
+  const sections = [];
+  
+  if (p.work_style) {
+    sections.push(`<div class="wl-item"><span class="wl-icon">💼</span><div class="wl-content"><span class="wl-label">工作风格</span><span class="wl-value">${esc(p.work_style)}</span></div></div>`);
+  }
+  if (p.lifestyle) {
+    sections.push(`<div class="wl-item"><span class="wl-icon">🏠</span><div class="wl-content"><span class="wl-label">生活方式</span><span class="wl-value">${esc(p.lifestyle)}</span></div></div>`);
+  }
+  if (p.work_goals?.length) {
+    sections.push(`<div class="wl-item"><span class="wl-icon">🎯</span><div class="wl-content"><span class="wl-label">工作目标</span><div class="wl-tags">${p.work_goals.map(g => `<span class="wl-tag">${esc(g)}</span>`).join('')}</div></div></div>`);
+  }
+  if (p.work_challenges?.length) {
+    sections.push(`<div class="wl-item"><span class="wl-icon">⚡</span><div class="wl-content"><span class="wl-label">工作挑战</span><div class="wl-tags">${p.work_challenges.map(c => `<span class="wl-tag wl-tag-warning">${esc(c)}</span>`).join('')}</div></div></div>`);
+  }
+  if (p.habits?.length) {
+    sections.push(`<div class="wl-item"><span class="wl-icon">🔄</span><div class="wl-content"><span class="wl-label">生活习惯</span><div class="wl-tags">${p.habits.map(h => `<span class="wl-tag">${esc(h)}</span>`).join('')}</div></div></div>`);
+  }
+  
+  if (!sections.length) return '';
+  
+  return `<div class="detail-section">
+    <div class="section-title"><span class="section-icon">🏠</span>工作与生活</div>
+    <div class="work-life-grid">${sections.join('')}</div>
+  </div>`;
 }
 
-function renderEmotionSection(emotion) {
-  if (!emotion) return '';
-  return `<div class="emotion-card">
-    <div class="card-title">🎭 情绪状态</div>
-    <div class="emotion-primary">${esc(emotion.primary_emotion || '-')}</div>
-    <div style="font-size:13px;color:var(--text2)">强度: ${emotion.intensity != null ? (emotion.intensity * 100).toFixed(0) + '%' : '-'}</div>
-    <div class="emotion-intensity"><div class="emotion-intensity-fill" style="width:${(emotion.intensity || 0) * 100}%;background:var(--accent)"></div></div>
-    ${emotion.trajectory ? `<div style="font-size:12px;color:var(--text2)">趋势: ${esc(emotion.trajectory)}</div>` : ''}
-    ${emotion.volatility != null ? `<div style="font-size:12px;color:var(--text2)">波动性: ${(emotion.volatility * 100).toFixed(0)}%</div>` : ''}
+function renderEmotionSection(p) {
+  const emotion = {
+    baseline: p.emotional_baseline,
+    volatility: p.emotional_volatility,
+    trajectory: p.emotional_trajectory,
+    triggers: p.emotional_triggers,
+    soothers: p.emotional_soothers,
+  };
+  
+  if (!emotion.baseline && !emotion.volatility) return '';
+  
+  const emotionEmoji = getEmotionEmoji(emotion.baseline);
+  
+  return `<div class="detail-section">
+    <div class="section-title"><span class="section-icon">🎭</span>情感状态</div>
+    <div class="emotion-display">
+      <div class="emotion-main">
+        <div class="emotion-icon">${emotionEmoji}</div>
+        <div class="emotion-info">
+          <div class="emotion-label">当前情绪</div>
+          <div class="emotion-value">${esc(emotion.baseline || 'neutral')}</div>
+        </div>
+      </div>
+      ${emotion.volatility != null ? `
+        <div class="emotion-stat">
+          <span class="emotion-stat-label">波动性</span>
+          <div class="emotion-stat-bar">
+            <div class="emotion-stat-fill" style="width:${(emotion.volatility * 100).toFixed(0)}%;background:${getVolatilityColor(emotion.volatility)}"></div>
+          </div>
+          <span class="emotion-stat-value">${formatPercent(emotion.volatility)}</span>
+        </div>
+      ` : ''}
+      ${emotion.trajectory ? `
+        <div class="emotion-trajectory">
+          <span class="trajectory-label">趋势</span>
+          <span class="trajectory-value">${getTrajectoryIcon(emotion.trajectory)} ${esc(emotion.trajectory)}</span>
+        </div>
+      ` : ''}
+      ${emotion.triggers?.length ? `
+        <div class="emotion-triggers">
+          <span class="triggers-label">情感触发点</span>
+          <div class="triggers-list">${emotion.triggers.slice(0, 5).map(t => `<span class="trigger-tag">${esc(t)}</span>`).join('')}</div>
+        </div>
+      ` : ''}
+    </div>
+  </div>`;
+}
+
+function renderBehaviorSection(p) {
+  const hasHourly = p.hourly_distribution && p.hourly_distribution.some(v => v > 0);
+  if (!hasHourly) return '';
+  
+  const maxVal = Math.max(...p.hourly_distribution);
+  const hours = p.hourly_distribution.map((v, i) => ({
+    hour: i,
+    value: v,
+    height: maxVal > 0 ? (v / maxVal * 100) : 0
+  }));
+  
+  return `<div class="detail-section">
+    <div class="section-title"><span class="section-icon">📊</span>活跃时段</div>
+    <div class="activity-chart">
+      <div class="chart-bars">
+        ${hours.map(h => `
+          <div class="chart-bar-col" title="${h.hour}:00 - ${h.value.toFixed(2)}">
+            <div class="chart-bar-fill" style="height:${h.height}%"></div>
+          </div>
+        `).join('')}
+      </div>
+      <div class="chart-labels">
+        ${[0, 6, 12, 18, 23].map(i => `<span>${i}:00</span>`).join('')}
+      </div>
+    </div>
+  </div>`;
+}
+
+function renderPreferencesSection(p) {
+  const items = [];
+  
+  if (p.proactive_reply_preference != null) {
+    items.push(`<div class="pref-item">
+      <span class="pref-label">主动回复偏好</span>
+      <div class="pref-bar">
+        <div class="pref-bar-fill" style="width:${(p.proactive_reply_preference * 100).toFixed(0)}%"></div>
+      </div>
+      <span class="pref-value">${formatPercent(p.proactive_reply_preference)}</span>
+    </div>`);
+  }
+  
+  if (p.preferred_reply_style) {
+    items.push(`<div class="pref-item">
+      <span class="pref-label">回复风格偏好</span>
+      <span class="pref-tag">${esc(p.preferred_reply_style)}</span>
+    </div>`);
+  }
+  
+  if (p.topic_blacklist?.length) {
+    items.push(`<div class="pref-item">
+      <span class="pref-label">话题黑名单</span>
+      <div class="pref-tags">${p.topic_blacklist.map(t => `<span class="pref-tag-black">${esc(t)}</span>`).join('')}</div>
+    </div>`);
+  }
+  
+  if (!items.length) return '';
+  
+  return `<div class="detail-section">
+    <div class="section-title"><span class="section-icon">⚙️</span>交互偏好</div>
+    <div class="preferences-grid">${items.join('')}</div>
   </div>`;
 }
 
 function renderMetaSection(p) {
-  return `<div class="card"><div class="card-title">📋 元数据</div>
-    <div class="detail-grid">
-      <div class="detail-item"><div class="detail-label">版本</div><div class="detail-value">${p.version ?? '-'}</div></div>
-      <div class="detail-item"><div class="detail-label">更新次数</div><div class="detail-value">${p.update_count ?? '-'}</div></div>
-      <div class="detail-item"><div class="detail-label">最后更新</div><div class="detail-value">${esc(fmtTime(p.last_updated))}</div></div>
-      <div class="detail-item"><div class="detail-label">主动回复偏好</div><div class="detail-value">${p.proactive_preference ?? '-'}</div></div>
-    </div></div>`;
+  return `<div class="detail-section meta-section">
+    <div class="section-title"><span class="section-icon">📋</span>元数据</div>
+    <div class="meta-grid">
+      <div class="meta-item">
+        <span class="meta-label">版本</span>
+        <span class="meta-value">v${p.version ?? 3}</span>
+      </div>
+      <div class="meta-item">
+        <span class="meta-label">更新次数</span>
+        <span class="meta-value">${p.update_count ?? 0}</span>
+      </div>
+      <div class="meta-item">
+        <span class="meta-label">最后更新</span>
+        <span class="meta-value">${esc(fmtTime(p.last_updated))}</span>
+      </div>
+      <div class="meta-item">
+        <span class="meta-label">变更记录</span>
+        <span class="meta-value">${p.change_log?.length ?? 0} 条</span>
+      </div>
+    </div>
+  </div>`;
 }
 
 // ── 辅助 ──
 function el(id) { return document.getElementById(id); }
 function val(id) { return (el(id)?.value ?? '').trim(); }
+
+function formatPercent(v) {
+  if (v == null) return '-';
+  return `${(v * 100).toFixed(0)}%`;
+}
+
+function getBarColor(v) {
+  if (v >= 0.7) return 'var(--success)';
+  if (v >= 0.4) return 'var(--accent)';
+  return 'var(--warning)';
+}
+
+function getVolatilityColor(v) {
+  if (v >= 0.7) return 'var(--danger)';
+  if (v >= 0.4) return 'var(--warning)';
+  return 'var(--success)';
+}
+
+function getEmotionEmoji(emotion) {
+  const map = {
+    joy: '😊', happy: '😊', excitement: '🎉',
+    sadness: '😢', sad: '😢',
+    anger: '😠', angry: '😠',
+    fear: '😨', anxiety: '😰',
+    surprise: '😲',
+    disgust: '🤢',
+    neutral: '😐', calm: '😌',
+    love: '🥰', affection: '💕',
+    gratitude: '🙏', thanks: '🙏',
+    curiosity: '🤔',
+    frustration: '😤',
+    hope: '🌟',
+  };
+  return map[emotion?.toLowerCase()] || '😐';
+}
+
+function getTrajectoryIcon(trajectory) {
+  const map = {
+    improving: '📈', rising: '📈',
+    declining: '📉', falling: '📉',
+    stable: '➡️', steady: '➡️',
+    fluctuating: '〰️', volatile: '〰️',
+  };
+  return map[trajectory?.toLowerCase()] || '➡️';
+}
 
 window.__persona = { showDetail, closeDetail, deletePersona };

@@ -45,6 +45,7 @@ class PersonaRepository:
         return {
             "user_id": uid,
             "display_name": getattr(persona, "display_name", None),
+            "version": getattr(persona, "version", 3),
             "update_count": getattr(persona, "update_count", 0),
             "last_updated": (
                 persona.last_updated.isoformat()
@@ -56,18 +57,29 @@ class PersonaRepository:
             "trust_level": getattr(persona, "trust_level", 0.5),
             "intimacy_level": getattr(persona, "intimacy_level", 0.5),
             "emotional_baseline": emotional_baseline,
+            "emotional_volatility": getattr(persona, "emotional_volatility", 0.5),
             "current_emotion": current_emotion,
             "work_style": getattr(persona, "work_style", None),
             "lifestyle": getattr(persona, "lifestyle", None),
             "work_goals": list(getattr(persona, "work_goals", [])[:3]),
+            "work_challenges": list(getattr(persona, "work_challenges", [])[:3]),
             "habits": list(getattr(persona, "habits", [])[:3]),
+            "social_style": getattr(persona, "social_style", None),
             "preferred_reply_style": getattr(persona, "preferred_reply_style", None),
             "proactive_reply_preference": getattr(persona, "proactive_reply_preference", 0.5),
-            "personality_openness": getattr(persona, "personality_openness", 0.5),
-            "personality_conscientiousness": getattr(persona, "personality_conscientiousness", 0.5),
-            "personality_extraversion": getattr(persona, "personality_extraversion", 0.5),
-            "personality_agreeableness": getattr(persona, "personality_agreeableness", 0.5),
-            "personality_neuroticism": getattr(persona, "personality_neuroticism", 0.5),
+            "personality": {
+                "openness": getattr(persona, "personality_openness", 0.5),
+                "conscientiousness": getattr(persona, "personality_conscientiousness", 0.5),
+                "extraversion": getattr(persona, "personality_extraversion", 0.5),
+                "agreeableness": getattr(persona, "personality_agreeableness", 0.5),
+                "neuroticism": getattr(persona, "personality_neuroticism", 0.5),
+            },
+            "communication_style": {
+                "formality": getattr(persona, "communication_formality", 0.5),
+                "directness": getattr(persona, "communication_directness", 0.5),
+                "humor": getattr(persona, "communication_humor", 0.5),
+                "empathy": getattr(persona, "communication_empathy", 0.5),
+            },
         }
 
     async def list_all(self, page: int = 1, page_size: int = 20) -> Dict[str, Any]:

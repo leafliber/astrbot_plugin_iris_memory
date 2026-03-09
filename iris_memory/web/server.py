@@ -150,8 +150,9 @@ class StandaloneWebServer:
 
             config = HyperConfig()
             config.bind = [f"{self._host}:{self._port}"]
-            config.accesslog = None  # 禁用 access log 避免输出过多
+            config.accesslog = None
             config.errorlog = "-"
+            config.graceful_timeout = 3
 
             logger.info(f"Web UI 启动于 http://{self._host}:{self._port}")
 
@@ -170,9 +171,16 @@ class StandaloneWebServer:
             self._shutdown_event.set()
         if self._task:
             try:
-                await asyncio.wait_for(self._task, timeout=5.0)
-            except (asyncio.TimeoutError, asyncio.CancelledError):
+                await asyncio.wait_for(self._task, timeout=3.0)
+            except asyncio.TimeoutError:
+                logger.warning("Web 服务器关闭超时，强制取消")
                 self._task.cancel()
+                try:
+                    await self._task
+                except asyncio.CancelledError:
+                    pass
+            except asyncio.CancelledError:
+                pass
             except Exception as e:
                 logger.warning(f"Web 服务器停止异常: {e}")
             self._task = None
