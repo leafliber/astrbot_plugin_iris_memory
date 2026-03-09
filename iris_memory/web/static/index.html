@@ -1,81 +1,69 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Iris Memory Dashboard</title>
-<link rel="stylesheet" href="/static/css/styles.css">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Iris Memory</title>
+  <link rel="stylesheet" href="/static/css/styles.css">
 </head>
 <body>
 <div class="app">
-  <!-- Sidebar -->
-  <div class="sidebar">
-    <h1>✦ Iris Memory<span>管理面板</span></h1>
-    <div class="nav-item active" data-section="dashboard" onclick="showSection('dashboard',this)">
-      <span class="icon">⬡</span><span>统计面板</span>
-    </div>
-    <div class="nav-item" data-section="memories" onclick="showSection('memories',this)">
-      <span class="icon">◈</span><span>记忆管理</span>
-    </div>
-    <div class="nav-item" data-section="kg" onclick="showSection('kg',this)">
-      <span class="icon">⬢</span><span>知识图谱</span>
-    </div>
-    <div class="nav-item" data-section="personas" onclick="showSection('personas',this)">
-      <span class="icon">◉</span><span>用户画像</span>
-    </div>
-    <div class="nav-item" data-section="proactive" onclick="showSection('proactive',this)">
-      <span class="icon">💬</span><span>主动回复</span>
-    </div>
-    <div class="nav-item" data-section="io" onclick="showSection('io',this)">
-      <span class="icon">⇄</span><span>导入导出</span>
-    </div>
-  </div>
-
-  <!-- Main Content -->
-  <div class="main">
-
-    <!-- ======== Dashboard Section ======== -->
-    <div id="sec-dashboard" class="section active">
+  <aside class="sidebar">
+    <h1>Iris Memory<span>三层记忆系统</span></h1>
+    <nav>
+      <div class="nav-item active" data-section="dashboard"><span class="icon">📊</span><span>仪表盘</span></div>
+      <div class="nav-item" data-section="memories"><span class="icon">🧠</span><span>记忆管理</span></div>
+      <div class="nav-item" data-section="kg"><span class="icon">🔗</span><span>知识图谱</span></div>
+      <div class="nav-item" data-section="personas"><span class="icon">👤</span><span>用户画像</span></div>
+      <div class="nav-item" data-section="proactive"><span class="icon">💬</span><span>主动回复</span></div>
+      <div class="nav-item" data-section="io"><span class="icon">📦</span><span>导入导出</span></div>
+      <div class="nav-item" data-section="cooldown"><span class="icon">❄️</span><span>冷却管理</span></div>
+      <div class="nav-item" data-section="llm"><span class="icon">🤖</span><span>LLM监控</span></div>
+      <div class="nav-item" data-section="config"><span class="icon">⚙️</span><span>配置管理</span></div>
+      <div class="nav-item" data-section="system"><span class="icon">🖥️</span><span>系统监控</span></div>
+    </nav>
+  </aside>
+  <main class="main">
+    <!-- Dashboard -->
+    <section id="sec-dashboard" class="section active">
       <div class="section-header">
-        <h2>⬡ 统计面板</h2>
+        <h2>仪表盘</h2>
         <div class="spacer"></div>
-        <button class="btn-icon" onclick="loadDashboard()" title="刷新">↻</button>
+        <select id="trend-days" onchange="loadTrend()">
+          <option value="7">近7天</option>
+          <option value="14">近14天</option>
+          <option value="30" selected>近30天</option>
+          <option value="90">近90天</option>
+        </select>
       </div>
-      <div class="stats-grid" id="stats-grid">
-        <div class="stat-card"><div class="spinner"></div></div>
-      </div>
+      <div id="stats-grid" class="stats-grid"></div>
+      <div id="type-distribution" class="stats-grid" style="margin-bottom:20px"></div>
       <div class="card">
-        <div class="card-title">记忆类型分布</div>
-        <div id="type-distribution" style="display:flex;gap:12px;flex-wrap:wrap;"></div>
-      </div>
-      <div class="card">
-        <div class="card-title">
-          记忆创建趋势
-          <select id="trend-days" onchange="loadTrend()" style="margin-left:auto;width:auto;">
-            <option value="7">近 7 天</option>
-            <option value="14">近 14 天</option>
-            <option value="30" selected>近 30 天</option>
-            <option value="90">近 90 天</option>
-          </select>
-        </div>
+        <div class="card-title">📈 记忆增长趋势</div>
         <div class="chart-container">
-          <div class="chart-bar-wrap" id="trend-bars"></div>
-          <div class="chart-labels" id="trend-labels"></div>
+          <div id="trend-bars" class="chart-bar-wrap"></div>
+          <div id="trend-labels" class="chart-labels"></div>
         </div>
       </div>
-    </div>
+    </section>
 
-    <!-- ======== Memories Section ======== -->
-    <div id="sec-memories" class="section">
+    <!-- Memories -->
+    <section id="sec-memories" class="section">
       <div class="section-header">
-        <h2>◈ 记忆管理</h2>
+        <h2>记忆管理</h2>
         <div class="spacer"></div>
-        <button class="btn-icon" onclick="searchMemories()" title="刷新">↻</button>
+        <span id="mem-total-info" class="page-info"></span>
+        <select id="mem-page-size" class="page-size-select">
+          <option value="10">10条/页</option>
+          <option value="20" selected>20条/页</option>
+          <option value="50">50条/页</option>
+          <option value="100">100条/页</option>
+        </select>
       </div>
       <div class="filter-bar">
-        <input type="text" id="mem-query" placeholder="搜索记忆内容..." onkeydown="if(event.key==='Enter')searchMemories()">
-        <input type="text" id="mem-user" placeholder="用户 ID">
-        <input type="text" id="mem-group" placeholder="群组 ID">
+        <input type="text" id="mem-query" placeholder="搜索内容...">
+        <input type="text" id="mem-user" placeholder="用户ID">
+        <input type="text" id="mem-group" placeholder="群组ID">
         <select id="mem-layer">
           <option value="">全部层级</option>
           <option value="working">工作记忆</option>
@@ -93,85 +81,59 @@
         <button class="btn btn-primary" onclick="searchMemories()">搜索</button>
         <button class="btn btn-outline" onclick="resetMemoryFilters()">重置</button>
       </div>
-      <div style="margin-bottom:10px;display:flex;gap:10px;align-items:center;">
-        <button class="btn btn-danger btn-sm" id="batch-del-btn" onclick="batchDeleteMemories()" disabled>
-          批量删除 (<span id="selected-count">0</span>)
-        </button>
-        <button class="btn btn-outline btn-sm" id="batch-export-btn" onclick="exportSelectedMemories()" disabled>
-          导出选中
-        </button>
-        <span class="page-info" id="mem-total-info"></span>
-        <div class="spacer" style="flex:1;"></div>
-        <label style="font-size:12px;color:var(--text2);">每页</label>
-        <select class="page-size-select" id="mem-page-size" onchange="memState.pageSize=+this.value;memState.page=1;searchMemories();">
-          <option value="10">10</option>
-          <option value="20" selected>20</option>
-          <option value="50">50</option>
-          <option value="100">100</option>
-        </select>
+      <div class="filter-bar" style="margin-top:0">
+        <label><input type="checkbox" id="select-all" onchange="toggleSelectAll()"> 全选</label>
+        <span id="selected-count" style="font-size:13px;color:var(--text2)">0</span>
+        <button id="batch-del-btn" class="btn btn-danger btn-sm" onclick="batchDeleteMemories()" disabled>批量删除</button>
       </div>
-      <div class="table-wrap" style="position:relative;">
-        <div id="mem-loading" class="loading-overlay" style="display:none;"><div class="spinner"></div></div>
-        <table>
-          <thead>
-            <tr>
-              <th class="checkbox-col"><input type="checkbox" id="select-all" onchange="toggleSelectAll()"></th>
-              <th>内容</th>
-              <th>用户</th>
-              <th>类型</th>
-              <th>层级</th>
-              <th>置信度</th>
-              <th>创建时间</th>
-              <th>操作</th>
-            </tr>
-          </thead>
-          <tbody id="mem-tbody"></tbody>
-        </table>
+      <div id="mem-loading" class="loading" style="display:none"><div class="spinner"></div></div>
+      <div class="card" style="padding:0">
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th class="checkbox-col"></th><th>内容</th><th>用户</th><th>类型</th><th>层级</th><th>置信度</th><th>时间</th><th>操作</th></tr></thead>
+            <tbody id="mem-tbody"></tbody>
+          </table>
+        </div>
       </div>
-      <div class="pagination" id="mem-pagination"></div>
-    </div>
+      <div id="mem-pagination" class="pagination"></div>
+    </section>
 
-    <!-- ======== Knowledge Graph Section ======== -->
-    <div id="sec-kg" class="section">
+    <!-- Knowledge Graph -->
+    <section id="sec-kg" class="section">
       <div class="section-header">
-        <h2>⬢ 知识图谱</h2>
-        <div class="spacer"></div>
-        <button class="btn-icon" onclick="refreshKgTab()" title="刷新">↻</button>
+        <h2>知识图谱</h2>
       </div>
       <div class="tabs">
-        <div class="tab active" onclick="switchKgTab('graph')">图谱可视化</div>
-        <div class="tab" onclick="switchKgTab('nodes')">节点管理</div>
-        <div class="tab" onclick="switchKgTab('edges')">边管理</div>
+        <div class="tab active" onclick="switchKgTab('graph')">图谱视图</div>
+        <div class="tab" onclick="switchKgTab('nodes')">节点列表</div>
+        <div class="tab" onclick="switchKgTab('edges')">边列表</div>
+        <div class="spacer"></div>
+        <button class="btn btn-outline btn-sm" onclick="refreshKgTab()">刷新</button>
       </div>
-
       <!-- Graph Tab -->
       <div id="kg-tab-graph">
         <div class="filter-bar">
-          <input type="text" id="kg-user" placeholder="用户 ID">
-          <input type="text" id="kg-center" placeholder="中心节点 ID（可选）">
+          <input type="text" id="kg-user" placeholder="用户ID (可选)">
+          <input type="text" id="kg-center" placeholder="中心节点ID (可选)">
           <select id="kg-depth">
-            <option value="1">深度 1</option>
-            <option value="2" selected>深度 2</option>
-            <option value="3">深度 3</option>
+            <option value="1">深度1</option>
+            <option value="2" selected>深度2</option>
+            <option value="3">深度3</option>
           </select>
-          <button class="btn btn-primary" onclick="loadKgGraph()">查询图谱</button>
+          <button class="btn btn-primary" onclick="loadKgGraph()">加载图谱</button>
         </div>
-        <div class="card" style="padding:0;overflow:hidden;position:relative;">
-          <div id="kg-graph-loading" class="loading-overlay" style="display:none;"><div class="spinner"></div></div>
+        <div class="card" style="position:relative;padding:0">
           <canvas id="kg-canvas"></canvas>
-          <div id="node-popup" class="node-popup" style="display:none;"></div>
+          <div id="node-popup" class="node-popup" style="display:none"></div>
+          <div id="kg-graph-loading" class="loading-overlay" style="display:none"><div class="spinner"></div></div>
         </div>
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;">
-          <span id="kg-graph-info" style="color:var(--text2);font-size:13px;"></span>
-          <span style="font-size:12px;color:var(--text2);">滚轮缩放 | 拖拽平移 | 点击节点查看详情</span>
-        </div>
+        <div style="font-size:13px;color:var(--text2);margin-top:8px" id="kg-graph-info"></div>
       </div>
-
       <!-- Nodes Tab -->
-      <div id="kg-tab-nodes" style="display:none;">
+      <div id="kg-tab-nodes" style="display:none">
         <div class="filter-bar">
-          <input type="text" id="kg-node-query" placeholder="搜索节点名称..." onkeydown="if(event.key==='Enter')searchKgNodes()">
-          <input type="text" id="kg-node-user" placeholder="用户 ID">
+          <input type="text" id="kg-node-query" placeholder="搜索节点...">
+          <input type="text" id="kg-node-user" placeholder="用户ID">
           <select id="kg-node-type">
             <option value="">全部类型</option>
             <option value="person">人物</option>
@@ -183,148 +145,105 @@
           </select>
           <button class="btn btn-primary" onclick="searchKgNodes()">搜索</button>
         </div>
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>名称</th>
-                <th>类型</th>
-                <th>用户</th>
-                <th>提及次数</th>
-                <th>置信度</th>
-                <th>创建时间</th>
-                <th>操作</th>
-              </tr>
-            </thead>
-            <tbody id="kg-nodes-tbody"></tbody>
-          </table>
+        <div class="card" style="padding:0">
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>名称</th><th>类型</th><th>用户</th><th>提及次数</th><th>置信度</th><th>创建时间</th><th>操作</th></tr></thead>
+              <tbody id="kg-nodes-tbody"></tbody>
+            </table>
+          </div>
         </div>
       </div>
-
       <!-- Edges Tab -->
-      <div id="kg-tab-edges" style="display:none;">
+      <div id="kg-tab-edges" style="display:none">
         <div class="filter-bar">
-          <input type="text" id="kg-edge-user" placeholder="用户 ID">
-          <input type="text" id="kg-edge-node" placeholder="关联节点 ID">
+          <input type="text" id="kg-edge-user" placeholder="用户ID">
+          <input type="text" id="kg-edge-node" placeholder="节点ID">
           <select id="kg-edge-relation">
-            <option value="">全部关系类型</option>
+            <option value="">全部关系</option>
             <option value="friend_of">朋友</option>
             <option value="colleague_of">同事</option>
             <option value="family_of">家人</option>
-            <option value="boss_of">上级</option>
-            <option value="subordinate_of">下属</option>
             <option value="knows">认识</option>
-            <option value="lives_in">居住于</option>
-            <option value="works_at">工作于</option>
-            <option value="studies_at">就读于</option>
-            <option value="belongs_to">属于</option>
-            <option value="owns">拥有</option>
             <option value="likes">喜欢</option>
-            <option value="dislikes">不喜欢</option>
-            <option value="does">做</option>
-            <option value="is">是</option>
-            <option value="has">有</option>
-            <option value="wants">想要</option>
-            <option value="participated_in">参与</option>
-            <option value="happened_at">发生于</option>
-            <option value="caused_by">由...引起</option>
-            <option value="related_to">相关</option>
+            <option value="works_at">工作于</option>
+            <option value="lives_in">居住于</option>
           </select>
           <button class="btn btn-primary" onclick="searchKgEdges()">搜索</button>
         </div>
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>源节点</th>
-                <th>关系</th>
-                <th>目标节点</th>
-                <th>置信度</th>
-                <th>权重</th>
-                <th>用户</th>
-                <th>创建时间</th>
-                <th>操作</th>
-              </tr>
-            </thead>
-            <tbody id="kg-edges-tbody"></tbody>
-          </table>
+        <div class="card" style="padding:0">
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>源节点</th><th>关系</th><th>目标节点</th><th>置信度</th><th>权重</th><th>用户</th><th>时间</th><th>操作</th></tr></thead>
+              <tbody id="kg-edges-tbody"></tbody>
+            </table>
+          </div>
         </div>
       </div>
-    </div>
+    </section>
 
-    <!-- ======== Personas Section ======== -->
-    <div id="sec-personas" class="section">
+    <!-- Personas -->
+    <section id="sec-personas" class="section">
       <div class="section-header">
-        <h2>◉ 用户画像</h2>
+        <h2>用户画像</h2>
         <div class="spacer"></div>
-        <button class="btn-icon" onclick="loadPersonas()" title="刷新">↻</button>
+        <span id="persona-total-info" class="page-info"></span>
+        <select id="persona-page-size" class="page-size-select">
+          <option value="12" selected>12条/页</option>
+          <option value="24">24条/页</option>
+          <option value="48">48条/页</option>
+        </select>
       </div>
       <div class="filter-bar">
-        <input type="text" id="persona-query" placeholder="搜索用户ID、兴趣、工作风格、生活方式..." onkeydown="if(event.key==='Enter')searchPersonas()">
+        <input type="text" id="persona-query" placeholder="搜索用户ID..." style="max-width:300px">
         <button class="btn btn-primary" onclick="searchPersonas()">搜索</button>
         <button class="btn btn-outline" onclick="resetPersonaFilters()">重置</button>
       </div>
-      <div style="margin-bottom:10px;display:flex;gap:10px;align-items:center;">
-        <span class="page-info" id="persona-total-info"></span>
-        <div class="spacer" style="flex:1;"></div>
-        <label style="font-size:12px;color:var(--text2);">每页</label>
-        <select class="page-size-select" id="persona-page-size" onchange="personaState.pageSize=+this.value;personaState.page=1;searchPersonas();">
-          <option value="8">8</option>
-          <option value="12" selected>12</option>
-          <option value="20">20</option>
-          <option value="40">40</option>
-        </select>
-      </div>
-      <div id="personas-container" class="persona-grid">
-        <div class="loading"><div class="spinner"></div></div>
-      </div>
-      <div class="pagination" id="persona-pagination"></div>
-    </div>
+      <div id="personas-container" class="persona-grid"></div>
+      <div id="persona-pagination" class="pagination"></div>
+    </section>
 
-    <!-- ======== Proactive Reply Section ======== -->
-    <div id="sec-proactive" class="section">
+    <!-- Proactive -->
+    <section id="sec-proactive" class="section">
       <div class="section-header">
-        <h2>💬 主动回复</h2>
+        <h2>主动回复</h2>
         <div class="spacer"></div>
-        <button class="btn-icon" onclick="refreshProactiveTab()" title="刷新">↻</button>
+        <button class="btn btn-outline btn-sm" onclick="refreshProactiveTab()">刷新</button>
       </div>
-      <div id="proactive-status-container">
-        <div class="loading"><div class="spinner"></div></div>
+      <div id="proactive-status-container"></div>
+      <div class="card">
+        <div class="card-title">📋 白名单管理</div>
+        <div class="filter-bar">
+          <input type="text" id="proactive-group-input" placeholder="群组ID">
+          <button class="btn btn-primary" onclick="addProactiveWhitelist()">添加</button>
+        </div>
+        <div id="proactive-whitelist-container"></div>
       </div>
-      <div class="card" id="proactive-whitelist-card" style="margin-top:16px;">
-        <div class="card-title">📋 群聊白名单管理</div>
-        <div class="filter-bar" style="margin-bottom:12px;">
-          <input type="text" id="proactive-group-input" placeholder="输入群聊 ID" onkeydown="if(event.key==='Enter')addProactiveWhitelist()">
-          <button class="btn btn-primary" onclick="addProactiveWhitelist()">+ 添加</button>
-        </div>
-        <div class="filter-bar" style="margin-bottom:12px;">
-          <input type="text" id="proactive-check-input" placeholder="查询群聊是否在白名单" oninput="checkProactiveWhitelist()">
-          <span id="proactive-check-result" style="min-width:120px;font-size:13px;"></span>
-        </div>
-        <div id="proactive-whitelist-container">
-          <div style="color:var(--text2);text-align:center;padding:20px;">加载中...</div>
+      <div class="card">
+        <div class="card-title">🔍 检查白名单</div>
+        <div class="filter-bar">
+          <input type="text" id="proactive-check-input" placeholder="输入群组ID检查">
+          <span id="proactive-check-result"></span>
         </div>
       </div>
-    </div>
+    </section>
 
-    <!-- ======== Import/Export Section ======== -->
-    <div id="sec-io" class="section">
+    <!-- IO -->
+    <section id="sec-io" class="section">
       <div class="section-header">
-        <h2>⇄ 数据导入导出</h2>
-        <div class="spacer"></div>
+        <h2>导入导出</h2>
       </div>
       <div class="tabs">
-        <div class="tab active" onclick="switchIoTab('export')">数据导出</div>
-        <div class="tab" onclick="switchIoTab('import')">数据导入</div>
+        <div class="tab active" onclick="switchIoTab('export')">导出</div>
+        <div class="tab" onclick="switchIoTab('import')">导入</div>
       </div>
-
       <!-- Export Tab -->
       <div id="io-tab-export">
         <div class="card">
-          <div class="card-title">导出记忆数据</div>
+          <div class="card-title">📤 导出记忆</div>
           <div class="filter-bar">
-            <input type="text" id="exp-mem-user" placeholder="用户 ID（留空导出全部）">
-            <input type="text" id="exp-mem-group" placeholder="群组 ID（可选）">
+            <input type="text" id="exp-mem-user" placeholder="用户ID (可选)">
+            <input type="text" id="exp-mem-group" placeholder="群组ID (可选)">
             <select id="exp-mem-layer">
               <option value="">全部层级</option>
               <option value="working">工作记忆</option>
@@ -335,169 +254,146 @@
               <option value="json">JSON</option>
               <option value="csv">CSV</option>
             </select>
-            <button class="btn btn-primary" onclick="exportMemories()">↓ 导出记忆</button>
+            <button class="btn btn-primary" onclick="exportMemories()">导出</button>
           </div>
         </div>
         <div class="card">
-          <div class="card-title">导出知识图谱</div>
+          <div class="card-title">📤 导出知识图谱</div>
           <div class="filter-bar">
-            <input type="text" id="exp-kg-user" placeholder="用户 ID（留空导出全部）">
-            <input type="text" id="exp-kg-group" placeholder="群组 ID（可选）">
+            <input type="text" id="exp-kg-user" placeholder="用户ID (可选)">
+            <input type="text" id="exp-kg-group" placeholder="群组ID (可选)">
             <select id="exp-kg-format">
               <option value="json">JSON</option>
               <option value="csv">CSV</option>
             </select>
-            <button class="btn btn-primary" onclick="exportKg()">↓ 导出图谱</button>
+            <button class="btn btn-primary" onclick="exportKg()">导出</button>
           </div>
         </div>
       </div>
-
       <!-- Import Tab -->
-      <div id="io-tab-import" style="display:none;">
+      <div id="io-tab-import" style="display:none">
         <div class="card">
-          <div class="card-title">导入记忆数据</div>
-          <div class="import-area" id="import-mem-area" onclick="document.getElementById('import-mem-file').click()"
-               ondragover="event.preventDefault();this.classList.add('dragover')"
+          <div class="card-title">📥 导入记忆</div>
+          <div class="import-area" id="import-memories-area"
+               ondragover="this.classList.add('dragover');event.preventDefault()"
                ondragleave="this.classList.remove('dragover')"
                ondrop="handleFileDrop(event,'memories')">
-            <p style="font-size:16px;margin-bottom:8px;">↑ 点击或拖拽文件到此处</p>
-            <p style="color:var(--text2);">支持 JSON / CSV 格式，最大 50MB</p>
-            <input type="file" id="import-mem-file" accept=".json,.csv" style="display:none" onchange="handleFileSelect(this,'memories')">
+            拖拽文件到此处，或 <label style="color:var(--accent);cursor:pointer">选择文件<input type="file" accept=".json,.csv" onchange="handleFileSelect(this,'memories')" hidden></label>
           </div>
-          <div id="import-mem-preview" style="margin-top:12px;"></div>
-          <div id="import-mem-result" style="margin-top:12px;"></div>
+          <div id="import-memories-preview" style="margin-top:12px"></div>
+          <div id="import-memories-result"></div>
         </div>
         <div class="card">
-          <div class="card-title">导入知识图谱</div>
-          <div class="import-area" id="import-kg-area" onclick="document.getElementById('import-kg-file').click()"
-               ondragover="event.preventDefault();this.classList.add('dragover')"
+          <div class="card-title">📥 导入知识图谱</div>
+          <div class="import-area" id="import-kg-area"
+               ondragover="this.classList.add('dragover');event.preventDefault()"
                ondragleave="this.classList.remove('dragover')"
                ondrop="handleFileDrop(event,'kg')">
-            <p style="font-size:16px;margin-bottom:8px;">↑ 点击或拖拽文件到此处</p>
-            <p style="color:var(--text2);">支持 JSON / CSV 格式，最大 50MB</p>
-            <input type="file" id="import-kg-file" accept=".json,.csv" style="display:none" onchange="handleFileSelect(this,'kg')">
+            拖拽文件到此处，或 <label style="color:var(--accent);cursor:pointer">选择文件<input type="file" accept=".json,.csv" onchange="handleFileSelect(this,'kg')" hidden></label>
           </div>
-          <div id="import-kg-preview" style="margin-top:12px;"></div>
-          <div id="import-kg-result" style="margin-top:12px;"></div>
+          <div id="import-kg-preview" style="margin-top:12px"></div>
+          <div id="import-kg-result"></div>
         </div>
       </div>
+    </section>
+
+    <!-- Cooldown -->
+    <section id="sec-cooldown" class="section">
+      <div class="section-header">
+        <h2>冷却管理</h2>
+      </div>
+      <div id="cooldown-container"></div>
+    </section>
+
+    <!-- LLM -->
+    <section id="sec-llm" class="section">
+      <div class="section-header">
+        <h2>LLM 监控</h2>
+      </div>
+      <div id="llm-container"></div>
+    </section>
+
+    <!-- Config -->
+    <section id="sec-config" class="section">
+      <div class="section-header">
+        <h2>配置管理</h2>
+        <div class="spacer"></div>
+        <button class="btn btn-outline btn-sm" onclick="showConfigDiff()">查看差异</button>
+        <button class="btn btn-outline btn-sm" onclick="exportConfigSnapshot()">导出快照</button>
+      </div>
+      <div class="filter-bar">
+        <input type="text" id="config-filter" placeholder="搜索配置项..." oninput="filterConfig()">
+      </div>
+      <div id="config-container"></div>
+    </section>
+
+    <!-- System -->
+    <section id="sec-system" class="section">
+      <div class="section-header">
+        <h2>系统监控</h2>
+      </div>
+      <div id="system-container"></div>
+    </section>
+  </main>
+</div>
+
+<!-- Login Modal -->
+<div id="login-modal" class="modal-overlay">
+  <div class="modal">
+    <h3>身份验证</h3>
+    <div class="form-group">
+      <label>访问密钥</label>
+      <input type="password" id="access-key-input" placeholder="请输入访问密钥" onkeydown="if(event.key==='Enter')doLogin()">
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-primary" onclick="doLogin()">登录</button>
     </div>
   </div>
 </div>
 
 <!-- Confirm Modal -->
-<div class="modal-overlay" id="confirm-modal">
+<div id="confirm-modal" class="modal-overlay">
   <div class="modal">
-    <h3 id="confirm-title">确认操作</h3>
-    <p id="confirm-message"></p>
+    <h3 id="confirm-title">确认</h3>
+    <p id="confirm-message" style="margin:16px 0;color:var(--text2)"></p>
     <div class="modal-actions">
       <button class="btn btn-outline" onclick="closeModal('confirm-modal')">取消</button>
-      <button class="btn btn-danger" id="confirm-btn" onclick="">确认</button>
+      <button id="confirm-btn" class="btn btn-danger">确认</button>
     </div>
   </div>
 </div>
 
-<!-- Memory Detail Modal -->
-<div class="modal-overlay" id="detail-modal">
+<!-- Detail Modal -->
+<div id="detail-modal" class="modal-overlay">
   <div class="modal modal-lg">
-    <div class="modal-body">
-      <h3>◈ 记忆详情</h3>
-      <div id="detail-content"></div>
-      <div class="modal-actions">
-        <button class="btn btn-outline" onclick="closeModal('detail-modal')">关闭</button>
-        <button class="btn btn-primary" id="detail-edit-btn" onclick="">编辑</button>
-      </div>
-    </div>
+    <div class="modal-body" id="detail-modal-body"></div>
   </div>
 </div>
 
-<!-- Memory Edit Modal -->
-<div class="modal-overlay" id="edit-modal">
+<!-- Edit Modal -->
+<div id="edit-modal" class="modal-overlay">
   <div class="modal modal-lg">
-    <h3>✎ 编辑记忆</h3>
-    <input type="hidden" id="edit-id">
-    <div class="form-group">
-      <label>内容</label>
-      <textarea id="edit-content" rows="5"></textarea>
-    </div>
-    <div class="form-row">
-      <div class="form-group">
-        <label>类型</label>
-        <select id="edit-type">
-          <option value="fact">事实</option>
-          <option value="emotion">情感</option>
-          <option value="relationship">关系</option>
-          <option value="interaction">交互</option>
-          <option value="inferred">推断</option>
-        </select>
-      </div>
-      <div class="form-group">
-        <label>层级</label>
-        <select id="edit-layer">
-          <option value="working">工作记忆</option>
-          <option value="episodic">情景记忆</option>
-          <option value="semantic">语义记忆</option>
-        </select>
-      </div>
-    </div>
-    <div class="form-row">
-      <div class="form-group">
-        <label>置信度 (0-1)</label>
-        <input type="number" id="edit-confidence" step="0.01" min="0" max="1">
-      </div>
-      <div class="form-group">
-        <label>重要性 (0-1)</label>
-        <input type="number" id="edit-importance" step="0.01" min="0" max="1">
-      </div>
-    </div>
-    <div class="form-group">
-      <label>摘要</label>
-      <input type="text" id="edit-summary">
-    </div>
-    <div class="modal-actions">
-      <button class="btn btn-outline" onclick="closeModal('edit-modal')">取消</button>
-      <button class="btn btn-primary" onclick="saveMemoryEdit()">保存</button>
-    </div>
+    <div class="modal-body"></div>
   </div>
 </div>
 
 <!-- Persona Detail Modal -->
-<div class="modal-overlay" id="persona-modal" onclick="if(event.target===this)closeModal('persona-modal')">
+<div id="persona-detail-modal" class="modal-overlay">
   <div class="modal modal-lg">
-    <div class="modal-header">
-      <h3>◉ 用户画像详情</h3>
-      <button class="modal-close-btn" onclick="closeModal('persona-modal')">×</button>
-    </div>
-    <div id="persona-detail-content"></div>
+    <div class="modal-body"></div>
+  </div>
+</div>
+
+<!-- Config Diff Modal -->
+<div id="config-diff-modal" class="modal-overlay">
+  <div class="modal modal-lg">
+    <div class="modal-body"></div>
   </div>
 </div>
 
 <!-- Toast Container -->
-<div class="toast-container" id="toast-container"></div>
+<div id="toast-container" class="toast-container"></div>
 
-<!-- Login Modal -->
-<div class="modal-overlay" id="login-modal">
-  <div class="modal" style="max-width:400px;">
-    <h3 style="margin-bottom:20px;text-align:center;">⊘ 访问密钥认证</h3>
-    <div class="form-group">
-      <label>请输入访问密钥</label>
-      <input type="password" id="access-key-input" placeholder="访问密钥" onkeydown="if(event.key==='Enter')doLogin()">
-    </div>
-    <div class="modal-actions" style="margin-top:16px;">
-      <button class="btn btn-primary" onclick="doLogin()" style="width:100%;">登录</button>
-    </div>
-  </div>
-</div>
-
-<!-- Scripts (order matters: utils -> api -> page modules -> app) -->
-<script src="/static/js/utils.js"></script>
-<script src="/static/js/api.js"></script>
-<script src="/static/js/dashboard.js"></script>
-<script src="/static/js/memories.js"></script>
-<script src="/static/js/kg.js"></script>
-<script src="/static/js/personas.js"></script>
-<script src="/static/js/proactive.js"></script>
-<script src="/static/js/io.js"></script>
-<script src="/static/js/app.js"></script>
+<script type="module" src="/static/js/main.js"></script>
 </body>
 </html>

@@ -203,6 +203,18 @@ input[type="checkbox"] { width:16px; height:16px; accent-color:var(--accent); }
 .whitelist-item:hover { border-color:var(--accent); }
 .whitelist-id { font-family:monospace; font-size:14px; color:var(--text); }
 
+/* Config Items */
+.config-items { display:flex; flex-direction:column; gap:12px; }
+.config-item { display:flex; align-items:center; justify-content:space-between; padding:12px; background:var(--bg3); border-radius:var(--radius); gap:16px; }
+.config-item:hover { background:rgba(124,108,240,0.05); }
+.config-meta { display:flex; flex-direction:column; gap:2px; flex:1; min-width:0; }
+.config-key { font-family:monospace; font-size:13px; color:var(--accent); }
+.config-desc { font-size:12px; color:var(--text2); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.config-control { flex-shrink:0; }
+.toggle-switch { display:flex; align-items:center; gap:8px; cursor:pointer; }
+.toggle-switch input { width:18px; height:18px; }
+.toggle-label { font-size:13px; color:var(--text2); }
+
 /* Responsive */
 @media(max-width:768px) {
   .sidebar { width:60px; }
@@ -214,4 +226,5 @@ input[type="checkbox"] { width:16px; height:16px; accent-color:var(--accent); }
   .persona-grid { grid-template-columns:1fr; }
   .detail-grid { grid-template-columns:1fr; }
   .form-row { flex-direction:column; }
+  .config-item { flex-direction:column; align-items:flex-start; }
 }

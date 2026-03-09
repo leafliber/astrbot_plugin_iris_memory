@@ -31,7 +31,6 @@ import { loadLlm } from './pages/llm.js';
 import { loadConfig, filterConfig, showDiff, exportSnapshot } from './pages/config.js';
 import { loadSystem } from './pages/system.js';
 
-// ── 页面加载 Map ──
 const pageLoaders = {
   dashboard: loadDashboard,
   memories: () => { if (!memGetState().loaded) searchMemories(); },
@@ -45,7 +44,6 @@ const pageLoaders = {
   system: loadSystem,
 };
 
-// ── 导航 ──
 function showSection(name) {
   document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
@@ -59,7 +57,6 @@ function showSection(name) {
   if (loader) loader();
 }
 
-// ── 认证 ──
 function showLoginModal() {
   document.getElementById('login-modal').classList.add('show');
   document.getElementById('access-key-input')?.focus();
@@ -84,7 +81,6 @@ async function doLogin() {
   }
 }
 
-// ── 初始化 ──
 async function init() {
   const { authRequired, authenticated } = await api.checkAuth();
   if (authRequired && !api.hasToken) {
@@ -94,16 +90,13 @@ async function init() {
   }
 }
 
-// ── 事件绑定 ──
 function bindEvents() {
-  // 侧栏导航
   document.querySelectorAll('.nav-item').forEach(item => {
     item.addEventListener('click', () => {
       showSection(item.dataset.section);
     });
   });
 
-  // 全局快捷键
   document.addEventListener('keydown', e => {
     if (e.key === 'Escape') {
       document.querySelectorAll('.modal-overlay.show').forEach(m => m.classList.remove('show'));
@@ -111,47 +104,32 @@ function bindEvents() {
     }
   });
 
-  // 全局认证事件
   window.addEventListener('auth:required', showLoginModal);
   window.addEventListener('api:error', e => {
     toast.err(`请求失败: ${e.detail?.error?.message || '网络错误'}`);
   });
 }
 
-// ── 暴露到 window（供 HTML inline 事件调用）──
 Object.assign(window, {
-  // 导航
   showSection,
-  // 认证
   doLogin,
-  // Dashboard
   loadDashboard, loadTrend,
-  // 记忆
   searchMemories, memPage, toggleSelectAll, toggleSelect,
   batchDeleteMemories: batchDelete,
   resetMemoryFilters, exportSelectedMemories: () => toast.info('请使用导出功能'),
-  // 知识图谱
   switchKgTab, loadKgGraph, searchKgNodes, searchKgEdges, refreshKgTab,
-  // 画像
+  hideNodePopup,
   searchPersonas, loadPersonas, resetPersonaFilters,
-  // 主动回复
   loadProactiveStatus, addProactiveWhitelist: addWhitelist,
   checkProactiveWhitelist: checkWhitelist, refreshProactiveTab,
-  // 导入导出
   switchIoTab, exportMemories, exportKg, handleFileDrop, handleFileSelect,
-  // 冷却
   loadCooldown,
-  // LLM
   loadLlm,
-  // Config
   loadConfig, filterConfig, showConfigDiff: showDiff, exportConfigSnapshot: exportSnapshot,
-  // System
   loadSystem,
-  // Modal
   closeModal,
 });
 
-// ── 动态 page size 绑定 ──
 function bindPageSizeSelects() {
   const memPs = document.getElementById('mem-page-size');
   if (memPs) memPs.addEventListener('change', () => memChangePageSize(memPs.value));
@@ -160,7 +138,6 @@ function bindPageSizeSelects() {
   if (personaPs) personaPs.addEventListener('change', () => personaChangePageSize(personaPs.value));
 }
 
-// ── Boot ──
 document.addEventListener('DOMContentLoaded', () => {
   bindEvents();
   bindPageSizeSelects();

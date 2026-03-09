@@ -20,7 +20,7 @@ export async function searchMemories() {
   showLoading(true);
   const res = await api.get('/memories', {
     query: q, user_id: uid, group_id: gid,
-    storage_layer: layer, type, page: state.page, page_size: state.pageSize,
+    storage_layer: layer, memory_type: type, page: state.page, page_size: state.pageSize,
   });
   showLoading(false);
 

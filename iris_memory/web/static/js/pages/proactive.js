@@ -67,7 +67,7 @@ async function loadWhitelist() {
   const res = await api.get('/proactive/whitelist');
   if (!res || res.status !== 'ok') return;
 
-  const groups = res.data || [];
+  const groups = res.data?.groups || res.data || [];
   const container = el('proactive-whitelist-container');
 
   if (!groups.length) {
