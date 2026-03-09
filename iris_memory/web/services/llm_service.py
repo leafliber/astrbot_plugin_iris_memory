@@ -56,13 +56,13 @@ class LlmWebService:
             return {
                 "available": True,
                 "total_calls": stats.total_calls,
-                "success_calls": stats.success_calls,
+                "success_calls": stats.successful_calls,
                 "failed_calls": stats.failed_calls,
                 "total_tokens": stats.total_tokens,
                 "avg_tokens_per_call": stats.avg_tokens_per_call,
                 "avg_duration_ms": stats.avg_duration_ms,
-                "by_provider": stats.by_provider,
-                "by_source": stats.by_source,
+                "by_provider": stats.calls_by_provider,
+                "by_source": stats.calls_by_source,
             }
         except Exception as e:
             logger.error(f"LLM get_aggregated error: {e}")
@@ -78,13 +78,13 @@ class LlmWebService:
             records = reg.get_recent(limit=limit)
             return [
                 {
-                    "id": r.id,
+                    "id": r.record_id,
                     "provider_id": r.provider_id,
                     "success": r.success,
                     "tokens_used": r.tokens_used,
                     "duration_ms": r.duration_ms,
-                    "timestamp": r.timestamp.isoformat() if r.timestamp else None,
-                    "error": r.error,
+                    "timestamp": r.timestamp,
+                    "error": r.error_message,
                     "is_multimodal": r.is_multimodal,
                 }
                 for r in records

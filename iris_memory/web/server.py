@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import socket
 from typing import Any, Optional
 
 from quart import Quart, request
@@ -131,13 +132,43 @@ class StandaloneWebServer:
         self._app: Optional[Quart] = None
         self._shutdown_event: Optional[asyncio.Event] = None
         self._task: Optional[asyncio.Task] = None
+        self._started: bool = False
 
     @property
     def app(self) -> Optional[Quart]:
         return self._app
 
+    def _is_port_in_use(self) -> bool:
+        """检查端口是否被占用"""
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.settimeout(1)
+                result = s.connect_ex((self._host, self._port))
+                return result == 0
+        except Exception:
+            return False
+
+    async def _wait_for_port(self, timeout: float = 5.0) -> bool:
+        """等待端口变为可用"""
+        start_time = asyncio.get_event_loop().time()
+        while asyncio.get_event_loop().time() - start_time < timeout:
+            if not self._is_port_in_use():
+                return True
+            await asyncio.sleep(0.1)
+        return False
+
     async def start(self) -> None:
         """启动 Web 服务器"""
+        if self._started and self._task and not self._task.done():
+            logger.warning("Web 服务器已在运行中，跳过启动")
+            return
+
+        if self._is_port_in_use():
+            logger.warning(f"端口 {self._port} 已被占用，等待释放...")
+            if not await self._wait_for_port(timeout=3.0):
+                logger.error(f"端口 {self._port} 无法释放，Web 服务器启动失败")
+                return
+
         self._app = create_app(
             self._memory_service,
             access_key=self._access_key,
@@ -154,11 +185,27 @@ class StandaloneWebServer:
             config.errorlog = "-"
             config.graceful_timeout = 3
 
-            logger.info(f"Web UI 启动于 http://{self._host}:{self._port}")
+            async def _serve_with_error_handling():
+                try:
+                    await serve(self._app, config, shutdown_trigger=self._shutdown_event.wait)  # type: ignore
+                except OSError as e:
+                    if "Address already in use" in str(e) or "address already in use" in str(e):
+                        logger.error(f"端口 {self._port} 已被占用，Web 服务器启动失败")
+                    else:
+                        logger.error(f"Web 服务器运行错误: {e}")
+                except asyncio.CancelledError:
+                    pass
+                except Exception as e:
+                    logger.error(f"Web 服务器运行错误: {e}")
 
-            self._task = asyncio.create_task(
-                serve(self._app, config, shutdown_trigger=self._shutdown_event.wait)  # type: ignore
-            )
+            self._task = asyncio.create_task(_serve_with_error_handling())
+            self._started = True
+
+            await asyncio.sleep(0.2)
+            if self._is_port_in_use():
+                logger.info(f"Web UI 启动于 http://{self._host}:{self._port}")
+            else:
+                logger.warning("Web 服务器可能未成功启动，端口未监听")
 
         except ImportError:
             logger.error("Hypercorn 未安装，无法启动 Web 服务器。请执行: pip install hypercorn")
@@ -167,22 +214,31 @@ class StandaloneWebServer:
 
     async def stop(self) -> None:
         """停止 Web 服务器"""
+        if not self._started:
+            return
+
+        self._started = False
+
         if self._shutdown_event:
             self._shutdown_event.set()
+
         if self._task:
             try:
-                await asyncio.wait_for(self._task, timeout=3.0)
+                await asyncio.wait_for(self._task, timeout=5.0)
             except asyncio.TimeoutError:
                 logger.warning("Web 服务器关闭超时，强制取消")
                 self._task.cancel()
                 try:
-                    await self._task
-                except asyncio.CancelledError:
+                    await asyncio.wait_for(self._task, timeout=2.0)
+                except (asyncio.CancelledError, asyncio.TimeoutError):
                     pass
             except asyncio.CancelledError:
                 pass
             except Exception as e:
                 logger.warning(f"Web 服务器停止异常: {e}")
-            self._task = None
+            finally:
+                self._task = None
 
+        self._app = None
+        self._shutdown_event = None
         logger.info("Web 服务器已停止")
