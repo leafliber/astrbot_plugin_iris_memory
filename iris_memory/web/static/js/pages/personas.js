@@ -128,9 +128,9 @@ export async function showDetail(userId) {
       ${renderMetaSection(p)}
     </div>
     
-    <div class="modal-actions">
-      <button class="btn btn-outline" onclick="window.__persona.closeDetail()">关闭</button>
+    <div class="modal-actions modal-actions-split">
       <button class="btn btn-danger" onclick="window.__persona.deletePersona('${esc(userId)}')">删除画像</button>
+      <button class="btn btn-outline" onclick="window.__persona.closeDetail()">关闭</button>
     </div>`;
   showDetailModal('persona-detail-modal', html);
 }
@@ -168,8 +168,8 @@ function renderQuickStats(p) {
 function renderMiniPersonality(p) {
   if (!p) return '';
   const bars = [
-    ['O', p.openness, '开放性'], ['C', p.conscientiousness, '尽责性'], ['E', p.extraversion, '外向性'],
-    ['A', p.agreeableness, '宜人性'], ['N', p.neuroticism, '神经质'],
+    ['开放', p.openness, '开放性'], ['尽责', p.conscientiousness, '尽责性'], ['外向', p.extraversion, '外向性'],
+    ['宜人', p.agreeableness, '宜人性'], ['神经', p.neuroticism, '神经质'],
   ].filter(([, v]) => v != null);
   if (!bars.length) return '';
   return `<div style="display:flex;gap:4px;margin:6px 0">${bars.map(([l, v, title]) =>

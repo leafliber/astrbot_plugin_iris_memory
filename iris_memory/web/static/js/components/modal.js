@@ -47,3 +47,16 @@ export function showDetailModal(modalId, html) {
   if (body) body.innerHTML = html;
   overlay.classList.add('show');
 }
+
+/**
+ * 初始化 modal 点击空白处关闭
+ */
+export function initModalClose() {
+  document.querySelectorAll('.modal-overlay').forEach(overlay => {
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) {
+        overlay.classList.remove('show');
+      }
+    });
+  });
+}

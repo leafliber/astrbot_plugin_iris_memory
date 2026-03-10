@@ -5,7 +5,7 @@
 import { api } from './api/client.js';
 import { store } from './store/index.js';
 import { toast } from './components/toast.js';
-import { closeModal } from './components/modal.js';
+import { closeModal, initModalClose } from './components/modal.js';
 
 import { loadDashboard, loadTrend } from './pages/dashboard.js';
 import {
@@ -139,5 +139,6 @@ function bindPageSizeSelects() {
 document.addEventListener('DOMContentLoaded', () => {
   bindEvents();
   bindPageSizeSelects();
+  initModalClose();
   init();
 });

@@ -105,10 +105,12 @@ input[type="checkbox"] { width:16px; height:16px; accent-color:var(--accent); }
 /* Modal */
 .modal-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:1000; justify-content:center; align-items:center; }
 .modal-overlay.show { display:flex; }
+#confirm-modal { z-index:1100; }
 .modal { background:var(--bg2); border:1px solid var(--border); border-radius:var(--radius); padding:24px; max-width:600px; width:90%; max-height:85vh; overflow-y:auto; }
 .modal-lg { max-width:800px; }
 .modal h3 { margin-bottom:16px; }
 .modal-actions { display:flex; gap:10px; justify-content:flex-end; margin-top:20px; }
+.modal-actions-split { justify-content:space-between; }
 .modal-close { position:absolute; top:12px; right:16px; background:none; border:none; color:var(--text2); font-size:24px; cursor:pointer; }
 .modal-body { position:relative; }
 .modal-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; padding-bottom:12px; border-bottom:1px solid var(--border); }
