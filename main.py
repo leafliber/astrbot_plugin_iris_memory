@@ -35,7 +35,7 @@ from iris_memory.core.constants import PROACTIVE_EXTRA_KEY
 from iris_memory.stats import get_stats_registry
 
 
-@register("astrbot_plugin_iris_memory", "Iris Memory", "基于 companion-memory 框架的三层记忆插件", "1.10.3")
+@register("astrbot_plugin_iris_memory", "Iris Memory", "基于 companion-memory 框架的三层记忆插件", "1.10.4")
 class IrisMemoryPlugin(Star):
     """
     Iris 记忆插件 - 主入口

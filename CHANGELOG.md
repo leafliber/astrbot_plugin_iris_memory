@@ -3,6 +3,40 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.10.4] - 2026-03-10
+
+### Added
+- **Web 管理界面全新重构** (`iris_memory/web/`)
+  - 采用分层架构：API 路由层、服务层、数据仓库层
+  - 新增模块化前端代码结构，ES6 模块化组织
+  - 新增 Dashboard 仪表盘页面，集成系统状态和 LLM 监控
+  - 新增记忆管理页面，支持搜索、查看、编辑、批量删除
+  - 新增知识图谱页面，支持节点/边可视化和搜索
+  - 新增用户画像页面，展示用户特征和交互历史
+  - 新增主动回复配置页面，支持白名单管理
+  - 新增冷却机制页面，展示和管理冷却状态
+  - 新增配置管理页面，支持配置查看和导出
+  - 新增 LLM 监控页面，展示调用统计和最近记录
+  - 新增系统信息页面，展示运行状态和资源使用
+  - 新增导入导出功能，支持记忆和知识图谱的 JSON 格式
+
+### Changed
+- **前端代码结构重构** (`iris_memory/web/static/js/`)
+  - 将多个独立 JS 文件合并为模块化结构
+  - 按功能划分：api、components、pages、store、utils
+  - 统一使用 ES6 import/export 语法
+  - 优化代码组织，减少全局变量污染
+
+### Fixed
+- **Web Dashboard 模块导入缺失修复** (`iris_memory/web/static/js/main.js`)
+  - 添加缺失的 `loadLlm` 导入语句
+  - 添加缺失的 `loadSystem` 导入语句
+  - 修复页面加载时 `ReferenceError` 错误
+
+- **Web UI 初始化问题修复** (`iris_memory/web/server.py`)
+  - 修复 Web UI 初始化重复问题
+  - 修复端口占用检测逻辑
+
 ## [v1.10.3] - 2026-03-08
 
 ### Fixed
