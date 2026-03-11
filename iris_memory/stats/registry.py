@@ -164,6 +164,24 @@ class LLMStatsRegistry:
                 full_name = f"{cls.__module__}.{cls.__name__}"
                 alias = SOURCE_ALIASES.get(full_name, full_name.split('.')[-1])
                 return alias, cls.__name__
+            
+            if 'cls' in frame_locals and isinstance(frame_locals['cls'], type):
+                cls = frame_locals['cls']
+                full_name = f"{cls.__module__}.{cls.__name__}"
+                alias = SOURCE_ALIASES.get(full_name, full_name.split('.')[-1])
+                return alias, cls.__name__
+            
+            frame = frame_info.frame
+            func_name = frame.f_code.co_name
+            module_name = frame.f_globals.get('__name__', '')
+            
+            if module_name.startswith('iris_memory.') and not module_name.startswith('iris_memory.stats'):
+                if module_name == 'iris_memory.utils.llm_helper':
+                    continue
+                
+                module_short = module_name.split('.')[-1]
+                alias = SOURCE_ALIASES.get(f"{module_name}.{func_name}", module_short)
+                return alias, func_name
         
         return "unknown", "unknown"
 

@@ -80,6 +80,7 @@ class LlmWebService:
                 {
                     "id": r.record_id,
                     "provider_id": r.provider_id,
+                    "source": r.source_module,
                     "success": r.success,
                     "tokens_used": r.tokens_used,
                     "duration_ms": r.duration_ms,

@@ -80,10 +80,12 @@ async function loadSystemOverview() {
   const res = await api.get('/system/overview');
   let health = {};
   let storage = {};
+  let pid = null;
 
   if (res?.status === 'ok') {
     health = res.data?.health || res.data || {};
     storage = res.data?.storage || {};
+    pid = res.data?.pid;
   } else {
     const [healthRes, storageRes] = await Promise.all([
       api.get('/system/health'),
@@ -98,6 +100,9 @@ async function loadSystemOverview() {
     healthStatus === 'degraded' ? 'var(--warning)' : 'var(--danger)';
   const statusText = healthStatus === 'healthy' || healthStatus === 'ok' ? '健康' :
     healthStatus === 'degraded' ? '降级' : healthStatus || '未知';
+
+  const chroma = storage.chroma || {};
+  const kg = storage.kg || {};
 
   container.innerHTML = `
     <div class="card">
@@ -125,6 +130,33 @@ async function loadSystemOverview() {
             <div class="system-stat-value">${health.initialized ? '已初始化' : '未初始化'}</div>
             <div class="system-stat-label">初始化状态</div>
           </div>
+        </div>
+        <div class="system-stat">
+          <div class="system-stat-icon">🔢</div>
+          <div class="system-stat-content">
+            <div class="system-stat-value">${pid ?? '-'}</div>
+            <div class="system-stat-label">进程 PID</div>
+          </div>
+        </div>
+      </div>
+      <div class="storage-overview-grid">
+        <div class="storage-item">
+          <div class="storage-header">
+            <span class="storage-icon">🗄️</span>
+            <span class="storage-name">ChromaDB</span>
+            <span class="storage-status ${chroma.ready ? 'ok' : 'err'}">${chroma.ready ? '就绪' : '离线'}</span>
+          </div>
+          ${chroma.ready ? `<div class="storage-detail">文档数: ${chroma.count ?? '-'}</div>` : ''}
+          ${chroma.error ? `<div class="storage-error">${esc(chroma.error)}</div>` : ''}
+        </div>
+        <div class="storage-item">
+          <div class="storage-header">
+            <span class="storage-icon">🔗</span>
+            <span class="storage-name">知识图谱</span>
+            <span class="storage-status ${kg.enabled ? 'ok' : 'off'}">${kg.enabled ? '启用' : '禁用'}</span>
+          </div>
+          ${kg.enabled && kg.nodes != null ? `<div class="storage-detail">节点: ${kg.nodes} | 边: ${kg.edges ?? '-'}</div>` : ''}
+          ${kg.error ? `<div class="storage-error">${esc(kg.error)}</div>` : ''}
         </div>
       </div>
       ${renderComponentHealthCompact(health.components)}
