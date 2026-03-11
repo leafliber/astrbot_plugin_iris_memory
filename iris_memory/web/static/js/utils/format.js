@@ -59,17 +59,29 @@ export function downloadBlob(blob, filename) {
 
 /**
  * 格式化日期时间
- * @param {string|null} iso
+ * @param {string|number|null} input - ISO字符串或Unix时间戳(秒)
  * @returns {string}
  */
-export function fmtTime(iso) {
-  if (!iso) return '-';
+export function fmtTime(input) {
+  if (!input) return '-';
   try {
-    const d = new Date(iso);
+    let d;
+    if (typeof input === 'number') {
+      d = new Date(input * 1000);
+    } else if (typeof input === 'string') {
+      if (/^\d+(\.\d+)?$/.test(input)) {
+        d = new Date(parseFloat(input) * 1000);
+      } else {
+        d = new Date(input);
+      }
+    } else {
+      return '-';
+    }
+    if (isNaN(d.getTime())) return '-';
     const pad = n => String(n).padStart(2, '0');
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
   } catch {
-    return iso;
+    return String(input);
   }
 }
 
