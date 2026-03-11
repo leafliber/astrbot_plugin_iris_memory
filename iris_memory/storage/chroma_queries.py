@@ -578,3 +578,32 @@ class ChromaQueries:
         except Exception as e:
             logger.error(f"Failed to get pending review memories: {e}")
             return []
+
+    async def get_active_user_ids(self) -> List[str]:
+        """获取所有有记忆记录的用户ID列表
+
+        Returns:
+            List[str]: 不重复的用户ID列表
+        """
+        try:
+            self._manager._ensure_ready()
+            results = await asyncio.to_thread(
+                self._manager.collection.get,
+                include=["metadatas"]
+            )
+
+            user_ids = set()
+            metadatas = results.get('metadatas')
+            if metadatas is not None:
+                for metadata in metadatas:
+                    if isinstance(metadata, dict):
+                        user_id = metadata.get('user_id')
+                        if user_id:
+                            user_ids.add(user_id)
+
+            logger.debug(f"Found {len(user_ids)} active users")
+            return list(user_ids)
+
+        except Exception as e:
+            logger.error(f"Failed to get active user ids: {e}")
+            return []

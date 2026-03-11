@@ -386,3 +386,11 @@ class ChromaManager:
             return await self._operations.delete_all_memories()
         except (RuntimeError, StorageNotReadyError):
             return False, 0
+
+    async def get_active_user_ids(self) -> List[str]:
+        """获取所有有记忆记录的用户ID列表（委托到 ChromaQueries）"""
+        try:
+            self._ensure_ready()
+            return await self._queries.get_active_user_ids()
+        except (RuntimeError, StorageNotReadyError):
+            return []
