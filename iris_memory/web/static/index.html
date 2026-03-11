@@ -141,6 +141,15 @@
       </div>
       <!-- Nodes Tab -->
       <div id="kg-tab-nodes" style="display:none">
+        <div class="section-header" style="margin-bottom:12px">
+          <span id="kg-nodes-total-info" class="page-info"></span>
+          <div class="spacer"></div>
+          <select id="kg-nodes-page-size" class="page-size-select">
+            <option value="20" selected>20条/页</option>
+            <option value="50">50条/页</option>
+            <option value="100">100条/页</option>
+          </select>
+        </div>
         <div class="filter-bar">
           <input type="text" id="kg-node-query" placeholder="搜索节点...">
           <input type="text" id="kg-node-user" placeholder="用户ID">
@@ -163,9 +172,19 @@
             </table>
           </div>
         </div>
+        <div id="kg-nodes-pagination" class="pagination"></div>
       </div>
       <!-- Edges Tab -->
       <div id="kg-tab-edges" style="display:none">
+        <div class="section-header" style="margin-bottom:12px">
+          <span id="kg-edges-total-info" class="page-info"></span>
+          <div class="spacer"></div>
+          <select id="kg-edges-page-size" class="page-size-select">
+            <option value="20" selected>20条/页</option>
+            <option value="50">50条/页</option>
+            <option value="100">100条/页</option>
+          </select>
+        </div>
         <div class="filter-bar">
           <input type="text" id="kg-edge-user" placeholder="用户ID">
           <input type="text" id="kg-edge-node" placeholder="节点ID">
@@ -189,6 +208,7 @@
             </table>
           </div>
         </div>
+        <div id="kg-edges-pagination" class="pagination"></div>
       </div>
     </section>
 

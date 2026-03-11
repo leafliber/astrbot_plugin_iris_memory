@@ -6,6 +6,7 @@ import { esc } from '../utils/escape.js';
 import { nodeColors, nodeTypeLabels, relationLabels, fmtTime } from '../utils/format.js';
 import { toast } from '../components/toast.js';
 import { showConfirm } from '../components/modal.js';
+import { renderPagination } from '../components/pagination.js';
 
 // ── 图谱可视化状态 ──
 let graphNodes = [];
@@ -13,6 +14,10 @@ let graphEdges = [];
 let canvas, ctx;
 let offsetX = 0, offsetY = 0, scale = 1;
 let dragging = null, panning = false, panStart = { x: 0, y: 0 };
+
+// ── 分页状态 ──
+const nodesState = { page: 1, pageSize: 20, total: 0 };
+const edgesState = { page: 1, pageSize: 20, total: 0 };
 
 export function initKg() {
   canvas = document.getElementById('kg-canvas');
@@ -246,12 +251,19 @@ export function showNodeEdges(nodeId) {
 // ── 节点表格 ──
 export async function searchKgNodes() {
   const q = val('kg-node-query'), uid = val('kg-node-user'), nt = val('kg-node-type');
-  const res = await api.get('/kg/nodes', { query: q, user_id: uid, node_type: nt, limit: 200 });
+  const res = await api.get('/kg/nodes', {
+    query: q, user_id: uid, node_type: nt,
+    page: nodesState.page, page_size: nodesState.pageSize,
+  });
   if (!res || res.status !== 'ok') return;
 
-  const nodes = res.data || [];
+  const d = res.data;
+  nodesState.total = d.total || 0;
+  el('kg-nodes-total-info').textContent = `共 ${nodesState.total} 个节点`;
+
+  const nodes = d.items || [];
   const tbody = document.getElementById('kg-nodes-tbody');
-  if (!nodes.length) { tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text2)">暂无节点</td></tr>'; return; }
+  if (!nodes.length) { tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text2)">暂无节点</td></tr>'; el('kg-nodes-pagination').innerHTML = ''; return; }
 
   tbody.innerHTML = nodes.map(n => `<tr>
     <td>${esc(n.display_name || n.name)}</td>
@@ -265,17 +277,33 @@ export async function searchKgNodes() {
       <button class="btn btn-danger btn-sm" onclick="window.__kg.deleteNode('${esc(n.id)}')">删除</button>
     </td>
   </tr>`).join('');
+
+  renderPagination({
+    page: nodesState.page, pageSize: nodesState.pageSize, total: nodesState.total,
+    onChange: p => { nodesState.page = p; searchKgNodes(); },
+    container: el('kg-nodes-pagination'),
+  });
 }
+
+export function kgNodesPage(p) { nodesState.page = p; searchKgNodes(); }
+export function changeKgNodesPageSize(v) { nodesState.pageSize = Number(v); nodesState.page = 1; searchKgNodes(); }
 
 // ── 边表格 ──
 export async function searchKgEdges() {
   const uid = val('kg-edge-user'), nid = val('kg-edge-node'), rt = val('kg-edge-relation');
-  const res = await api.get('/kg/edges', { user_id: uid, node_id: nid, relation_type: rt, limit: 200 });
+  const res = await api.get('/kg/edges', {
+    user_id: uid, node_id: nid, relation_type: rt,
+    page: edgesState.page, page_size: edgesState.pageSize,
+  });
   if (!res || res.status !== 'ok') return;
 
-  const edges = res.data?.edges || res.data || [];
+  const d = res.data;
+  edgesState.total = d.total || 0;
+  el('kg-edges-total-info').textContent = `共 ${edgesState.total} 条边`;
+
+  const edges = d.items || [];
   const tbody = document.getElementById('kg-edges-tbody');
-  if (!edges.length) { tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--text2)">暂无边</td></tr>'; return; }
+  if (!edges.length) { tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--text2)">暂无边</td></tr>'; el('kg-edges-pagination').innerHTML = ''; return; }
 
   tbody.innerHTML = edges.map(e => `<tr>
     <td>${esc(e.source_name || e.source_id)}</td>
@@ -287,7 +315,16 @@ export async function searchKgEdges() {
     <td>${esc(fmtTime(e.created_time))}</td>
     <td><button class="btn btn-danger btn-sm" onclick="window.__kg.deleteEdge('${esc(e.id)}')">删除</button></td>
   </tr>`).join('');
+
+  renderPagination({
+    page: edgesState.page, pageSize: edgesState.pageSize, total: edgesState.total,
+    onChange: p => { edgesState.page = p; searchKgEdges(); },
+    container: el('kg-edges-pagination'),
+  });
 }
+
+export function kgEdgesPage(p) { edgesState.page = p; searchKgEdges(); }
+export function changeKgEdgesPageSize(v) { edgesState.pageSize = Number(v); edgesState.page = 1; searchKgEdges(); }
 
 export function deleteNode(id) {
   showConfirm('删除节点', '删除节点将同时删除关联的边，是否继续？', async () => {

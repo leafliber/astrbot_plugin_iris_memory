@@ -31,17 +31,19 @@ class KgWebService:
         user_id: Optional[str] = None,
         group_id: Optional[str] = None,
         node_type: Optional[str] = None,
-        limit: int = 50,
-    ) -> List[Dict[str, Any]]:
+        page: int = 1,
+        page_size: int = 20,
+    ) -> Dict[str, Any]:
         repo = self._get_repo()
-        nodes = await repo.search_nodes(
+        nodes, total = await repo.search_nodes(
             query=query,
             user_id=user_id,
             group_id=group_id,
             node_type=node_type,
-            limit=limit,
+            page=page,
+            page_size=page_size,
         )
-        return [node_to_web_dict(n) for n in nodes]
+        return {"items": [node_to_web_dict(n) for n in nodes], "total": total}
 
     async def list_kg_edges(
         self,
@@ -49,17 +51,19 @@ class KgWebService:
         group_id: Optional[str] = None,
         relation_type: Optional[str] = None,
         node_id: Optional[str] = None,
-        limit: int = 50,
-    ) -> List[Dict[str, Any]]:
+        page: int = 1,
+        page_size: int = 20,
+    ) -> Dict[str, Any]:
         repo = self._get_repo()
-        edges, node_names = await repo.list_edges(
+        edges, node_names, total = await repo.list_edges(
             user_id=user_id,
             group_id=group_id,
             relation_type=relation_type,
             node_id=node_id,
-            limit=limit,
+            page=page,
+            page_size=page_size,
         )
-        return [edge_to_web_dict(e, node_names) for e in edges]
+        return {"items": [edge_to_web_dict(e, node_names) for e in edges], "total": total}
 
     async def delete_kg_node(self, node_id: str) -> Tuple[bool, str]:
         repo = self._get_repo()

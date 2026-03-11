@@ -16,6 +16,7 @@ import {
 import {
   initKg, switchKgTab, loadKgGraph, searchKgNodes, searchKgEdges,
   refreshKgTab, hideNodePopup,
+  kgNodesPage, kgEdgesPage, changeKgNodesPageSize, changeKgEdgesPageSize,
 } from './pages/kg.js';
 import {
   searchPersonas, loadPersonas, resetPersonaFilters,
@@ -116,7 +117,7 @@ Object.assign(window, {
   batchDeleteMemories: batchDelete,
   resetMemoryFilters, exportSelectedMemories: () => toast.info('请使用导出功能'),
   switchKgTab, loadKgGraph, searchKgNodes, searchKgEdges, refreshKgTab,
-  hideNodePopup,
+  hideNodePopup, kgNodesPage, kgEdgesPage,
   searchPersonas, loadPersonas, resetPersonaFilters,
   loadProactiveStatus, addProactiveWhitelist: addWhitelist,
   checkProactiveWhitelist: checkWhitelist, refreshProactiveTab,
@@ -134,6 +135,12 @@ function bindPageSizeSelects() {
 
   const personaPs = document.getElementById('persona-page-size');
   if (personaPs) personaPs.addEventListener('change', () => personaChangePageSize(personaPs.value));
+
+  const kgNodesPs = document.getElementById('kg-nodes-page-size');
+  if (kgNodesPs) kgNodesPs.addEventListener('change', () => changeKgNodesPageSize(kgNodesPs.value));
+
+  const kgEdgesPs = document.getElementById('kg-edges-page-size');
+  if (kgEdgesPs) kgEdgesPs.addEventListener('change', () => changeKgEdgesPageSize(kgEdgesPs.value));
 }
 
 document.addEventListener('DOMContentLoaded', () => {

@@ -28,19 +28,19 @@ class KnowledgeGraphRepository:
         user_id: Optional[str] = None,
         group_id: Optional[str] = None,
         node_type: Optional[str] = None,
-        limit: int = 100,
-    ) -> List[KGNode]:
-        """列出节点"""
+        page: int = 1,
+        page_size: int = 20,
+    ) -> Tuple[List[KGNode], int]:
+        """列出节点，返回 (节点列表, 总数)"""
         kg = self._get_kg()
         if not kg:
-            return []
+            return [], 0
 
         try:
             storage = kg.storage
             async with storage._lock:
                 assert storage._conn
 
-                sql = "SELECT * FROM kg_nodes"
                 conditions: List[str] = []
                 params: List[Any] = []
 
@@ -54,16 +54,20 @@ class KnowledgeGraphRepository:
                     conditions.append("node_type = ?")
                     params.append(node_type)
 
-                if conditions:
-                    sql += " WHERE " + " AND ".join(conditions)
-                sql += f" ORDER BY created_time DESC LIMIT {int(limit)}"
+                where_clause = " WHERE " + " AND ".join(conditions) if conditions else ""
+
+                count_sql = "SELECT COUNT(*) as cnt FROM kg_nodes" + where_clause
+                total = storage._conn.execute(count_sql, params).fetchone()["cnt"]
+
+                offset = (page - 1) * page_size
+                sql = "SELECT * FROM kg_nodes" + where_clause + f" ORDER BY created_time DESC LIMIT {int(page_size)} OFFSET {int(offset)}"
 
                 rows = storage._conn.execute(sql, params).fetchall()
-                return [KGNode.from_row(dict(r)) for r in rows]
+                return [KGNode.from_row(dict(r)) for r in rows], total
 
         except Exception as e:
             logger.warning(f"List KG nodes error: {e}")
-            return []
+            return [], 0
 
     async def search_nodes(
         self,
@@ -71,32 +75,37 @@ class KnowledgeGraphRepository:
         user_id: Optional[str] = None,
         group_id: Optional[str] = None,
         node_type: Optional[str] = None,
-        limit: int = 50,
-    ) -> List[KGNode]:
-        """搜索节点"""
+        page: int = 1,
+        page_size: int = 20,
+    ) -> Tuple[List[KGNode], int]:
+        """搜索节点，返回 (节点列表, 总数)"""
         kg = self._get_kg()
         if not kg:
-            return []
+            return [], 0
 
         try:
-            nt = KGNodeType(node_type) if node_type else None
             if query:
-                return await kg.storage.search_nodes(
+                nt = KGNodeType(node_type) if node_type else None
+                all_nodes = await kg.storage.search_nodes(
                     query=query,
                     user_id=user_id,
                     group_id=group_id,
                     node_type=nt,
-                    limit=limit,
+                    limit=500,
                 )
+                total = len(all_nodes)
+                offset = (page - 1) * page_size
+                return all_nodes[offset:offset + page_size], total
             return await self.list_nodes(
                 user_id=user_id,
                 group_id=group_id,
                 node_type=node_type,
-                limit=limit,
+                page=page,
+                page_size=page_size,
             )
         except Exception as e:
             logger.warning(f"Search KG nodes error: {e}")
-            return []
+            return [], 0
 
     async def list_edges(
         self,
@@ -104,19 +113,19 @@ class KnowledgeGraphRepository:
         group_id: Optional[str] = None,
         relation_type: Optional[str] = None,
         node_id: Optional[str] = None,
-        limit: int = 50,
-    ) -> Tuple[List[KGEdge], Dict[str, str]]:
-        """列出边，返回 (边列表, 节点名称映射)"""
+        page: int = 1,
+        page_size: int = 20,
+    ) -> Tuple[List[KGEdge], Dict[str, str], int]:
+        """列出边，返回 (边列表, 节点名称映射, 总数)"""
         kg = self._get_kg()
         if not kg:
-            return [], {}
+            return [], {}, 0
 
         try:
             storage = kg.storage
             async with storage._lock:
                 assert storage._conn
 
-                sql = "SELECT * FROM kg_edges"
                 conditions: List[str] = []
                 params: List[Any] = []
 
@@ -133,14 +142,17 @@ class KnowledgeGraphRepository:
                     conditions.append("(source_id = ? OR target_id = ?)")
                     params.extend([node_id, node_id])
 
-                if conditions:
-                    sql += " WHERE " + " AND ".join(conditions)
-                sql += f" ORDER BY created_time DESC LIMIT {int(limit)}"
+                where_clause = " WHERE " + " AND ".join(conditions) if conditions else ""
+
+                count_sql = "SELECT COUNT(*) as cnt FROM kg_edges" + where_clause
+                total = storage._conn.execute(count_sql, params).fetchone()["cnt"]
+
+                offset = (page - 1) * page_size
+                sql = "SELECT * FROM kg_edges" + where_clause + f" ORDER BY created_time DESC LIMIT {int(page_size)} OFFSET {int(offset)}"
 
                 rows = storage._conn.execute(sql, params).fetchall()
                 edges = [KGEdge.from_row(dict(r)) for r in rows]
 
-                # 获取节点名称映射
                 node_ids = set()
                 for e in edges:
                     node_ids.add(e.source_id)
@@ -157,11 +169,11 @@ class KnowledgeGraphRepository:
                         nrd = dict(nr)
                         node_names[nrd["id"]] = nrd.get("display_name") or nrd.get("name") or nrd["id"]
 
-            return edges, node_names
+            return edges, node_names, total
 
         except Exception as e:
             logger.warning(f"List KG edges error: {e}")
-            return [], {}
+            return [], {}, 0
 
     async def delete_node(self, node_id: str) -> Tuple[bool, str]:
         """删除节点及关联边"""
@@ -263,11 +275,11 @@ class KnowledgeGraphRepository:
                 }
 
             # 全局图
-            nodes = await self.list_nodes(user_id=user_id, group_id=group_id, limit=max_nodes)
+            nodes, _ = await self.list_nodes(user_id=user_id, group_id=group_id, page=1, page_size=max_nodes)
             node_ids_set = {n.id for n in nodes}
 
-            edges_list, _ = await self.list_edges(
-                user_id=user_id, group_id=group_id, limit=max_nodes * 3
+            edges_list, _, _ = await self.list_edges(
+                user_id=user_id, group_id=group_id, page=1, page_size=max_nodes * 3
             )
 
             return {

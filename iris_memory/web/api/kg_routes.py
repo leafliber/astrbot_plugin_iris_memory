@@ -24,7 +24,8 @@ def register_kg_routes(app: "Quart", container: "WebContainer") -> None:
             user_id=request.args.get("user_id"),
             group_id=request.args.get("group_id"),
             node_type=request.args.get("node_type"),
-            limit=safe_int(request.args.get("limit"), 50, max_val=500),
+            page=safe_int(request.args.get("page"), 1, min_val=1),
+            page_size=safe_int(request.args.get("page_size"), 20, min_val=1, max_val=100),
         )
         return success_response(data)
 
@@ -36,7 +37,8 @@ def register_kg_routes(app: "Quart", container: "WebContainer") -> None:
             group_id=request.args.get("group_id"),
             relation_type=request.args.get("relation_type"),
             node_id=request.args.get("node_id"),
-            limit=safe_int(request.args.get("limit"), 50, max_val=500),
+            page=safe_int(request.args.get("page"), 1, min_val=1),
+            page_size=safe_int(request.args.get("page_size"), 20, min_val=1, max_val=100),
         )
         return success_response(data)
 
