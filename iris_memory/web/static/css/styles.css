@@ -149,6 +149,7 @@ input[type="checkbox"] { width:16px; height:16px; accent-color:var(--accent); }
 
 /* Tabs */
 .tabs { display:flex; gap:0; border-bottom:1px solid var(--border); margin-bottom:16px; }
+.tabs .spacer { flex:1; }
 .tab { padding:10px 20px; cursor:pointer; border-bottom:2px solid transparent; color:var(--text2); transition:all 0.2s; }
 .tab:hover { color:var(--text); }
 .tab.active { color:var(--accent); border-bottom-color:var(--accent); }

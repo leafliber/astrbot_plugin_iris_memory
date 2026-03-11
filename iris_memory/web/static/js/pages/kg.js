@@ -19,6 +19,9 @@ let dragging = null, panning = false, panStart = { x: 0, y: 0 };
 const nodesState = { page: 1, pageSize: 20, total: 0 };
 const edgesState = { page: 1, pageSize: 20, total: 0 };
 
+// ── 加载状态 ──
+const loadedState = { graph: false, nodes: false, edges: false };
+
 export function initKg() {
   canvas = document.getElementById('kg-canvas');
   if (!canvas) return;
@@ -35,7 +38,20 @@ export function switchKgTab(tab) {
   document.querySelectorAll('#sec-kg .tab').forEach((el, i) => {
     el.classList.toggle('active', ['graph', 'nodes', 'edges'][i] === tab);
   });
-  if (tab === 'graph') drawGraph();
+
+  if (tab === 'graph') {
+    drawGraph();
+    if (!loadedState.graph) {
+      loadedState.graph = true;
+      loadKgGraph();
+    }
+  } else if (tab === 'nodes' && !loadedState.nodes) {
+    loadedState.nodes = true;
+    searchKgNodes();
+  } else if (tab === 'edges' && !loadedState.edges) {
+    loadedState.edges = true;
+    searchKgEdges();
+  }
 }
 
 export function refreshKgTab() {
