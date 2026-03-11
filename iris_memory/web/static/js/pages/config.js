@@ -74,7 +74,8 @@ function renderConfigItem(item) {
     inputHtml = `<input type="text" class="config-input" data-key="${esc(key)}" data-type="string" value="${esc(String(value ?? ''))}" ${readonly ? 'disabled' : ''}>`;
   }
 
-  return `<div class="config-item">
+  const readonlyClass = readonly ? ' config-item-readonly' : '';
+  return `<div class="config-item${readonlyClass}">
     <div class="config-meta">
       <span class="config-key">${esc(key)}</span>
       <span class="config-desc">${esc(desc)}</span>

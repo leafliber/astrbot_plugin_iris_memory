@@ -359,6 +359,10 @@
         <button class="btn btn-outline btn-sm" onclick="showConfigDiff()">查看差异</button>
         <button class="btn btn-outline btn-sm" onclick="exportConfigSnapshot()">导出快照</button>
       </div>
+      <div class="config-notice">
+        <span class="notice-icon">ℹ️</span>
+        <span class="notice-text">灰色配置项为只读，不可在 Web 界面修改。这是为了避免与 AstrBot 插件配置页面产生冲突，如需修改请前往 AstrBot 插件配置页面。</span>
+      </div>
       <div class="filter-bar">
         <input type="text" id="config-filter" placeholder="搜索配置项..." oninput="filterConfig()">
       </div>
