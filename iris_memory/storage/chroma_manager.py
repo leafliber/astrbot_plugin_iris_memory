@@ -213,19 +213,19 @@ class ChromaManager:
         embeddings = results.get('embeddings', [])
         metadatas = results.get('metadatas', [])
 
-        if documents and index < len(documents):
+        if documents is not None and index < len(documents):
             content = documents[index]
             if isinstance(content, list) and len(content) > 0:
                 content = content[0]
         else:
             content = ''
 
-        if embeddings and index < len(embeddings):
+        if embeddings is not None and index < len(embeddings):
             embedding = embeddings[index]
         else:
             embedding = None
 
-        if metadatas and index < len(metadatas):
+        if metadatas is not None and index < len(metadatas):
             metadata = metadatas[index]
             if isinstance(metadata, list) and len(metadata) > 0:
                 metadata = metadata[0]
