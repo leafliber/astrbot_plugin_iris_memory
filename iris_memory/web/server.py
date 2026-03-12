@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import os
 import socket
+import time
 from typing import Any, Optional
 
 from quart import Quart, request
@@ -116,7 +117,13 @@ def create_app(
 
 
 class StandaloneWebServer:
-    """独立 Web 服务器生命周期管理"""
+    """独立 Web 服务器生命周期管理
+    
+    适配 AstrBot 热重启机制：
+    1. 优雅关闭时释放端口
+    2. 启动前等待端口可用
+    3. 支持 SO_REUSEADDR 快速重启
+    """
 
     def __init__(
         self,
@@ -133,6 +140,7 @@ class StandaloneWebServer:
         self._shutdown_event: Optional[asyncio.Event] = None
         self._task: Optional[asyncio.Task] = None
         self._started: bool = False
+        self._sock: Optional[socket.socket] = None
 
     @property
     def app(self) -> Optional[Quart]:
@@ -149,19 +157,55 @@ class StandaloneWebServer:
             return False
 
     async def _wait_for_port(self, timeout: float = 5.0) -> bool:
-        """等待端口变为可用"""
-        start_time = asyncio.get_event_loop().time()
-        while asyncio.get_event_loop().time() - start_time < timeout:
+        """等待端口变为可用
+        
+        AstrBot 热重启时使用：等待旧进程释放端口
+        """
+        start_time = time.time()
+        while time.time() - start_time < timeout:
             if not self._is_port_in_use():
                 return True
             await asyncio.sleep(0.1)
         return False
 
+    def _create_socket_with_reuse(self) -> socket.socket:
+        """创建支持地址复用的 socket
+        
+        解决 AstrBot 热重启时的端口占用问题：
+        - SO_REUSEADDR: 允许重用处于 TIME_WAIT 状态的端口
+        - SO_REUSEPORT: 允许多个进程绑定同一端口（负载均衡，Linux）
+        """
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        
+        # SO_REUSEPORT 在某些系统上不可用
+        try:
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+        except (AttributeError, OSError):
+            pass
+        
+        sock.setblocking(False)
+        sock.bind((self._host, self._port))
+        sock.listen(128)
+        return sock
+
     async def start(self) -> None:
-        """启动 Web 服务器"""
+        """启动 Web 服务器
+        
+        适配 AstrBot 热重启流程：
+        1. 先等待端口释放（防止旧进程未完全关闭）
+        2. 创建支持地址复用的 socket
+        3. 使用 Hypercorn 的 fd:// 协议传递 socket
+        """
         if self._started and self._task and not self._task.done():
             logger.warning("Web 服务器已在运行中，跳过启动")
             return
+
+        # AstrBot 热重启时，等待旧进程释放端口
+        if self._is_port_in_use():
+            logger.info(f"端口 {self._port} 被占用，等待释放...")
+            if not await self._wait_for_port(timeout=5.0):
+                logger.warning(f"端口 {self._port} 未能在 5 秒内释放，尝试强制绑定...")
 
         self._app = create_app(
             self._memory_service,
@@ -171,30 +215,20 @@ class StandaloneWebServer:
 
         try:
             from hypercorn.asyncio.run import worker_serve
-            from hypercorn.config import Config as HyperConfig, Sockets
+            from hypercorn.config import Config as HyperConfig
             from hypercorn.utils import wrap_app
 
+            # 创建支持地址复用的 socket
+            self._sock = self._create_socket_with_reuse()
+            
             config = HyperConfig()
-            config.bind = [f"{self._host}:{self._port}"]
+            # 使用 fd:// 协议传递已创建的 socket
+            config.bind = [f"fd://{self._sock.fileno()}"]
             config.accesslog = None
             config.errorlog = "-"
-            config.graceful_timeout = 3
-
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            try:
-                sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
-            except (AttributeError, OSError):
-                pass
-            sock.setblocking(False)
-            sock.bind((self._host, self._port))
-            sock.listen(128)
-
-            sockets = Sockets(
-                secure_sockets=[],
-                insecure_sockets=[sock],
-                quic_sockets=[],
-            )
+            # 优雅关闭配置：给活跃连接更多时间完成
+            config.graceful_timeout = 5.0
+            config.shutdown_timeout = 10.0
 
             app_wrapper = wrap_app(self._app, config.wsgi_max_body_size, "asgi")
 
@@ -203,7 +237,6 @@ class StandaloneWebServer:
                     await worker_serve(
                         app_wrapper,
                         config,
-                        sockets=sockets,
                         shutdown_trigger=self._shutdown_event.wait,
                     )
                 except OSError as e:
@@ -216,10 +249,8 @@ class StandaloneWebServer:
                 except Exception as e:
                     logger.error(f"Web 服务器运行错误: {e}")
                 finally:
-                    try:
-                        sock.close()
-                    except Exception:
-                        pass
+                    # 确保 socket 被关闭
+                    self._close_socket()
 
             self._task = asyncio.create_task(_serve_with_error_handling())
             self._started = True
@@ -232,26 +263,50 @@ class StandaloneWebServer:
 
         except ImportError:
             logger.error("Hypercorn 未安装，无法启动 Web 服务器。请执行: pip install hypercorn")
+            self._close_socket()
         except Exception as e:
             logger.error(f"Web 服务器启动失败: {e}")
+            self._close_socket()
+
+    def _close_socket(self) -> None:
+        """安全关闭 socket"""
+        if self._sock:
+            try:
+                self._sock.close()
+            except Exception:
+                pass
+            finally:
+                self._sock = None
 
     async def stop(self) -> None:
-        """停止 Web 服务器"""
+        """停止 Web 服务器
+        
+        适配 AstrBot 热重启流程：
+        1. 触发优雅关闭信号
+        2. 等待活跃连接完成
+        3. 强制关闭超时连接
+        4. 确保端口释放
+        """
         if not self._started:
             return
 
         self._started = False
 
+        # 触发 Hypercorn 优雅关闭
         if self._shutdown_event:
             self._shutdown_event.set()
 
+        # 等待任务完成
         if self._task:
             try:
+                # 给优雅关闭 5 秒时间
                 await asyncio.wait_for(self._task, timeout=5.0)
+                logger.debug("Web 服务器优雅关闭完成")
             except asyncio.TimeoutError:
-                logger.warning("Web 服务器关闭超时，强制取消")
+                logger.warning("Web 服务器优雅关闭超时，强制取消")
                 self._task.cancel()
                 try:
+                    # 再给 2 秒强制关闭
                     await asyncio.wait_for(self._task, timeout=2.0)
                 except (asyncio.CancelledError, asyncio.TimeoutError):
                     pass
@@ -262,12 +317,18 @@ class StandaloneWebServer:
             finally:
                 self._task = None
 
+        # 确保 socket 关闭
+        self._close_socket()
+
         self._app = None
         self._shutdown_event = None
 
-        for _ in range(10):
+        # 等待端口完全释放（最多 3 秒）
+        for i in range(30):
             if not self._is_port_in_use():
                 break
             await asyncio.sleep(0.1)
+        else:
+            logger.warning(f"端口 {self._port} 可能未完全释放")
 
         logger.info("Web 服务器已停止")
