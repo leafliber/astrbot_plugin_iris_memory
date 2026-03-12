@@ -3,6 +3,19 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.11.0] - 2026-03-12
+
+### ⚠️注意
+本次更新优化了web管理界面的重载方式，基本上解决了web管理界面无法加载的问题，但需要完全重启Astrbot才能生效（重启docker或运行Astrbot机器）
+
+### Fixed
+- **Hypercorn 兼容性修复** (`iris_memory/web/server.py`)
+  - 修复 `worker_serve()` 不接受 `sockets` 参数的问题（新版 Hypercorn API 变更）
+  - 改为手动创建 socket 并使用 `fd://` 协议传递给 Hypercorn
+  - 添加 `SO_REUSEADDR` 和 `SO_REUSEPORT` 选项支持热重启
+  - 优化优雅关闭机制，配置 `graceful_timeout` 和 `shutdown_timeout`
+  - 适配 AstrBot 热重启流程，启动前等待端口释放
+
 ## [v1.10.4] - 2026-03-10
 
 ### Added
