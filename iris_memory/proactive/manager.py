@@ -891,7 +891,6 @@ class ProactiveManager:
             for m in decision.recent_messages[-5:]
         )
 
-        # 提取信号类型摘要
         signal_types = list({s.signal_type.value for s in decision.signals})
 
         trigger_prompt = (
@@ -915,6 +914,11 @@ class ProactiveManager:
             "- 如果是群聊环境，注意适度存在感，不要过度介入\n"
         )
 
+        trigger_message_time = None
+        if decision.signals:
+            latest_signal = max(decision.signals, key=lambda s: s.created_at)
+            trigger_message_time = latest_signal.created_at
+
         return ProactiveReplyResult(
             trigger_prompt=trigger_prompt,
             reply_params={
@@ -927,6 +931,7 @@ class ProactiveManager:
             target_user=decision.target_user_id,
             recent_messages=decision.recent_messages,
             source="signal_queue",
+            trigger_message_time=trigger_message_time,
         )
 
     # ── 配额控制 ──────────────────────────────────────────────

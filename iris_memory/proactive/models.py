@@ -186,6 +186,7 @@ class ProactiveReplyResult:
         recent_messages: 近期消息上下文
         emotion_summary: 用户情绪摘要
         source: 触发来源（signal_queue / followup）
+        trigger_message_time: 触发消息的时间，用于兜底检查消息时效性
     """
     trigger_prompt: str
     reply_params: Dict[str, Any] = field(default_factory=dict)
@@ -196,3 +197,4 @@ class ProactiveReplyResult:
     recent_messages: List[Dict[str, Any]] = field(default_factory=list)
     emotion_summary: str = ""
     source: str = "signal_queue"
+    trigger_message_time: Optional[datetime] = None

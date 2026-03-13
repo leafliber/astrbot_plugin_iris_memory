@@ -546,7 +546,6 @@ class FollowUpPlanner:
         reason = f"跟进回复（{decision.reply_type.value}）: {decision.reason}"
 
         if expectation.has_aggregated_messages:
-            # 用户有回应：继续对话
             msg_summary = "\n".join(
                 f"  {m.get('sender_name', '用户')}: {m.get('content', '')}"
                 for m in expectation.aggregated_messages[-5:]
@@ -563,7 +562,6 @@ class FollowUpPlanner:
                 "- 如果用户明确表示不感兴趣，可以自然结束话题\n"
             )
         else:
-            # 用户尚未回应：主动跟进关怀
             trigger_prompt = (
                 "【主动跟进场景】\n"
                 "你刚刚回复了用户，但用户还没有进一步发言，现在主动跟进延续话题。\n"
@@ -583,6 +581,23 @@ class FollowUpPlanner:
             for m in expectation.aggregated_messages[-5:]
         ]
 
+        trigger_message_time = None
+        if expectation.has_aggregated_messages:
+            latest_msg_time = None
+            for msg in expectation.aggregated_messages:
+                ts_str = msg.get("timestamp")
+                if ts_str:
+                    try:
+                        from datetime import datetime
+                        ts = datetime.fromisoformat(ts_str)
+                        if latest_msg_time is None or ts > latest_msg_time:
+                            latest_msg_time = ts
+                    except (ValueError, TypeError):
+                        pass
+            trigger_message_time = latest_msg_time
+        if trigger_message_time is None:
+            trigger_message_time = expectation.created_at
+
         return ProactiveReplyResult(
             trigger_prompt=trigger_prompt,
             reply_params={"max_tokens": 150, "temperature": 0.7},
@@ -592,6 +607,7 @@ class FollowUpPlanner:
             target_user=expectation.trigger_user_id,
             recent_messages=recent_messages,
             source="followup",
+            trigger_message_time=trigger_message_time,
         )
 
     def _cancel_short_window_timer(self, group_id: str) -> None:

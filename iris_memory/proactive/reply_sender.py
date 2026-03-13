@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any, Callable, Coroutine, Dict, Optional
 
 from iris_memory.proactive.models import ProactiveReplyResult
@@ -24,6 +25,8 @@ from iris_memory.core.provider_utils import get_default_provider
 from iris_memory.utils.logger import get_logger
 
 logger = get_logger("proactive.reply_sender")
+
+MESSAGE_FRESHNESS_MAX_SECONDS = 1200
 
 # 回调类型定义
 PrepareLLMContextCallback = Callable[
@@ -76,13 +79,14 @@ class ProactiveReplySender:
         """发送主动回复
 
         完整流程：
-        1. 获取目标群组的 UMO
-        2. 准备 LLM 上下文（记忆 + 画像 + 行为指导）
-        3. 组合系统指令 + 主动回复指令
-        4. 懒加载解析 LLM provider（按 umo 获取当前对话的活跃 provider）
-        5. 调用 LLM 生成回复文本
-        6. 通过平台 API 发送消息
-        7. 记录 Bot 回复到聊天缓冲区
+        1. 检查消息时效性（兜底机制）
+        2. 获取目标群组的 UMO
+        3. 准备 LLM 上下文（记忆 + 画像 + 行为指导）
+        4. 组合系统指令 + 主动回复指令
+        5. 懒加载解析 LLM provider（按 umo 获取当前对话的活跃 provider）
+        6. 调用 LLM 生成回复文本
+        7. 通过平台 API 发送消息
+        8. 记录 Bot 回复到聊天缓冲区
 
         Args:
             result: 主动回复结果，包含 trigger_prompt、目标信息等
@@ -97,7 +101,21 @@ class ProactiveReplySender:
             logger.warning("ProactiveReplySender: no group_id in result, skipping")
             return None
 
-        # 1. 获取 UMO
+        if result.trigger_message_time is not None:
+            elapsed = (datetime.now() - result.trigger_message_time).total_seconds()
+            if elapsed > MESSAGE_FRESHNESS_MAX_SECONDS:
+                logger.warning(
+                    f"ProactiveReplySender: trigger message too old "
+                    f"({elapsed:.0f}s > {MESSAGE_FRESHNESS_MAX_SECONDS}s), "
+                    f"skipping reply for group={group_id}, source={result.source}"
+                )
+                return None
+            logger.debug(
+                f"ProactiveReplySender: message freshness check passed "
+                f"({elapsed:.0f}s <= {MESSAGE_FRESHNESS_MAX_SECONDS}s) "
+                f"for group={group_id}"
+            )
+
         umo = self._get_group_umo(group_id)
         if not umo:
             logger.warning(
@@ -107,24 +125,20 @@ class ProactiveReplySender:
             return None
 
         try:
-            # 2. 准备 LLM 上下文（记忆 + 画像 + 行为指导）
             memory_context = await self._prepare_llm_context(
                 query="",
                 user_id=user_id,
                 group_id=group_id,
             )
 
-            # 3. 组合完整 prompt
             full_prompt = self._build_full_prompt(
                 memory_context=memory_context,
                 trigger_prompt=result.trigger_prompt,
             )
 
-            # 4. 解析 LLM provider（懒加载：优先用缓存值，否则按配置或默认解析）
             provider = self._llm_provider
             provider_id = self._llm_provider_id
             if not provider and not provider_id:
-                # 首次使用时懒加载解析 provider（此时 AstrBot 的 provider 已加载完毕）
                 if self._configured_provider_id:
                     from iris_memory.core.provider_utils import get_provider_by_id
                     provider, provider_id = get_provider_by_id(
@@ -133,10 +147,8 @@ class ProactiveReplySender:
                 if not provider:
                     provider, provider_id = get_default_provider(self._context, umo)
                 if not provider and not provider_id:
-                    # 最后兜底：不带 umo 的全局默认 provider
                     provider, provider_id = get_default_provider(self._context)
                 if provider_id:
-                    # 缓存解析结果，避免每次发送都重新解析
                     self._llm_provider = provider
                     self._llm_provider_id = provider_id
                     logger.debug(
@@ -149,7 +161,6 @@ class ProactiveReplySender:
                         f"for group={group_id}, reply will be skipped"
                     )
 
-            # 5. 调用 LLM
             llm_result = await call_llm(
                 context=self._context,
                 provider=provider,
@@ -169,10 +180,8 @@ class ProactiveReplySender:
                 logger.debug("ProactiveReplySender: LLM returned empty reply")
                 return None
 
-            # 6. 发送消息
             await self._send_message(umo, reply_text)
 
-            # 7. 记录 Bot 回复
             await self._record_chat_message(
                 sender_id="bot",
                 sender_name=None,
