@@ -3,6 +3,13 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.11.1] - 2026-03-14
+
+### Fixed
+- **记忆审核命令修复** (`iris_memory/commands/handlers.py`)
+  - 修复 `/memory review` 返回"记忆存储未初始化"的问题
+  - 修正 `_get_chroma_manager` 属性名：`_chroma_manager` → `chroma_manager`
+
 ## [v1.11.0] - 2026-03-13
 
 ### ⚠️Note

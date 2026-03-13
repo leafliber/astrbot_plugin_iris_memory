@@ -264,7 +264,7 @@ class CommandHandlers:
 
     def _get_chroma_manager(self) -> Any:
         """获取 Chroma 管理器"""
-        return getattr(self._service, "_chroma_manager", None)
+        return getattr(self._service, "chroma_manager", None)
 
     # ─────────────────────────────────────────────────────────────────────────────
     # Iris 命令
