@@ -3,6 +3,19 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.11.0] - 2026-03-13
+
+### ⚠️Note
+- 本次更新优化了 Web 管理端的启动逻辑，**需要完全重启 AstrBot（Docker/宿主机）才能生效**
+
+### Changed
+- **Web 管理端启动逻辑优化** (`iris_memory/web/server.py`)
+  - 重构 Uvicorn 服务器启动方式，使用标准 `server.serve()` API
+  - 移除不稳定的内部 API `config.http_protocol_class` 调用
+  - 修复服务器显示启动成功但无法处理请求的问题
+  - 优化端口复用 socket 管理
+  - 改进服务器停止时的优雅关闭逻辑
+
 ## [v1.10.6] - 2026-03-13
 
 ### Changed
