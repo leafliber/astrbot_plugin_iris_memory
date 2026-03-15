@@ -19,22 +19,9 @@ from iris_memory.stats.models import (
 )
 from iris_memory.stats.store import StatsKVStore
 from iris_memory.utils.logger import get_logger
+from iris_memory.core.constants import SOURCE_ALIASES
 
 logger = get_logger("stats.registry")
-
-
-SOURCE_ALIASES: Dict[str, str] = {
-    "iris_memory.knowledge_graph.kg_extractor.KGExtractor": "kg_extraction",
-    "iris_memory.multimodal.image_analyzer.ImageAnalyzer": "image_analysis",
-    "iris_memory.persona.llm_extractor.LLMExtractor": "persona_extraction",
-    "iris_memory.processing.llm_processor.LLMMessageProcessor": "message_processing",
-    "iris_memory.proactive.manager.ProactiveManager": "proactive",
-    "iris_memory.capture.semantic.semantic_extractor.SemanticExtractor": "semantic_extraction",
-    "iris_memory.core.detection.llm_enhanced_base.LLMEnhancedBase": "detection",
-    "iris_memory.proactive.reply_sender.ProactiveReplySender": "proactive_reply",
-    "iris_memory.core.upgrade_evaluator.UpgradeEvaluator": "upgrade_eval",
-    "iris_memory.capture.batch_processor.BatchCaptureProcessor": "batch_capture",
-}
 
 
 class LLMStatsRegistry:

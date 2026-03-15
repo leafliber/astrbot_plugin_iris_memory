@@ -21,6 +21,7 @@ from iris_memory.core.provider_utils import (
     get_provider_by_id,
     get_default_provider,
 )
+from iris_memory.core.constants import SOURCE_ALIASES
 
 logger = get_logger("llm_helper")
 
@@ -284,19 +285,6 @@ def _infer_caller_source() -> tuple[str, str]:
         (source_alias, source_class)
     """
     import inspect
-    
-    SOURCE_ALIASES: Dict[str, str] = {
-        "iris_memory.knowledge_graph.kg_extractor.KGExtractor": "kg_extraction",
-        "iris_memory.multimodal.image_analyzer.ImageAnalyzer": "image_analysis",
-        "iris_memory.persona.llm_extractor.LLMExtractor": "persona_extraction",
-        "iris_memory.processing.llm_processor.LLMMessageProcessor": "message_processing",
-        "iris_memory.proactive.manager.ProactiveManager": "proactive",
-        "iris_memory.capture.semantic.semantic_extractor.SemanticExtractor": "semantic_extraction",
-        "iris_memory.core.detection.llm_enhanced_base.LLMEnhancedBase": "detection",
-        "iris_memory.proactive.reply_sender.ProactiveReplySender": "proactive_reply",
-        "iris_memory.core.upgrade_evaluator.UpgradeEvaluator": "upgrade_eval",
-        "iris_memory.capture.batch_processor.BatchCaptureProcessor": "batch_capture",
-    }
     
     stack = inspect.stack()
     

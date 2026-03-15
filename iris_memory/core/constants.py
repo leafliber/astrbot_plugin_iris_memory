@@ -2,7 +2,7 @@
 常量定义模块 - 集中管理所有硬编码常量和Prompt模板
 """
 from enum import Enum
-from typing import Final, FrozenSet, Set
+from typing import Final, FrozenSet, Set, Dict
 
 from iris_memory.core.types import EmotionType
 
@@ -323,3 +323,23 @@ class CooldownMessages:
     )
     GROUP_ONLY: Final[str] = "冷却模式仅限群聊使用"
     INVALID_DURATION: Final[str] = "无效的时长格式，请使用数字或 30m / 1h 格式"
+
+
+SOURCE_ALIASES: Final[Dict[str, str]] = {
+    "iris_memory.knowledge_graph.kg_extractor.KGExtractor": "kg_extraction",
+    "iris_memory.multimodal.image_analyzer.ImageAnalyzer": "image_analysis",
+    "iris_memory.persona.llm_extractor.LLMExtractor": "persona_extraction",
+    "iris_memory.processing.llm_processor.LLMMessageProcessor": "message_processing",
+    "iris_memory.proactive.manager.ProactiveManager": "proactive",
+    "iris_memory.capture.semantic.semantic_extractor.SemanticExtractor": "semantic_extraction",
+    "iris_memory.core.detection.llm_enhanced_base.LLMEnhancedBase": "detection",
+    "iris_memory.proactive.reply_sender.ProactiveReplySender": "proactive_reply",
+    "iris_memory.core.upgrade_evaluator.UpgradeEvaluator": "upgrade_eval",
+    "iris_memory.capture.batch_processor.BatchCaptureProcessor": "batch_capture",
+    "iris_memory.retrieval.llm_retrieval_router.LLMRetrievalRouter": "retrieval_routing",
+    "iris_memory.capture.detector.llm_trigger_detector.LLMTriggerDetector": "trigger_detection",
+    "iris_memory.capture.detector.llm_sensitivity_detector.LLMSensitivityDetector": "sensitivity_detection",
+    "iris_memory.analysis.emotion.llm_emotion_analyzer.LLMEmotionAnalyzer": "emotion_analysis",
+    "iris_memory.capture.conflict.llm_conflict_resolver.LLMConflictResolver": "conflict_resolution",
+}
+"""LLM 调用来源别名映射（用于统计和监控）"""
