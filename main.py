@@ -242,13 +242,21 @@ class IrisMemoryPlugin(Star):
         Args:
             query(string): 搜索关键词或问题
         """
-        results = await self._service.retrieval.search(query, event, top_k=3)
+        user_id = event.get_sender_id()
+        group_id = event.get_group_id() if event.get_group_id() else None
+
+        results = await self._service.search_memories(
+            query=query,
+            user_id=user_id,
+            group_id=group_id,
+            top_k=3,
+        )
         if not results:
             return "未找到相关记忆"
 
         formatted = []
-        for i, r in enumerate(results, 1):
-            formatted.append(f"{i}. {r.memory.content} (置信度：{r.memory.confidence})")
+        for i, memory in enumerate(results, 1):
+            formatted.append(f"{i}. {memory.content} (置信度：{memory.confidence})")
         return "\n".join(formatted)
 
     @filter.event_message_type(filter.EventMessageType.ALL)
