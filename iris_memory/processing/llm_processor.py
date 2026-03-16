@@ -19,7 +19,7 @@ from iris_memory.core.provider_utils import (
     extract_provider_id,
     normalize_provider_id,
 )
-from iris_memory.core.constants import LLMRetryConfig, CircuitBreakerConfig, LLMRateLimitConfig
+from iris_memory.core.constants import LLMRetryConfig, CircuitBreakerConfig
 from iris_memory.utils.rate_limiter import DailyCallLimiter
 
 logger = get_logger("llm_processor")
@@ -68,7 +68,8 @@ class LLMMessageProcessor:
         classification_prompt: Optional[str] = None,
         summary_prompt: Optional[str] = None,
         max_tokens: int = 200,
-        provider_id: Optional[str] = None
+        provider_id: Optional[str] = None,
+        daily_limit: int = 500,
     ):
         self.astrbot_context = astrbot_context
         self._configured_provider_id = normalize_provider_id(provider_id)  # 配置指定的 provider_id
@@ -101,9 +102,7 @@ class LLMMessageProcessor:
         self._max_init_retries = 3
         
         # 速率限制
-        self._rate_limiter = DailyCallLimiter(
-            daily_limit=LLMRateLimitConfig.DAILY_CALL_LIMIT
-        )
+        self._rate_limiter = DailyCallLimiter(daily_limit=daily_limit)
         
         # 统计信息
         self.stats = {
@@ -350,7 +349,7 @@ class LLMMessageProcessor:
             remaining = self._rate_limiter.remaining
             logger.warning(
                 f"LLM daily rate limit reached "
-                f"(limit={LLMRateLimitConfig.DAILY_CALL_LIMIT}, remaining={remaining})"
+                f"(limit={self._rate_limiter._daily_limit}, remaining={remaining})"
             )
             return None
         

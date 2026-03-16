@@ -191,8 +191,11 @@ class CircuitBreakerConfig:
 
 
 class LLMRateLimitConfig:
-    """LLM 调用速率限制配置"""
-    DAILY_CALL_LIMIT: Final[int] = 500         # 每日最大 LLM 调用次数
+    """LLM 调用速率限制配置
+    
+    已废弃：请使用 schema.py 中的 llm.daily_call_limit 配置项
+    """
+    DAILY_CALL_LIMIT: Final[int] = 500
 
 
 # ── 批量处理会话管理常量 ──

@@ -145,6 +145,7 @@ class LLMEnhancedModule:
                 500,
             ),
             provider_id=cfg.get("llm_providers.memory_provider_id", None),
+            daily_limit=cfg.get("llm.daily_call_limit", 500),
         )
         llm_ready = await self._llm_processor.initialize()
         if llm_ready and lifecycle_manager:

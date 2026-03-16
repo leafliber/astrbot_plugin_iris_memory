@@ -174,6 +174,11 @@ _FIELDS: List[ConfigField] = [
        "智能增强 LLM 提供者", access=RO,
        alias="llm_enhanced_provider_id", normalize_provider=True),
 
+    # ── LLM 调用限制 ───────────────────────────────────────
+    _f("llm.daily_call_limit", int, 500,
+       "LLM 每日调用次数上限", access=RW,
+       alias="llm_daily_call_limit"),
+
     # ── 记忆核心设置 ─────────────────────────────────
     _f("memory.max_context_memories", int, 10,
        "最大上下文记忆数", access=RO, min_val=1, max_val=100,
