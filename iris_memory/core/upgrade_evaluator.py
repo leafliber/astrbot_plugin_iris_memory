@@ -519,11 +519,13 @@ class UpgradeEvaluator:
         try:
             async with self._llm_semaphore:
                 response = await self._call_llm(prompt)
+                if not response or not response.strip():
+                    logger.warning("LLM returned empty response (rate limit or error), falling back to rule-based evaluation")
+                    return self._rule_based_evaluation(memories, upgrade_type)
                 return self._parse_llm_response(response, memories)
             
         except Exception as e:
             logger.error(f"LLM evaluation failed: {e}")
-            # 降级到规则判断
             return self._rule_based_evaluation(memories, upgrade_type)
     
     async def _call_llm(self, prompt: str) -> str:
