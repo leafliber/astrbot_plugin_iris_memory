@@ -1,6 +1,6 @@
 name: astrbot_plugin_iris_memory # 插件唯一识别名，以 astrbot_plugin_ 前缀开头
 display_name: Iris Memory 智能三层记忆  # 用于展示的名字，可以是方便人类阅读的名字
 desc: 为 AstrBot 提供全功能记忆增强，内置主动回复、知识图谱、向量数据库、用户画像、Web管理等功能，支持人格隔离、astrbot错误拦截、图片分析、Markdown格式去除等实用功能。
-version: v1.11.1 # 插件版本号
+version: v1.11.2 # 插件版本号
 author: Leafiber # 作者
 repo: https://github.com/leafliber/astrbot_plugin_iris_memory # 插件的仓库地址

@@ -3,6 +3,15 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.11.2] - 2026-04-13
+
+### Fixed
+- **LLM Tool 保存结构修复** (`main.py`)
+  - 修复 `save_memory` LLM Tool 创建记忆时缺少必要字段的问题
+  - 新增 `user_id`、`sender_name`、`group_id` 字段
+  - 新增 `type=MemoryType.FACT` 和 `modality=ModalityType.TEXT` 类型标识
+  - 新增 `is_user_requested=True` 标记用户主动请求保存的记忆
+
 ## [v1.11.1] - 2026-03-14
 
 ### Removed
