@@ -4,6 +4,24 @@
 
 面向 AstrBot 的三层记忆插件：让机器人"记住你"，同时提供多种辅助功能。
 
+---
+
+> ## 📢 项目迁移公告（重要）
+>
+> 本项目（**iris_memory**）已进入**维护状态**，后续主力迭代已迁移至新版
+> **[astrbot_plugin_iris_chat_memory](https://github.com/Leafliber/astrbot_plugin_iris_chat_memory)**
+> （专注记忆能力的 v2 重构：L1 / L2 / L3 三层架构、精简记忆模型、Vue3 Web UI）。
+>
+> - **现状**：老版仍可正常使用；新功能将主要在新版迭代，本项目以维护与 Bug 修复为主。
+> - **新版地址**：https://github.com/Leafliber/astrbot_plugin_iris_chat_memory
+>
+> **迁移到新版的方式：**
+> 1. 在老版 Web UI「**导入导出 → 导出**」点击「**迁移到 Iris Chat Memory**」，将记忆导出为新版可识别的 JSON
+> 2. 安装新版插件，在其 Web UI「**数据管理 → 导入 L2 记忆**」上传该 JSON 即可完成记忆迁移
+> 3. 知识图谱 / 用户画像 / 配置暂需手动处理，详见 [更新日志](./CHANGELOG.md)
+
+---
+
 ⚠️注意：
 - 为避免功能冲突，建议关闭 AstrBot 自带的"主动回复"和"上下文感知"
 - 插件默认只用规则（rule）。想要更智能的升级，请在 AstrBot 插件配置里开启 LLM 分析，并将模式改为 hybrid 或 llm

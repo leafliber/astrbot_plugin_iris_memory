@@ -73,6 +73,25 @@ export async function exportPersonas() {
   }
 }
 
+// ── 迁移到 Iris Chat Memory（新版）──
+export async function exportToIrisChatMemory() {
+  const uid = val('exp-icm-user'), gid = val('exp-icm-group');
+  const layer = val('exp-icm-layer');
+
+  toast.info('正在导出迁移文件...');
+  try {
+    const resp = await api.download('/io/export/iris_chat_memory', {
+      user_id: uid, group_id: gid, storage_layer: layer,
+    });
+    if (!resp.ok) { toast.err('导出失败'); return; }
+    const blob = await resp.blob();
+    downloadBlob(blob, `iris_chat_memory_l2_${Date.now()}.json`);
+    toast.ok('导出完成，可在新版 Iris Chat Memory 中导入');
+  } catch (e) {
+    toast.err(`导出失败: ${e.message}`);
+  }
+}
+
 // ── 导入 ──
 export function handleFileDrop(event, type) {
   event.preventDefault();

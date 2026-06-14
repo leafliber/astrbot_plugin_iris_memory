@@ -304,6 +304,25 @@
             <button class="btn btn-primary" onclick="exportPersonas()">导出</button>
           </div>
         </div>
+        <div class="card">
+          <div class="card-title">🔄 迁移到 Iris Chat Memory（新版）</div>
+          <div style="font-size:13px;color:var(--text-secondary);margin-bottom:10px;line-height:1.6">
+            将记忆导出为 <strong>iris_chat_memory</strong> 可识别的 L2 导入格式（JSON）。
+            导出文件可在新版 Web UI「数据管理 → 导入 L2 记忆」中直接导入。<br>
+            <span style="color:var(--warning)">注：仅迁移记忆内容，知识图谱/画像需单独处理。</span>
+          </div>
+          <div class="filter-bar">
+            <input type="text" id="exp-icm-user" placeholder="用户ID (可选)">
+            <input type="text" id="exp-icm-group" placeholder="群组ID (可选)">
+            <select id="exp-icm-layer">
+              <option value="">全部层级</option>
+              <option value="working">工作记忆</option>
+              <option value="episodic">情景记忆</option>
+              <option value="semantic">语义记忆</option>
+            </select>
+            <button class="btn btn-primary" onclick="exportToIrisChatMemory()">导出迁移文件</button>
+          </div>
+        </div>
       </div>
       <!-- Import Tab -->
       <div id="io-tab-import" style="display:none">

@@ -26,7 +26,7 @@ import {
   loadProactiveStatus, addWhitelist, checkWhitelist, refreshProactiveTab,
   getState as proactiveGetState,
 } from './pages/proactive.js';
-import { switchIoTab, exportMemories, exportKg, handleFileDrop, handleFileSelect } from './pages/io.js';
+import { switchIoTab, exportMemories, exportKg, exportPersonas, exportToIrisChatMemory, handleFileDrop, handleFileSelect } from './pages/io.js';
 import { loadCooldown } from './pages/cooldown.js';
 import { loadLlm } from './pages/llm.js';
 import { loadSystem } from './pages/system.js';
@@ -121,7 +121,7 @@ Object.assign(window, {
   searchPersonas, loadPersonas, resetPersonaFilters,
   loadProactiveStatus, addProactiveWhitelist: addWhitelist,
   checkProactiveWhitelist: checkWhitelist, refreshProactiveTab,
-  switchIoTab, exportMemories, exportKg, handleFileDrop, handleFileSelect,
+  switchIoTab, exportMemories, exportKg, exportPersonas, exportToIrisChatMemory, handleFileDrop, handleFileSelect,
   loadCooldown,
   loadLlm,
   loadConfig, filterConfig, showConfigDiff: showDiff, exportConfigSnapshot: exportSnapshot,

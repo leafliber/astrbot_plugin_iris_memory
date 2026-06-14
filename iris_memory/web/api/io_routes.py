@@ -30,6 +30,21 @@ def register_io_routes(app: "Quart", container: "WebContainer") -> None:
             headers={"Content-Disposition": f'attachment; filename="{filename}"'},
         )
 
+    @app.route("/api/v1/io/export/iris_chat_memory", methods=["GET"])
+    async def api_export_iris_chat_memory():
+        """导出记忆为 iris_chat_memory（新版）导入格式。"""
+        svc = container.get("io_service")
+        data_str, content_type, filename = await svc.export_to_iris_chat_memory(
+            user_id=request.args.get("user_id"),
+            group_id=request.args.get("group_id"),
+            storage_layer=request.args.get("storage_layer"),
+        )
+        return Response(
+            data_str,
+            mimetype=content_type,
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+
     @app.route("/api/v1/io/import/memories", methods=["POST"])
     async def api_import_memories():
         fmt = request.args.get("format", "json")

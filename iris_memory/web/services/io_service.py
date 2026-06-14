@@ -101,6 +101,134 @@ class IoService:
             logger.error(f"Export memories error: {e}")
             return json.dumps({"error": str(e)}), "application/json", "error.json"
 
+    # ── 导出为 iris_chat_memory（新版）导入格式 ──
+
+    async def export_to_iris_chat_memory(
+        self,
+        user_id: Optional[str] = None,
+        group_id: Optional[str] = None,
+        storage_layer: Optional[str] = None,
+    ) -> Tuple[str, str, str]:
+        """导出记忆为 iris_chat_memory（新版）导入格式。
+
+        输出符合新版 ``l2_memory/io.py`` 的 ``MemoryExport`` 结构，
+        可直接通过新版 Web UI「数据管理 → 导入 L2 记忆」或
+        ``MemoryImporter.import_from_file`` 导入。
+
+        字段映射（老版 chroma metadata → 新版 entry.metadata）::
+
+            created_time      → timestamp       （新版时间筛选依赖）
+            group_id          → group_id
+            user_id           → user_id
+            last_access_time  → last_access_time
+            access_count      → access_count
+            confidence        → confidence
+            summarized        → source = "summary" / "tool"
+            其余字段原样保留，并标记 migrated_from="iris_memory"
+        """
+        try:
+            chroma = self._service.chroma_manager
+            if not chroma or not chroma.is_ready:
+                return "", "text/plain", "error.txt"
+
+            collection = chroma.collection
+            where_clause: Dict[str, Any] = {}
+            if user_id:
+                where_clause["user_id"] = user_id
+            if group_id:
+                where_clause["group_id"] = group_id
+            if storage_layer:
+                where_clause["storage_layer"] = storage_layer
+
+            if where_clause:
+                built = chroma._build_where_clause(where_clause)
+                res = collection.get(where=built, include=["documents", "metadatas"])
+            else:
+                res = collection.get(include=["documents", "metadatas"])
+
+            ids = res.get("ids", []) or []
+            documents = res.get("documents", []) or []
+            metadatas = res.get("metadatas", []) or []
+
+            def _to_int(v: Any, default: int = 0) -> int:
+                try:
+                    return int(v)
+                except (TypeError, ValueError):
+                    return default
+
+            def _to_float(v: Any, default: float = 0.5) -> float:
+                try:
+                    return float(v)
+                except (TypeError, ValueError):
+                    return default
+
+            entries: List[Dict[str, Any]] = []
+            total = min(len(ids), _EXPORT_MAX_MEMORIES)
+            skipped = 0
+
+            for i in range(total):
+                content = documents[i] if i < len(documents) else ""
+                if not content:
+                    skipped += 1
+                    continue
+
+                meta = metadatas[i] if i < len(metadatas) and metadatas[i] else {}
+                timestamp = meta.get("created_time") or datetime.now().isoformat()
+
+                entry_meta: Dict[str, Any] = {
+                    # 新版标准字段
+                    "group_id": meta.get("group_id") or "",
+                    "user_id": meta.get("user_id") or "",
+                    "timestamp": timestamp,
+                    "access_count": _to_int(meta.get("access_count"), 0),
+                    "confidence": _to_float(meta.get("confidence"), 0.5),
+                    "source": "summary" if meta.get("summarized") else "tool",
+                    # 保留的老版信息（新版会原样存入 metadata，便于回溯）
+                    "sender_name": meta.get("sender_name") or "",
+                    "type": meta.get("type"),
+                    "persona_id": meta.get("persona_id") or "default",
+                    "original_storage_layer": meta.get("storage_layer"),
+                    "importance_score": _to_float(meta.get("importance_score"), 0.5),
+                    "rif_score": _to_float(meta.get("rif_score"), 0.5),
+                    "migrated_from": "iris_memory",
+                }
+                last_access = meta.get("last_access_time")
+                if last_access:
+                    entry_meta["last_access_time"] = last_access
+                # 剔除 None，避免新版 metadata 写入 None
+                entry_meta = {k: v for k, v in entry_meta.items() if v is not None}
+
+                entries.append({"id": ids[i], "content": content, "metadata": entry_meta})
+
+            exported = len(entries)
+            export_data = {
+                "version": "1.0",
+                "persona_id": "default",
+                "export_time": datetime.now().isoformat(),
+                "entries": entries,
+                "stats": {
+                    "total_count": total,
+                    "exported_count": exported,
+                    "skipped_count": skipped,
+                },
+            }
+
+            timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"iris_chat_memory_l2_{timestamp_str}.json"
+            logger.info(
+                f"Export to iris_chat_memory: total={total} "
+                f"exported={exported} skipped={skipped}"
+            )
+            return (
+                json.dumps(export_data, ensure_ascii=False, indent=2),
+                "application/json",
+                filename,
+            )
+
+        except Exception as e:
+            logger.error(f"Export to iris_chat_memory error: {e}")
+            return json.dumps({"error": str(e)}), "application/json", "error.json"
+
     # ── 记忆导入 ──
 
     async def import_memories(self, data: str, fmt: str = "json") -> Dict[str, Any]:

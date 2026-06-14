@@ -3,6 +3,28 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v2.0.0] - 2026-06-14
+
+### ⚠️ 项目迁移公告
+- **本项目（iris_memory）已进入维护状态，后续主力迭代迁移至新版 [astrbot_plugin_iris_chat_memory](https://github.com/Leafliber/astrbot_plugin_iris_chat_memory)**
+  - 新版是专注记忆能力的 v2 重构：L1 Buffer / L2 记忆库 / L3 知识图谱 三层架构、更精简的记忆模型、Vue3 Web UI、标准化的导入导出
+  - 老版（v1.x / v2.x）仍可正常使用，但新功能将主要在新版迭代；本项目以维护、Bug 修复为主
+  - 新版仓库：https://github.com/Leafliber/astrbot_plugin_iris_chat_memory
+
+### Added
+- **Web 端新增「迁移到 Iris Chat Memory」导出功能** (`iris_memory/web/services/io_service.py`, `iris_memory/web/api/io_routes.py`, `iris_memory/web/static/`)
+  - 在 Web UI「导入导出 → 导出」页新增「🔄 迁移到 Iris Chat Memory」卡片，一键将记忆导出为新版可识别的 L2 导入格式（JSON）
+  - 字段映射：`created_time → timestamp`、`summarized → source(summary/tool)`，数值字段防御性转换，并标记 `migrated_from="iris_memory"` 便于回溯
+  - 后端路由 `GET /api/v1/io/export/iris_chat_memory`，支持 `user_id` / `group_id` / `storage_layer` 筛选
+  - 导出文件可在新版 Web UI「数据管理 → 导入 L2 记忆」直接导入（已通过跨仓库格式兼容性验证）
+  - 顺带修复 `exportPersonas` 未挂载到全局导致画像导出按钮无效的问题 (`iris_memory/web/static/js/main.js`)
+
+### 迁移方式
+1. **记忆（已支持）**：老版 Web UI → 导入导出 → 导出 → 「迁移到 Iris Chat Memory」→ 下载 JSON → 新版 Web UI「数据管理 → 导入 L2 记忆」上传
+2. **知识图谱**：暂需手动迁移（新版 `L3KGAdapter.import_from_data`，需核对节点 / 关系类型取值）
+3. **用户画像**：暂需手动迁移（老版 `UserPersona` → 新版 `profile` 模型差异较大）
+4. **配置**：两版 schema 不同，需手动映射对应配置项
+
 ## [v1.11.2] - 2026-04-13
 
 ### Fixed
