@@ -225,5 +225,14 @@ docker/*.sock
 .lingma/
 CODEBUDDY.md
 QWEN.md
+
+# Node / Frontend
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.vite/
+*.local
 AGENTS.md
 CLAUDE.md

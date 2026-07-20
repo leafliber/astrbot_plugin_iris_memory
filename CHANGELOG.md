@@ -3,6 +3,53 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v3.0.0] - TBD
+
+### 🔄 重构说明
+
+v3.0.0 是本插件的**整体重构与整合版本**：将 [astrbot_plugin_iris_chat_memory](https://github.com/Leafliber/astrbot_plugin_iris_chat_memory)（轻量记忆架构）与 astrbot_plugin_iris_reply（统一决策主动回复）的代码**整体移植合并为自包含插件**，同时保留 v2 的错误友好化与 Markdown 去除功能。**不依赖**上述两个插件，且不可与其同时启用（功能重叠，启动时有检测警告）。
+
+- 上游移植基线：astrbot_plugin_iris_chat_memory commit `cb15779`（2026-07-18）、astrbot_plugin_iris_reply commit `ccbffe6`（2026-07-20）
+- v2 用户升级请阅读 [docs/MIGRATION.md](./docs/MIGRATION.md)
+
+### Added
+
+- **记忆 + 主动回复二合一整合**：单一插件提供 L1 缓冲 / L2 向量记忆库（FAISS + SQLite）/ L3 知识图谱 / 画像系统 / 梦境 6 阶段离线加工 / 图片解析，以及统一决策主动回复（chime_in 跟话 / follow_up 跟进 / initiate 发起 / watch 被动评估）
+- **统一决策模型**：单次 LLM 调用同时输出 是否发言 + 发言内容 + 话题概括 + 关注对象 + 话题漂移 + 冷却建议；SignalGate 本地零 LLM 成本门控；ThreadAnchor 对话锚点记账；backoff 退避 + boost 自适应频率；静音时段（默认 01:00–07:00）
+- **initiate 直发通路**（`context.send_message`）+ 发起后接话闭环；**发起消息回填 L1**（v3 新增，修复原两插件并存时 initiate 消息不进 L1 的盲区）
+- **v2 旧数据启动时自动一次性迁移**（`iris_memory/legacy_migration/`）：ChromaDB 记忆 → L2 重算 embedding、knowledge_graph.db → L3、旧画像 KV → 新画像（好感度默认 50）、旧主动回复白名单 → `iris_reply:whitelist` 并集、8 个旧配置键映射直写；迁移前自动备份到 `<数据目录>/legacy_backup/`；幂等（KV 标志 `legacy:migration_done`）；单项失败隔离不阻断启动；chromadb 为软依赖，未安装则跳过 L2 迁移并记日志；该模块将在 v4 删除（main.py `LEGACY_MIGRATION_ENABLED` + 整个目录）
+- **Web 面板**：记忆管理 Vue3 SPA（Dashboard / L1 / L2 / L3 图谱 / 画像 / 导入导出备份 / 隐藏配置，pages/iris）+ 主动回复页（管理 / 统计 / 设置三个 tab，pages/stats），统一挂 AstrBot Dashboard 鉴权；回复侧 12 条 HTTP API（前缀 `/api/plug/astrbot_plugin_iris_memory/reply/*`）
+- **新指令组**：`/iris_mem`（l1\|l2\|l3\|profile\|all × stats\|clear\|show\|reset\|help，ADMIN）、`/iris_reply`（enable/disable/status/reset/cooldown/willingness/initiate，ADMIN + 群消息）
+- **LLM 工具**：记忆侧 6 个（save_memory / search_memory / correct_memory / save_knowledge / search_knowledge_graph / get_profile）+ 回复侧 3 个（add_follow_up / end_follow_up / set_cooldown）
+- **测试**：新增 117（proactive 整合）+ 77（legacy_migration）个用例，全量 986 用例全绿
+
+### Changed（破坏性变更）
+
+- **指令变更**：`/memory`、`/iris` 退役 → `/iris_mem`、`/iris_reply`
+- **LLM 工具变更**：`set_group_cooldown` / `get_cooldown_status` / `cancel_group_cooldown` 退役（由 `set_cooldown` 替代，`/iris_reply status` 可查状态）；`save_memory` / `search_memory` 保留
+- **独立 Web 服务取消**（原 127.0.0.1:8089 + access_key）→ 统一挂 AstrBot Dashboard
+- **配置体系重建**：v2 的 192 项配置废止 → `_conf_schema.json` 10 组 33 项；记忆侧约 50 项高级参数移入 `hidden_config.json`，回复侧 22 项高级参数由面板设置页管理（KV overrides）
+- **嵌入与存储**：ChromaDB / sentence-transformers 硬依赖移除 → faiss-cpu；本地嵌入 sentence-transformers 变为可选（仅 `l2_memory.embedding_source=local` 时需要）
+- **AstrBot 版本**：`on_agent_done` 钩子仅 AstrBot ≥ 4.23 注册（低版本插件仍可正常加载，仅旧版对话清理路径不可用）；**建议 AstrBot ≥ 4.23.6**
+- **必须禁用 AstrBot 内置群聊上下文**（`provider_ltm_settings.group_message_max_cnt = 0`），否则重复注入 + 第三人称问题
+- **v2 功能替代对照**：14 步捕获流水线 → L1 + LLM 总结；6 策略检索 + reranker → L2 向量 + L3 路径扩展；RIF / 情感分析 → 遗忘算法（`S=w1·R+w2·F+w3·C+w4·(1-D)`）+ 画像好感度；旧主动回复四级管线 → 统一决策；群冷却模块 → 回复侧冷却；群活跃度自适应 → willingness/backoff/boost
+
+### Removed
+
+- **依赖减重约 489MB**：移除 torch（378M）、onnxruntime（65M）、transformers（52M）、chromadb（4M）、sentence_transformers（3.8M，转可选）、uvicorn；新增 faiss（14M）
+- 移除 v2 的捕获 / 检索 / RIF / 情感分析 / 旧主动回复 / 群冷却 / 活跃度自适应等模块（均有上文替代）
+- 完全保留：错误友好化、Markdown 格式去除
+
+### 指标对比（v2 → v3）
+
+| 指标 | v2 | v3 | 变化 |
+|------|----|----|------|
+| 插件 Python 代码 | 49,217 行 | 35,143 行 | −28.6% |
+| 测试代码 | 29,682 行 | 18,884 行 | 986 用例全绿 |
+| _conf_schema | 56 项 / 16 组 | 33 项 / 10 组 | −41% 项数 |
+| 安装体积 | — | — | 减重约 489MB |
+| Token 控制 | 多阶段管线 | L1 队列 4000 / L2 注入 2000 / L3 注入 600 / 单条 ≤500 / 注入单条截 300 字符 / 主动回复单次决策调用 | — |
+
 ## [v2.0.0] - 2026-06-14
 
 ### ⚠️ 项目迁移公告

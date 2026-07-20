@@ -1,0 +1,330 @@
+/**
+ * Iris Memory 全局公共样式
+ *
+ * 统一各视图的卡片、分区标题、统计盒、空状态、列表项、表格等视觉风格
+ * 与 L3 图谱页面保持一致
+ */
+
+/* ============ 全局背景与字体 ============ */
+:root {
+  --iris-card-radius: 12px;
+  --iris-card-radius-sm: 10px;
+  --iris-card-radius-xs: 8px;
+  --iris-border-color: rgba(var(--v-theme-on-surface), 0.08);
+  --iris-border-color-strong: rgba(var(--v-theme-on-surface), 0.14);
+  --iris-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.04);
+  --iris-shadow-md: 0 2px 10px rgba(0, 0, 0, 0.05);
+  --iris-shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.08);
+  --iris-transition: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* 主体滚动条美化 */
+.v-application {
+  font-feature-settings: 'tnum' 1;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(var(--v-theme-on-surface), 0.18);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(var(--v-theme-on-surface), 0.32);
+}
+
+/* ============ 统一卡片样式 ============ */
+
+/* 主内容卡片：圆角 + 浅描边 + 轻阴影 */
+.iris-card {
+  border-radius: var(--iris-card-radius) !important;
+  border: 1px solid var(--iris-border-color) !important;
+  /* !important 覆盖 Vuetify 的 .v-card { transition-property: box-shadow, opacity, background }
+     （同为 0,1,0，Vuetify 排列在后会胜出），确保 transform 也参与过渡 */
+  transition: box-shadow var(--iris-transition), transform var(--iris-transition) !important;
+}
+
+.iris-card-hover:hover {
+  box-shadow: var(--iris-shadow-md);
+  transform: translateY(-1px);
+}
+
+/* 顶部主信息条卡片：带主色渐变 */
+.iris-hero-card {
+  border-radius: var(--iris-card-radius) !important;
+  border: 1px solid var(--iris-border-color) !important;
+  background: linear-gradient(
+    135deg,
+    rgba(var(--v-theme-primary), 0.04),
+    rgb(var(--v-theme-surface))
+  ) !important;
+}
+
+/* 列表卡片：固定高度可滚动 */
+/* 用 .v-card.iris-list-card 提高特异性到 (0,2,0)，覆盖 Vuetify 的
+   .v-card { display: block } (0,1,0)。此前仅用 .iris-list-card (0,1,0)
+   与 Vuetify 同级，且 Vuetify 规则在构建产物中排列更靠后，
+   导致 display: flex 被覆盖为 display: block，flex 布局失效，
+   v-card-text 的 flex:1 / min-height:0 无效，无法形成滚动容器。 */
+.v-card.iris-list-card {
+  border-radius: var(--iris-card-radius) !important;
+  border: 1px solid var(--iris-border-color) !important;
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 200px);
+}
+
+/* 用后代选择器替代直接子选择器，兼容可能的中间包裹层 */
+.iris-list-card .v-card-text {
+  flex: 1;
+  min-height: 0; /* 关键：允许 flex 子项收缩以触发 overflow */
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+/* ============ 统一分区标题 ============ */
+
+.iris-section-title {
+  /* !important 覆盖 Vuetify .v-card-title { display: block; letter-spacing: 0.0125em }
+     （同为 0,1,0，Vuetify 排列在后会胜出），否则 flex 布局失效，
+     图标和文字无法水平对齐 */
+  display: flex !important;
+  align-items: center;
+  font-weight: 600 !important;
+  letter-spacing: 0.01em !important;
+  color: rgba(var(--v-theme-on-surface), 0.88);
+}
+
+.iris-section-title .v-icon {
+  margin-right: 8px;
+}
+
+/* ============ 统一统计盒 ============ */
+
+.iris-stat-box {
+  text-align: center;
+  padding: 12px 10px;
+  background: linear-gradient(
+    135deg,
+    rgba(var(--v-theme-primary), 0.08),
+    rgba(var(--v-theme-primary), 0.02)
+  );
+  border-radius: var(--iris-card-radius-sm);
+  border: 1px solid rgba(var(--v-theme-primary), 0.12);
+  transition: transform var(--iris-transition), box-shadow var(--iris-transition);
+}
+
+.iris-stat-box:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--iris-shadow-sm);
+}
+
+.iris-stat-value {
+  font-size: 1.6rem;
+  font-weight: 700;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+
+.iris-stat-label {
+  font-size: 0.7rem;
+  color: rgba(var(--v-theme-on-surface), 0.6);
+  margin-top: 2px;
+  letter-spacing: 0.02em;
+}
+
+/* ============ 统一空状态 ============ */
+
+.iris-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 24px;
+  color: rgba(var(--v-theme-on-surface), 0.55);
+  text-align: center;
+}
+
+.iris-empty-state .v-icon {
+  opacity: 0.6;
+  margin-bottom: 12px;
+}
+
+.iris-empty-state__title {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: rgba(var(--v-theme-on-surface), 0.7);
+  margin-bottom: 4px;
+}
+
+.iris-empty-state__desc {
+  font-size: 0.85rem;
+  color: rgba(var(--v-theme-on-surface), 0.5);
+}
+
+/* ============ 统一列表项 ============ */
+
+.iris-list .v-list-item {
+  border-radius: var(--iris-card-radius-xs);
+  margin-bottom: 2px;
+  transition: background var(--iris-transition), transform var(--iris-transition);
+}
+
+.iris-list .v-list-item:hover {
+  background: rgba(var(--v-theme-primary), 0.06);
+}
+
+.iris-list .v-list-item.v-list-item--active {
+  background: rgba(var(--v-theme-primary), 0.12);
+  color: rgb(var(--v-theme-primary));
+}
+
+/* ============ 统一信息行（属性展示） ============ */
+
+.iris-info-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 0;
+  border-bottom: 1px solid rgba(var(--v-theme-on-surface), 0.04);
+  gap: 12px;
+}
+
+.iris-info-row:last-child {
+  border-bottom: none;
+}
+
+.iris-info-row__label {
+  flex-shrink: 0;
+  font-weight: 500;
+  color: rgba(var(--v-theme-on-surface), 0.6);
+}
+
+.iris-info-row__value {
+  text-align: right;
+  word-break: break-all;
+  color: rgba(var(--v-theme-on-surface), 0.88);
+}
+
+/* ============ 统一描述/引用块 ============ */
+
+.iris-content-block {
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.7;
+  color: rgba(var(--v-theme-on-surface), 0.85);
+  background: rgba(var(--v-theme-on-surface), 0.03);
+  padding: 10px 12px;
+  border-radius: var(--iris-card-radius-xs);
+  border-left: 3px solid rgba(var(--v-theme-primary), 0.4);
+}
+
+/* ============ 统一表格 ============ */
+
+.iris-table {
+  /* !important 覆盖 Vuetify .v-table { border-radius: inherit }
+     （同为 0,1,0，Vuetify 排列在后会胜出），否则自定义圆角丢失 */
+  border: 1px solid var(--iris-border-color) !important;
+  border-radius: var(--iris-card-radius-xs) !important;
+  overflow: hidden;
+}
+
+.iris-table tbody tr:hover {
+  background: rgba(var(--v-theme-on-surface), 0.03) !important;
+}
+
+/* ============ 统一标签芯片容器 ============ */
+
+.iris-tags-container {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: -4px;
+}
+
+.iris-tags-container .v-chip {
+  transition: transform var(--iris-transition);
+}
+
+.iris-tags-container .v-chip:hover {
+  transform: translateY(-1px);
+}
+
+/* ============ 统一对话框 ============ */
+
+.iris-dialog .v-card {
+  border-radius: var(--iris-card-radius) !important;
+  overflow: hidden;
+}
+
+.iris-dialog .v-card-title {
+  border-bottom: 1px solid var(--iris-border-color);
+  padding-bottom: 12px;
+}
+
+/* ============ 统一过渡动画 ============ */
+
+.iris-fade-enter-active,
+.iris-fade-leave-active {
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.iris-fade-enter-from,
+.iris-fade-leave-to {
+  opacity: 0;
+  transform: translateY(8px);
+}
+
+/* ============ 工具类 ============ */
+
+.iris-tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+.iris-muted {
+  color: rgba(var(--v-theme-on-surface), 0.55) !important;
+}
+
+.iris-mono {
+  font-family: 'JetBrains Mono', 'Fira Code', Consolas, Monaco, monospace;
+}
+
+/* 修复 v-list-item 三行高度不足 */
+.v-list-item--three-line .v-list-item__content {
+  padding: 6px 0;
+}
+
+/* ============ G6 Tooltip 全局样式 ============ */
+/* G6 将 tooltip 渲染到 document.body 下，不在任何 Vue 组件树内，
+   因此 scoped :deep() 选择器（编译为 [data-v-xxx] .l3-tip）永远无法命中。
+   必须放在全局非 scoped 样式表中。 */
+.l3-tip {
+  padding: 8px 12px;
+  font-size: 12px;
+  line-height: 1.6;
+  max-width: 240px;
+}
+
+.l3-tip-title {
+  font-weight: 600;
+  margin-bottom: 4px;
+  font-size: 13px;
+}
+
+.l3-tip-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.l3-tip-row span {
+  opacity: 0.7;
+}

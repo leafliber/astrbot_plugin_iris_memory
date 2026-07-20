@@ -1,35 +1,18 @@
-# Iris Memory Plugin 依赖列表
-# Python版本要求: 3.8+
+# 向量索引
+faiss-cpu>=1.7.0
+numpy>=1.24.0
 
-# 向量数据库
-chromadb>=0.4.0
+# 嵌入模型（可选，仅当 l2_memory.embedding_source 为 local 时需要）
+# sentence-transformers>=2.2.0
 
-# 嵌入模型（用于本地的文本向量）
-sentence-transformers>=2.2.0
+# Token 计数
+tiktoken>=0.5.0
 
-# 情感分析（可选，用于更准确的情感识别）
-#transformers>=4.30.0
-#torch>=2.0.0
+# Web 框架
+quart>=0.19.0
 
-# 数据处理
-numpy
+# 图片处理（pHash 去重 + 无效图过滤）
+Pillow>=10.0.0
 
-# 异步支持
-aiofiles
-
-# 其他工具
-python-dateutil
-pyyaml>=6.0
-
-# 测试依赖（可选）
-#pytest>=7.4.0
-#pytest-asyncio>=0.21.0
-#pytest-cov>=4.1.0
-
-# token支持
-tiktoken>=0.3.0
-
-# Web 服务器
-uvicorn>=0.23.0
-quart>=0.18.0
-quart-cors>=0.6.0
+# HTTP 客户端（图片 URL 可达性检查）
+httpx>=0.24.0

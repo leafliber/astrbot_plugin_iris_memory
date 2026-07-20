@@ -1,64 +1,107 @@
 """
-命令注册表模块
+Iris Chat Memory - 指令注册中心
 
-提供命令元信息查询，支持参数化子命令模式。
+管理所有指令处理器的注册和分发。
 """
 
-from typing import Callable, Awaitable, Any, Dict, Optional
+from typing import Dict, Optional, TYPE_CHECKING
 
-from iris_memory.commands.handlers import CommandHandlers
+from iris_memory.core import get_logger
+from .base import CommandHandler
+
+if TYPE_CHECKING:
+    pass
+
+logger = get_logger("commands.registry")
 
 
 class CommandRegistry:
-    """命令注册表
+    """指令注册中心
 
-    管理命令元信息，提供命令查询接口。
-    实际命令分发由 CommandHandlers 的统一入口方法处理。
+    管理所有指令处理器的注册和分发。
     """
 
-    def __init__(self, handlers: CommandHandlers) -> None:
-        self._handlers = handlers
-        self._memory_subcommands = {
-            "save", "search", "clear", "stats", "delete",
-            "review", "approve", "reject",
-        }
-        self._iris_subcommands = {
-            "proactive", "activity", "reset", "cooldown", "persona",
-        }
-        self._kv_required_commands = {
-            "memory.delete",
-            "iris.proactive",
-            "iris.reset",
-            "iris.persona",
-        }
+    _instance: Optional["CommandRegistry"] = None
 
-    def get_memory_handler(self, sub_command: str) -> Optional[Callable[..., Awaitable[str]]]:
-        """获取 memory 子命令处理器"""
-        if sub_command in self._memory_subcommands:
-            return self._handlers.handle_memory_command
-        return None
+    def __init__(self):
+        self._handlers: Dict[str, CommandHandler] = {}
 
-    def get_iris_handler(self, sub_command: str) -> Optional[Callable[..., Awaitable[str]]]:
-        """获取 iris 子命令处理器"""
-        if sub_command in self._iris_subcommands:
-            return self._handlers.handle_iris_command
-        return None
+    @classmethod
+    def get_instance(cls) -> "CommandRegistry":
+        """获取单例实例"""
+        if cls._instance is None:
+            cls._instance = cls()
+        return cls._instance
 
-    def has_memory_handler(self, sub_command: str) -> bool:
-        """检查 memory 子命令是否已注册"""
-        return sub_command in self._memory_subcommands
+    def register(self, handler: CommandHandler) -> None:
+        """注册指令处理器
 
-    def has_iris_handler(self, sub_command: str) -> bool:
-        """检查 iris 子命令是否已注册"""
-        return sub_command in self._iris_subcommands
+        Args:
+            handler: 指令处理器实例
+        """
+        name = handler.name.lower()
+        if name in self._handlers:
+            logger.warning(f"指令处理器 {name} 已存在，将被覆盖")
 
-    def requires_kv_operations(self, main_command: str, sub_command: str) -> bool:
-        """检查命令是否需要 KV 操作函数"""
-        return f"{main_command}.{sub_command}" in self._kv_required_commands
+        self._handlers[name] = handler
+        logger.info(f"已注册指令处理器: {name}")
 
-    def get_all_commands(self) -> Dict[str, list]:
-        """获取所有已注册的命令"""
-        return {
-            "memory": list(self._memory_subcommands),
-            "iris": list(self._iris_subcommands),
-        }
+    def get_handler(self, name: str) -> Optional[CommandHandler]:
+        """获取指令处理器
+
+        Args:
+            name: 指令名称
+
+        Returns:
+            指令处理器实例，不存在则返回 None
+        """
+        return self._handlers.get(name.lower())
+
+    def get_all_handlers(self) -> Dict[str, CommandHandler]:
+        """获取所有指令处理器"""
+        return self._handlers.copy()
+
+    def get_help_text(self) -> str:
+        """获取所有指令的帮助文本"""
+        lines = [
+            "📚 Iris Chat Memory 指令帮助",
+            "=" * 40,
+            "",
+            "用法: iris_mem <模块> <子指令> [参数]",
+            "",
+            "可用模块:",
+        ]
+
+        for name, handler in self._handlers.items():
+            lines.append(f"  {name}: {handler.description}")
+
+        lines.extend(
+            [
+                "",
+                "范围参数:",
+                "  @用户     - 指定用户",
+                "  --group   - 当前群聊所有用户",
+                "  --all     - 所有用户",
+                "",
+                "示例:",
+                "  iris_mem l1 clear              # 清空当前用户 L1",
+                "  iris_mem l2 clear @张三        # 清空张三的 L2",
+                "  iris_mem l3 clear --group      # 清空当前群 L3",
+                "  iris_mem profile reset         # 重置当前用户画像",
+                "  iris_mem all clear --all       # 清空所有记忆",
+                "",
+                "输入 'iris_mem <模块> help' 查看详细帮助",
+            ]
+        )
+
+        return "\n".join(lines)
+
+
+def get_registry() -> CommandRegistry:
+    """获取指令注册中心实例"""
+    return CommandRegistry.get_instance()
+
+
+def register_handler(handler: CommandHandler) -> None:
+    """注册指令处理器（便捷函数）"""
+    get_registry().register(handler)

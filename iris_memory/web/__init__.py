@@ -1,38 +1,41 @@
-"""Web 模块 — Iris Memory Web 管理界面
+"""
+Web 模块 - 通过 AstrBot Plugin Pages 提供管理界面
 
-架构层次：
-- api/            路由层（按领域拆分）
-- services/       业务编排层
-- repositories/   数据访问层
-- dto/            数据传输对象与转换器
+架构：
+- 后端：通过 context.register_web_api() 注册 API
+- 前端：Vue.js 3 SPA（构建到 pages/iris/ 目录）
+- 认证：由 AstrBot Dashboard 统一处理
 
-入口：
-- WebUIManager    插件侧调用，管理 Web UI 生命周期
-- StandaloneWebServer  独立 Quart 应用
+使用方式：
+    from iris_memory.web import register_all_routes
+
+    register_all_routes(context)
 """
 
-from __future__ import annotations
+from iris_memory.core import get_logger
 
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from iris_memory.web.server import StandaloneWebServer as StandaloneWebServer
-    from iris_memory.web.web_ui import WebUIManager as WebUIManager
-
-
-def __getattr__(name: str):
-    if name == "StandaloneWebServer":
-        from iris_memory.web.server import StandaloneWebServer
-
-        return StandaloneWebServer
-    if name == "WebUIManager":
-        from iris_memory.web.web_ui import WebUIManager
-
-        return WebUIManager
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-
+logger = get_logger("web")
 
 __all__ = [
-    "StandaloneWebServer",
-    "WebUIManager",
+    "register_all_routes",
 ]
+
+
+def register_all_routes(context) -> None:
+    from .routes.memory import register_memory_routes
+    from .routes.profile import register_profile_routes
+    from .routes.stats import register_stats_routes
+    from .routes.data_routes import register_data_routes
+    from .routes.manage_routes import register_manage_routes
+    from .routes.hidden_config_routes import register_hidden_config_routes
+    from .routes.ui_preferences_routes import register_ui_preferences_routes
+
+    register_memory_routes(context)
+    register_profile_routes(context)
+    register_stats_routes(context)
+    register_data_routes(context)
+    register_manage_routes(context)
+    register_hidden_config_routes(context)
+    register_ui_preferences_routes(context)
+
+    logger.info("所有 Web API 路由已注册")

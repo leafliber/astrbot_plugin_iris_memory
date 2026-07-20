@@ -1,377 +1,280 @@
-# Iris Memory Plugin - 测试文档
+# 测试目录结构
 
-## 📁 测试文件组织结构
+本目录按照业务逻辑组织测试文件，与 `iris_memory` 源码结构一一对应。
+
+## 目录结构
 
 ```
 tests/
-├── README.md                           # 本文件 - 测试文档
-├── __init__.py
-├── pytest.ini                          # pytest配置
+├── __init__.py              # 测试包初始化
+├── conftest.py              # Pytest 全局配置和 fixtures
+├── README.md                # 本文档
 │
-├── modules/                            # 核心模块测试
+├── config/                  # 配置系统测试
 │   ├── __init__.py
-│   ├── test_memory.py                 # Memory模型测试
-│   ├── test_emotion.py                # Emotion模型测试
-│   ├── test_entity_extractor.py       # 实体提取器测试
-│   └── test_cache.py                  # 缓存系统测试
+│   └── test_config.py       # Config、HiddenConfigManager 测试
 │
-├── embedding/                          # Embedding模块测试
+├── core/                    # 核心工具测试
 │   ├── __init__.py
-│   └── test_manager.py                # Embedding管理器测试
+│   ├── test_logger.py       # 日志模块测试
+│   ├── test_components.py   # 组件管理器测试
+│   ├── test_message_hook.py # 消息钩子测试
+│   └── test_llm_request_hook.py # LLM请求钩子测试
 │
-├── capture/                            # Capture模块测试
+├── l1_buffer/               # L1 缓冲测试
 │   ├── __init__.py
-│   ├── test_capture_engine.py          # 捕获引擎测试
-│   ├── test_sensitivity_detector.py   # 敏感度检测器测试
-│   └── test_trigger_detector.py       # 触发器检测器测试
+│   ├── test_buffer.py       # L1Buffer 测试
+│   ├── test_models.py       # 数据模型测试
+│   ├── test_summarizer.py   # 总结器测试
+│   └── test_delayed_init.py # 延迟初始化测试（修复验证）
 │
-├── retrieval/                          # Retrieval模块测试
+├── l2_memory/               # L2 记忆库测试
 │   ├── __init__.py
-│   ├── test_retrieval_router.py       # 检索路由测试
-│   └── test_reranker.py               # 重排序器测试
+│   ├── test_adapter.py      # ChromaDB 适配器测试
+│   ├── test_io.py           # IO 操作测试
+│   ├── test_models.py       # 数据模型测试
+│   └── test_retriever.py    # 检索器测试
 │
-├── storage/                            # Storage模块测试
+├── l3_kg/                   # L3 知识图谱测试
 │   ├── __init__.py
-│   ├── test_chroma_manager.py         # Chroma管理器测试
-│   └── test_lifecycle_manager.py      # 生命周期管理器测试
+│   ├── test_adapter.py      # KuzuDB 适配器测试
+│   └── test_models.py       # 数据模型测试
 │
-├── analysis/                           # Analysis模块测试
+├── llm/                     # LLM 管理测试
 │   ├── __init__.py
-│   ├── test_emotion_analyzer.py       # 情感分析器测试
-│   └── test_rif_scorer.py             # RIF评分器测试
+│   ├── test_manager.py      # LLMManager 测试
+│   ├── test_token_stats.py  # Token 统计测试
+│   └── test_config_access.py # 配置访问测试（修复验证）
 │
-├── models/                             # Models模块测试
+├── platform/                # 平台适配器测试
 │   ├── __init__.py
-│   ├── test_user_persona.py           # 用户画像测试
-│   └── test_emotion_state.py          # 情感状态测试
+│   └── test_platform.py     # PlatformAdapter 测试
 │
-├── utils/                              # Utils模块测试
+├── tools/                   # 工具测试
 │   ├── __init__.py
-│   ├── test_token_manager.py          # Token管理器测试
-│   └── test_logger.py                 # 日志工具测试
+│   └── test_save_knowledge.py # 知识保存测试
 │
-├── integration/                        # 集成测试
+├── utils/                   # 工具函数测试
 │   ├── __init__.py
-│   └── test_end_to_end.py             # 端到端测试
+│   ├── test_forgetting.py   # 遗忘曲线测试
+│   └── test_token_counter.py # Token 计数测试
 │
-├── legacy/                             # 遗留测试（逐步迁移）
+├── integration/             # 集成测试
 │   ├── __init__.py
-│   └── test_iris_memory.py            # 旧版综合测试
+│   ├── test_lifecycle_flow.py       # 生命周期流程测试
+│   └── test_l1_llm_integration.py   # L1与LLM集成测试
 │
-└── docs/                               # 测试文档
-    ├── test_improvement_plan.md       # 测试改进计划
-    ├── test_coverage_report.md        # 测试覆盖度报告
-    └── TEST_PROGRESS_SUMMARY.md       # 测试进度总结
+└── e2e/                     # 端到端测试
+    ├── __init__.py
+    └── test_message_to_summary_flow.py # 消息到总结流程测试
 ```
 
-## 🎯 测试覆盖范围
+## 测试分类
 
-### 核心模块
-| 模块 | 测试文件 | 覆盖率 | 状态 |
-|-----|---------|--------|------|
-| Memory/Emotion模型 | `modules/test_memory.py` | 95% | ✅ |
-| EntityExtractor | `modules/test_entity_extractor.py` | 90% | ✅ |
-| 缓存系统 | `modules/test_cache.py` | 95% | ✅ |
+### 1. 单元测试（Unit Tests）
 
-### Embedding模块
-| 模块 | 测试文件 | 覆盖率 | 状态 |
-|-----|---------|--------|------|
-| EmbeddingManager | `embedding/test_manager.py` | 90% | ✅ |
+测试单个函数或方法的功能。
 
-### Capture模块
-| 模块 | 测试文件 | 覆盖率 | 状态 |
-|-----|---------|--------|------|
-| CaptureEngine | `capture/test_capture_engine.py` | 95% | ✅ |
-| SensitivityDetector | `capture/test_sensitivity_detector.py` | 95% | ✅ |
-| TriggerDetector | `capture/test_trigger_detector.py` | 95% | ✅ |
+**位置**：各模块目录下的 `test_*.py`
 
-### Retrieval模块
-| 模块 | 测试文件 | 覆盖率 | 状态 |
-|-----|---------|--------|------|
-| RetrievalRouter | `retrieval/test_retrieval_router.py` | 90% | ✅ |
-| Reranker | `retrieval/test_reranker.py` | 90% | ✅ |
+**示例**：
+- `config/test_config.py` - 配置访问
+- `llm/test_config_access.py` - 配置键访问验证
+- `l1_buffer/test_delayed_init.py` - 延迟初始化验证
 
-### Storage模块
-| 模块 | 测试文件 | 覆盖率 | 状态 |
-|-----|---------|--------|------|
-| ChromaManager | `storage/test_chroma_manager.py` | 90% | ✅ |
-| LifecycleManager | `storage/test_lifecycle_manager.py` | 90% | ✅ |
+### 2. 组件测试（Component Tests）
 
-### Analysis模块
-| 模块 | 测试文件 | 覆盖率 | 状态 |
-|-----|---------|--------|------|
-| EmotionAnalyzer | `analysis/test_emotion_analyzer.py` | 90% | ✅ |
-| RIFScorer | `analysis/test_rif_scorer.py` | 90% | ✅ |
+测试单个组件的所有功能。
 
-### Models模块
-| 模块 | 测试文件 | 覆盖率 | 状态 |
-|-----|---------|--------|------|
-| UserPersona | `models/test_user_persona.py` | 95% | ✅ |
-| EmotionState | `models/test_emotion_state.py` | 90% | ✅ |
+**位置**：各模块目录下的 `test_*.py`
 
-### Utils模块
-| 模块 | 测试文件 | 覆盖率 | 状态 |
-|-----|---------|--------|------|
-| TokenManager | `utils/test_token_manager.py` | 90% | ✅ |
-| Logger | `utils/test_logger.py` | 80% | ✅ |
+**示例**：
+- `l1_buffer/test_buffer.py` - L1Buffer 完整功能
+- `llm/test_manager.py` - LLMManager 完整功能
 
-### Integration测试
-| 模块 | 测试文件 | 状态 |
-|-----|---------|------|
-| 端到端流程 | `integration/test_end_to_end.py` | ✅ |
+### 3. 集成测试（Integration Tests）
 
-## 🚀 运行测试
+测试多个组件之间的协作。
 
-### 安装依赖
-```bash
-pip install pytest pytest-asyncio pytest-cov pytest-mock
-```
+**位置**：`integration/` 目录
+
+**示例**：
+- `test_lifecycle_flow.py` - 组件初始化顺序和依赖注入
+- `test_l1_llm_integration.py` - L1Buffer 与 LLMManager 协作
+
+### 4. 端到端测试（End-to-End Tests）
+
+测试完整的业务流程。
+
+**位置**：`e2e/` 目录
+
+**示例**：
+- `test_message_to_summary_flow.py` - 消息处理到总结的完整流程
+
+## 运行测试
 
 ### 运行所有测试
+
 ```bash
-# 基本运行
+# 使用 uv
+uv run pytest tests/ -v
+
+# 或使用 pytest
 pytest tests/ -v
-
-# 显示详细输出
-pytest tests/ -v -s
-
-# 只运行失败的测试
-pytest tests/ --lf
-
-# 并行运行（需要pytest-xdist）
-pytest tests/ -n auto
 ```
 
-### 运行特定模块
+### 运行特定类型的测试
+
 ```bash
-# 核心模块
-pytest tests/modules/ -v
+# 单元测试
+pytest tests/ -v -k "not integration and not e2e"
 
-# Embedding模块
-pytest tests/embedding/ -v
-
-# Capture模块
-pytest tests/capture/ -v
-
-# Retrieval模块
-pytest tests/retrieval/ -v
-
-# Storage模块
-pytest tests/storage/ -v
-
-# Analysis模块
-pytest tests/analysis/ -v
-
-# Models模块
-pytest tests/models/ -v
-
-# Utils模块
-pytest tests/utils/ -v
-
-# Integration测试
+# 集成测试
 pytest tests/integration/ -v
+
+# 端到端测试
+pytest tests/e2e/ -v
 ```
 
-### 运行特定测试
+### 运行特定模块测试
+
 ```bash
-# 运行特定文件
-pytest tests/capture/test_capture_engine.py -v
+# 配置系统测试
+pytest tests/config/ -v
 
-# 运行特定测试类
-pytest tests/models/test_user_persona.py::TestUserPersonaInit -v
+# LLM 管理测试
+pytest tests/llm/ -v
 
-# 运行特定测试方法
-pytest tests/models/test_user_persona.py::TestUserPersonaInit::test_init_with_defaults -v
+# L1 缓冲测试
+pytest tests/l1_buffer/ -v
+```
 
-# 按标记运行
-pytest tests/ -m "not slow"  # 跳过慢速测试
+### 运行特定测试文件
+
+```bash
+# 配置访问测试（修复验证）
+pytest tests/llm/test_config_access.py -v
+
+# 延迟初始化测试（修复验证）
+pytest tests/l1_buffer/test_delayed_init.py -v
+
+# 生命周期流程测试
+pytest tests/integration/test_lifecycle_flow.py -v
 ```
 
 ### 生成覆盖率报告
+
 ```bash
-# HTML报告（推荐）
 pytest tests/ --cov=iris_memory --cov-report=html
-open htmlcov/index.html
-
-# 终端报告
-pytest tests/ --cov=iris_memory --cov-report=term-missing
-
-# XML报告（CI/CD）
-pytest tests/ --cov=iris_memory --cov-report=xml
 ```
 
-## 📊 测试统计
+## 测试覆盖
 
-### 当前状态
-- **测试文件总数**: 21个
-- **测试用例总数**: ~575个
-- **总体覆盖率**: 85%+
-- **通过率**: 100%
+### 核心功能覆盖
 
-### 各模块覆盖率
-| 模块类别 | 覆盖率 |
-|---------|--------|
-| 核心模块 | 93% |
-| Embedding | 90% |
-| Capture | 95% |
-| Retrieval | 90% |
-| Storage | 90% |
-| Analysis | 90% |
-| Models | 93% |
-| Utils | 85% |
-| Integration | 80% |
+| 模块 | 单元测试 | 组件测试 | 集成测试 | E2E测试 |
+|------|---------|---------|---------|---------|
+| 配置系统 | ✅ | ✅ | ✅ | - |
+| 组件管理器 | ✅ | ✅ | ✅ | - |
+| L1 缓冲 | ✅ | ✅ | ✅ | ✅ |
+| L2 记忆库 | ✅ | ✅ | - | - |
+| L3 知识图谱 | ✅ | ✅ | - | - |
+| LLM 管理 | ✅ | ✅ | ✅ | ✅ |
 
-## 🏗️ 测试架构
+### 修复验证测试
 
-### 测试层次
-1. **单元测试**: 测试单个类/函数
-2. **集成测试**: 测试模块间的交互
-3. **端到端测试**: 测试完整的工作流
+| 修复问题 | 测试文件 | 状态 |
+|---------|---------|------|
+| LLMManager 配置键访问 | `llm/test_config_access.py` | ✅ |
+| L1Buffer 延迟初始化 | `l1_buffer/test_delayed_init.py` | ✅ |
+| ComponentManager 注入 | `integration/test_lifecycle_flow.py` | ✅ |
 
-### 测试模式
-- **正常路径测试**: 验证功能在正常输入下的表现
-- **边界测试**: 测试边界值和极端情况
-- **异常测试**: 验证错误处理和降级机制
-- **性能测试**: 测试大规模数据下的性能（TODO）
+## 测试统计
 
-### Mock策略
-- **外部API**: Mock所有外部调用（嵌入模型、情感分析API等）
-- **数据库**: Mock ChromaDB操作
-- **文件系统**: Mock文件操作
-- **网络请求**: Mock HTTP请求
+- **总测试文件数**：24 个
+- **总测试用例数**：150+ 个
+- **测试分类**：
+  - 单元测试：100+
+  - 组件测试：30+
+  - 集成测试：10+
+  - 端到端测试：5+
 
-## 📝 测试规范
+## 添加新测试
 
-### 命名规范
-- **测试文件**: `test_<module>.py`
-- **测试类**: `Test<ClassName>`
-- **测试方法**: `test_<feature>_<scenario>`
+当添加新的业务模块时，请在 `tests/` 下创建对应的子目录：
 
-### 测试结构
+```bash
+# 示例：添加新模块测试
+mkdir tests/new_module
+touch tests/new_module/__init__.py
+touch tests/new_module/test_feature.py
+```
+
+测试文件命名规范：`test_<模块名>.py`
+
+### 添加集成测试
+
+```bash
+# 添加到 integration 目录
+touch tests/integration/test_new_integration.py
+```
+
+### 添加端到端测试
+
+```bash
+# 添加到 e2e 目录
+touch tests/e2e/test_new_flow.py
+```
+
+## 测试最佳实践
+
+### 1. 使用 Fixtures
+
 ```python
-import pytest
-from unittest.mock import Mock
-
-class TestMyClass:
-    """测试类文档字符串"""
-    
-    @pytest.fixture
-    def my_fixture(self):
-        """Fixture文档字符串"""
-        return Mock()
-    
-    def test_feature_normal_case(self, my_fixture):
-        """测试正常场景"""
-        # Arrange（准备）
-        # Act（执行）
-        # Assert（断言）
-        pass
-    
-    def test_feature_edge_case(self, my_fixture):
-        """测试边界情况"""
-        pass
-    
-    def test_feature_error_case(self, my_fixture):
-        """测试异常情况"""
-        pass
+@pytest.fixture
+def mock_config(tmp_path: Path):
+    """模拟配置"""
+    astrbot_config = Mock()
+    # ... 配置设置
+    return init_config(astrbot_config, tmp_path)
 ```
 
-### 测试原则
-1. **独立性**: 每个测试应该独立运行
-2. **可重复性**: 测试结果应该可预测
-3. **快速反馈**: 测试应该快速执行
-4. **清晰命名**: 测试名称应该描述清楚测试的内容
-5. **全面覆盖**: 测试应该覆盖正常、边界和异常情况
+### 2. 使用 Patch
 
-## 🔧 配置文件
-
-### pytest.ini
-```ini
-[pytest]
-testpaths = tests
-python_files = test_*.py
-python_classes = Test*
-python_functions = test_*
-addopts = 
-    -v
-    --strict-markers
-    --tb=short
-    --asyncio-mode=auto
-markers =
-    slow: marks tests as slow (deselect with '-m "not slow"')
-    integration: marks tests as integration tests
-    unit: marks tests as unit tests
+```python
+with patch('iris_memory.llm.manager.get_config') as mock_get_config:
+    mock_get_config.return_value = mock_config
+    # ... 测试代码
 ```
 
-### .coveragerc（可选）
-```ini
-[run]
-source = iris_memory
-omit = 
-    */tests/*
-    */__pycache__/*
-    */site-packages/*
+### 3. 异步测试
 
-[report]
-exclude_lines =
-    pragma: no cover
-    def __repr__
-    raise NotImplementedError
-    if __name__ == .__main__.:
+```python
+@pytest.mark.asyncio
+async def test_async_operation():
+    result = await async_function()
+    assert result is not None
 ```
 
-## 📚 相关文档
+### 4. 测试隔离
 
-- `docs/test_improvement_plan.md` - 测试改进计划
-- `docs/test_coverage_report.md` - 测试覆盖度详细报告
-- `docs/TEST_PROGRESS_SUMMARY.md` - 测试进度总结
+```python
+def test_isolation():
+    # 每个测试应该独立运行
+    # 使用 fixtures 创建独立的环境
+    pass
+```
 
-## 🤝 贡献指南
+## 持续集成
 
-### 添加新测试
-1. 确定测试所属模块
-2. 在对应的目录下创建测试文件
-3. 遵循命名和结构规范
-4. 添加适当的fixture
-5. 编写全面的测试用例
-6. 运行测试确保通过
+测试应该自动运行：
 
-### 代码审查检查清单
-- [ ] 测试覆盖了正常路径
-- [ ] 测试覆盖了边界情况
-- [ ] 测试覆盖了异常情况
-- [ ] 测试名称清晰明了
-- [ ] 使用了适当的mock
-- [ ] 测试能够独立运行
-- [ ] 测试通过
-- [ ] 没有linter警告
+- 提交代码时运行单元测试
+- 合并请求时运行所有测试
+- 发布前运行完整测试套件
 
-## 🔍 故障排查
+## 相关文档
 
-### 测试失败
-1. 查看详细的错误信息：`pytest tests/ -v -s`
-2. 只运行失败的测试：`pytest tests/ --lf`
-3. 进入调试模式：`pytest tests/ --pdb`
-4. 打印调试信息：在测试中使用 `print()` 或 `pytest.set_trace()`
-
-### 覆盖率低
-1. 运行覆盖率报告：`pytest tests/ --cov=iris_memory --cov-report=html`
-2. 查看未覆盖的代码：打开 `htmlcov/index.html`
-3. 为未覆盖的代码添加测试
-
-### Mock不生效
-1. 检查mock的对象是否正确
-2. 检查mock的调用顺序
-3. 使用 `Mock.assert_called_once_with()` 验证调用
-
-## 📧 联系和支持
-
-如有问题或建议，请：
-- 查看相关文档
-- 提交Issue
-- 创建Pull Request
-
----
-
-**最后更新**: 2025-01-30  
-**维护者**: Claude AI
+- [测试组织](ORGANIZATION.md)
+- [实施计划](../IMPLEMENTATION_PLAN.md)
+- [开发指南](../AGENTS.md)

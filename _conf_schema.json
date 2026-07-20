@@ -1,488 +1,309 @@
 {
-  "basic": {
-    "description": "基础功能开关",
+  "l1_buffer": {
     "type": "object",
+    "description": "L1 消息上下文缓冲",
+    "hint": "将最近的对话加入 LLM 上下文，超量时自动总结为长期记忆",
     "items": {
-      "enable_memory": {
-        "description": "启用记忆功能",
+      "enable": {
         "type": "bool",
         "default": true,
-        "hint": "开启后AI会自动记住重要对话内容"
+        "description": "启用 L1 上下文缓冲"
       },
-      "enable_inject": {
-        "description": "自动注入记忆到对话",
-        "type": "bool",
-        "default": true,
-        "hint": "对话时自动带入相关的历史记忆"
-      }
-    }
-  },
-  "logging": {
-    "description": "日志配置",
-    "type": "object",
-    "items": {
-      "log_level": {
-        "description": "日志级别",
+      "summary_provider": {
         "type": "string",
-        "default": "INFO",
-        "options": ["DEBUG", "INFO", "WARNING", "ERROR"],
-        "hint": "DEBUG显示最详细信息，推荐使用INFO"
-      }
-    }
-  },
-  "embedding": {
-    "description": "嵌入向量设置",
-    "type": "object",
-    "items": {
-      "source": {
-        "description": "嵌入源选择",
-        "type": "string",
-        "default": "auto",
-        "options": ["auto", "astrbot", "local"],
-        "hint": "auto-自动选择（推荐），astrbot-使用AstrBot提供的embedding服务，local-使用本地模型"
-      },
-      "astrbot_provider_id": {
-        "description": "AstrBot Embedding提供者",
-        "type": "string",
-        "_special": "select_embedding_provider",
         "default": "",
-        "hint": "留空使用第一个可用provider，可指定特定提供者（仅在嵌入源为auto或astrbot时生效）"
+        "description": "总结模型",
+        "hint": "用于 L1 缓冲总结的模型，留空则使用默认 Provider",
+        "_special": "select_provider"
       },
-      "local_model": {
-        "description": "本地嵌入模型",
-        "type": "string",
-        "default": "BAAI/bge-small-zh-v1.5",
-        "hint": "本地sentence-transformers模型名称，首次使用会自动下载"
-      },
-      "local_dimension": {
-        "description": "本地模型嵌入维度",
+      "inject_queue_length": {
         "type": "int",
-        "default": 512,
-        "hint": "本地模型的向量维度，留空自动检测。常见值：512（bge-small）, 768（bge-base）, 1024（bge-large/m3）（仅在嵌入源为auto或local时生效）"
+        "default": 50,
+        "description": "上下文消息条数",
+        "hint": "注入 LLM 上下文的最大消息条数，超量时自动总结旧消息为长期记忆。越大上下文越完整，但 Token 消耗越多，最少20条"
       },
-      "reimport_on_dimension_conflict": {
-        "description": "维度冲突后自动导入原记忆",
-        "type": "bool",
-        "default": true,
-        "hint": "更换嵌入模型后，开启此选项会自动将原记忆用新模型重新生成向量并导入。注意：这会导致所有记忆重新调用embedding服务，可能产生额外费用"
-      }
-    }
-  },
-  "llm_providers": {
-    "description": "LLM提供者配置",
-    "type": "object",
-    "items": {
-      "default_provider_id": {
-        "description": "默认LLM提供者",
-        "type": "string",
-        "_special": "select_provider",
-        "default": "",
-        "hint": "留空使用AstrBot默认提供者"
-      },
-      "memory_provider_id": {
-        "description": "记忆功能LLM提供者",
-        "type": "string",
-        "_special": "select_provider",
-        "default": "",
-        "hint": "用于记忆摘要、升级等任务，使用留空使用默认提供者"
-      },
-      "persona_provider_id": {
-        "description": "用户画像LLM提供者",
-        "type": "string",
-        "_special": "select_provider",
-        "default": "",
-        "hint": "用于用户画像提取，留空使用默认提供者"
-      },
-      "knowledge_graph_provider_id": {
-        "description": "知识图谱LLM提供者",
-        "type": "string",
-        "_special": "select_provider",
-        "default": "",
-        "hint": "用于知识图谱三元组提取，留空使用默认提供者"
-      },
-      "image_analysis_provider_id": {
-        "description": "图片分析LLM提供者（需要视觉模型）",
-        "type": "string",
-        "_special": "select_provider",
-        "default": "",
-        "hint": "用于图片内容分析，请选择支持Vision的模型"
-      },
-      "enhanced_provider_id": {
-        "description": "智能增强LLM提供者",
-        "type": "string",
-        "_special": "select_provider",
-        "default": "",
-        "hint": "用于敏感度检测等智能增强功能，调用量大，推荐使用token计费小模型，留空使用默认提供者"
-      }
-    }
-  },
-  "memory": {
-    "description": "记忆核心设置",
-    "type": "object",
-    "items": {
-      "max_context_memories": {
-        "description": "注入记忆数量",
-        "type": "int",
-        "default": 5,
-        "hint": "每次对话注入的相关记忆数量（1-10）"
-      },
-      "max_working_memory": {
-        "description": "工作记忆数量上限",
-        "type": "int",
-        "default": 20,
-        "hint": "会话内临时记忆数量上限，超过会触发升级"
-      },
-      "upgrade_mode": {
-        "description": "记忆升级模式",
-        "type": "string",
-        "default": "rule",
-        "options": ["rule", "llm", "hybrid"],
-        "hint": "rule-仅规则（省token），llm-LLM判断，hybrid-混合（推荐）"
-      },
-      "use_llm": {
-        "description": "启用LLM增强记忆处理",
-        "type": "bool",
-        "default": false,
-        "hint": "开启后使用LLM进行消息批量摘要、智能分类（质量更高但消耗token）"
-      },
-      "fast_track": {
-        "description": "核心信息快速通道",
+      "image_parsing": {
         "type": "object",
+        "description": "图片解析",
+        "hint": "将图片内容解析为文字描述，注入 LLM 上下文",
         "items": {
           "enable": {
-            "description": "启用快速通道",
-            "type": "bool",
-            "default": true,
-            "hint": "高置信身份信息（如姓名、生日）直接进入语义记忆，跳过情景阶段"
-          }
-        }
-      },
-      "emotion_decay": {
-        "description": "情感差异化衰减",
-        "type": "object",
-        "items": {
-          "enable": {
-            "description": "启用情感差异化衰减",
-            "type": "bool",
-            "default": true,
-            "hint": "正面情绪记忆缓慢衰减，负面情绪记忆加速遗忘，接近人类记忆特性"
-          }
-        }
-      },
-      "grace_period": {
-        "description": "温和遗忘宽限期",
-        "type": "object",
-        "items": {
-          "enable": {
-            "description": "启用宽限期",
-            "type": "bool",
-            "default": true,
-            "hint": "记忆被删除前进入宽限期，给予用户知情权和保留机会"
-          }
-        }
-      },
-      "scope_classifier": {
-        "description": "记忆可见性分类",
-        "type": "object",
-        "items": {
-          "llm_enable": {
-            "description": "启用LLM可见性分类",
             "type": "bool",
             "default": false,
-            "hint": "使用LLM判断记忆应为私聊可见还是群内共享（消耗token）"
-          }
-        }
-      },
-      "reinforcement": {
-        "description": "记忆强化",
-        "type": "object",
-        "items": {
-          "enable": {
-            "description": "启用记忆强化",
-            "type": "bool",
-            "default": true,
-            "hint": "定期分析重要记忆并更新 RIF 评分，防止高价值记忆衰减"
+            "description": "启用图片解析"
+          },
+          "provider": {
+            "type": "string",
+            "default": "",
+            "description": "图片解析模型 Provider",
+            "hint": "选择支持视觉能力的模型，留空则使用默认 Provider",
+            "_special": "select_provider"
+          },
+          "mode": {
+            "type": "string",
+            "default": "related",
+            "description": "解析模式",
+            "hint": "全：所有图片；相关：触发LLM/被引用/OCR命中的图片",
+            "options": [
+              "all",
+              "related"
+            ]
+          },
+          "daily_quota": {
+            "type": "int",
+            "default": 200,
+            "description": "每日解析限额",
+            "hint": "全局共享计数器，超限后静默跳过，每日00:00重置"
           }
         }
       }
     }
   },
-  "persona": {
-    "description": "用户画像提取设置",
+  "l2_memory": {
     "type": "object",
+    "description": "L2 记忆库",
+    "hint": "使用 ChromaDB 存储长期记忆向量",
     "items": {
-      "enabled": {
-        "description": "启用用户画像",
+      "enable": {
         "type": "bool",
         "default": true,
-        "hint": "开启后自动分析用户兴趣、风格、偏好，构建用户画像并注入对话上下文"
+        "description": "启用 L2 记忆库"
       },
-      "extraction_mode": {
-        "description": "画像提取模式",
+      "embedding_source": {
         "type": "string",
-        "default": "rule",
-        "options": ["rule", "llm", "hybrid"],
-        "hint": "rule-纯规则匹配（默认），llm-LLM智能提取，hybrid-混合模式（推荐）"
-      }
-    }
-  },
-  "knowledge_graph": {
-    "description": "知识图谱设置",
-    "type": "object",
-    "items": {
-      "enabled": {
-        "description": "启用知识图谱",
-        "type": "bool",
-        "default": true,
-        "hint": "从对话中自动提取实体关系，构建知识图谱，支持多跳推理"
+        "default": "provider",
+        "description": "嵌入模型来源",
+        "hint": "Provider：使用 AstrBot 配置的 Embedding 服务（推荐，无需下载模型）；本地：使用内置 sentence-transformers 模型（需下载约 96MB 模型文件）",
+        "options": [
+          "provider",
+          "local"
+        ]
       },
-      "extraction_mode": {
-        "description": "三元组提取模式",
+      "embedding_provider": {
         "type": "string",
-        "default": "rule",
-        "options": ["rule", "llm", "hybrid"],
-        "hint": "rule-规则匹配（默认），llm-LLM智能提取（更准确但消耗token），hybrid-混合"
+        "default": "",
+        "description": "Embedding Provider ID",
+        "hint": "填写 AstrBot 中配置的 Embedding Provider ID（可在 AstrBot 管理面板的「模型」页面查看），留空则自动使用第一个可用的"
       },
-      "max_depth": {
-        "description": "最大推理跳数",
-        "type": "int",
-        "default": 3,
-        "hint": "多跳推理的最大深度（1-5），值越大能发现越远的关联但速度越慢"
+      "embedding_model": {
+        "type": "string",
+        "default": "BAAI/bge-small-zh-v1.5",
+        "description": "本地嵌入模型",
+        "hint": "仅当嵌入来源为「本地」时生效。更换后需重建记忆库",
+        "options": [
+          "BAAI/bge-small-zh-v1.5",
+          "moka-ai/m3e-small",
+          "moka-ai/m3e-base",
+          "BAAI/bge-base-zh-v1.5",
+          "shibing624/text2vec-base-chinese",
+          "all-MiniLM-L6-v2"
+        ]
       },
-      "max_nodes_per_hop": {
-        "description": "每跳最大节点数",
+      "top_k": {
         "type": "int",
         "default": 10,
-        "hint": "每次跳转最多探索的节点数量，控制搜索广度（5-50）"
+        "description": "检索 Top-K",
+        "hint": "从记忆库检索的相关记忆数量"
       },
-      "max_facts": {
-        "description": "注入事实数量上限",
-        "type": "int",
-        "default": 8,
-        "hint": "注入LLM上下文的知识关联事实数量上限（3-20）"
-      },
-      "min_confidence": {
-        "description": "最小置信度",
+      "relevance_threshold": {
         "type": "float",
         "default": 0.3,
-        "hint": "低于此置信度的推理路径将被过滤（0.1-0.9）"
+        "description": "相关性阈值",
+        "hint": "低于此分数的检索结果将被过滤，0 表示不过滤，推荐 0.2-0.5"
       }
     }
   },
-  "llm_enhanced": {
-    "description": "LLM智能增强",
+  "l3_kg": {
     "type": "object",
+    "description": "L3 知识图谱",
+    "hint": "使用 SQLite 存储实体关系图谱",
     "items": {
       "enable": {
-        "description": "启用 LLM 智能增强",
-        "type": "bool",
-        "default": false,
-        "hint": "启用后可使用 LLM 进行敏感度检测、触发检测、情感分析等智能增强，关闭后，所有记忆增强流程都走纯规则流程"
-      },
-      "sensitivity_mode": {
-        "description": "敏感度检测模式",
-        "type": "string",
-        "default": "rule",
-        "options": ["rule", "llm", "hybrid"],
-        "hint": "rule-规则匹配（默认），llm-语义理解，hybrid-混合（推荐）"
-      },
-      "trigger_mode": {
-        "description": "触发器检测模式",
-        "type": "string",
-        "default": "rule",
-        "options": ["rule", "llm", "hybrid"],
-        "hint": "rule-关键词匹配（默认），llm-意图理解，hybrid-混合（推荐）"
-      },
-      "emotion_mode": {
-        "description": "情感分析模式",
-        "type": "string",
-        "default": "rule",
-        "options": ["rule", "llm", "hybrid"],
-        "hint": "rule-词典+规则（默认），llm-深度理解，hybrid-混合（推荐）"
-      },
-      "conflict_mode": {
-        "description": "冲突解决模式",
-        "type": "string",
-        "default": "rule",
-        "options": ["rule", "llm", "hybrid"],
-        "hint": "rule-相似度判断（默认），llm-语义判断，hybrid-混合（推荐）"
-      },
-      "retrieval_mode": {
-        "description": "检索路由模式",
-        "type": "string",
-        "default": "rule",
-        "options": ["rule", "llm", "hybrid"],
-        "hint": "rule-规则路由（默认），llm-意图理解，hybrid-混合（推荐）"
-      }
-    }
-  },
-  "image_analysis": {
-    "description": "图片分析设置",
-    "type": "object",
-    "items": {
-      "enable": {
-        "description": "启用图片分析",
         "type": "bool",
         "default": true,
-        "hint": "使用Vision LLM分析对话中的图片内容"
+        "description": "启用 L3 知识图谱"
       },
-      "mode": {
-        "description": "分析模式",
+      "extraction_provider": {
         "type": "string",
-        "default": "auto",
-        "options": ["auto", "brief", "detailed", "skip"],
-        "hint": "auto-智能判断（推荐）, brief-简要, detailed-详细, skip-跳过"
-      },
-      "daily_budget": {
-        "description": "每日分析次数上限",
-        "type": "int",
-        "default": 100,
-        "hint": "每天最多分析的图片数量，0表示无限制"
+        "default": "",
+        "description": "L3 实体提取模型 Provider",
+        "hint": "选择用于知识图谱实体提取的模型，留空则使用默认 Provider",
+        "_special": "select_provider"
       }
     }
   },
-  "proactive_reply": {
-    "description": "主动回复设置（v3：信号队列 + 跟进规划）",
+  "profile": {
     "type": "object",
+    "description": "画像系统",
+    "hint": "记录群聊画像和用户画像",
     "items": {
       "enable": {
+        "type": "bool",
+        "default": true,
+        "description": "启用画像系统"
+      },
+      "analysis_provider": {
+        "type": "string",
+        "default": "",
+        "description": "画像分析模型 Provider",
+        "hint": "选择用于画像分析的模型，留空则使用默认 Provider",
+        "_special": "select_provider"
+      },
+      "enable_auto_injection": {
+        "type": "bool",
+        "default": true,
+        "description": "启用画像自动注入",
+        "hint": "在每次LLM请求前自动注入画像到system_prompt"
+      },
+      "favorability_enable": {
+        "type": "bool",
+        "default": true,
+        "description": "启用好感度功能",
+        "hint": "记录用户与bot的好感度（0-100），随互动演化并影响回复语气"
+      }
+    }
+  },
+  "isolation_config": {
+    "type": "object",
+    "description": "隔离配置",
+    "hint": "(谨慎修改)控制记忆和图谱的隔离策略",
+    "items": {
+      "enable_group_memory_isolation": {
+        "type": "bool",
+        "default": false,
+        "description": "启用群聊记忆隔离",
+        "hint": "各群聊记忆独立存储，关闭则全局共享"
+      },
+      "enable_group_isolation": {
+        "type": "bool",
+        "default": false,
+        "description": "启用群聊用户画像隔离",
+        "hint": "各群聊用户画像独立存储，关闭则全局共享，切换会导致用户画像重建"
+      },
+      "enable_persona_isolation": {
+        "type": "bool",
+        "default": false,
+        "description": "启用bot人格隔离",
+        "hint": "不同bot人格的记忆与画像按人格ID逻辑隔离（共享底层存储、命名空间互不可见）；切换人格仅改变可见数据，不删除或重建"
+      }
+    }
+  },
+  "scheduled_tasks": {
+    "type": "object",
+    "description": "梦境任务",
+    "hint": "记忆的离线深度加工，包含6个阶段：合并重复、时间锚定、矛盾消解、模式挖掘、知识提取、遗忘清洗",
+    "items": {
+      "enable_dream": {
+        "type": "bool",
+        "default": true,
+        "description": "启用梦境任务",
+        "hint": "定期执行记忆的离线深度加工"
+      },
+      "provider": {
+        "type": "string",
+        "default": "",
+        "description": "梦境任务模型 Provider",
+        "hint": "选择用于执行梦境任务的模型，留空则使用默认 Provider",
+        "_special": "select_provider"
+      },
+      "dream_enable_consolidation": {
+        "type": "bool",
+        "default": true,
+        "description": "阶段1：合并重复项",
+        "hint": "归拢同一话题的碎片记忆"
+      },
+      "dream_enable_temporal_anchor": {
+        "type": "bool",
+        "default": true,
+        "description": "阶段2：时间锚定",
+        "hint": "将相对时间表达（昨天、上周等）转换为绝对日期"
+      },
+      "dream_enable_contradiction": {
+        "type": "bool",
+        "default": true,
+        "description": "阶段3：矛盾消解",
+        "hint": "检测并解决记忆间的逻辑冲突"
+      },
+      "dream_enable_pattern_discovery": {
+        "type": "bool",
+        "default": true,
+        "description": "阶段4：模式挖掘",
+        "hint": "发现隐含的行为规律和偏好模式"
+      },
+      "dream_enable_knowledge_extract": {
+        "type": "bool",
+        "default": true,
+        "description": "阶段5：知识提取",
+        "hint": "从L2记忆提取实体和关系写入L3知识图谱"
+      },
+      "dream_enable_pruning": {
+        "type": "bool",
+        "default": true,
+        "description": "阶段6：遗忘清洗",
+        "hint": "淘汰低价值记忆和图谱节点"
+      }
+    }
+  },
+  "context_control": {
+    "type": "object",
+    "description": "上下文接管",
+    "hint": "控制 AstrBot 内置对话历史的管理策略，确保上下文完全由本插件的 L1/L2/L3 记忆系统接管",
+    "items": {
+      "enable_conversation_cleanup": {
+        "type": "bool",
+        "default": true,
+        "description": "启用上下文接管",
+        "hint": "开启后，每次 LLM 请求前自动清空 AstrBot 内置对话历史(req.contexts)，上下文完全由本插件的记忆系统提供。保留对话 ID 以兼容 AstrBot 主动回复功能。关闭后 AstrBot 将保留并使用内置对话历史"
+      }
+    }
+  },
+  "proactive": {
+    "type": "object",
+    "description": "主动回复",
+    "hint": "统一决策主动回复（跟话/跟进/发起）。更多高级参数在插件页面「主动回复」设置页中调整",
+    "items": {
+      "enabled": {
+        "type": "bool",
+        "default": true,
         "description": "启用主动回复",
+        "hint": "总开关。关闭后不进行任何主动发言评估（管理指令仍可用）"
+      },
+      "stats_enabled": {
         "type": "bool",
         "default": false,
-        "hint": "在群聊沉默期间，根据群内容，主动发送消息（消耗LLM）"
+        "description": "启用决策统计",
+        "hint": "开启后在插件页面记录每次决策的 prompt 与结果，便于调优"
       },
-      "followup_after_all_replies": {
-        "description": "Bot回复后继续跟进",
-        "type": "bool",
-        "default": false,
-        "hint": "Bot 的每次回复后，智能跟进对话（消耗LLM）。与主动回复开关独立生效"
-      },
-      "group_whitelist_mode": {
-        "description": "群聊白名单模式",
-        "type": "bool",
-        "default": false,
-        "hint": "开启后仅在管理员通过指令启用的群聊中触发主动回复，使用 /proactive_reply on|off 控制"
-      },
-      "followup_window_seconds": {
-        "description": "跟进窗口时长（秒）",
-        "type": "int",
-        "default": 120,
-        "hint": "Bot 回复后等待该跟进最长时间"
-      },
-      "max_followup_count": {
-        "description": "最大跟进次数",
-        "type": "int",
-        "default": 2,
-        "hint": "单次主动回复后最大连续跟进回复的次数"
-      },
-      "proactive_mode": {
-        "description": "主动回复模式",
+      "provider_id": {
         "type": "string",
-        "default": "rule",
-        "options": ["rule", "hybrid"],
-        "hint": "rule-仅规则信号聚合（默认），hybrid-对中置信信号进行 LLM 确认（推荐）"
-      }
-    }
-  },
-  "activity_adaptive": {
-    "description": "场景自适应设置",
-    "type": "object",
-    "items": {
-      "enable": {
-        "description": "启用场景自适应",
-        "type": "bool",
-        "default": true,
-        "hint": "根据群活跃度自动调整主动回复频率、批量处理参数等配置，实现温和型陪伴风格。使用 /activity_status 查看各群状态"
-      }
-    }
-  },
-  "retrieval": {
-    "description": "检索增强设置",
-    "type": "object",
-    "items": {
-      "graph_augmented": {
-        "description": "图增强混合检索",
-        "type": "object",
-        "items": {
-          "enable": {
-            "description": "启用图增强检索",
-            "type": "bool",
-            "default": true,
-            "hint": "向量检索结果结合知识图谱关系进行扩展，发现关联记忆"
-          }
-        }
-      }
-    }
-  },
-  "persona_isolation": {
-    "description": "人格隔离设置",
-    "type": "object",
-    "items": {
-      "memory_query_by_persona": {
-        "description": "记忆按人格隔离查询",
-        "type": "bool",
-        "default": false,
-        "hint": "开启后不同Bot人格只能看到各自的记忆数据，适合多人格场景"
-      },
-      "kg_query_by_persona": {
-        "description": "知识图谱按人格隔离查询",
-        "type": "bool",
-        "default": false,
-        "hint": "开启后不同Bot人格只能看到各自的知识图谱数据，适合多人格场景"
+        "default": "",
+        "description": "决策模型 Provider",
+        "hint": "主动回复统一决策使用的模型，留空则使用默认 Provider",
+        "_special": "select_provider"
       }
     }
   },
   "error_friendly": {
-    "description": "错误消息友好化",
     "type": "object",
+    "description": "错误消息友好化",
     "items": {
       "enable": {
-        "description": "启用错误消息友好化",
         "type": "bool",
         "default": true,
+        "description": "启用错误消息友好化",
         "hint": "将框架发送的技术性错误消息替换为友好的提示语"
       }
     }
   },
   "markdown_stripper": {
-    "description": "Markdown 格式去除器",
     "type": "object",
+    "description": "Markdown 格式去除器",
     "items": {
       "enable": {
-        "description": "启用 Markdown 去除功能",
         "type": "bool",
         "default": true,
+        "description": "启用 Markdown 去除功能",
         "hint": "当文本以纯文本形式发送时，自动去除 Markdown 格式标记（如 **粗体**、*斜体* 等），提升可读性"
-      }
-    }
-  },
-  "web_ui": {
-    "description": "Web管理界面设置",
-    "type": "object",
-    "items": {
-      "enable": {
-        "description": "启用Web管理界面",
-        "type": "bool",
-        "default": false,
-        "hint": "开启后可通过独立端口访问Web管理页面，与AstrBot认证系统解耦"
-      },
-      "port": {
-        "description": "Web服务端口",
-        "type": "int",
-        "default": 8089,
-        "hint": "Web管理界面的监听端口（1024-65535）"
-      },
-      "access_key": {
-        "description": "访问密钥",
-        "type": "string",
-        "default": "",
-        "hint": "访问Web管理界面所需的密钥，留空则无需认证（不推荐）"
-      },
-      "host": {
-        "description": "监听地址",
-        "type": "string",
-        "default": "127.0.0.1",
-        "hint": "Web服务监听地址，默认仅本机访问。设为0.0.0.0允许外部访问（需注意安全）"
       }
     }
   }

@@ -1,0 +1,5 @@
+# 开发 / 测试依赖（运行插件本体不需要，仅跑测试套件时需要）
+# 安装：./.venv/bin/pip install -r requirements-dev.txt
+# 运行测试：./.venv/bin/python -m pytest tests/ -q
+pytest>=8.0.0
+pytest-asyncio>=0.23.0
