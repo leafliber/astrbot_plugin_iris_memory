@@ -196,6 +196,7 @@ class IrisMemoryPlugin(Star):
             self_id_get=lambda: self._self_id,
             save_fn=lambda: self._state.save_dirty(self._kv_save),
             on_initiate_sent=self._on_initiate_sent,
+            text_transform=self._strip_initiate_text,
         )
 
         logger.info("Iris Memory 整合插件已加载（等待异步初始化）")
@@ -385,6 +386,24 @@ class IrisMemoryPlugin(Star):
         except Exception:
             logger.error("Iris Reply: failed to get provider ID")
             return None
+
+    def _strip_initiate_text(self, text: str) -> str:
+        """initiate 直发消息的 Markdown 去除
+
+        直发通路（context.send_message）不触发 on_decorating_result 钩子，
+        消息始终以纯文本发送到平台，此处补齐与管线消息一致的 Markdown 去除，
+        避免同群内跟话消息与主动发起消息格式处理不一致。
+        """
+        stripper = self._markdown_stripper
+        if not stripper or not text:
+            return text
+        try:
+            if not stripper.should_strip(text, use_t2i=False):
+                return text
+            return stripper.strip(text)
+        except Exception as e:
+            logger.warning(f"initiate 消息 Markdown 去除失败：{e}")
+            return text
 
     async def _on_initiate_sent(self, group_id: str, text: str) -> None:
         """initiate 直发成功后，把 bot 发言回填进 L1 缓冲
@@ -681,6 +700,12 @@ class IrisMemoryPlugin(Star):
             )
             await preprocess_llm_request(event, req, self.component_manager)
 
+        # 3. 主动回复发言提示：决策通过后由 _handle_reply_decision 暂存，
+        # 在记忆注入之后追加，保证 LLM 先看到上下文、再看到发言指令
+        hint = event.get_extra("iris_speak_hint")
+        if hint:
+            req.extra_user_content_parts.append(TextPart(text=hint).mark_as_temp())
+
     async def _handle_reply_decision(self, event: AstrMessageEvent, request: ProviderRequest) -> bool:
         """主动回复统一决策执行点。
 
@@ -808,7 +833,9 @@ class IrisMemoryPlugin(Star):
         event.set_extra("iris_decision_obs", decision.observation)
 
         hint = SPEAK_HINTS.get(motive, SPEAK_HINTS["chime_in"])
-        request.extra_user_content_parts.append(TextPart(text=hint).mark_as_temp())
+        # 发言提示延迟到记忆注入之后追加（见 on_llm_request），
+        # 保持「上下文在前、指令在后」的提示顺序
+        event.set_extra("iris_speak_hint", hint)
         logger.info(f"Iris Reply: decision speak ({motive}) for group {group_id}")
         return False
 

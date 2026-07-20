@@ -34,9 +34,12 @@ async def handle_initiate_backfill(
     （见 PlatformAdapter.get_session_id；私聊才使用 private:{user_id}，
     initiate 只发生在群聊，故直接使用 group_id）。
 
-    persona_id 兜底 "default"：persona 解析依赖消息事件对象
-    （见 core/persona.resolve_persona），直发通路无事件可用；
-    人格隔离未启用时 resolve_persona 恒返回 "default"，行为一致。
+    persona_id 继承该群 L1 队列最后一条消息：直发通路无事件对象，
+    resolve_persona 不可用；队列尾部消息的人格即该群当前活跃人格，
+    与正常消息流中 resolve_persona 的语义一致（见 buffer.py 总结归属逻辑）。
+    若硬编码 "default"，人格隔离启用时该消息会成为 segment_2 尾部，
+    导致整批 L1→L2 摘要与画像更新被错误归入 default 命名空间。
+    人格隔离未启用时所有消息 persona_id 恒为 "default"，行为不变。
 
     L1 组件未就绪或该群尚无缓冲内容时静默跳过。
 
@@ -55,16 +58,21 @@ async def handle_initiate_backfill(
 
     l1_buffer = cast("L1Buffer", buffer)
 
-    if not l1_buffer.get_context(group_id):
+    messages = l1_buffer.get_context(group_id)
+    if not messages:
         logger.debug(f"群 {group_id} 尚无 L1 缓冲内容，跳过 initiate 回填")
         return
+
+    persona_id = messages[-1].persona_id or "default"
 
     await l1_buffer.add_message(
         group_id=group_id,
         role="assistant",
         content=text,
         source="assistant",
-        persona_id="default",
+        persona_id=persona_id,
     )
 
-    logger.debug(f"已回填 initiate 消息到群 {group_id} 的 L1 Buffer")
+    logger.debug(
+        f"已回填 initiate 消息到群 {group_id} 的 L1 Buffer（persona={persona_id}）"
+    )
