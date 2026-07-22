@@ -512,6 +512,185 @@ class HiddenConfig:
         },
     )
 
+    # 主动回复 - 基本参数
+    reply_mute_start_hour: int = field(
+        default=1,
+        metadata={
+            "description": "静音时段开始小时(0-23)，静音时段内 Iris 不会主动触发任何回复",
+            "group": "主动回复·基本参数",
+        },
+    )
+    reply_mute_start_minute: int = field(
+        default=0,
+        metadata={
+            "description": "静音时段开始分钟(0-59)",
+            "group": "主动回复·基本参数",
+        },
+    )
+    reply_mute_end_hour: int = field(
+        default=7,
+        metadata={
+            "description": "静音时段结束小时(0-23)",
+            "group": "主动回复·基本参数",
+        },
+    )
+    reply_mute_end_minute: int = field(
+        default=0,
+        metadata={
+            "description": "静音时段结束分钟(0-59)",
+            "group": "主动回复·基本参数",
+        },
+    )
+    reply_window_size: int = field(
+        default=15,
+        metadata={
+            "description": "滑动记忆窗口大小（条数），保留最近 N 条有效发言",
+            "group": "主动回复·基本参数",
+        },
+    )
+    reply_default_n: int = field(
+        default=15,
+        metadata={
+            "description": "默认消息计数阈值 N，每收到 N 条有效消息触发一次采样",
+            "group": "主动回复·基本参数",
+        },
+    )
+    reply_default_t: int = field(
+        default=30,
+        metadata={
+            "description": "默认时间间隔阈值 T（分钟），距上次采样超过 T 分钟且有新消息时触发",
+            "group": "主动回复·基本参数",
+        },
+    )
+    reply_max_token: int = field(
+        default=3000,
+        metadata={
+            "description": "上下文 token 上限，提交给 LLM 的上下文最大 token 数",
+            "group": "主动回复·基本参数",
+        },
+    )
+    reply_follow_up_ttl: int = field(
+        default=10,
+        metadata={
+            "description": "跟进锚点默认 TTL（分钟），对话锚点中关注用户/关键词的存活时长",
+            "group": "主动回复·基本参数",
+        },
+    )
+    reply_follow_up_aggregate_window: int = field(
+        default=6,
+        metadata={
+            "description": "follow-up 消息聚合等待窗口（秒），锚点命中后等待此时间再触发 LLM 评估",
+            "group": "主动回复·基本参数",
+        },
+    )
+    reply_quality_threshold: float = field(
+        default=0.2,
+        metadata={
+            "description": "消息质量评分阈值，低于此阈值的消息不进入滑动窗口",
+            "group": "主动回复·基本参数",
+        },
+    )
+    reply_trigger_min_interval: int = field(
+        default=30,
+        metadata={
+            "description": "触发阶段最小间隔（秒），同一群两次触发 LLM 调用之间的最小时间间隔",
+            "group": "主动回复·基本参数",
+        },
+    )
+    reply_boost_factor: float = field(
+        default=0.6,
+        metadata={
+            "description": "回复后频率提升系数，Iris 回复后有效阈值临时乘以此系数（<1.0 降低阈值）",
+            "group": "主动回复·基本参数",
+        },
+    )
+    reply_boost_duration: int = field(
+        default=15,
+        metadata={
+            "description": "频率提升持续时间（分钟），回复后 boost 效果的持续时间，之后线性衰减回正常",
+            "group": "主动回复·基本参数",
+        },
+    )
+    reply_max_boosted_replies: int = field(
+        default=5,
+        metadata={
+            "description": "最大连续回复 boost 次数，连续回复不超过此次数时享受完整 boost，超出后逐渐减弱",
+            "group": "主动回复·基本参数",
+        },
+    )
+
+    # 主动回复 - 主动发起
+    proactive_enabled: bool = field(
+        default=False,
+        metadata={
+            "description": "启用主动发起会话，开启后 Iris 会在群冷场或话题结束时主动开启话题",
+            "group": "主动回复·主动发起",
+        },
+    )
+    proactive_check_interval: int = field(
+        default=5,
+        metadata={
+            "description": "发起检查周期（分钟），每隔此时间扫描一次白名单群，评估是否满足发起条件",
+            "group": "主动回复·主动发起",
+        },
+    )
+    proactive_quiet_minutes: int = field(
+        default=120,
+        metadata={
+            "description": "冷场静默阈值（分钟），群内最后一条消息超过此时间无人说话，才考虑主动发起",
+            "group": "主动回复·主动发起",
+        },
+    )
+    proactive_max_per_day: int = field(
+        default=2,
+        metadata={
+            "description": "每日最大发起次数，每个群每天最多主动发起的次数",
+            "group": "主动回复·主动发起",
+        },
+    )
+    proactive_min_interval: int = field(
+        default=360,
+        metadata={
+            "description": "两次发起最小间隔（分钟），同一群两次主动发起之间的最小时间间隔",
+            "group": "主动回复·主动发起",
+        },
+    )
+    proactive_drift_delay: int = field(
+        default=15,
+        metadata={
+            "description": "话题结束后发起延迟（分钟），检测到话题结束（drifted）后，若持续静默此时间可提前发起新话题",
+            "group": "主动回复·主动发起",
+        },
+    )
+    proactive_pending_timeout: int = field(
+        default=30,
+        metadata={
+            "description": "发起接话等待（分钟），发起后等待群友接话的时间，超时视为无人接话",
+            "group": "主动回复·主动发起",
+        },
+    )
+    proactive_max_streak: int = field(
+        default=2,
+        metadata={
+            "description": "当日无人接话上限（次），连续发起无人接话达到此次数后，当天不再发起",
+            "group": "主动回复·主动发起",
+        },
+    )
+    proactive_instruction: str = field(
+        default="",
+        metadata={
+            "description": "发起话题倾向（可选），自定义发起话题的偏好说明，如「多聊技术话题」，留空由 Iris 自行发挥",
+            "group": "主动回复·主动发起",
+        },
+    )
+    proactive_max_message_len: int = field(
+        default=300,
+        metadata={
+            "description": "发起消息最大长度（字符），主动发起消息超过此长度将被截断",
+            "group": "主动回复·主动发起",
+        },
+    )
+
 
 @dataclass
 class Defaults:

@@ -58,23 +58,6 @@ export interface ReplyLlmLog {
   duration_ms: number
 }
 
-export interface ReplyConfigSubMeta {
-  label: string
-  type: string
-  min: number
-  max: number
-}
-
-export interface ReplyConfigMeta {
-  label: string
-  type: 'int' | 'float' | 'bool' | 'str' | 'object'
-  min?: number
-  max?: number
-  step?: number
-  hint?: string
-  items?: Record<string, ReplyConfigSubMeta>
-}
-
 export async function getReplyWhitelist(): Promise<ReplyWhitelistGroup[]> {
   return apiGet<ReplyWhitelistGroup[]>('reply/whitelist/list')
 }
@@ -113,15 +96,4 @@ export async function getReplyStatsLogs(params: {
 
 export async function clearReplyStats(): Promise<void> {
   await apiPost('reply/stats/clear')
-}
-
-export async function getReplyConfig(): Promise<{
-  values: Record<string, unknown>
-  meta: Record<string, ReplyConfigMeta>
-}> {
-  return apiGet('reply/config/get')
-}
-
-export async function setReplyConfig(payload: Record<string, unknown>): Promise<void> {
-  await apiPost('reply/config/set', payload)
 }

@@ -3,7 +3,6 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any
 
-from .config import ConfigManager
 from .perception import SlidingWindow
 from .prompts import resolve_level
 from .state import StateManager
@@ -46,13 +45,16 @@ def register_web_apis(
     *,
     context: Context,
     plugin_name: str,
-    config: ConfigManager,
     state: StateManager,
     stats: StatsCollector,
     window: SlidingWindow,
     kv_save: KvSaveFn,
 ) -> None:
-    """注册插件的统计 / 白名单 / 群管理 / 配置 Web API。"""
+    """注册插件的统计 / 白名单 / 群管理 Web API。
+
+    主动回复参数配置已并入隐藏参数页（/hidden-config），不再单独提供
+    reply/config 路由。
+    """
     from quart import jsonify
     from quart import request as qrequest
 
@@ -158,19 +160,8 @@ def register_web_apis(
         return jsonify({"ok": True, "group_id": group_id})
 
     # ---- 配置 ----
-
-    async def _config_get():
-        return jsonify({
-            "values": config.get_all_page_config(),
-            "meta": ConfigManager.get_page_config_meta(),
-        })
-
-    async def _config_set():
-        body = await _json_body()
-        for key, value in body.items():
-            config.set_override(key, value)
-        await kv_save("iris_reply:config_overrides", config.get_overrides())
-        return jsonify({"ok": True, "values": config.get_all_page_config()})
+    # 主动回复参数已迁移至隐藏参数页（hidden-config），见
+    # iris_memory/config/defaults.py 中「主动回复·基本参数 / 主动发起」分组。
 
     prefix = f"/{plugin_name}/reply/stats"
     context.register_web_api(f"{prefix}/status", _stats_status, ["GET"], "Stats status")
@@ -187,7 +178,3 @@ def register_web_apis(
     grp_prefix = f"/{plugin_name}/reply/group"
     context.register_web_api(f"{grp_prefix}/set_willingness", _group_set_willingness, ["POST"], "Group set willingness")
     context.register_web_api(f"{grp_prefix}/reset", _group_reset, ["POST"], "Group reset")
-
-    cfg_prefix = f"/{plugin_name}/reply/config"
-    context.register_web_api(f"{cfg_prefix}/get", _config_get, ["GET"], "Config get")
-    context.register_web_api(f"{cfg_prefix}/set", _config_set, ["POST"], "Config set")

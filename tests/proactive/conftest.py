@@ -20,13 +20,21 @@ NEVER_MUTE = {"start_hour": 0, "start_minute": 0, "end_hour": 0, "end_minute": 0
 
 @pytest.fixture
 def make_config():
-    """ConfigManager 工厂：cfg 模拟 AstrBotConfig，overrides 模拟页面 KV 覆写"""
+    """ConfigManager 工厂：cfg 模拟 AstrBotConfig，hidden 模拟隐藏配置。
 
-    def _make(cfg: dict | None = None, overrides: dict | None = None) -> ConfigManager:
-        cm = ConfigManager(cfg or {})
+    overrides 兼容旧版页面键名（default_n 等），经 legacy_overrides_to_hidden
+    翻译为隐藏配置键后合并进 hidden。
+    """
+
+    def _make(
+        cfg: dict | None = None,
+        hidden: dict | None = None,
+        overrides: dict | None = None,
+    ) -> ConfigManager:
+        merged = dict(hidden or {})
         if overrides:
-            cm.load_overrides(overrides)
-        return cm
+            merged.update(ConfigManager.legacy_overrides_to_hidden(overrides))
+        return ConfigManager(cfg or {}, hidden_get=merged.get)
 
     return _make
 
@@ -35,11 +43,15 @@ def make_config():
 def nm_config(make_config):
     """never-mute 版工厂：门控/状态测试专用，消除真实时刻影响"""
 
-    def _make(cfg: dict | None = None, overrides: dict | None = None) -> ConfigManager:
+    def _make(
+        cfg: dict | None = None,
+        hidden: dict | None = None,
+        overrides: dict | None = None,
+    ) -> ConfigManager:
         base = {"mute_period": dict(NEVER_MUTE)}
         if cfg:
             base.update(cfg)
-        return make_config(cfg=base, overrides=overrides)
+        return make_config(cfg=base, hidden=hidden, overrides=overrides)
 
     return _make
 

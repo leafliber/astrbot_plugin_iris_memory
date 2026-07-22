@@ -296,7 +296,9 @@ const getGroupIcon = (name: string): string => {
     '图片解析': 'mdi-image-search',
     '输入清理': 'mdi-filter',
     '遗忘确认': 'mdi-check-decagram',
-    'L2 查询改写': 'mdi-text-search'
+    'L2 查询改写': 'mdi-text-search',
+    '主动回复·基本参数': 'mdi-tune',
+    '主动回复·主动发起': 'mdi-robot'
   }
   return icons[name] || 'mdi-cog'
 }

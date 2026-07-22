@@ -162,7 +162,10 @@ class IrisMemoryPlugin(Star):
         )
 
         # ── 主动回复侧初始化 ──
-        self._reply_config = ReplyConfigManager(config if config else context.get_config())
+        self._reply_config = ReplyConfigManager(
+            config if config else context.get_config(),
+            hidden_get=self.config.get,
+        )
         self._state = StateManager(self._reply_config)
         self._gatekeeper = Gatekeeper(self._reply_config, self._state)
         self._sliding_window = SlidingWindow(self._reply_config)
@@ -271,14 +274,18 @@ class IrisMemoryPlugin(Star):
         umo_data = await self._kv_load(_UMO_KV_KEY)
         if isinstance(umo_data, dict):
             self._group_umo = {str(k): str(v) for k, v in umo_data.items()}
+        # 旧版页面配置（KV overrides）一次性迁移到隐藏参数，迁移后清空避免重复覆盖
         config_overrides = await self._kv_load("iris_reply:config_overrides")
-        self._reply_config.load_overrides(config_overrides)
+        migrated = ReplyConfigManager.legacy_overrides_to_hidden(config_overrides)
+        if migrated:
+            self.config.update_hidden(migrated)
+            await self._kv_save("iris_reply:config_overrides", {})
+            logger.info(f"已将 {len(migrated)} 项旧版主动回复页面配置迁移至隐藏参数")
         self._save_task = asyncio.create_task(self._periodic_save())
         self._stats.enabled = self._reply_config.stats_enabled
         register_reply_web_apis(
             context=self.context,
             plugin_name=PLUGIN_NAME,
-            config=self._reply_config,
             state=self._state,
             stats=self._stats,
             window=self._sliding_window,
@@ -311,7 +318,6 @@ class IrisMemoryPlugin(Star):
             except asyncio.CancelledError:
                 pass
         await self._state.save_all(self._kv_save)
-        await self._kv_save("iris_reply:config_overrides", self._reply_config.get_overrides())
         await self._kv_save(_UMO_KV_KEY, dict(self._group_umo))
         self._follow_pending.clear()
         self._reply_in_progress.clear()
@@ -330,7 +336,6 @@ class IrisMemoryPlugin(Star):
             await asyncio.sleep(self._save_interval)
             try:
                 await self._state.save_dirty(self._kv_save)
-                await self._kv_save("iris_reply:config_overrides", self._reply_config.get_overrides())
                 if self._umo_dirty:
                     self._umo_dirty = False
                     await self._kv_save(_UMO_KV_KEY, dict(self._group_umo))

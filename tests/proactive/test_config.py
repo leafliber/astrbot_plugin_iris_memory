@@ -1,9 +1,11 @@
 """proactive.config.ConfigManager 测试
 
-优先级：页面 overrides > AstrBotConfig（含 proactive 嵌套组）> 内置默认值。
+优先级：隐藏配置（hidden_get）> AstrBotConfig（平铺遗留值 / proactive 嵌套组）> 内置默认值。
 """
 
 import pytest
+
+from iris_memory.proactive.config import ConfigManager
 
 
 class TestDefaults:
@@ -30,7 +32,7 @@ class TestDefaults:
 
 
 class TestAstrBotConfigLayer:
-    """AstrBotConfig 层：页面管理键读平铺值，三个面板键读 proactive 嵌套组"""
+    """AstrBotConfig 层：遗留平铺值与三个面板键（proactive 嵌套组）"""
 
     def test_flat_key_beats_default(self, make_config):
         cm = make_config(cfg={"default_n": 30, "window_size": 20})
@@ -50,7 +52,7 @@ class TestAstrBotConfigLayer:
         assert cm.enabled is True
 
     def test_page_keys_not_read_from_nested_group(self, make_config):
-        # 页面管理键不走嵌套组，只读平铺值
+        # 页面管理键不走嵌套组
         cm = make_config(cfg={"proactive": {"default_n": 99}})
         assert cm.default_n == 15
 
@@ -58,93 +60,122 @@ class TestAstrBotConfigLayer:
         cm = make_config(cfg={"proactive_quiet_minutes": 5})
         assert cm.proactive_quiet_minutes == 30  # 属性层钳制 [30, 720]
 
+    def test_flat_mute_period_dict(self, make_config):
+        cm = make_config(
+            cfg={"mute_period": {"start_hour": 2, "start_minute": 30, "end_hour": 5, "end_minute": 45}}
+        )
+        assert cm.mute_period == (2, 30, 5, 45)
 
-class TestOverridesLayer:
-    """overrides 层优先级最高，但只接受 21 个页面管理键"""
 
-    def test_override_beats_astrbot_config(self, make_config):
-        cm = make_config(cfg={"default_n": 30}, overrides={"default_n": 50})
+class TestHiddenLayer:
+    """隐藏配置层优先级最高，键名为 HiddenConfig 字段名"""
+
+    def test_hidden_beats_astrbot_config(self, make_config):
+        cm = make_config(cfg={"default_n": 30}, hidden={"reply_default_n": 50})
         assert cm.default_n == 50
 
-    def test_override_beats_default(self, make_config):
-        cm = make_config(overrides={"default_n": 50})
+    def test_hidden_beats_default(self, make_config):
+        cm = make_config(hidden={"reply_default_n": 50})
         assert cm.default_n == 50
 
-    def test_load_overrides_filters_schema_keys(self, make_config):
-        cm = make_config(overrides={"enabled": False, "provider_id": "x", "default_n": 99})
-        # enabled / provider_id 非页面管理键，overrides 不生效
+    def test_schema_keys_not_affected_by_hidden(self, make_config):
+        cm = make_config(hidden={"reply_default_n": 99})
         assert cm.enabled is True
         assert cm.provider_id == ""
         assert cm.default_n == 99
 
-    def test_load_overrides_ignores_unknown_keys(self, make_config):
-        cm = make_config(overrides={"no_such_key": 1})
-        assert cm.get_overrides() == {}
+    def test_hidden_clamps_int(self, make_config):
+        assert make_config(hidden={"reply_default_n": 1}).default_n == 5
+        assert make_config(hidden={"reply_default_n": 999}).default_n == 120
+        assert make_config(hidden={"reply_window_size": 999}).window_size == 30
 
-    def test_load_overrides_non_dict_ignored(self, make_config):
-        cm = make_config()
-        cm.load_overrides(None)
-        cm.load_overrides("junk")
-        assert cm.get_overrides() == {}
+    def test_hidden_clamps_float(self, make_config):
+        assert make_config(hidden={"reply_quality_threshold": 9.9}).quality_threshold == 1.0
+        assert make_config(hidden={"reply_quality_threshold": -1.0}).quality_threshold == 0.0
 
-    def test_set_override_ignored_for_schema_keys(self, make_config):
-        cm = make_config()
-        cm.set_override("enabled", False)
-        cm.set_override("provider_id", "abc")
-        assert cm.enabled is True
-        assert cm.provider_id == ""
+    def test_hidden_bool(self, make_config):
+        assert make_config(hidden={"proactive_enabled": True}).proactive_enabled is True
+        assert make_config(hidden={"proactive_enabled": False}).proactive_enabled is False
 
-    def test_page_managed_keys_are_22(self, make_config):
-        # 25 个默认键 - 3 个 schema 面板键（enabled/stats_enabled/provider_id）
-        all_cfg = make_config().get_all_page_config()
-        assert len(all_cfg) == 22
-        for key in ("enabled", "stats_enabled", "provider_id"):
-            assert key not in all_cfg
-
-    def test_set_override_clamps_int(self, make_config):
-        cm = make_config()
-        cm.set_override("default_n", 1)
-        assert cm.default_n == 5
-        cm.set_override("default_n", 999)
-        assert cm.default_n == 120
-        cm.set_override("window_size", 999)
-        assert cm.window_size == 30
-
-    def test_set_override_clamps_float(self, make_config):
-        cm = make_config()
-        cm.set_override("quality_threshold", 9.9)
-        assert cm.quality_threshold == 1.0
-        cm.set_override("quality_threshold", -1.0)
-        assert cm.quality_threshold == 0.0
-
-    def test_set_override_bool_coercion(self, make_config):
-        cm = make_config()
-        cm.set_override("proactive_enabled", "yes")
-        assert cm.proactive_enabled is True
-        cm.set_override("proactive_enabled", False)
-        assert cm.proactive_enabled is False
-
-    def test_set_override_str_trimmed(self, make_config):
-        cm = make_config()
-        cm.set_override("proactive_instruction", "  多聊技术话题  ")
+    def test_hidden_str(self, make_config):
+        cm = make_config(hidden={"proactive_instruction": "多聊技术话题"})
         assert cm.proactive_instruction == "多聊技术话题"
 
-    def test_set_override_mute_period(self, make_config):
-        cm = make_config()
-        cm.set_override(
-            "mute_period",
-            {"start_hour": 2, "start_minute": 30, "end_hour": 5, "end_minute": 45},
-        )
-        assert cm.mute_period == (2, 30, 5, 45)
-        # 非法输入被忽略，保持原值
-        cm.set_override("mute_period", "not-a-dict")
+    def test_hidden_mute_period_parts(self, make_config):
+        cm = make_config(hidden={
+            "reply_mute_start_hour": 2,
+            "reply_mute_start_minute": 30,
+            "reply_mute_end_hour": 5,
+            "reply_mute_end_minute": 45,
+        })
         assert cm.mute_period == (2, 30, 5, 45)
 
-    def test_get_overrides_round_trip(self, make_config):
-        cm = make_config()
-        cm.set_override("default_n", 42)
-        data = cm.get_overrides()
-        assert data == {"default_n": 42}
-        cm2 = make_config()
-        cm2.load_overrides(data)
-        assert cm2.default_n == 42
+    def test_hidden_mute_part_beats_flat_dict(self, make_config):
+        cm = make_config(
+            cfg={"mute_period": {"start_hour": 9, "start_minute": 0, "end_hour": 10, "end_minute": 0}},
+            hidden={"reply_mute_start_hour": 3},
+        )
+        sh, sm, eh, em = cm.mute_period
+        assert sh == 3  # 隐藏配置覆盖单字段
+        assert (sm, eh, em) == (0, 10, 0)  # 其余回落到平铺 dict
+
+
+class TestLegacyOverridesMigration:
+    """旧版 KV 页面覆写 → 隐藏配置键值翻译"""
+
+    def test_non_dict_input_returns_empty(self):
+        assert ConfigManager.legacy_overrides_to_hidden(None) == {}
+        assert ConfigManager.legacy_overrides_to_hidden("junk") == {}
+        assert ConfigManager.legacy_overrides_to_hidden({}) == {}
+
+    def test_basic_keys_mapped_with_prefix(self):
+        result = ConfigManager.legacy_overrides_to_hidden(
+            {"default_n": 42, "window_size": 20, "quality_threshold": 0.5}
+        )
+        assert result == {
+            "reply_default_n": 42,
+            "reply_window_size": 20,
+            "reply_quality_threshold": 0.5,
+        }
+
+    def test_proactive_keys_keep_name(self):
+        result = ConfigManager.legacy_overrides_to_hidden(
+            {"proactive_enabled": True, "proactive_max_per_day": 3}
+        )
+        assert result == {"proactive_enabled": True, "proactive_max_per_day": 3}
+
+    def test_mute_period_split_into_four_keys(self):
+        result = ConfigManager.legacy_overrides_to_hidden(
+            {"mute_period": {"start_hour": 2, "start_minute": 30, "end_hour": 5, "end_minute": 45}}
+        )
+        assert result == {
+            "reply_mute_start_hour": 2,
+            "reply_mute_start_minute": 30,
+            "reply_mute_end_hour": 5,
+            "reply_mute_end_minute": 45,
+        }
+
+    def test_schema_and_unknown_keys_skipped(self):
+        result = ConfigManager.legacy_overrides_to_hidden(
+            {"enabled": False, "provider_id": "x", "stats_enabled": True, "no_such_key": 1}
+        )
+        assert result == {}
+
+    def test_bad_values_skipped(self):
+        result = ConfigManager.legacy_overrides_to_hidden(
+            {"default_n": "not-a-number", "mute_period": "not-a-dict", "window_size": 18}
+        )
+        assert result == {"reply_window_size": 18}
+
+    def test_bool_and_str_coercion(self):
+        result = ConfigManager.legacy_overrides_to_hidden(
+            {"proactive_enabled": "yes", "proactive_instruction": "  多聊技术话题  "}
+        )
+        assert result == {"proactive_enabled": True, "proactive_instruction": "多聊技术话题"}
+
+    def test_migrated_values_round_trip(self, make_config):
+        legacy = {"default_n": 42, "mute_period": {"start_hour": 2, "start_minute": 0, "end_hour": 6, "end_minute": 30}}
+        hidden = ConfigManager.legacy_overrides_to_hidden(legacy)
+        cm = make_config(hidden=hidden)
+        assert cm.default_n == 42
+        assert cm.mute_period == (2, 0, 6, 30)

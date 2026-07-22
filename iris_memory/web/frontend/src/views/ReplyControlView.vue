@@ -18,7 +18,7 @@
       </v-card-title>
       <v-card-text class="pt-0">
         <div class="text-body-2 text-medium-emphasis">
-          管理白名单群聊的主动回复行为，查看 LLM 决策统计与调用日志，并调整触发与主动发起参数。
+          管理白名单群聊的主动回复行为，查看 LLM 决策统计与调用日志。触发与主动发起参数请在「隐藏参数」页调整。
         </div>
       </v-card-text>
     </v-card>
@@ -27,7 +27,6 @@
       <v-tabs v-model="tab" color="primary" density="comfortable">
         <v-tab value="manage" prepend-icon="mdi-account-group">群聊管理</v-tab>
         <v-tab value="stats" prepend-icon="mdi-chart-pie">统计监控</v-tab>
-        <v-tab value="settings" prepend-icon="mdi-cog">设置</v-tab>
       </v-tabs>
 
       <v-divider />
@@ -351,107 +350,6 @@
             </template>
           </div>
         </v-window-item>
-
-        <!-- ============ 设置 ============ -->
-        <v-window-item value="settings">
-          <div class="pa-4">
-            <v-progress-circular
-              v-if="loading"
-              indeterminate
-              color="primary"
-              size="48"
-              class="d-block mx-auto my-8"
-            />
-
-            <div v-else-if="configLoadFailed" class="iris-empty-state">
-              <v-icon icon="mdi-alert-circle" size="48" />
-              <div class="iris-empty-state__title">加载配置失败</div>
-            </div>
-
-            <template v-else>
-              <v-card
-                v-for="section in configSections"
-                :key="section.title"
-                color="surface"
-                variant="outlined"
-                class="mb-4 iris-card"
-              >
-                <v-card-title class="d-flex align-center iris-section-title py-3">
-                  <v-icon :icon="section.icon" color="primary" class="mr-2" size="20" />
-                  {{ section.title }}
-                </v-card-title>
-                <v-card-text>
-                  <div class="config-grid">
-                    <div v-for="key in section.keys" :key="key" class="config-item">
-                      <div class="text-body-2 font-weight-medium mb-1">
-                        {{ configMeta[key].label }}
-                      </div>
-                      <p v-if="configMeta[key].hint" class="text-caption text-medium-emphasis mb-2">
-                        {{ configMeta[key].hint }}
-                      </p>
-
-                      <div v-if="configMeta[key].type === 'object'" class="config-sub-grid">
-                        <v-text-field
-                          v-for="(subMeta, subKey) in configMeta[key].items"
-                          :key="subKey"
-                          :model-value="getSubValue(key, String(subKey))"
-                          :label="subMeta.label"
-                          type="number"
-                          density="compact"
-                          variant="outlined"
-                          hide-details
-                          :min="subMeta.min"
-                          :max="subMeta.max"
-                          @update:model-value="(v: unknown) => setSubValue(key, String(subKey), v)"
-                        />
-                      </div>
-
-                      <v-switch
-                        v-else-if="configMeta[key].type === 'bool'"
-                        v-model="configForm[key]"
-                        density="compact"
-                        color="primary"
-                        hide-details
-                        :label="configForm[key] ? '启用' : '禁用'"
-                      />
-
-                      <v-text-field
-                        v-else-if="configMeta[key].type === 'str'"
-                        v-model="configForm[key]"
-                        density="compact"
-                        variant="outlined"
-                        hide-details
-                      />
-
-                      <v-text-field
-                        v-else
-                        v-model="configForm[key]"
-                        type="number"
-                        density="compact"
-                        variant="outlined"
-                        hide-details
-                        :min="configMeta[key].min"
-                        :max="configMeta[key].max"
-                        :step="configMeta[key].step || (configMeta[key].type === 'float' ? 0.01 : 1)"
-                      />
-                    </div>
-                  </div>
-                </v-card-text>
-              </v-card>
-
-              <div class="d-flex align-center ga-3">
-                <v-btn
-                  color="primary"
-                  prepend-icon="mdi-content-save"
-                  :loading="configSaving"
-                  @click="handleSaveConfig"
-                >
-                  保存配置
-                </v-btn>
-              </div>
-            </template>
-          </div>
-        </v-window-item>
       </v-window>
     </v-card>
 
@@ -493,12 +391,9 @@ import {
   getReplyStatsGroups,
   getReplyStatsLogs,
   clearReplyStats,
-  getReplyConfig,
-  setReplyConfig,
   type ReplyWhitelistGroup,
   type ReplyStatsGroup,
-  type ReplyLlmLog,
-  type ReplyConfigMeta
+  type ReplyLlmLog
 } from '@/api/reply'
 
 const LOG_PAGE_SIZE = 20
@@ -516,11 +411,6 @@ const logs = ref<ReplyLlmLog[]>([])
 const selectedGroup = ref('')
 const logPage = ref(0)
 
-const configMeta = ref<Record<string, ReplyConfigMeta>>({})
-const configForm = ref<Record<string, any>>({})
-const configSaving = ref(false)
-const configLoadFailed = ref(false)
-
 const confirmDialog = ref(false)
 const confirmMessage = ref('')
 const confirmCallback = ref<(() => void) | null>(null)
@@ -534,31 +424,6 @@ const willingnessItems = [
   { title: '中', value: 'medium' },
   { title: '高', value: 'high' }
 ]
-
-const basicKeys = [
-  'mute_period', 'window_size', 'default_n', 'default_t', 'max_token',
-  'quality_threshold', 'follow_up_ttl', 'follow_up_aggregate_window',
-  'trigger_min_interval', 'boost_factor', 'boost_duration', 'max_boosted_replies'
-]
-const proactiveKeys = [
-  'proactive_enabled', 'proactive_check_interval', 'proactive_quiet_minutes',
-  'proactive_max_per_day', 'proactive_min_interval', 'proactive_drift_delay',
-  'proactive_pending_timeout', 'proactive_max_streak', 'proactive_instruction',
-  'proactive_max_message_len'
-]
-
-const configSections = computed(() => [
-  {
-    title: '基本参数',
-    icon: 'mdi-tune',
-    keys: basicKeys.filter(k => configMeta.value[k])
-  },
-  {
-    title: '主动发起',
-    icon: 'mdi-robot',
-    keys: proactiveKeys.filter(k => configMeta.value[k])
-  }
-])
 
 const groupFilterItems = computed(() => [
   { title: '全部群聊', value: '' },
@@ -621,19 +486,6 @@ const formatDuration = (ms: number): string => {
   if (!ms) return '-'
   if (ms < 1000) return `${Math.round(ms)}ms`
   return `${(ms / 1000).toFixed(1)}s`
-}
-
-const getSubValue = (key: string, subKey: string): unknown => {
-  const val = configForm.value[key]
-  if (val && typeof val === 'object') return val[subKey]
-  return configMeta.value[key]?.items?.[subKey]?.min
-}
-
-const setSubValue = (key: string, subKey: string, value: unknown) => {
-  const current = configForm.value[key]
-  const base = current && typeof current === 'object' ? { ...current } : {}
-  base[subKey] = value === '' || value === null || value === undefined ? value : Number(value)
-  configForm.value = { ...configForm.value, [key]: base }
 }
 
 const notify = (text: string, color: string = 'success') => {
@@ -757,54 +609,9 @@ const handleClearStats = () => {
   })
 }
 
-const loadSettings = async () => {
-  loading.value = true
-  configLoadFailed.value = false
-  try {
-    const data = await getReplyConfig()
-    configMeta.value = data.meta
-    configForm.value = JSON.parse(JSON.stringify(data.values || {}))
-  } catch {
-    configLoadFailed.value = true
-  } finally {
-    loading.value = false
-  }
-}
-
-const handleSaveConfig = async () => {
-  configSaving.value = true
-  try {
-    const payload: Record<string, unknown> = {}
-    for (const [key, meta] of Object.entries(configMeta.value)) {
-      const val = configForm.value[key]
-      if (meta.type === 'object') {
-        const sub: Record<string, number> = {}
-        for (const subKey of Object.keys(meta.items || {})) {
-          const raw = val && typeof val === 'object' ? (val as Record<string, unknown>)[subKey] : undefined
-          sub[subKey] = parseInt(String(raw ?? ''), 10) || 0
-        }
-        payload[key] = sub
-      } else if (meta.type === 'bool') {
-        payload[key] = !!val
-      } else if (meta.type === 'str') {
-        payload[key] = String(val ?? '')
-      } else {
-        payload[key] = parseFloat(String(val ?? '')) || 0
-      }
-    }
-    await setReplyConfig(payload)
-    notify('配置保存成功')
-  } catch (e: unknown) {
-    notify((e as Error).message || '保存失败', 'error')
-  } finally {
-    configSaving.value = false
-  }
-}
-
 const reloadActiveTab = () => {
   if (tab.value === 'manage') loadManage()
   else if (tab.value === 'stats') loadStats()
-  else if (tab.value === 'settings') loadSettings()
 }
 
 watch(tab, () => {
@@ -833,29 +640,6 @@ onUnmounted(() => {
 <style scoped>
 .table-wrapper {
   overflow-x: auto;
-}
-
-.config-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
-  gap: 12px;
-}
-
-.config-item {
-  padding: 12px;
-  border-radius: 8px;
-  border: 1px solid rgba(var(--v-theme-on-surface), 0.08);
-  transition: border-color 0.2s;
-}
-
-.config-item:hover {
-  border-color: rgba(var(--v-theme-primary), 0.3);
-}
-
-.config-sub-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-  gap: 8px;
 }
 
 .log-title-row {

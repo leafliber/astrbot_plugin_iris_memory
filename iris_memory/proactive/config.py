@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 from astrbot.api import AstrBotConfig
@@ -38,195 +39,109 @@ _DEFAULTS = {
     "proactive_max_message_len": 300,
 }
 
-# Keys managed exclusively through the pages UI (stored in KV overrides).
-# _conf_schema.json only keeps proactive.enabled / proactive.stats_enabled / proactive.provider_id.
-_PAGE_MANAGED_KEYS = {
-    k for k in _DEFAULTS if k not in {"enabled", "stats_enabled", "provider_id"}
-}
-
-# _conf_schema.json 中 proactive 分组内的三个键（嵌套存储，非页面管理）
+# _conf_schema.json 中 proactive 分组内的三个键（嵌套存储，面板管理）
 _SCHEMA_GROUP = "proactive"
 _SCHEMA_KEYS = {"enabled", "stats_enabled", "provider_id"}
 
-# Metadata for the settings page UI.
-_CONFIG_META = {
-    "mute_period": {
-        "label": "静音时段",
-        "type": "object",
-        "hint": "在静音时段内，Iris 不会主动触发任何回复",
-        "items": {
-            "start_hour": {"label": "开始小时（0-23）", "type": "int", "min": 0, "max": 23},
-            "start_minute": {"label": "开始分钟（0-59）", "type": "int", "min": 0, "max": 59},
-            "end_hour": {"label": "结束小时（0-23）", "type": "int", "min": 0, "max": 23},
-            "end_minute": {"label": "结束分钟（0-59）", "type": "int", "min": 0, "max": 59},
-        },
-    },
-    "window_size": {
-        "label": "滑动记忆窗口大小（条数）",
-        "type": "int", "min": 5, "max": 30,
-        "hint": "保留最近 N 条有效发言",
-    },
-    "default_n": {
-        "label": "默认消息计数阈值 N",
-        "type": "int", "min": 5, "max": 120,
-        "hint": "每收到 N 条有效消息触发一次采样",
-    },
-    "default_t": {
-        "label": "默认时间间隔阈值 T（分钟）",
-        "type": "int", "min": 5, "max": 180,
-        "hint": "距上次采样超过 T 分钟且有新消息时触发",
-    },
-    "max_token": {
-        "label": "上下文 token 上限",
-        "type": "int", "min": 1000, "max": 8000,
-        "hint": "提交给 LLM 的上下文最大 token 数",
-    },
-    "follow_up_ttl": {
-        "label": "跟进锚点默认 TTL（分钟）",
-        "type": "int", "min": 5, "max": 120,
-        "hint": "对话锚点中关注用户/关键词的存活时长",
-    },
-    "follow_up_aggregate_window": {
-        "label": "follow-up 消息聚合等待窗口（秒）",
-        "type": "int", "min": 3, "max": 30,
-        "hint": "锚点命中后等待此时间再触发 LLM 评估",
-    },
-    "quality_threshold": {
-        "label": "消息质量评分阈值",
-        "type": "float", "min": 0.0, "max": 1.0, "step": 0.05,
-        "hint": "低于此阈值的消息不进入滑动窗口",
-    },
-    "trigger_min_interval": {
-        "label": "触发阶段最小间隔（秒）",
-        "type": "int", "min": 10, "max": 120,
-        "hint": "同一群两次触发 LLM 调用之间的最小时间间隔",
-    },
-    "boost_factor": {
-        "label": "回复后频率提升系数",
-        "type": "float", "min": 0.3, "max": 0.95, "step": 0.05,
-        "hint": "Iris 回复后有效阈值临时乘以此系数（<1.0 降低阈值）",
-    },
-    "boost_duration": {
-        "label": "频率提升持续时间（分钟）",
-        "type": "int", "min": 1, "max": 60,
-        "hint": "回复后 boost 效果的持续时间，之后线性衰减回正常",
-    },
-    "max_boosted_replies": {
-        "label": "最大连续回复 boost 次数",
-        "type": "int", "min": 2, "max": 10,
-        "hint": "连续回复不超过此次数时享受完整 boost，超出后逐渐减弱",
-    },
-    "proactive_enabled": {
-        "label": "启用主动发起会话",
-        "type": "bool",
-        "hint": "开启后，Iris 会在群冷场或话题结束时主动开启话题",
-    },
-    "proactive_check_interval": {
-        "label": "发起检查周期（分钟）",
-        "type": "int", "min": 1, "max": 30,
-        "hint": "每隔此时间扫描一次白名单群，评估是否满足发起条件",
-    },
-    "proactive_quiet_minutes": {
-        "label": "冷场静默阈值（分钟）",
-        "type": "int", "min": 30, "max": 720,
-        "hint": "群内最后一条消息超过此时间无人说话，才考虑主动发起",
-    },
-    "proactive_max_per_day": {
-        "label": "每日最大发起次数",
-        "type": "int", "min": 1, "max": 10,
-        "hint": "每个群每天最多主动发起的次数",
-    },
-    "proactive_min_interval": {
-        "label": "两次发起最小间隔（分钟）",
-        "type": "int", "min": 60, "max": 1440,
-        "hint": "同一群两次主动发起之间的最小时间间隔",
-    },
-    "proactive_drift_delay": {
-        "label": "话题结束后发起延迟（分钟）",
-        "type": "int", "min": 5, "max": 120,
-        "hint": "检测到话题结束（drifted）后，若持续静默此时间可提前发起新话题",
-    },
-    "proactive_pending_timeout": {
-        "label": "发起接话等待（分钟）",
-        "type": "int", "min": 5, "max": 120,
-        "hint": "发起后等待群友接话的时间，超时视为无人接话",
-    },
-    "proactive_max_streak": {
-        "label": "当日无人接话上限（次）",
-        "type": "int", "min": 1, "max": 5,
-        "hint": "连续发起无人接话达到此次数后，当天不再发起",
-    },
-    "proactive_instruction": {
-        "label": "发起话题倾向（可选）",
-        "type": "str",
-        "hint": "自定义发起话题的偏好说明，如「多聊技术话题」，留空由 Iris 自行发挥",
-    },
-    "proactive_max_message_len": {
-        "label": "发起消息最大长度（字符）",
-        "type": "int", "min": 50, "max": 1000,
-        "hint": "主动发起消息超过此长度将被截断",
-    },
+# 页面管理键 → 隐藏配置键（HiddenConfig 字段名）。
+# 主动发起类键名与隐藏配置字段同名，基本参数类加 reply_ 前缀，
+# mute_period 拆为四个独立整数键。
+_HIDDEN_KEY_MAP = {
+    "window_size": "reply_window_size",
+    "default_n": "reply_default_n",
+    "default_t": "reply_default_t",
+    "max_token": "reply_max_token",
+    "follow_up_ttl": "reply_follow_up_ttl",
+    "follow_up_aggregate_window": "reply_follow_up_aggregate_window",
+    "quality_threshold": "reply_quality_threshold",
+    "trigger_min_interval": "reply_trigger_min_interval",
+    "boost_factor": "reply_boost_factor",
+    "boost_duration": "reply_boost_duration",
+    "max_boosted_replies": "reply_max_boosted_replies",
+    "proactive_enabled": "proactive_enabled",
+    "proactive_check_interval": "proactive_check_interval",
+    "proactive_quiet_minutes": "proactive_quiet_minutes",
+    "proactive_max_per_day": "proactive_max_per_day",
+    "proactive_min_interval": "proactive_min_interval",
+    "proactive_drift_delay": "proactive_drift_delay",
+    "proactive_pending_timeout": "proactive_pending_timeout",
+    "proactive_max_streak": "proactive_max_streak",
+    "proactive_instruction": "proactive_instruction",
+    "proactive_max_message_len": "proactive_max_message_len",
 }
+
+_MUTE_HIDDEN_KEYS = {
+    "start_hour": "reply_mute_start_hour",
+    "start_minute": "reply_mute_start_minute",
+    "end_hour": "reply_mute_end_hour",
+    "end_minute": "reply_mute_end_minute",
+}
+
+HiddenGetFn = Callable[[str], Any]
+
+
+def _coerce_like(default: Any, value: Any) -> Any:
+    """按默认值类型强制转换迁移值，失败返回 None（调用方跳过）。"""
+    try:
+        if isinstance(default, bool):
+            if isinstance(value, bool):
+                return value
+            return str(value).strip().lower() in ("true", "1", "yes", "on")
+        if isinstance(default, int):
+            return int(value)
+        if isinstance(default, float):
+            return float(value)
+        if isinstance(default, str):
+            return str(value).strip()
+    except (TypeError, ValueError):
+        return None
+    return value
 
 
 class ConfigManager:
-    def __init__(self, config: AstrBotConfig) -> None:
+    """主动回复配置管理
+
+    取值优先级：隐藏配置（hidden_get）> AstrBotConfig 平铺值（遗留兼容）> 内置默认值。
+    enabled / stats_enabled / provider_id 三个面板键仍读 _conf_schema.json 的
+    proactive 嵌套组，不经过隐藏配置。
+    """
+
+    def __init__(
+        self,
+        config: AstrBotConfig,
+        hidden_get: HiddenGetFn | None = None,
+    ) -> None:
         self._cfg = config
-        self._overrides: dict[str, Any] = {}
-
-    def load_overrides(self, data: dict | None) -> None:
-        if isinstance(data, dict):
-            self._overrides = {k: v for k, v in data.items() if k in _PAGE_MANAGED_KEYS}
-
-    def get_overrides(self) -> dict[str, Any]:
-        return dict(self._overrides)
-
-    def set_override(self, key: str, value: Any) -> None:
-        if key not in _PAGE_MANAGED_KEYS:
-            return
-        if key == "mute_period":
-            if not isinstance(value, dict):
-                return
-            dmp = _DEFAULTS["mute_period"]
-            self._overrides[key] = {
-                "start_hour": int(value.get("start_hour", dmp["start_hour"])),
-                "start_minute": int(value.get("start_minute", dmp["start_minute"])),
-                "end_hour": int(value.get("end_hour", dmp["end_hour"])),
-                "end_minute": int(value.get("end_minute", dmp["end_minute"])),
-            }
-        else:
-            meta = _CONFIG_META.get(key, {})
-            v = value
-            if meta.get("type") == "int":
-                v = int(v)
-                lo, hi = meta.get("min"), meta.get("max")
-                if lo is not None: v = max(lo, v)
-                if hi is not None: v = min(hi, v)
-            elif meta.get("type") == "float":
-                v = float(v)
-                lo, hi = meta.get("min"), meta.get("max")
-                if lo is not None: v = max(lo, v)
-                if hi is not None: v = min(hi, v)
-            elif meta.get("type") == "bool":
-                if not isinstance(v, bool):
-                    v = str(v).strip().lower() in ("true", "1", "yes", "on")
-            elif meta.get("type") == "str":
-                v = str(v).strip()
-            self._overrides[key] = v
-
-    def get_all_page_config(self) -> dict[str, Any]:
-        result = {}
-        for key in _PAGE_MANAGED_KEYS:
-            result[key] = self._get(key)
-        return result
+        self._hidden_get = hidden_get
 
     @staticmethod
-    def get_page_config_meta() -> dict[str, Any]:
-        return {k: dict(v) for k, v in _CONFIG_META.items()}
+    def legacy_overrides_to_hidden(data: dict | None) -> dict[str, Any]:
+        """把旧版 KV 页面覆写（iris_reply:config_overrides）翻译为隐藏配置键值。
+
+        返回 {隐藏配置键: 值}，非法/未知键被跳过；空输入返回空 dict。
+        """
+        if not isinstance(data, dict) or not data:
+            return {}
+        result: dict[str, Any] = {}
+        for key, value in data.items():
+            if key == "mute_period":
+                if not isinstance(value, dict):
+                    continue
+                dmp = _DEFAULTS["mute_period"]
+                for sub_key, hidden_key in _MUTE_HIDDEN_KEYS.items():
+                    coerced = _coerce_like(0, value.get(sub_key, dmp[sub_key]))
+                    if coerced is not None:
+                        result[hidden_key] = coerced
+                continue
+            hidden_key = _HIDDEN_KEY_MAP.get(key)
+            if hidden_key is None or key not in _DEFAULTS:
+                continue
+            coerced = _coerce_like(_DEFAULTS[key], value)
+            if coerced is not None:
+                result[hidden_key] = coerced
+        return result
 
     def _get(self, key: str, default=None):
-        if key in self._overrides:
-            return self._overrides[key]
         if key in _SCHEMA_KEYS:
             # 三个面板配置项存于 _conf_schema.json 的 proactive 分组（嵌套 dict）
             group = self._cfg.get(_SCHEMA_GROUP)
@@ -234,11 +149,36 @@ class ConfigManager:
                 val = group.get(key)
                 if val is not None:
                     return val
-        else:
-            val = self._cfg.get(key)
+            return _DEFAULTS.get(key, default)
+
+        hidden_key = _HIDDEN_KEY_MAP.get(key)
+        if hidden_key is not None and self._hidden_get is not None:
+            val = self._hidden_get(hidden_key)
             if val is not None:
                 return val
+
+        val = self._cfg.get(key)
+        if val is not None:
+            return val
         return _DEFAULTS.get(key, default)
+
+    def _get_mute_part(self, part: str) -> int:
+        dmp = _DEFAULTS["mute_period"]
+        hidden_key = _MUTE_HIDDEN_KEYS[part]
+        if self._hidden_get is not None:
+            val = self._hidden_get(hidden_key)
+            if val is not None:
+                try:
+                    return int(val)
+                except (TypeError, ValueError):
+                    pass
+        mp = self._cfg.get("mute_period")
+        if isinstance(mp, dict):
+            try:
+                return int(mp.get(part, dmp[part]))
+            except (TypeError, ValueError):
+                pass
+        return dmp[part]
 
     @property
     def enabled(self) -> bool:
@@ -250,13 +190,11 @@ class ConfigManager:
 
     @property
     def mute_period(self) -> tuple[int, int, int, int]:
-        mp = self._get("mute_period", {})
-        dmp = _DEFAULTS["mute_period"]
         return (
-            int(mp.get("start_hour", dmp["start_hour"])),
-            int(mp.get("start_minute", dmp["start_minute"])),
-            int(mp.get("end_hour", dmp["end_hour"])),
-            int(mp.get("end_minute", dmp["end_minute"])),
+            self._get_mute_part("start_hour"),
+            self._get_mute_part("start_minute"),
+            self._get_mute_part("end_hour"),
+            self._get_mute_part("end_minute"),
         )
 
     @property
