@@ -18,7 +18,7 @@ import asyncio
 import uuid
 import time
 
-from iris_memory.core import Component, get_logger
+from iris_memory.core import Component, get_logger, get_run_log_manager
 from iris_memory.core.storage import KVStorage
 from iris_memory.config import get_config
 from .token_stats import TokenStatsManager
@@ -189,6 +189,18 @@ class LLMManager(Component):
                 success=True,
             )
             self._call_logs.append(log)
+            self._record_run_log(
+                path="hook",
+                module=module,
+                provider_id=actual_provider_id or "default",
+                prompt=prompt,
+                response_text=response_text,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                duration_ms=duration_ms,
+                success=True,
+                contexts_count=len(contexts or []),
+            )
 
             logger.info(
                 f"LLM 调用成功：module={module}, "
@@ -214,6 +226,19 @@ class LLMManager(Component):
                 error_message=f"LLM 调用超时({timeout_sec:.1f}s)",
             )
             self._call_logs.append(log)
+            self._record_run_log(
+                path="hook",
+                module=module,
+                provider_id=actual_provider_id or "default",
+                prompt=prompt,
+                response_text="",
+                input_tokens=0,
+                output_tokens=0,
+                duration_ms=duration_ms,
+                success=False,
+                error_message=f"LLM 调用超时({timeout_sec:.1f}s)",
+                contexts_count=len(contexts or []),
+            )
             logger.warning(
                 f"LLM 调用超时：module={module}, "
                 f"timeout={timeout_sec:.1f}s, duration={duration_ms}ms"
@@ -236,6 +261,19 @@ class LLMManager(Component):
                 error_message=str(e),
             )
             self._call_logs.append(log)
+            self._record_run_log(
+                path="hook",
+                module=module,
+                provider_id=actual_provider_id or "default",
+                prompt=prompt,
+                response_text="",
+                input_tokens=0,
+                output_tokens=0,
+                duration_ms=duration_ms,
+                success=False,
+                error_message=str(e),
+                contexts_count=len(contexts or []),
+            )
 
             logger.error(f"LLM 调用失败：module={module}, error={e}")
             raise
@@ -347,6 +385,20 @@ class LLMManager(Component):
                 success=True,
             )
             self._call_logs.append(log)
+            self._record_run_log(
+                path="direct",
+                module=module,
+                provider_id=actual_provider_id,
+                prompt=prompt,
+                response_text=response_text,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                duration_ms=duration_ms,
+                success=True,
+                contexts_count=len(contexts or []),
+                system_prompt=system_prompt or "",
+                image_count=len(image_urls or []),
+            )
 
             logger.info(
                 f"LLM 直接调用成功：module={module}, "
@@ -372,6 +424,21 @@ class LLMManager(Component):
                 error_message=f"LLM 直接调用超时({timeout_sec:.1f}s)",
             )
             self._call_logs.append(log)
+            self._record_run_log(
+                path="direct",
+                module=module,
+                provider_id=actual_provider_id,
+                prompt=prompt,
+                response_text="",
+                input_tokens=0,
+                output_tokens=0,
+                duration_ms=duration_ms,
+                success=False,
+                error_message=f"LLM 直接调用超时({timeout_sec:.1f}s)",
+                contexts_count=len(contexts or []),
+                system_prompt=system_prompt or "",
+                image_count=len(image_urls or []),
+            )
             logger.warning(
                 f"LLM 直接调用超时：module={module}, "
                 f"timeout={timeout_sec:.1f}s, duration={duration_ms}ms"
@@ -394,6 +461,21 @@ class LLMManager(Component):
                 error_message=str(e),
             )
             self._call_logs.append(log)
+            self._record_run_log(
+                path="direct",
+                module=module,
+                provider_id=actual_provider_id,
+                prompt=prompt,
+                response_text="",
+                input_tokens=0,
+                output_tokens=0,
+                duration_ms=duration_ms,
+                success=False,
+                error_message=str(e),
+                contexts_count=len(contexts or []),
+                system_prompt=system_prompt or "",
+                image_count=len(image_urls or []),
+            )
 
             logger.error(f"LLM 直接调用失败：module={module}, error={e}")
             raise
@@ -575,6 +657,49 @@ class LLMManager(Component):
         if len(text) <= max_length:
             return text
         return text[:max_length] + "..."
+
+    def _record_run_log(
+        self,
+        *,
+        path: str,
+        module: str,
+        provider_id: str,
+        prompt: str,
+        response_text: str,
+        input_tokens: int,
+        output_tokens: int,
+        duration_ms: int,
+        success: bool,
+        error_message: str = "",
+        contexts_count: int = 0,
+        system_prompt: str = "",
+        image_count: int = 0,
+    ) -> None:
+        """写入统一运行日志（llm_call 类型），失败不影响主流程"""
+        try:
+            path_label = "直接调用" if path == "direct" else "钩子调用"
+            status = "成功" if success else "失败"
+            get_run_log_manager().record(
+                "llm_call",
+                f"{module} {path_label}{status}",
+                success=success,
+                module=module,
+                path=path,
+                provider_id=provider_id,
+                prompt=prompt,
+                prompt_chars=len(prompt),
+                system_prompt=system_prompt,
+                contexts_count=contexts_count,
+                image_count=image_count,
+                response=response_text,
+                response_chars=len(response_text),
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                duration_ms=duration_ms,
+                error=error_message,
+            )
+        except Exception:
+            pass
 
     async def call(self, prompt: str, provider: str = "") -> str:
         """调用 LLM 生成响应（LLMCaller 协议接口）

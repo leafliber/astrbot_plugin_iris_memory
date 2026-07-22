@@ -48,6 +48,12 @@ const routes: RouteRecordRaw[] = [
     meta: { title: '主动回复', icon: 'mdi-robot' }
   },
   {
+    path: '/run-log',
+    name: 'RunLog',
+    component: () => import('@/views/RunLogView.vue'),
+    meta: { title: '运行日志', icon: 'mdi-text-box-search-outline' }
+  },
+  {
     path: '/hidden-config',
     name: 'HiddenConfig',
     component: () => import('@/views/HiddenConfigView.vue'),

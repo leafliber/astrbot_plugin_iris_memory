@@ -106,6 +106,7 @@ const navItems = [
   { to: '/profile', title: '画像管理', icon: 'mdi-account-group' },
   { to: '/data-manage', title: '数据管理', icon: 'mdi-swap-vertical' },
   { to: '/reply-control', title: '主动回复', icon: 'mdi-robot' },
+  { to: '/run-log', title: '运行日志', icon: 'mdi-text-box-search-outline' },
   { to: '/hidden-config', title: '隐藏参数', icon: 'mdi-cog-outline' }
 ]
 

@@ -281,6 +281,29 @@ class HiddenConfig:
         },
     )
 
+    # 运行日志参数
+    run_log_enabled: bool = field(
+        default=True,
+        metadata={
+            "description": "启用运行日志（LLM 调用 / 上下文注入 / 主动回复）",
+            "group": "运行日志",
+        },
+    )
+    run_log_max_entries: int = field(
+        default=10,
+        metadata={
+            "description": "运行日志每类保留的最新条数",
+            "group": "运行日志",
+        },
+    )
+    run_log_content_max_chars: int = field(
+        default=2000,
+        metadata={
+            "description": "运行日志单字段最大字符数，超出截断并保留原始长度",
+            "group": "运行日志",
+        },
+    )
+
     # 梦境任务参数
     dream_task_interval_hours: int = field(
         default=24,

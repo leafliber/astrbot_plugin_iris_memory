@@ -19,6 +19,26 @@ from .stats import StatsCollector
 _SKIP_RETRY_SECONDS = 30 * 60
 
 
+def _record_initiate_send(group_id: str, text: str, success: bool, error: str = "") -> None:
+    """写入统一运行日志（proactive 类型，主动发起直发结果）。"""
+    try:
+        from iris_memory.core.run_log import get_run_log_manager
+
+        get_run_log_manager().record(
+            "proactive",
+            f"主动发起{'已发送' if success else '发送失败'}",
+            success=success,
+            group_id=group_id,
+            wake="timer",
+            motive="initiate",
+            stage="send",
+            message=text,
+            error=error,
+        )
+    except Exception:
+        pass
+
+
 class ProactiveEngine:
     """主动发起引擎：定时扫描白名单群，在冷场或话题结束时评估并直发新话题。
 
@@ -206,7 +226,10 @@ class ProactiveEngine:
             chain = MessageChain().message(text)
             ok = await self._context.send_message(umo, chain)
             if not ok:
+                _record_initiate_send(group_id, text, False, "未找到匹配的消息平台")
                 return "发送失败：未找到匹配的消息平台"
+
+            _record_initiate_send(group_id, text, True)
 
             self._window.append(group_id, WindowMessage(
                 sender_id=self._self_id_get() or "iris",

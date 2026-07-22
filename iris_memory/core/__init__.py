@@ -24,6 +24,7 @@ from .lifecycle import (
     get_uptime,
 )
 from .llm_response_hook import handle_llm_response
+from .run_log import get_run_log_manager, reset_run_log_manager
 from .conversation_cleanup import handle_agent_done, handle_pre_request_cleanup
 from .initiate_backfill import handle_initiate_backfill
 
@@ -46,6 +47,8 @@ __all__ = [
     "get_component_manager",
     "get_uptime",
     "handle_llm_response",
+    "get_run_log_manager",
+    "reset_run_log_manager",
     "handle_agent_done",
     "handle_pre_request_cleanup",
     "handle_initiate_backfill",

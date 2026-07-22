@@ -14,6 +14,85 @@ from .state import StateManager, ThreadAnchor
 # llm_generate(chat_provider_id=..., prompt=..., system_prompt=...) -> response
 LlmGenerateFn = Callable[..., Awaitable[Any]]
 
+_MOTIVE_LABELS = {
+    "chime_in": "插话",
+    "follow_up": "跟进",
+    "initiate": "主动发起",
+    "watch": "跟进评估",
+}
+
+
+def _record_decision_log(
+    req: "DecisionRequest",
+    provider_id: str,
+    outcome: "DecisionOutcome",
+) -> None:
+    """写入统一运行日志（proactive 类型），失败不影响主流程。"""
+    try:
+        from iris_memory.core.run_log import get_run_log_manager
+
+        motive_label = _MOTIVE_LABELS.get(req.motive, req.motive)
+        wake_label = "定时" if req.wake == "timer" else "消息"
+
+        if outcome.error or outcome.decision is None:
+            title = f"{motive_label}决策失败（{wake_label}触发）"
+            get_run_log_manager().record(
+                "proactive",
+                title,
+                success=False,
+                group_id=req.group_id,
+                wake=req.wake,
+                motive=req.motive,
+                quiet_minutes=req.quiet_minutes,
+                provider_id=provider_id,
+                system_prompt=outcome.system_prompt,
+                user_prompt=outcome.user_prompt,
+                raw_response=outcome.raw_text,
+                duration_ms=round(outcome.duration_ms, 1),
+                error=outcome.error,
+            )
+            return
+
+        d = outcome.decision
+        if d.parse_failed:
+            result_label = "解析失败"
+        elif d.drifted:
+            result_label = "话题漂移"
+        elif d.should_speak:
+            result_label = "决定发言"
+        elif d.cooldown_minutes:
+            result_label = f"请求冷却 {d.cooldown_minutes} 分钟"
+        else:
+            result_label = "决定跳过"
+
+        get_run_log_manager().record(
+            "proactive",
+            f"{motive_label}决策：{result_label}（{wake_label}触发）",
+            success=not d.parse_failed,
+            group_id=req.group_id,
+            wake=req.wake,
+            motive=req.motive,
+            quiet_minutes=req.quiet_minutes,
+            provider_id=provider_id,
+            result=result_label,
+            should_speak=d.should_speak,
+            message=d.message,
+            observation=d.observation,
+            watch_users=d.watch,
+            watch_keywords=d.watch_keywords,
+            watch_reason=d.why,
+            drifted=d.drifted,
+            cooldown_minutes=d.cooldown_minutes,
+            parse_failed=d.parse_failed,
+            system_prompt=outcome.system_prompt,
+            user_prompt=outcome.user_prompt,
+            raw_response=outcome.raw_text,
+            duration_ms=round(outcome.duration_ms, 1),
+            error="",
+        )
+    except Exception:
+        pass
+
 
 @dataclass
 class DecisionRequest:
@@ -115,18 +194,22 @@ class DecisionCore:
                 system_prompt=system_prompt,
             )
         except Exception as e:
-            return DecisionOutcome(
+            outcome = DecisionOutcome(
                 decision=None,
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
                 error=str(e),
                 duration_ms=(time.time() - start) * 1000,
             )
+            _record_decision_log(req, provider_id, outcome)
+            return outcome
         raw = response.completion_text or ""
-        return DecisionOutcome(
+        outcome = DecisionOutcome(
             decision=parse_decision(raw, mode=req.motive),
             system_prompt=system_prompt,
             user_prompt=user_prompt,
             raw_text=raw,
             duration_ms=(time.time() - start) * 1000,
         )
+        _record_decision_log(req, provider_id, outcome)
+        return outcome

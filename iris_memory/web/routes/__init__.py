@@ -4,6 +4,7 @@ from .stats import register_stats_routes
 from .data_routes import register_data_routes
 from .manage_routes import register_manage_routes
 from .hidden_config_routes import register_hidden_config_routes
+from .run_log_routes import register_run_log_routes
 
 __all__ = [
     "register_memory_routes",
@@ -12,4 +13,5 @@ __all__ = [
     "register_data_routes",
     "register_manage_routes",
     "register_hidden_config_routes",
+    "register_run_log_routes",
 ]

@@ -107,6 +107,7 @@ async def preprocess_llm_request(
     l2_text = ""
     l2_results = []
     l3_text = ""
+    inject_meta: dict = {"l1": {}, "profile": {}, "l2": {}, "l3": {}}
 
     try:
         await _parse_images_if_related_mode(event, req, component_manager)
@@ -114,17 +115,23 @@ async def preprocess_llm_request(
         logger.error(f"图片解析（related 模式）失败，已隔离：{e}", exc_info=True)
 
     try:
-        l1_text = await _collect_l1_context(event, req, component_manager)
+        l1_text = await _collect_l1_context(
+            event, req, component_manager, meta=inject_meta["l1"]
+        )
     except Exception as e:
         logger.error(f"L1 上下文收集失败，已隔离：{e}", exc_info=True)
 
     try:
-        profile_text = await _collect_user_profile(event, component_manager)
+        profile_text = await _collect_user_profile(
+            event, component_manager, meta=inject_meta["profile"]
+        )
     except Exception as e:
         logger.error(f"用户画像收集失败，已隔离：{e}", exc_info=True)
 
     try:
-        l2_text, l2_results = await _collect_l2_memory(event, component_manager)
+        l2_text, l2_results = await _collect_l2_memory(
+            event, component_manager, meta=inject_meta["l2"]
+        )
     except Exception as e:
         logger.error(f"L2 记忆检索失败，已隔离：{e}", exc_info=True)
 
@@ -136,14 +143,89 @@ async def preprocess_llm_request(
 
     try:
         l3_text = await _collect_l3_knowledge_graph(
-            event, component_manager, l2_results, user_message
+            event, component_manager, l2_results, user_message, meta=inject_meta["l3"]
         )
     except Exception as e:
         logger.error(f"L3 知识图谱检索失败，已隔离：{e}", exc_info=True)
 
-    _inject_to_extra_user_content_parts(req, l1_text, profile_text, l2_text, l3_text)
+    combined = _inject_to_extra_user_content_parts(
+        req, l1_text, profile_text, l2_text, l3_text
+    )
+
+    _record_injection_log(
+        event,
+        req,
+        l1_text=l1_text,
+        profile_text=profile_text,
+        l2_text=l2_text,
+        l3_text=l3_text,
+        meta=inject_meta,
+        combined=combined,
+        user_message=user_message,
+    )
 
     _log_final_context(req)
+
+
+def _record_injection_log(
+    event: "AstrMessageEvent",
+    req: "ProviderRequest",
+    *,
+    l1_text: str,
+    profile_text: str,
+    l2_text: str,
+    l3_text: str,
+    meta: dict,
+    combined: str,
+    user_message: str,
+) -> None:
+    """写入统一运行日志（injection 类型），失败不影响主流程"""
+    try:
+        from iris_memory.core.run_log import get_run_log_manager
+
+        group_id = ""
+        session_id = ""
+        try:
+            from iris_memory.platform import get_adapter
+
+            adapter = get_adapter(event)
+            group_id = adapter.get_group_id(event) or ""
+            session_id = adapter.get_session_id(event) or ""
+        except Exception:
+            pass
+
+        sections = {
+            "l1_context": {"chars": len(l1_text), "injected": bool(l1_text), **meta.get("l1", {})},
+            "profile": {"chars": len(profile_text), "injected": bool(profile_text), **meta.get("profile", {})},
+            "l2_memory": {"chars": len(l2_text), "injected": bool(l2_text), **meta.get("l2", {})},
+            "l3_kg": {"chars": len(l3_text), "injected": bool(l3_text), **meta.get("l3", {})},
+        }
+        injected_count = sum(1 for s in sections.values() if s["injected"])
+
+        image_meta = getattr(req, "_iris_image_meta", None)
+        if not isinstance(image_meta, dict):
+            image_meta = None
+
+        if injected_count:
+            title = f"注入 {injected_count} 个 section（共 {len(combined)} 字符）"
+        else:
+            title = "所有 section 均为空，未注入"
+
+        get_run_log_manager().record(
+            "injection",
+            title,
+            success=injected_count > 0,
+            group_id=group_id,
+            session_id=session_id,
+            user_message=user_message,
+            injected_sections=injected_count,
+            total_chars=len(combined),
+            sections=sections,
+            image=image_meta,
+            content=combined,
+        )
+    except Exception as e:
+        logger.debug(f"注入运行日志记录失败（已忽略）：{e}")
 
 
 def _inject_to_extra_user_content_parts(
@@ -152,7 +234,7 @@ def _inject_to_extra_user_content_parts(
     profile_text: str,
     l2_text: str,
     l3_text: str,
-) -> None:
+) -> str:
     """将所有动态内容注入到 req.extra_user_content_parts
 
     所有内容（L1/画像/L2/L3）均为每轮变化的动态上下文，通过
@@ -167,6 +249,9 @@ def _inject_to_extra_user_content_parts(
         profile_text: 用户画像文本
         l2_text: 相关记忆文本
         l3_text: 知识图谱文本
+
+    Returns:
+        实际注入的合并文本，无内容注入时返回空字符串
     """
     sections = [
         ("l1_context", l1_text),
@@ -186,7 +271,7 @@ def _inject_to_extra_user_content_parts(
 
     if not parts:
         logger.debug("注入摘要：所有 section 均为空，跳过注入")
-        return
+        return ""
 
     logger.debug(f"注入摘要：{', '.join(inject_summary)}")
 
@@ -200,6 +285,8 @@ def _inject_to_extra_user_content_parts(
         text_part.mark_as_temp()
 
     req.extra_user_content_parts.append(text_part)
+
+    return combined
 
 
 async def _build_image_map(
@@ -302,6 +389,7 @@ async def _collect_l1_context(
     event: "AstrMessageEvent",
     req: "ProviderRequest",
     component_manager: "ComponentManager",
+    meta: Optional[dict] = None,
 ) -> str:
     """收集 L1 上下文文本
 
@@ -312,6 +400,7 @@ async def _collect_l1_context(
         event: AstrBot 消息事件对象
         req: LLM 提供者请求对象
         component_manager: 组件管理器实例
+        meta: 可选的运行日志元信息字典，函数会填充消息数与截断统计
 
     Returns:
         格式化的 L1 上下文文本，不可用时返回空字符串
@@ -321,6 +410,8 @@ async def _collect_l1_context(
     buffer = component_manager.get_available_component("l1_buffer")
     if not buffer:
         logger.debug("L1 Buffer 组件不可用，跳过上下文注入")
+        if meta is not None:
+            meta["skipped"] = "component_unavailable"
         return ""
 
     from iris_memory.config import get_config
@@ -340,9 +431,12 @@ async def _collect_l1_context(
     messages = l1_buffer.get_context(session_id, max_length)
     if not messages:
         logger.debug(f"群聊 {group_id} 的 L1 上下文为空，跳过注入")
+        if meta is not None:
+            meta["skipped"] = "empty"
         return ""
 
     current_user_id = adapter.get_user_id(event)
+    excluded_current = False
     if (
         current_user_id
         and messages
@@ -350,9 +444,12 @@ async def _collect_l1_context(
         and messages[-1].source == current_user_id
     ):
         messages = messages[:-1]
+        excluded_current = True
 
     if not messages:
         logger.debug(f"群聊 {group_id} 排除当前消息后 L1 上下文为空，跳过注入")
+        if meta is not None:
+            meta["skipped"] = "empty_after_excluding_current"
         return ""
 
     max_content_chars = cast(int, config.get("l1_inject_max_content_chars"))
@@ -388,11 +485,14 @@ async def _collect_l1_context(
                 uid = msg.source if msg.role == "user" and msg.source else ""
                 msg_id_map[str(mid)] = (msg.content, uname, uid)
 
+    truncated_messages = 0
+    truncated_replies = 0
     for idx, msg in enumerate(messages):
         content = msg.content
         role = msg.role
 
         if max_content_chars > 0 and len(content) > max_content_chars:
+            truncated_messages += 1
             logger.debug(
                 f"L1 上下文消息内容截断：群聊 {group_id}，"
                 f"消息 #{idx} 原始 {len(msg.content)} 字符 → {max_content_chars} 字符"
@@ -424,6 +524,7 @@ async def _collect_l1_context(
                 if reply_user_id and ref_sender != reply_user_id:
                     ref_sender = f"{ref_sender}({reply_user_id})"
                 if len(reply_content) > 80:
+                    truncated_replies += 1
                     logger.debug(
                         f"L1 回复内容截断：群聊 {group_id}，"
                         f"消息 #{idx} 回复原始 {len(reply_content)} 字符 → 80 字符"
@@ -448,6 +549,13 @@ async def _collect_l1_context(
     except AttributeError:
         pass
 
+    if meta is not None:
+        meta["message_count"] = len(messages)
+        meta["excluded_current_message"] = excluded_current
+        meta["truncated_messages"] = truncated_messages
+        meta["truncated_replies"] = truncated_replies
+        meta["max_content_chars"] = max_content_chars
+
     logger.debug(f"已收集 {len(messages)} 条 L1 上下文消息到群聊 {group_id}")
 
     return "\n".join(lines)
@@ -456,12 +564,14 @@ async def _collect_l1_context(
 async def _collect_user_profile(
     event: "AstrMessageEvent",
     component_manager: "ComponentManager",
+    meta: Optional[dict] = None,
 ) -> str:
     """收集用户画像文本（不直接修改 req）
 
     Args:
         event: AstrBot 消息事件对象
         component_manager: 组件管理器实例
+        meta: 可选的运行日志元信息字典
 
     Returns:
         格式化的画像文本，不可用时返回空字符串
@@ -471,15 +581,21 @@ async def _collect_user_profile(
 
     config = get_config()
     if not config.get("profile.enable"):
+        if meta is not None:
+            meta["skipped"] = "disabled"
         return ""
 
     enable_auto_injection = config.get("profile.enable_auto_injection")
     if enable_auto_injection is not None and not enable_auto_injection:
+        if meta is not None:
+            meta["skipped"] = "auto_injection_disabled"
         return ""
 
     profile_storage = component_manager.get_available_component("profile")
     if not profile_storage:
         logger.debug("画像系统组件不可用，跳过画像注入")
+        if meta is not None:
+            meta["skipped"] = "component_unavailable"
         return ""
 
     adapter = get_adapter(event)
@@ -488,6 +604,8 @@ async def _collect_user_profile(
 
     if not user_id:
         logger.debug("无法获取用户ID，跳过画像注入")
+        if meta is not None:
+            meta["skipped"] = "no_user_id"
         return ""
 
     effective_group_id = (
@@ -511,6 +629,11 @@ async def _collect_user_profile(
 
     if profile_text:
         logger.debug(f"已收集画像信息：群聊 {group_id} 用户 {user_id}")
+
+    if meta is not None:
+        meta["user_id"] = user_id
+        meta["group_id"] = group_id or ""
+        meta["persona_id"] = persona_id or ""
 
     return profile_text
 
@@ -576,6 +699,7 @@ async def _rewrite_query_for_retrieval(
 async def _collect_l2_memory(
     event: "AstrMessageEvent",
     component_manager: "ComponentManager",
+    meta: Optional[dict] = None,
 ) -> tuple[str, List["MemorySearchResult"]]:
     """收集 L2 记忆文本（不直接修改 req）
 
@@ -584,6 +708,7 @@ async def _collect_l2_memory(
     Args:
         event: AstrBot 消息事件对象
         component_manager: 组件管理器实例
+        meta: 可选的运行日志元信息字典，函数会填充检索与预算裁剪统计
 
     Returns:
         (格式化的记忆文本, L2 检索结果列表)
@@ -595,17 +720,25 @@ async def _collect_l2_memory(
 
     if not config.get("l2_memory.enable"):
         logger.debug("L2 记忆库未启用，跳过记忆注入")
+        if meta is not None:
+            meta["skipped"] = "disabled"
         return "", []
 
     l2_status = component_manager.check_component("l2_memory")
     if l2_status == "disabled":
         logger.debug("L2 记忆库未启用，跳过记忆注入")
+        if meta is not None:
+            meta["skipped"] = "disabled"
         return "", []
     if l2_status == "initializing":
         logger.debug("L2 记忆库正在初始化中，跳过记忆注入")
+        if meta is not None:
+            meta["skipped"] = "initializing"
         return "", []
     if l2_status != "available":
         logger.debug("L2 记忆库组件不可用，跳过记忆注入")
+        if meta is not None:
+            meta["skipped"] = "component_unavailable"
         return "", []
 
     adapter = get_adapter(event)
@@ -623,6 +756,8 @@ async def _collect_l2_memory(
 
     if not query_text:
         logger.debug("无法获取用户消息，跳过记忆检索")
+        if meta is not None:
+            meta["skipped"] = "no_query"
         return "", []
 
     try:
@@ -643,9 +778,13 @@ async def _collect_l2_memory(
         )
 
         context_text = ""
+        injected_count = 0
+        budget_tokens = 0
         if l2_results:
             max_tokens = config.get("token_budget_max_tokens", 2000)
+            budget_tokens = max_tokens
             trimmed = MemoryRetriever.trim_by_token_budget(l2_results, max_tokens)
+            injected_count = len(trimmed)
             context_lines = ["## 相关记忆"]
             for i, result in enumerate(trimmed, 1):
                 context_lines.append(f"{i}. {result.entry.content}")
@@ -654,10 +793,20 @@ async def _collect_l2_memory(
         if context_text:
             logger.debug(f"已收集检索记忆到群聊 {group_id}")
 
+        if meta is not None:
+            meta["query"] = query_text
+            meta["rewritten_query"] = rewritten_query or ""
+            meta["result_count"] = len(l2_results)
+            meta["injected_count"] = injected_count
+            meta["dropped_by_budget"] = len(l2_results) - injected_count
+            meta["budget_tokens"] = budget_tokens
+
         return context_text, l2_results
 
     except Exception as e:
         logger.error(f"L2 记忆注入失败: {e}", exc_info=True)
+        if meta is not None:
+            meta["error"] = str(e)
         return "", []
 
 
@@ -666,6 +815,7 @@ async def _collect_l3_knowledge_graph(
     component_manager: "ComponentManager",
     l2_results: List["MemorySearchResult"],
     user_message: str = "",
+    meta: Optional[dict] = None,
 ) -> str:
     """收集 L3 知识图谱文本（不直接修改 req）
 
@@ -679,6 +829,7 @@ async def _collect_l3_knowledge_graph(
         component_manager: 组件管理器实例
         l2_results: L2 检索结果
         user_message: 用户当前消息文本
+        meta: 可选的运行日志元信息字典，函数会填充检索策略与裁剪统计
 
     Returns:
         格式化的图谱文本，不可用时返回空字符串
@@ -690,17 +841,25 @@ async def _collect_l3_knowledge_graph(
 
     if not config.get("l3_kg.enable"):
         logger.debug("L3 知识图谱未启用，跳过图谱注入")
+        if meta is not None:
+            meta["skipped"] = "disabled"
         return ""
 
     l3_status = component_manager.check_component("l3_kg")
     if l3_status == "disabled":
         logger.debug("L3 知识图谱未启用，跳过图谱注入")
+        if meta is not None:
+            meta["skipped"] = "disabled"
         return ""
     if l3_status == "initializing":
         logger.debug("L3 知识图谱正在初始化中，跳过图谱注入")
+        if meta is not None:
+            meta["skipped"] = "initializing"
         return ""
     if l3_status != "available":
         logger.debug("L3 知识图谱组件不可用，跳过图谱注入")
+        if meta is not None:
+            meta["skipped"] = "component_unavailable"
         return ""
 
     kg_adapter = component_manager.get_available_component("l3_kg")
@@ -719,6 +878,8 @@ async def _collect_l3_knowledge_graph(
 
         all_nodes: dict[str, dict] = {}
         all_edges: dict[str, dict] = {}
+        strategy = "none"
+        keywords_used: List[str] = []
 
         memory_node_ids: List[str] = []
         if l2_results:
@@ -760,11 +921,13 @@ async def _collect_l3_knowledge_graph(
             for e in edges:
                 eid = f"{e.get('source', '')}-{e.get('relation_type', '')}-{e.get('target', '')}"
                 all_edges[eid] = e
+            strategy = "l2_expansion"
             logger.debug(f"基于 L2 节点扩展：{len(nodes)} 节点，{len(edges)} 边")
 
         if not memory_node_ids and user_message:
             keywords = _extract_kg_keywords(user_message)
             if keywords:
+                keywords_used = keywords
                 nodes, edges = await retriever.retrieve_by_keywords(
                     keywords=keywords, group_id=group_id
                 )
@@ -775,9 +938,14 @@ async def _collect_l3_knowledge_graph(
                 for e in edges:
                     eid = f"{e.get('source', '')}-{e.get('relation_type', '')}-{e.get('target', '')}"
                     all_edges[eid] = e
+                strategy = "keywords"
                 logger.debug(f"基于关键词检索：{len(nodes)} 节点，{len(edges)} 边")
 
         if not all_nodes:
+            if meta is not None:
+                meta["strategy"] = strategy
+                meta["keywords"] = keywords_used
+                meta["skipped"] = "no_nodes"
             return ""
 
         l3_max_tokens = cast(int, config.get("l3_max_inject_tokens", 600))
@@ -795,10 +963,20 @@ async def _collect_l3_knowledge_graph(
 
             logger.debug(f"图谱检索完成（{len(all_nodes)} 节点，{len(all_edges)} 边）")
 
+        if meta is not None:
+            meta["strategy"] = strategy
+            meta["keywords"] = keywords_used
+            meta["node_count"] = len(all_nodes)
+            meta["edge_count"] = len(all_edges)
+            meta["included_nodes"] = len(included_node_ids)
+            meta["budget_tokens"] = l3_max_tokens
+
         return graph_text
 
     except Exception as e:
         logger.error(f"L3 知识图谱注入失败: {e}", exc_info=True)
+        if meta is not None:
+            meta["error"] = str(e)
         return ""
 
 
@@ -975,6 +1153,7 @@ async def _parse_images_if_related_mode(
     if config.get("image_skip_on_passive_trigger", True):
         if _is_passive_trigger(event):
             logger.info("被动触发（sampling/主动回复），跳过图片解析以节省 token")
+            req._iris_image_meta = {"skipped": "passive_trigger"}
             return
 
     mode = config.get("l1_buffer.image_parsing.mode", "related")
@@ -1043,6 +1222,7 @@ async def _parse_images_if_related_mode(
         has_quota = await quota_manager.check_quota()
         if not has_quota:
             logger.info("图片解析配额已耗尽，跳过解析")
+            req._iris_image_meta = {"skipped": "quota_exhausted"}
             return
 
         quota_used = await quota_manager.use_quota(len(images_to_parse))
@@ -1154,6 +1334,12 @@ async def _parse_images_if_related_mode(
             await quota_manager.release_quota(failed_count)
 
     total_replaced = success_count + len(cached_results)
+    req._iris_image_meta = {
+        "mode": "related",
+        "parsed": success_count,
+        "cached": len(cached_results),
+        "failed": len(images_to_parse) - success_count,
+    }
     if total_replaced > 0:
         logger.info(
             f"已解析 {success_count} 张新图片，缓存 {len(cached_results)} 张，"

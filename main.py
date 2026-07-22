@@ -55,6 +55,7 @@ from iris_memory.core import (
     handle_pre_request_cleanup,
     handle_initiate_backfill,
     set_component_manager,
+    get_run_log_manager,
 )
 from iris_memory.tools import (
     SaveKnowledgeTool,
@@ -869,6 +870,19 @@ class IrisMemoryPlugin(Star):
 
             self._tool_ctx.clear_context()
             await self._state.save_dirty(self._kv_save)
+            try:
+                get_run_log_manager().record(
+                    "proactive",
+                    f"{'插话' if mode == 'chime_in' else '跟进'}回复已发送",
+                    success=True,
+                    group_id=group_id,
+                    wake="message",
+                    motive=mode,
+                    stage="reply",
+                    message=(response.completion_text or "").strip(),
+                )
+            except Exception:
+                pass
             logger.info(f"Iris Reply: {mode} reply sent for group {group_id}")
         elif mode == "passive":
             self._passive_active.pop(group_id, None)
