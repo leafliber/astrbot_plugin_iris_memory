@@ -42,6 +42,12 @@ const routes: RouteRecordRaw[] = [
     meta: { title: '数据管理', icon: 'mdi-swap-vertical' }
   },
   {
+    path: '/reply-control',
+    name: 'ReplyControl',
+    component: () => import('@/views/ReplyControlView.vue'),
+    meta: { title: '主动回复', icon: 'mdi-robot' }
+  },
+  {
     path: '/hidden-config',
     name: 'HiddenConfig',
     component: () => import('@/views/HiddenConfigView.vue'),
