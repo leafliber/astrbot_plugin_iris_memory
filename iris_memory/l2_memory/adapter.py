@@ -699,7 +699,14 @@ class L2MemoryAdapter(Component):
                 if self._free_list:
                     faiss_idx = self._free_list.pop(0)
                 else:
-                    faiss_idx = self._index.ntotal
+                    # 优先使用 DB 中的 MAX(faiss_idx)+1 作为新 ID，
+                    # 避免 free-list 丢失时 ntotal 与已有 ID 冲突
+                    # （ntotal 是当前向量数而非最大 ID+1，删除后会有空洞）。
+                    row = self._db.execute(
+                        "SELECT MAX(faiss_idx) FROM memories"
+                    ).fetchone()
+                    max_idx = row[0] if row and row[0] is not None else -1
+                    faiss_idx = max_idx + 1
 
                 # 添加到 FAISS
                 self._index.add_with_ids(
@@ -727,25 +734,39 @@ class L2MemoryAdapter(Component):
 
         与写入操作处于同一临界区，保证“检查相似 → 写入”的原子性，
         避免并发写入相同内容时双双通过去重。去重限定在同一 persona 命名空间内。
+
+        检索 top_k 个近邻（而非仅 top-1）后在结果中按 persona 过滤，
+        避免最相似向量恰好属于其他 persona 时，同 persona 的高度相似
+        记忆绕过去重导致重复写入。
         """
         if self._index is None or self._index.ntotal == 0:
             return None
 
-        scores, indices = self._index.search(vector, 1)
-        if indices[0][0] < 0:
-            return None
+        similarity_threshold = float(get_config().get("l2_similarity_threshold"))
 
-        score = float(scores[0][0])
-        if score < float(get_config().get("l2_similarity_threshold")):
-            return None
+        # 检索足够多的候选，确保能覆盖同 persona 中的高相似度向量。
+        # IndexFlatIP 是暴力搜索，距离计算成本与 k 无关，但结果数组按 k
+        # 分配，故取有界上限 64：同 persona 的重复向量几乎必然落在前 64
+        # 近邻内（去重阈值通常 ≥0.9，跨 persona 顶格占位不会如此之多）。
+        search_k = min(self._index.ntotal, 64)
+        scores, indices = self._index.search(vector, search_k)
 
-        faiss_idx = int(indices[0][0])
-        row = self._db.execute(
-            "SELECT memory_id FROM memories WHERE faiss_idx = ? AND persona_id = ?",
-            (faiss_idx, persona_id),
-        ).fetchone()
-        if row:
-            return row[0]
+        for i in range(len(indices[0])):
+            faiss_idx = int(indices[0][i])
+            if faiss_idx < 0:
+                continue
+
+            score = float(scores[0][i])
+            if score < similarity_threshold:
+                break  # 结果按相似度降序，后续只会更低
+
+            row = self._db.execute(
+                "SELECT memory_id FROM memories WHERE faiss_idx = ? AND persona_id = ?",
+                (faiss_idx, persona_id),
+            ).fetchone()
+            if row:
+                return row[0]
+
         return None
 
     # ========================================================================
@@ -1950,6 +1971,7 @@ class L2MemoryAdapter(Component):
         memory_id: str,
         content: str,
         metadata: Dict[str, Any],
+        persona_id: str = "default",
     ) -> None:
         """插入或更新 SQLite 记录"""
         group_id = metadata.get("group_id")
@@ -1961,8 +1983,8 @@ class L2MemoryAdapter(Component):
         with self._lock:
             self._db.execute(
                 """INSERT OR REPLACE INTO memories
-                   (faiss_idx, memory_id, content, metadata, group_id, user_id, timestamp, kg_processed)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                   (faiss_idx, memory_id, content, metadata, group_id, user_id, timestamp, kg_processed, persona_id)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     faiss_idx,
                     memory_id,
@@ -1972,6 +1994,7 @@ class L2MemoryAdapter(Component):
                     user_id,
                     timestamp,
                     kg_processed,
+                    persona_id,
                 ),
             )
             self._db.commit()

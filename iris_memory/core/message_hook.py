@@ -434,100 +434,118 @@ async def _queue_images_to_l1_buffer(
 
     image_suffixes: list[str] = []
     queued_count = 0
-    for image_info in images:
-        # ---- 提前下载图片数据（用于 pHash、过滤、本地缓存） ----
-        image_data: bytes | None = None
-        if image_info.url:
-            try:
-                import httpx
 
-                async with httpx.AsyncClient(timeout=10) as client:
-                    resp = await client.get(image_info.url, follow_redirects=True)
+    # 复用单个 HTTP 客户端下载所有图片，避免每张图片新建 TCP 连接。
+    # 客户端创建失败时（如网络栈不可用）退化为 None，下载步骤跳过，
+    # 但哈希计算（URL MD5）与入队流程仍正常进行。
+    import httpx
+
+    http_client: "httpx.AsyncClient | None" = None
+    try:
+        http_client = httpx.AsyncClient(timeout=10)
+    except Exception as e:
+        logger.debug(f"HTTP 客户端创建失败，本次图片跳过下载：{e}")
+
+    try:
+        for image_info in images:
+            # ---- 提前下载图片数据（用于 pHash、过滤、本地缓存） ----
+            image_data: bytes | None = None
+            if image_info.url and http_client is not None:
+                try:
+                    resp = await http_client.get(
+                        image_info.url, follow_redirects=True
+                    )
                     if resp.status_code < 400 and resp.content:
                         image_data = resp.content
-            except Exception as e:
-                logger.debug(f"图片下载失败：{e}")
+                except Exception as e:
+                    logger.debug(f"图片下载失败：{e}")
 
-        # ---- 哈希计算（有数据时走 pHash，否则走 URL MD5） ----
-        image_hash = await compute_image_hash(
-            image_data=image_data,
-            url=image_info.url,
-            use_phash=use_phash,
-        )
-
-        if not image_hash:
-            continue
-
-        if use_phash and image_hash.startswith("ph:"):
-            is_dup = False
-            for existing in existing_hashes:
-                if is_similar_image(image_hash, existing, threshold=phash_threshold):
-                    is_dup = True
-                    logger.debug(f"pHash 去重：跳过相似图片 {image_hash[:16]}...")
-                    break
-            if is_dup:
-                continue
-            existing_hashes.append(image_hash)
-
-        # ---- 无效图过滤（复用已下载数据） ----
-        if use_filter and image_data:
-            is_invalid, reason = await check_invalid_image(
-                image_data,
-                min_size=filter_min_size,
-                std_threshold=filter_std_threshold,
+            # ---- 哈希计算（有数据时走 pHash，否则走 URL MD5） ----
+            image_hash = await compute_image_hash(
+                image_data=image_data,
+                url=image_info.url,
+                use_phash=use_phash,
             )
-            if is_invalid:
-                logger.debug(f"无效图过滤：跳过 {image_hash[:16]}... ({reason})")
+
+            if not image_hash:
                 continue
 
-        # ---- 本地缓存（避免 URL 过期后无法访问） ----
-        if image_data:
+            if use_phash and image_hash.startswith("ph:"):
+                is_dup = False
+                for existing in existing_hashes:
+                    if is_similar_image(image_hash, existing, threshold=phash_threshold):
+                        is_dup = True
+                        logger.debug(f"pHash 去重：跳过相似图片 {image_hash[:16]}...")
+                        break
+                if is_dup:
+                    continue
+                existing_hashes.append(image_hash)
+
+            # ---- 无效图过滤（复用已下载数据） ----
+            if use_filter and image_data:
+                is_invalid, reason = await check_invalid_image(
+                    image_data,
+                    min_size=filter_min_size,
+                    std_threshold=filter_std_threshold,
+                )
+                if is_invalid:
+                    logger.debug(f"无效图过滤：跳过 {image_hash[:16]}... ({reason})")
+                    continue
+
+            # ---- 本地缓存（避免 URL 过期后无法访问） ----
+            if image_data:
+                try:
+                    raw_hash = image_hash.removeprefix("ph:")
+                    ext = detect_image_extension(image_data, image_info.url or "")
+                    cache_dir = config.data_dir / "image_cache" / raw_hash[:2]
+                    cache_dir.mkdir(parents=True, exist_ok=True)
+                    cache_path = cache_dir / f"{raw_hash}{ext}"
+                    cache_path.write_bytes(image_data)
+                    image_info.file_path = str(cache_path)
+                    logger.debug(f"已缓存图片到本地：{cache_path.name}")
+                except Exception as e:
+                    logger.debug(f"图片缓存写入失败：{e}")
+
+            hash_prefix = image_hash.removeprefix("ph:")[:12]
+
+            cached_desc = None
+            if cache_manager and cache_manager.is_available:
+                cached = await cache_manager.get_cache(image_hash)
+                if cached and cached.content:
+                    cached_desc = cached.content
+
+            if cached_desc:
+                image_suffixes.append(f"[图:{cached_desc}]")
+                queue_item = ImageQueueItem(
+                    image_hash=image_hash,
+                    image_url=image_info.url or "",
+                    image_info=image_info,
+                    message_id=message_id,
+                    group_id=session_id,
+                    user_id=user_id,
+                    status=ImageParseStatus.SUCCESS,
+                )
+            else:
+                placeholder = f"[IMG:{hash_prefix}]"
+                image_suffixes.append(placeholder)
+                queue_item = ImageQueueItem(
+                    image_hash=image_hash,
+                    image_url=image_info.url or "",
+                    image_info=image_info,
+                    message_id=message_id,
+                    group_id=session_id,
+                    user_id=user_id,
+                    status=ImageParseStatus.PENDING,
+                )
+
+            l1_buffer.add_image(session_id, queue_item)
+            queued_count += 1
+    finally:
+        if http_client is not None:
             try:
-                raw_hash = image_hash.removeprefix("ph:")
-                ext = detect_image_extension(image_data, image_info.url or "")
-                cache_dir = config.data_dir / "image_cache" / raw_hash[:2]
-                cache_dir.mkdir(parents=True, exist_ok=True)
-                cache_path = cache_dir / f"{raw_hash}{ext}"
-                cache_path.write_bytes(image_data)
-                image_info.file_path = str(cache_path)
-                logger.debug(f"已缓存图片到本地：{cache_path.name}")
-            except Exception as e:
-                logger.debug(f"图片缓存写入失败：{e}")
-
-        hash_prefix = image_hash.removeprefix("ph:")[:12]
-
-        cached_desc = None
-        if cache_manager and cache_manager.is_available:
-            cached = await cache_manager.get_cache(image_hash)
-            if cached and cached.content:
-                cached_desc = cached.content
-
-        if cached_desc:
-            image_suffixes.append(f"[图:{cached_desc}]")
-            queue_item = ImageQueueItem(
-                image_hash=image_hash,
-                image_url=image_info.url or "",
-                image_info=image_info,
-                message_id=message_id,
-                group_id=session_id,
-                user_id=user_id,
-                status=ImageParseStatus.SUCCESS,
-            )
-        else:
-            placeholder = f"[IMG:{hash_prefix}]"
-            image_suffixes.append(placeholder)
-            queue_item = ImageQueueItem(
-                image_hash=image_hash,
-                image_url=image_info.url or "",
-                image_info=image_info,
-                message_id=message_id,
-                group_id=session_id,
-                user_id=user_id,
-                status=ImageParseStatus.PENDING,
-            )
-
-        l1_buffer.add_image(session_id, queue_item)
-        queued_count += 1
+                await http_client.aclose()
+            except Exception:
+                pass
 
     if image_suffixes:
         prefix = "".join(image_suffixes)

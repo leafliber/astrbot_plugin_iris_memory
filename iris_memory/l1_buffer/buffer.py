@@ -818,6 +818,12 @@ class L1Buffer(Component):
                 important_events=_as_str_list(result.get("important_events")),
                 taboo_topics=_as_str_list(result.get("taboo_topics")),
                 important_dates=result.get("important_dates"),  # type: ignore[arg-type]
+                personality_tags=_as_str_list(result.get("personality_tags")),
+                interests=_as_str_list(result.get("interests")),
+                language_style=_as_str(result.get("language_style")),
+                communication_style=_as_str(result.get("communication_style")),
+                emotional_baseline=_as_str(result.get("emotional_baseline")),
+                custom_fields=_as_str_dict(result.get("custom_fields")),
                 confidence=0.8,
                 persona_id=persona_id,
             )
@@ -874,6 +880,9 @@ class L1Buffer(Component):
                 group_id=group_id,
                 long_term_tags=_as_str_list(result.get("long_term_tags")),
                 blacklist_topics=_as_str_list(result.get("blacklist_topics")),
+                interests=_as_str_list(result.get("interests")),
+                atmosphere_tags=_as_str_list(result.get("atmosphere_tags")),
+                custom_fields=_as_str_dict(result.get("custom_fields")),
                 confidence=0.8,
                 persona_id=persona_id,
             )
@@ -968,6 +977,7 @@ class L1Buffer(Component):
                 )
 
             memory_ids = []
+            written_confidences: list[str] = []
             quality_filtered = 0
             for item in filtered_items:
                 content = item.get("content", "")
@@ -1012,17 +1022,14 @@ class L1Buffer(Component):
                 )
                 if memory_id:
                     memory_ids.append(memory_id)
+                    written_confidences.append(confidence_str)
 
             if memory_ids:
                 high_count = sum(
-                    1
-                    for item in filtered_items[: len(memory_ids)]
-                    if item.get("confidence") == "high"
+                    1 for c in written_confidences if c == "high"
                 )
                 medium_count = sum(
-                    1
-                    for item in filtered_items[: len(memory_ids)]
-                    if item.get("confidence") == "medium"
+                    1 for c in written_confidences if c == "medium"
                 )
                 quality_msg = (
                     f"，质量过滤 {quality_filtered} 条" if quality_filtered else ""

@@ -277,8 +277,8 @@ class ConsolidationPhase:
         max_confidence = max(e.metadata.get("confidence", 0.5) for e in entries)
         merged_from = ",".join(e.id for e in entries)
 
-        await l2_adapter.delete_entries(ids_to_delete)
-
+        # 先写入合并后的新记忆，确认成功后再删除旧记忆，
+        # 避免 add_memory 失败时原始记忆已被删除导致数据丢失。
         new_id = await l2_adapter.add_memory(
             current_content,
             metadata={
@@ -292,25 +292,12 @@ class ConsolidationPhase:
         )
 
         if new_id:
+            await l2_adapter.delete_entries(ids_to_delete)
             deleted_count = len(ids_to_delete)
             logger.info(f"已合并 {len(entries)} 条记忆 -> {new_id}")
             return 1, deleted_count
         else:
-            logger.warning("合并记忆存储失败，尝试回滚原记忆")
-            rollback_count = 0
-            for entry in entries:
-                try:
-                    rid = await l2_adapter.add_memory(
-                        entry.content,
-                        metadata=entry.metadata,
-                        skip_dedup=True,
-                        persona_id=persona_id,
-                    )
-                    if rid:
-                        rollback_count += 1
-                except Exception as re:
-                    logger.error(f"回滚记忆 {entry.id} 失败：{re}")
-            logger.info(f"回滚完成：恢复 {rollback_count}/{len(entries)} 条记忆")
+            logger.warning("合并记忆存储失败，原始记忆未删除，保留原样")
             return 0, 0
 
     async def _merge_memories(

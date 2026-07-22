@@ -271,7 +271,6 @@ def classify_error(error_msg: str) -> ErrorType:
         "未启用",
         "已禁用",
         "未开启",
-        "未启用",
     ]
     if any(keyword in error_lower for keyword in disabled_keywords):
         return ErrorType.DISABLED

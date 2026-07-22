@@ -54,14 +54,17 @@ def _record_decision_log(
             return
 
         d = outcome.decision
+        # 标签优先级与 main.py _handle_reply_decision 的实际消费顺序保持一致：
+        # parse_failed → cooldown（命中即跳过）→ drifted → should_speak → skip，
+        # 避免 cooldown 与 speak 同现时日志误标「决定发言」。
         if d.parse_failed:
             result_label = "解析失败"
+        elif d.cooldown_minutes:
+            result_label = f"请求冷却 {d.cooldown_minutes} 分钟"
         elif d.drifted:
             result_label = "话题漂移"
         elif d.should_speak:
             result_label = "决定发言"
-        elif d.cooldown_minutes:
-            result_label = f"请求冷却 {d.cooldown_minutes} 分钟"
         else:
             result_label = "决定跳过"
 

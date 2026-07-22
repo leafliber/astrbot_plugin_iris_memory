@@ -336,7 +336,7 @@ class SegmentedMessageQueue:
         self.segment_1 = new_seg1
         self.segment_2 = new_seg2
         self.segment_3 = new_seg3
-        self.total_tokens -= removed_tokens
+        self.total_tokens = max(0, self.total_tokens - removed_tokens)
 
         return removed_count
 
