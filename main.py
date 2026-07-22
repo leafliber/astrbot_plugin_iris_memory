@@ -689,7 +689,7 @@ class IrisMemoryPlugin(Star):
     @filter.on_llm_request()
     async def on_llm_request(self, event: AstrMessageEvent, req: ProviderRequest) -> None:
         # 1. 主动回复统一决策（仅处理 _triggering 中的群；可能 stop_event 终止请求）
-        if await self._handle_reply_decision(event, req):
+        if await self._handle_reply_decision(event):
             return
 
         # 2. 记忆侧：被动触发检测 + 上下文接管 + L1/L2/L3/画像注入
@@ -706,7 +706,7 @@ class IrisMemoryPlugin(Star):
         if hint:
             req.extra_user_content_parts.append(TextPart(text=hint).mark_as_temp())
 
-    async def _handle_reply_decision(self, event: AstrMessageEvent, request: ProviderRequest) -> bool:
+    async def _handle_reply_decision(self, event: AstrMessageEvent) -> bool:
         """主动回复统一决策执行点。
 
         Returns:

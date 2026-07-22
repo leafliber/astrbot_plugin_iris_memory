@@ -187,6 +187,45 @@
       </v-col>
     </v-row>
 
+    <v-row class="mt-2">
+      <v-col cols="12">
+        <v-card color="surface" variant="flat" class="iris-card">
+          <v-card-title class="d-flex align-center iris-section-title">
+            <v-icon icon="mdi-database-import" color="success" class="mr-2" />
+            从 Iris Chat Memory 导入
+          </v-card-title>
+          <v-card-text>
+            <v-alert type="info" variant="tonal" density="compact" class="mb-4">
+              <div class="text-body-2">
+                如果你之前使用 Iris Chat Memory（astrbot_plugin_iris_chat_memory）插件，
+                可在该插件管理页面的「数据导入导出」中点击「全量备份」导出
+                <code>iris_full_backup_*.json</code> 文件，然后在此处上传导入。
+                导入将合并 L2 记忆、L3 知识图谱和画像数据，已存在的记录默认跳过。
+              </div>
+            </v-alert>
+            <div class="d-flex ga-3 flex-wrap">
+              <v-btn
+                color="success"
+                variant="tonal"
+                prepend-icon="mdi-upload"
+                :loading="importingChat"
+                @click="triggerImportChat"
+              >
+                选择备份文件并导入
+              </v-btn>
+              <input
+                ref="chatFileInput"
+                type="file"
+                accept=".json"
+                style="display: none"
+                @change="handleImportChatFile"
+              />
+            </div>
+          </v-card-text>
+        </v-card>
+      </v-col>
+    </v-row>
+
     <v-row class="mt-4">
       <v-col cols="12">
         <v-card color="surface" variant="flat" class="iris-card">
@@ -381,6 +420,7 @@ const exportingProfile = ref(false)
 const importingProfile = ref(false)
 const exportingAll = ref(false)
 const importingAll = ref(false)
+const importingChat = ref(false)
 
 const clearingL1 = ref(false)
 const deletingL2 = ref(false)
@@ -396,6 +436,7 @@ const l2FileInput = ref<HTMLInputElement | null>(null)
 const l3FileInput = ref<HTMLInputElement | null>(null)
 const profileFileInput = ref<HTMLInputElement | null>(null)
 const allFileInput = ref<HTMLInputElement | null>(null)
+const chatFileInput = ref<HTMLInputElement | null>(null)
 
 const confirmDialog = ref(false)
 const confirmMessage = ref('')
@@ -565,6 +606,38 @@ const handleImportAllFile = async (event: Event) => {
       notify((e as Error).message || '恢复失败', 'error')
     } finally {
       importingAll.value = false
+      target.value = ''
+    }
+  })
+}
+
+const triggerImportChat = () => {
+  chatFileInput.value?.click()
+}
+
+const handleImportChatFile = async (event: Event) => {
+  const target = event.target as HTMLInputElement
+  const file = target.files?.[0]
+  if (!file) return
+
+  showConfirm('确认要从 Iris Chat Memory 备份文件导入数据吗？已存在的记录将被跳过。', async () => {
+    importingChat.value = true
+    try {
+      const text = await file.text()
+      const data = JSON.parse(text)
+      const result = await importAll(data) as Record<string, any>
+      const parts: string[] = []
+      const l2 = result.l2_memory
+      if (l2 && !l2.error) parts.push(`L2 记忆 ${l2.imported_count ?? 0} 条`)
+      const l3 = result.l3_kg
+      if (l3 && !l3.error) parts.push(`图谱 ${l3.imported_nodes ?? 0} 节点/${l3.imported_edges ?? 0} 边`)
+      const pf = result.profiles
+      if (pf && !pf.error) parts.push(`画像 ${pf.imported_groups ?? 0} 群/${pf.imported_users ?? 0} 用户`)
+      notify(parts.length ? `导入完成：${parts.join('，')}` : '导入完成')
+    } catch (e: unknown) {
+      notify((e as Error).message || '导入失败', 'error')
+    } finally {
+      importingChat.value = false
       target.value = ''
     }
   })

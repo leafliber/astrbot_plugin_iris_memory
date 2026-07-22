@@ -100,7 +100,7 @@ iris_memory/web/
 
 ## API 文档
 
-所有 API 路径前缀为 `/{plugin_name}/`，其中 `plugin_name` = `astrbot_plugin_iris_chat_memory`。
+所有 API 路径前缀为 `/{plugin_name}/`，其中 `plugin_name` = `astrbot_plugin_iris_memory`。
 
 ### Memory API
 
