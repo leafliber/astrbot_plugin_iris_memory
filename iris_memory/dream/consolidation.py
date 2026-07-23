@@ -277,16 +277,36 @@ class ConsolidationPhase:
         max_confidence = max(e.metadata.get("confidence", 0.5) for e in entries)
         merged_from = ",".join(e.id for e in entries)
 
+        # 继承主体信息：合并不应静默丢失来源记忆的主体归属。
+        # 仅当所有来源记忆主体一致时保留 user_id；否则标记 subjectless，
+        # 由遗忘清洗加速淘汰（与 buffer.py 的无主体约定一致）。
+        user_ids = {
+            e.metadata.get("user_id") for e in entries if e.metadata.get("user_id")
+        }
+        active_users_set: set = set()
+        for e in entries:
+            active = e.metadata.get("active_users")
+            if active:
+                active_users_set.update(u for u in active.split(",") if u)
+
+        metadata = {
+            "group_id": group_id,
+            "confidence": max_confidence,
+            "timestamp": datetime.now().isoformat(),
+            "merged_from": merged_from,
+        }
+        if len(user_ids) == 1:
+            metadata["user_id"] = user_ids.pop()
+        else:
+            metadata["subjectless"] = True
+        if active_users_set:
+            metadata["active_users"] = ",".join(sorted(active_users_set))
+
         # 先写入合并后的新记忆，确认成功后再删除旧记忆，
         # 避免 add_memory 失败时原始记忆已被删除导致数据丢失。
         new_id = await l2_adapter.add_memory(
             current_content,
-            metadata={
-                "group_id": group_id,
-                "confidence": max_confidence,
-                "timestamp": datetime.now().isoformat(),
-                "merged_from": merged_from,
-            },
+            metadata=metadata,
             skip_dedup=True,
             persona_id=persona_id,
         )
@@ -309,7 +329,7 @@ class ConsolidationPhase:
 记忆1：{content1}
 记忆2：{content2}
 
-要求：合并重复信息，保留独特细节，时间冲突保留更近期的。仅输出合并后的内容。
+要求：合并重复信息，保留独特细节，时间冲突保留更近期的；必须保留记忆的主体（是谁的偏好/行为），禁止写成无主体的表述。仅输出合并后的内容。
 
 合并后："""
 

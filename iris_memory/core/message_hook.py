@@ -436,15 +436,15 @@ async def _queue_images_to_l1_buffer(
     queued_count = 0
 
     # 复用单个 HTTP 客户端下载所有图片，避免每张图片新建 TCP 连接。
-    # 客户端创建失败时（如网络栈不可用）退化为 None，下载步骤跳过，
-    # 但哈希计算（URL MD5）与入队流程仍正常进行。
-    import httpx
-
+    # 客户端创建失败时（如 httpx 未安装或网络栈不可用）退化为 None，
+    # 下载步骤跳过，但哈希计算（URL MD5）与入队流程仍正常进行。
     http_client: "httpx.AsyncClient | None" = None
     try:
+        import httpx
+
         http_client = httpx.AsyncClient(timeout=10)
     except Exception as e:
-        logger.debug(f"HTTP 客户端创建失败，本次图片跳过下载：{e}")
+        logger.debug(f"HTTP 客户端初始化失败，本次图片跳过下载：{e}")
 
     try:
         for image_info in images:

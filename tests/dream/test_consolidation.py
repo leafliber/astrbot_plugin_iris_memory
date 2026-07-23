@@ -106,3 +106,76 @@ class TestConsolidationPhase:
         result = await phase._merge_memories("记忆1", "记忆2", llm)
 
         assert result is None
+
+    def _make_entry(self, entry_id, content, metadata):
+        entry = Mock()
+        entry.id = entry_id
+        entry.content = content
+        entry.metadata = metadata
+        return entry
+
+    def _make_l2(self):
+        l2 = Mock()
+        l2.add_memory = AsyncMock(return_value="merged_id")
+        l2.delete_entries = AsyncMock(return_value=True)
+        return l2
+
+    @pytest.mark.asyncio
+    async def test_merge_group_preserves_single_user_id(self, phase):
+        """来源记忆主体一致时，合并后的记忆应继承 user_id"""
+        entries = [
+            self._make_entry(
+                "e1", "张三喜欢孙权", {"user_id": "u1", "confidence": 0.8}
+            ),
+            self._make_entry(
+                "e2", "张三偏爱孙权", {"user_id": "u1", "confidence": 0.7}
+            ),
+        ]
+        l2 = self._make_l2()
+        llm = Mock()
+        llm.generate_direct = AsyncMock(return_value="张三喜欢孙权")
+
+        merged, deleted = await phase._merge_group(entries, l2, llm)
+
+        assert merged == 1
+        metadata = l2.add_memory.call_args.kwargs["metadata"]
+        assert metadata["user_id"] == "u1"
+        assert "subjectless" not in metadata
+
+    @pytest.mark.asyncio
+    async def test_merge_group_marks_subjectless_when_no_user(self, phase):
+        """来源记忆均无主体时，合并结果应标记 subjectless 供遗忘清洗兜底"""
+        entries = [
+            self._make_entry("e1", "喜欢孙权", {"confidence": 0.8}),
+            self._make_entry("e2", "偏爱孙权", {"confidence": 0.7}),
+        ]
+        l2 = self._make_l2()
+        llm = Mock()
+        llm.generate_direct = AsyncMock(return_value="喜欢孙权")
+
+        merged, deleted = await phase._merge_group(entries, l2, llm)
+
+        metadata = l2.add_memory.call_args.kwargs["metadata"]
+        assert "user_id" not in metadata
+        assert metadata["subjectless"] is True
+
+    @pytest.mark.asyncio
+    async def test_merge_group_marks_subjectless_when_users_conflict(self, phase):
+        """来源记忆主体不一致时，合并结果不应归属单一用户"""
+        entries = [
+            self._make_entry(
+                "e1", "张三喜欢孙权", {"user_id": "u1", "confidence": 0.8}
+            ),
+            self._make_entry(
+                "e2", "李四喜欢孙权", {"user_id": "u2", "confidence": 0.7}
+            ),
+        ]
+        l2 = self._make_l2()
+        llm = Mock()
+        llm.generate_direct = AsyncMock(return_value="张三和李四都喜欢孙权")
+
+        merged, deleted = await phase._merge_group(entries, l2, llm)
+
+        metadata = l2.add_memory.call_args.kwargs["metadata"]
+        assert "user_id" not in metadata
+        assert metadata["subjectless"] is True

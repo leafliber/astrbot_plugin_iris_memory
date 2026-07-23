@@ -166,11 +166,12 @@ CONFIDENCE: medium"""
 
     @pytest.mark.asyncio
     async def test_write_pattern_skips_subjectless_node(self, phase):
-        """回归：_write_pattern 在 person 字段为空时跳过创建 L3 节点
+        """回归：_write_pattern 在 person 字段为空时整体跳过写入
 
-        此前 person_id 为空仍创建节点，导致无主节点（如"有特定角色偏好"
-        不知道是谁的偏好）无法关联到用户，成为图谱中的孤儿。修复后当
-        PERSON 字段为空时直接返回，不调用 l3.add_node。
+        无主体的模式记忆（如"有特定角色偏好"不知道是谁的偏好）没有检索
+        价值：此前仅跳过 L3 节点、L2 仍无条件写入，导致无主体记忆滞留
+        L2 并可能流入下游。修复后 PERSON 为空时直接返回 False，
+        L2 与 L3 均不写入。
         """
         l2 = Mock()
         l2.add_memory = AsyncMock(return_value="mem_new_id")
@@ -189,9 +190,31 @@ CONFIDENCE: medium"""
 
         written = await phase._write_pattern(pattern, "_all", l2, l3)
 
-        # L2 仍然写入
-        l2.add_memory.assert_called_once()
-        # 返回 True（L2 写入成功），但 L3 不应创建节点
-        assert written is True
+        # L2 不写入，L3 也不创建节点
+        assert written is False
+        l2.add_memory.assert_not_called()
         l3.add_node.assert_not_called()
         l3.add_edge.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_write_pattern_records_user_id_in_l2(self, phase):
+        """_write_pattern 应把 PERSON 写入 L2 metadata 的 user_id 字段"""
+        l2 = Mock()
+        l2.add_memory = AsyncMock(return_value="mem_new_id")
+        l3 = Mock()
+        l3.is_available = False
+
+        pattern = {
+            "type": "Preference",
+            "person": "user_001",
+            "description": "user_001 喜欢使用孙权",
+            "evidence": "1,3",
+            "confidence": "high",
+        }
+
+        written = await phase._write_pattern(pattern, "_all", l2, l3)
+
+        assert written is True
+        l2.add_memory.assert_called_once()
+        metadata = l2.add_memory.call_args.kwargs["metadata"]
+        assert metadata["user_id"] == "user_001"
