@@ -95,21 +95,56 @@ class TestMessageGateSampling:
 
 
 class TestTimerGate:
+    """意愿值概率门控：意愿随静默积累、随活跃消退，达到随机阈值时点火。
+
+    测试通过直接设置 initiate_target / initiate_score_at 使积累过程确定化：
+    quiet_minutes=30 → 基准速率 1/1800 每秒，medium 意愿 t_factor=0.85，
+    结算步长上限 = check_interval(5) × 120 = 600 秒。
+    """
+
     def _timer_gate(self, nm_config, overrides=None):
         base = {"proactive_enabled": True, "proactive_quiet_minutes": 30}
         if overrides:
             base.update(overrides)
         return _build(nm_config, overrides=base)
 
-    def test_initiate_on_quiet(self, nm_config, make_msg):
-        _, _, gate = self._timer_gate(nm_config)
+    def _prime_drive(self, st, *, score=0.0, target=0.5, tick=600):
+        data = st.get_state(GID)
+        data.initiate_score = score
+        data.initiate_target = target
+        data.initiate_score_at = time.time() - tick
+
+    def test_initiate_after_drive_accumulates(self, nm_config, make_msg):
+        _, st, gate = self._timer_gate(nm_config)
         old = make_msg(timestamp=time.time() - 1900)
+        self._prime_drive(st, score=0.0, target=0.5)
+        # 第一拍积累 600/1800/0.85 ≈ 0.39，未达阈值
+        assert gate.evaluate_timer(GID, [old]) is None
+        # 第二拍累计 ≈ 0.78，超过 0.5 点火
+        self._prime_drive(st, score=st.get_state(GID).initiate_score, target=0.5)
         assert gate.evaluate_timer(GID, [old]) == "initiate"
 
-    def test_not_quiet_enough(self, nm_config, make_msg):
-        _, _, gate = self._timer_gate(nm_config)
+    def test_not_accumulated_no_fire(self, nm_config, make_msg):
+        _, st, gate = self._timer_gate(nm_config)
         recent = make_msg(timestamp=time.time() - 60)
+        self._prime_drive(st, score=0.0, target=0.5)
         assert gate.evaluate_timer(GID, [recent]) is None
+
+    def test_active_conversation_decays_drive(self, nm_config, make_msg):
+        _, st, gate = self._timer_gate(nm_config)
+        # 群里刚有消息：静默时长 0，整拍都用于消退
+        fresh = make_msg(timestamp=time.time())
+        self._prime_drive(st, score=0.3, target=0.9)
+        assert gate.evaluate_timer(GID, [fresh]) is None
+        # 消退量 = 600 × (1/1800) × 2 ≈ 0.67 → 清零
+        assert st.get_state(GID).initiate_score == 0.0
+
+    def test_target_sampled_in_range(self, nm_config, make_msg):
+        _, st, gate = self._timer_gate(nm_config)
+        old = make_msg(timestamp=time.time() - 1900)
+        assert gate.evaluate_timer(GID, [old]) is None
+        target = st.get_state(GID).initiate_target
+        assert 0.8 <= target <= 1.5
 
     def test_proactive_disabled(self, nm_config, make_msg):
         _, _, gate = _build(nm_config)  # proactive_enabled 默认 False
@@ -124,50 +159,73 @@ class TestTimerGate:
         _, st, gate = self._timer_gate(nm_config)
         st.record_initiate(GID, bot_message="大家好")
         old = make_msg(timestamp=time.time() - 1900)
+        self._prime_drive(st, score=1.0, target=0.5)
         assert gate.evaluate_timer(GID, [old]) is None
 
-    def test_daily_cap_blocks(self, nm_config, make_msg):
+    def test_daily_cap_blocks_and_resets_drive(self, nm_config, make_msg):
         _, st, gate = self._timer_gate(nm_config, {"proactive_max_per_day": 1})
         st.record_initiate(GID, bot_message="大家好")
-        # 隔离 pending 因素，只验证每日上限
+        # 隔离 pending / 最小间隔因素，只验证每日上限
         st.get_state(GID).initiate_pending_since = 0.0
         st.get_state(GID).last_initiate_time = 0.0
         old = make_msg(timestamp=time.time() - 1900)
+        self._prime_drive(st, score=1.0, target=0.5)
         assert gate.evaluate_timer(GID, [old]) is None
+        # 触达上限时意愿被清零，防止次日解禁瞬间点火
+        data = st.get_state(GID)
+        assert data.initiate_score == 0.0
+        assert data.initiate_target == 0.0
 
     def test_streak_cap_blocks(self, nm_config, make_msg):
         _, st, gate = self._timer_gate(nm_config, {"proactive_max_streak": 1})
         st.get_state(GID).initiate_no_reply_streak = 1
         old = make_msg(timestamp=time.time() - 1900)
+        self._prime_drive(st, score=1.0, target=0.5)
         assert gate.evaluate_timer(GID, [old]) is None
 
     def test_min_interval_blocks(self, nm_config, make_msg):
         _, st, gate = self._timer_gate(nm_config, {"proactive_min_interval": 60})
-        st.get_state(GID).last_initiate_time = time.time() - 100
         old = make_msg(timestamp=time.time() - 1900)
+        st.get_state(GID).last_initiate_time = time.time() - 100
+        self._prime_drive(st, score=1.0, target=0.5)
         assert gate.evaluate_timer(GID, [old]) is None
         # 超过最小间隔后放行
         st.get_state(GID).last_initiate_time = time.time() - 3700
+        self._prime_drive(st, score=1.0, target=0.5)
         assert gate.evaluate_timer(GID, [old]) == "initiate"
 
-    def test_drift_accelerates_initiate(self, nm_config, make_msg):
+    def test_drift_accelerates_drive(self, nm_config, make_msg):
         _, st, gate = self._timer_gate(nm_config, {"proactive_drift_delay": 5})
-        # 静默 400s 未达 1800s 阈值，但话题 100s 前刚结束 → 阈值收紧为 300s
+        # 话题 100s 前刚结束 → 积累加速 ×(30/5)=6，一拍 300s 即可点火
         st.get_state(GID).last_drift_time = time.time() - 100
-        quiet = make_msg(timestamp=time.time() - 400)
+        quiet = make_msg(timestamp=time.time() - 1900)
+        self._prime_drive(st, score=0.0, target=0.9, tick=300)
         assert gate.evaluate_timer(GID, [quiet]) == "initiate"
+
+    def test_no_drift_same_tick_not_enough(self, nm_config, make_msg):
+        _, st, gate = self._timer_gate(nm_config)
+        quiet = make_msg(timestamp=time.time() - 1900)
+        self._prime_drive(st, score=0.0, target=0.9, tick=300)
+        # 无加速时 300s 仅积累 ≈ 0.20
+        assert gate.evaluate_timer(GID, [quiet]) is None
 
     def test_cooldown_blocks_timer(self, nm_config, make_msg):
         _, st, gate = self._timer_gate(nm_config)
         st.set_cooldown(GID, 5)
         old = make_msg(timestamp=time.time() - 1900)
+        self._prime_drive(st, score=1.0, target=0.5)
         assert gate.evaluate_timer(GID, [old]) is None
 
-    def test_muted_blocks_timer(self, nm_config, make_msg):
+    def test_muted_freezes_drive(self, nm_config, make_msg):
         _, st, gate = self._timer_gate(nm_config)
         st.is_muted = lambda: True
         old = make_msg(timestamp=time.time() - 1900)
+        self._prime_drive(st, score=0.3, target=0.9)
         assert gate.evaluate_timer(GID, [old]) is None
+        data = st.get_state(GID)
+        # 禁言期只推进时钟，意愿不积累也不消退（避免开闸瞬间点火）
+        assert data.initiate_score == 0.3
+        assert time.time() - data.initiate_score_at < 5
 
 
 class TestGatekeeperWhitelist:

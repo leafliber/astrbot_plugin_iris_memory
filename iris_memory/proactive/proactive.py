@@ -10,7 +10,9 @@ from astrbot.api.star import Context
 
 from .config import ConfigManager
 from .decision import DecisionCore, DecisionRequest
-from .perception import SlidingWindow, WindowMessage
+from .parser import Decision
+from .perception import ContextPackager, SlidingWindow, WindowMessage
+from .prompts import SPEAK_HINTS
 from .signals import SignalGate
 from .state import StateManager
 from .stats import StatsCollector
@@ -56,6 +58,7 @@ class ProactiveEngine:
         decision_core: DecisionCore,
         stats: StatsCollector,
         *,
+        packager: ContextPackager,
         umo_get: Callable[[str], str | None],
         is_busy: Callable[[str], bool],
         self_id_get: Callable[[], str],
@@ -70,6 +73,7 @@ class ProactiveEngine:
         self._signals = signals
         self._core = decision_core
         self._stats = stats
+        self._packager = packager
         self._umo_get = umo_get
         self._is_busy = is_busy
         self._self_id_get = self_id_get
@@ -122,7 +126,9 @@ class ProactiveEngine:
             if not self._state.can_detect(group_id):
                 continue
             messages = self._window.get_messages(group_id)
-            if self._signals.evaluate_timer(group_id, messages):
+            async with self._state.get_lock(group_id):
+                motive = self._signals.evaluate_timer(group_id, messages)
+            if motive:
                 result = await self.attempt_initiate(group_id)
                 logger.info("Iris Reply: proactive attempt for group %s: %s", group_id, result)
 
@@ -188,9 +194,9 @@ class ProactiveEngine:
                 duration_ms=outcome.duration_ms,
             )
             logger.info(
-                "Iris Reply: initiate decision for group %s: speak=%s, drifted=%s, cooldown=%d, msg=%.100s",
+                "Iris Reply: initiate decision for group %s: speak=%s, drifted=%s, cooldown=%d, topic=%.100s",
                 group_id, decision.should_speak, decision.drifted,
-                decision.cooldown_minutes, decision.message,
+                decision.cooldown_minutes, decision.topic,
             )
 
             async with self._state.get_lock(group_id):
@@ -207,12 +213,24 @@ class ProactiveEngine:
                 await self._save_fn()
                 return "决策结果解析失败"
 
-            if not decision.should_speak or not decision.message:
+            if not decision.should_speak:
+                # LLM 否决：清零意愿值并重新采样阈值，下一轮从零积累
+                async with self._state.get_lock(group_id):
+                    self._state.reset_initiate_drive(group_id)
                 self._skip_retry_after[group_id] = time.time() + _SKIP_RETRY_SECONDS
                 await self._save_fn()
                 return "LLM 决定暂不发起"
 
-            text = decision.message.strip()[: self._config.proactive_max_message_len]
+            # 发言文本走主管线人格生成（决策只给切入角度，不直出消息）
+            text = await self._generate_speech(group_id, umo, provider_id, decision)
+            if not text:
+                text = decision.message.strip()
+            if not text:
+                self._skip_retry_after[group_id] = time.time() + _SKIP_RETRY_SECONDS
+                await self._save_fn()
+                return "发言文本生成失败"
+
+            text = text[: self._config.proactive_max_message_len]
             if self._text_transform is not None:
                 # 直发通路不触发 on_decorating_result，消息始终以纯文本发送，
                 # 由调用方补齐与管线一致的文本处理（如 Markdown 去除）
@@ -240,7 +258,7 @@ class ProactiveEngine:
             async with self._state.get_lock(group_id):
                 self._state.record_initiate(
                     group_id,
-                    topic=decision.observation,
+                    topic=decision.topic or decision.observation,
                     bot_message=text,
                     users=decision.watch or None,
                     keywords=decision.watch_keywords or None,
@@ -261,3 +279,45 @@ class ProactiveEngine:
             return f"发起异常: {e}"
         finally:
             self._initiating.discard(group_id)
+
+    async def _generate_speech(
+        self,
+        group_id: str,
+        umo: str,
+        provider_id: str,
+        decision: Decision,
+    ) -> str:
+        """用主管线人格生成发起文本。
+
+        决策层只给出切入角度（topic），具体措辞由 bot 当前人格结合群聊
+        上下文产出，保证主动消息与被动回复的语气、风格一致。
+        失败时返回空字符串，由调用方回退或重试。
+        """
+        persona_prompt = ""
+        try:
+            personality = await self._context.persona_manager.get_default_persona_v3(umo)
+            if personality:
+                persona_prompt = personality.get("prompt", "") or ""
+        except Exception as e:
+            logger.warning(
+                "Iris Reply: persona resolve failed for group %s: %s", group_id, e,
+            )
+
+        messages = self._window.get_messages(group_id)
+        context_block = self._packager.package(group_id, messages, "initiate")
+        topic = decision.topic.strip() or "自由选择一个轻松、大家能接上话的角度"
+        hint = SPEAK_HINTS["initiate"].format(topic=topic)
+        prompt = f"{context_block}\n\n{hint}"
+
+        try:
+            resp = await self._context.llm_generate(
+                chat_provider_id=provider_id,
+                prompt=prompt,
+                system_prompt=persona_prompt or None,
+            )
+        except Exception as e:
+            logger.warning(
+                "Iris Reply: speech generation failed for group %s: %s", group_id, e,
+            )
+            return ""
+        return (resp.completion_text or "").strip()

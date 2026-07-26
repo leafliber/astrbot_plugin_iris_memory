@@ -195,6 +195,7 @@ class IrisMemoryPlugin(Star):
             self._signals,
             self._decision_core,
             self._stats,
+            packager=self._context_packager,
             umo_get=lambda gid: self._group_umo.get(gid),
             is_busy=self._is_busy,
             self_id_get=lambda: self._self_id,

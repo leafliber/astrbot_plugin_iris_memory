@@ -14,7 +14,8 @@ class Decision:
 
     action: str = "none"  # "speak" | "none"
     mode: str = ""  # 确认后的发言模式（跟随请求动机）
-    message: str = ""  # initiate 模式下的直发内容
+    message: str = ""  # 指令要求直出时的发言内容
+    topic: str = ""  # initiate 模式下 LLM 自选的切入角度
     observation: str = ""
     watch: list[str] = field(default_factory=list)
     watch_keywords: list[str] = field(default_factory=list)
@@ -126,6 +127,7 @@ def parse_decision(text: str, mode: str = "") -> Decision:
 
     action = _parse_action(obj.get("action"), obj.get("reply"))
     message = str(obj.get("message", "") or "").strip()
+    topic = str(obj.get("topic", "") or "").strip()
     observation = str(obj.get("obs", obj.get("observation", "")))
     watch = parse_string_list(obj.get("watch", obj.get("follow_up_users", [])))
     watch_keywords = parse_string_list(
@@ -136,17 +138,20 @@ def parse_decision(text: str, mode: str = "") -> Decision:
     drifted = parse_bool(obj.get("drifted", obj.get("topic_drifted", False)))
     cooldown = _parse_cooldown(obj.get("cooldown", 0))
 
-    # 防御：不要求发言时忽略 message；drifted 时不应发言
+    # 防御：不要求发言时忽略 message/topic；drifted 时不应发言
     if action != "speak":
         message = ""
+        topic = ""
     if drifted and action == "speak":
         action = "none"
         message = ""
+        topic = ""
 
     return Decision(
         action=action,
         mode=mode,
         message=message,
+        topic=topic,
         observation=observation,
         watch=watch,
         watch_keywords=watch_keywords,

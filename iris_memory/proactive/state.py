@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import random
 import time
 from dataclasses import dataclass, field
 from enum import Enum
@@ -85,6 +86,9 @@ class GroupStateData:
     initiate_count_date: str = ""
     initiate_pending_since: float = 0.0
     initiate_no_reply_streak: int = 0
+    initiate_score: float = 0.0  # 积累的发起意愿值，达到 initiate_target 时点火
+    initiate_target: float = 0.0  # 随机采样的点火阈值，<=0 表示待采样
+    initiate_score_at: float = 0.0  # 上次意愿结算时刻
     dirty: bool = False
 
 
@@ -95,6 +99,14 @@ class StateManager:
     MAX_ANCHOR_KEYWORDS = 10
     MAX_COOLDOWN_MINUTES = 120
     BACKOFF_DECAY_INTERVAL = 300.0
+
+    # 发起意愿值：点火阈值随机采样区间（相对积累基准时长的倍数）
+    INITIATE_TARGET_MIN = 0.8
+    INITIATE_TARGET_MAX = 1.5
+    # 话题刚结束时意愿积累加速倍数上限
+    INITIATE_DRIFT_BOOST_MAX = 8.0
+    # 对话活跃时意愿消退速率（相对基准积累速率的倍数）
+    INITIATE_DECAY_FACTOR = 2.0
 
     _GROUP_IDS_KEY = "iris_reply:group_ids"
     _GROUP_KEY_PREFIX = "state:"
@@ -335,6 +347,8 @@ class StateManager:
         data.initiate_daily_count += 1
         data.last_initiate_time = now
         data.initiate_pending_since = now
+        data.initiate_score = 0.0
+        data.initiate_target = 0.0
         self.write_anchor(
             group_id,
             kind="initiate",
@@ -353,6 +367,73 @@ class StateManager:
             return
         data.initiate_pending_since = 0.0
         data.initiate_no_reply_streak += 1
+        self._mark_dirty(group_id, data)
+
+    # ---- 发起意愿值（概率门控）----
+
+    def update_initiate_drive(
+        self,
+        group_id: str,
+        *,
+        now: float,
+        quiet_seconds: float,
+        freeze: bool = False,
+    ) -> bool:
+        """结算一次发起意愿值，返回是否达到点火阈值。
+
+        意愿在群静默时积累、对话活跃时消退：
+        - 基准速率为在 proactive_quiet_minutes 内积累到 1.0，按回复意愿等级缩放；
+        - 话题刚结束（drift）不久时按 proactive_drift_delay 的比例加速（封顶
+          INITIATE_DRIFT_BOOST_MAX 倍）；仍有对话锚点时小幅加速；
+        - 点火阈值在 [INITIATE_TARGET_MIN, INITIATE_TARGET_MAX] 内随机采样，
+          使每次点火时刻自然分散；
+        - freeze（禁言期）只推进结算时钟，不积累也不消退，避免开闸瞬间点火。
+        """
+        data = self._ensure_group(group_id)
+        prev = data.initiate_score_at
+        data.initiate_score_at = now
+        if data.initiate_target <= 0:
+            data.initiate_target = random.uniform(
+                self.INITIATE_TARGET_MIN, self.INITIATE_TARGET_MAX
+            )
+        target = data.initiate_target
+        if prev > 0:
+            # 重启/长时间未结算时不做跳跃式积累，防止启动风暴
+            elapsed = min(
+                max(0.0, now - prev),
+                max(1, self._config.proactive_check_interval) * 120.0,
+            )
+        else:
+            elapsed = 0.0
+        if elapsed > 0 and not freeze:
+            base_rate = 1.0 / (self._config.proactive_quiet_minutes * 60.0)
+            accum = min(elapsed, max(0.0, quiet_seconds))
+            decay = elapsed - accum
+            if accum > 0:
+                level = data.willingness if data.willingness in VALID_LEVELS else DEFAULT_LEVEL
+                t_factor = WILLINGNESS_THRESHOLD_ADJUST[level]["t_factor"]
+                rate = base_rate / t_factor
+                quiet_window = self._config.proactive_quiet_minutes * 60.0
+                if 0 < data.last_drift_time and now - data.last_drift_time < quiet_window:
+                    boost = self._config.proactive_quiet_minutes / max(
+                        5, self._config.proactive_drift_delay
+                    )
+                    rate *= min(boost, self.INITIATE_DRIFT_BOOST_MAX)
+                elif data.anchor.has_context:
+                    rate *= 1.25
+                data.initiate_score = min(target, data.initiate_score + accum * rate)
+            if decay > 0:
+                data.initiate_score = max(
+                    0.0, data.initiate_score - decay * base_rate * self.INITIATE_DECAY_FACTOR
+                )
+        self._mark_dirty(group_id, data)
+        return data.initiate_score >= target
+
+    def reset_initiate_drive(self, group_id: str) -> None:
+        """清零意愿值并使阈值待重新采样（点火成功 / LLM 否决 / 触达上限时调用）。"""
+        data = self._ensure_group(group_id)
+        data.initiate_score = 0.0
+        data.initiate_target = 0.0
         self._mark_dirty(group_id, data)
 
     # ---- 采样与自适应阈值 ----
@@ -486,6 +567,9 @@ class StateManager:
         data.initiate_count_date = self._today()
         data.initiate_pending_since = 0.0
         data.initiate_no_reply_streak = 0
+        data.initiate_score = 0.0
+        data.initiate_target = 0.0
+        data.initiate_score_at = 0.0
         data.state = GroupState.IDLE
         self._mark_dirty(group_id, data)
 
@@ -632,6 +716,9 @@ class StateManager:
             "initiate_count_date": data.initiate_count_date,
             "initiate_pending_since": data.initiate_pending_since,
             "initiate_no_reply_streak": data.initiate_no_reply_streak,
+            "initiate_score": data.initiate_score,
+            "initiate_target": data.initiate_target,
+            "initiate_score_at": data.initiate_score_at,
         }
 
     def _deserialize_group(self, d: dict[str, Any]) -> GroupStateData:
@@ -678,6 +765,9 @@ class StateManager:
             initiate_count_date=d.get("initiate_count_date", ""),
             initiate_pending_since=d.get("initiate_pending_since", 0.0),
             initiate_no_reply_streak=d.get("initiate_no_reply_streak", 0),
+            initiate_score=d.get("initiate_score", 0.0),
+            initiate_target=d.get("initiate_target", 0.0),
+            initiate_score_at=d.get("initiate_score_at", 0.0),
         )
 
     def get_status_text(self, group_id: str) -> str:
@@ -714,6 +804,8 @@ class StateManager:
         if anchor.reason:
             lines.append(f"  锚点原因: {anchor.reason}")
         lines.append(f"  今日发起: {data.initiate_daily_count} 次")
+        if data.initiate_target > 0:
+            lines.append(f"  发起意愿: {data.initiate_score:.2f}/{data.initiate_target:.2f}")
         if data.initiate_pending_since > 0:
             waiting = (time.time() - data.initiate_pending_since) / 60
             lines.append(f"  发起接话等待中: {waiting:.1f} 分钟")

@@ -49,33 +49,38 @@ class SignalGate:
         return None
 
     def evaluate_timer(self, group_id: str, messages: list[WindowMessage]) -> str | None:
-        """定时器唤醒门控，返回 "initiate" | None。"""
+        """定时器唤醒门控，返回 "initiate" | None。
+
+        不再使用硬静默阈值，改为回复意愿值概率门控：意愿随静默时间积累、
+        随对话活跃消退，积累速率由回复意愿等级与话题状态（drift / 锚点）
+        共同调节，达到随机采样的阈值时点火。
+        """
         if not self._config.enabled or not self._config.proactive_enabled:
             return None
         data = self._state.get_state(group_id)
         if data.state == GroupState.COOLDOWN:
             return None
-        if self._state.is_muted():
-            return None
         if not messages:
             return None
         if data.initiate_pending_since > 0:
             return None
-        if data.initiate_daily_count >= self._config.proactive_max_per_day:
-            return None
-        if data.initiate_no_reply_streak >= self._config.proactive_max_streak:
-            return None
 
         now = time.time()
+        if (
+            data.initiate_daily_count >= self._config.proactive_max_per_day
+            or data.initiate_no_reply_streak >= self._config.proactive_max_streak
+        ):
+            # 触达上限期间清零意愿，防止次日/解禁瞬间点火
+            self._state.reset_initiate_drive(group_id)
+            return None
         if now - data.last_initiate_time < self._config.proactive_min_interval * 60:
             return None
 
-        quiet_threshold = self._config.proactive_quiet_minutes * 60
-        # 话题刚结束（drifted）不久时，用更短的静默阈值提前发起
-        if 0 < data.last_drift_time and now - data.last_drift_time < quiet_threshold:
-            quiet_threshold = min(quiet_threshold, self._config.proactive_drift_delay * 60)
-
         quiet = now - messages[-1].timestamp
-        if quiet < quiet_threshold:
-            return None
-        return "initiate"
+        fired = self._state.update_initiate_drive(
+            group_id,
+            now=now,
+            quiet_seconds=quiet,
+            freeze=self._state.is_muted(),
+        )
+        return "initiate" if fired else None

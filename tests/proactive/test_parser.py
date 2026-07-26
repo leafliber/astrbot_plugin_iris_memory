@@ -106,6 +106,23 @@ class TestParseDecision:
         d = parse_decision('{"action": "none", "message": "不该出现"}')
         assert d.message == ""
 
+    def test_topic_parsed_on_speak(self):
+        d = parse_decision(
+            '{"action": "speak", "topic": "向最近发言的人请教他们聊的事"}',
+            mode="initiate",
+        )
+        assert d.should_speak is True
+        assert d.topic == "向最近发言的人请教他们聊的事"
+
+    def test_topic_cleared_when_not_speak(self):
+        d = parse_decision('{"action": "none", "topic": "不该出现"}')
+        assert d.topic == ""
+
+    def test_topic_cleared_when_drifted(self):
+        d = parse_decision('{"action": "speak", "topic": "x", "drifted": true}')
+        assert d.should_speak is False
+        assert d.topic == ""
+
     def test_action_synonyms(self):
         assert parse_decision('{"action": "reply"}').should_speak is True
         assert parse_decision('{"action": "yes"}').should_speak is True

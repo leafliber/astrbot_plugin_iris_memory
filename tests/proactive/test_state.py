@@ -213,6 +213,14 @@ class TestInitiateAccounting:
         assert anchor.kind == "initiate"
         assert anchor.bot_message == "大家好"
 
+    def test_record_initiate_resets_drive(self, state):
+        data = state.get_state(GID)
+        data.initiate_score = 0.9
+        data.initiate_target = 1.2
+        state.record_initiate(GID)
+        assert data.initiate_score == 0.0
+        assert data.initiate_target == 0.0
+
     def test_consume_pending_resets_streak(self, state):
         state.record_initiate(GID)
         data = state.get_state(GID)
@@ -241,6 +249,104 @@ class TestInitiateAccounting:
         assert refreshed.initiate_daily_count == 0
         assert refreshed.initiate_no_reply_streak == 0
         assert refreshed.initiate_count_date == time.strftime("%Y-%m-%d", time.localtime())
+
+
+class TestInitiateDrive:
+    """发起意愿值：积累 / 消退 / 冻结 / 采样 / 重置"""
+
+    def test_target_sampled_lazily(self, state):
+        now = time.time()
+        state.update_initiate_drive(GID, now=now, quiet_seconds=100)
+        target = state.get_state(GID).initiate_target
+        assert StateManager.INITIATE_TARGET_MIN <= target <= StateManager.INITIATE_TARGET_MAX
+
+    def test_first_tick_no_elapsed(self, state):
+        # 首次结算（score_at=0）不积累
+        now = time.time()
+        fired = state.update_initiate_drive(GID, now=now, quiet_seconds=9999)
+        assert fired is False
+        assert state.get_state(GID).initiate_score == 0.0
+
+    def test_accumulate_scales_with_willingness(self, state):
+        now = time.time()
+        data = state.get_state(GID)
+        data.initiate_target = 1.5
+        data.initiate_score_at = now - 600
+        state.update_initiate_drive(GID, now=now, quiet_seconds=9999)
+        medium_score = data.initiate_score
+        assert medium_score > 0
+
+        state.set_willingness(GID, "high")
+        data.initiate_score = 0.0
+        data.initiate_score_at = now - 600
+        state.update_initiate_drive(GID, now=now, quiet_seconds=9999)
+        assert data.initiate_score > medium_score
+
+        state.set_willingness(GID, "low")
+        data.initiate_score = 0.0
+        data.initiate_score_at = now - 600
+        state.update_initiate_drive(GID, now=now, quiet_seconds=9999)
+        assert data.initiate_score < medium_score
+
+    def test_score_capped_at_target(self, state):
+        now = time.time()
+        data = state.get_state(GID)
+        data.initiate_score = 1.45  # 距阈值 0.05，一拍（≈0.098）即可越线
+        data.initiate_target = 1.5
+        data.initiate_score_at = now - 600
+        assert state.update_initiate_drive(GID, now=now, quiet_seconds=9999) is True
+        assert data.initiate_score == 1.5
+
+    def test_decay_when_active(self, state):
+        now = time.time()
+        data = state.get_state(GID)
+        data.initiate_score = 0.5
+        data.initiate_target = 1.5
+        data.initiate_score_at = now - 600
+        fired = state.update_initiate_drive(GID, now=now, quiet_seconds=0)
+        assert fired is False
+        assert data.initiate_score < 0.5
+
+    def test_freeze_keeps_score(self, state):
+        now = time.time()
+        data = state.get_state(GID)
+        data.initiate_score = 0.5
+        data.initiate_target = 1.5
+        data.initiate_score_at = now - 600
+        fired = state.update_initiate_drive(GID, now=now, quiet_seconds=9999, freeze=True)
+        assert fired is False
+        assert data.initiate_score == 0.5
+        assert data.initiate_score_at == now
+
+    def test_elapsed_capped_after_downtime(self, state):
+        now = time.time()
+        data = state.get_state(GID)
+        data.initiate_target = 1.5
+        data.initiate_score_at = now - 86400  # 一天未结算
+        state.update_initiate_drive(GID, now=now, quiet_seconds=99999)
+        cap = state._config.proactive_check_interval * 120.0
+        base = 1.0 / (state._config.proactive_quiet_minutes * 60.0)
+        # 最多按结算步长上限积累（medium t_factor=0.85），而非整天
+        assert data.initiate_score <= cap * base / 0.85 + 1e-9
+
+    def test_reset_initiate_drive(self, state):
+        data = state.get_state(GID)
+        data.initiate_score = 0.9
+        data.initiate_target = 1.2
+        state.reset_initiate_drive(GID)
+        assert data.initiate_score == 0.0
+        assert data.initiate_target == 0.0
+
+    def test_drive_fields_serialize_round_trip(self, state):
+        data = state.get_state(GID)
+        data.initiate_score = 0.42
+        data.initiate_target = 1.1
+        data.initiate_score_at = 12345.0
+        snapshot = state._serialize_group(data)
+        restored = state._deserialize_group(snapshot)
+        assert restored.initiate_score == 0.42
+        assert restored.initiate_target == 1.1
+        assert restored.initiate_score_at == 12345.0
 
 
 class TestDetectRateLimit:
