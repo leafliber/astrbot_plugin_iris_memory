@@ -33,6 +33,7 @@ class KnowledgeExtractPhase:
         l3: Optional["L3KGAdapter"],
         llm: Optional["LLMManager"],
         persona_id: str = "default",
+        component_manager=None,
     ) -> dict:
         config = get_config()
 
@@ -101,6 +102,12 @@ class KnowledgeExtractPhase:
             try:
                 context = {"group_id": memories[0].group_id}
 
+                user_aliases = await self._build_user_aliases(
+                    memories, persona_id, component_manager
+                )
+                if user_aliases:
+                    context["user_aliases"] = user_aliases
+
                 result = await extractor.extract_from_memories(memories, context)
 
                 if result.nodes or result.edges:
@@ -162,3 +169,65 @@ class KnowledgeExtractPhase:
             groups[group_key].append(mem)
 
         return dict(groups)
+
+    async def _build_user_aliases(
+        self,
+        memories: list,
+        persona_id: str,
+        component_manager=None,
+    ) -> dict[str, list[str]]:
+        """构建 {user_id: [昵称...]} 别名映射，供 L3 提取归一化 Person 节点
+
+        数据来源：
+        1. L2 记忆 metadata 中的 user_id + user_name（L1 落盘）；
+        2. 用户画像的 user_name + historical_names（需 component_manager，
+           未传入或不可用时退化为仅用 metadata）。
+        """
+        user_ids: set[str] = set()
+        aliases: dict[str, set[str]] = {}
+
+        for mem in memories:
+            user_id = mem.metadata.get("user_id")
+            if not user_id:
+                continue
+            user_ids.add(user_id)
+            user_name = mem.metadata.get("user_name")
+            if user_name:
+                aliases.setdefault(user_id, set()).add(user_name)
+
+        if component_manager is not None and user_ids:
+            try:
+                from iris_memory.profile.storage import ProfileStorage
+
+                profile_storage = component_manager.get_component("profile")
+                if profile_storage and getattr(
+                    profile_storage, "is_available", False
+                ):
+                    assert isinstance(profile_storage, ProfileStorage)
+                    config = get_config()
+                    group_id = memories[0].group_id if memories else ""
+                    effective_group_id = (
+                        group_id
+                        if config.get("isolation_config.enable_group_isolation")
+                        else "default"
+                    )
+                    for user_id in user_ids:
+                        profile = await profile_storage.get_user_profile(
+                            user_id, effective_group_id, persona_id
+                        )
+                        if not profile:
+                            continue
+                        names = aliases.setdefault(user_id, set())
+                        if profile.user_name:
+                            names.add(profile.user_name)
+                        for hist in profile.historical_names:
+                            if hist:
+                                names.add(hist)
+            except Exception as e:
+                logger.warning(f"从画像构建用户别名失败，退化为仅 metadata：{e}")
+
+        return {
+            user_id: sorted(names)
+            for user_id, names in aliases.items()
+            if names
+        }

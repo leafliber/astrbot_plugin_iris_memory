@@ -351,3 +351,102 @@ class TestEntityExtractor:
         trait_node = next(n for n in filtered.nodes if n.name == "性格开朗")
         assert trait_node.confidence == 0.9
         assert "orphaned_subject" not in trait_node.properties
+
+    # ------------------------------------------------------------------
+    # Person 节点归一化（昵称→user_id）回归测试
+    # ------------------------------------------------------------------
+
+    def test_prompt_contains_identity_stability_rule(self, extractor):
+        """prompt 应包含身份稳定硬规则，要求带 [用户:ID] 标记的用 ID 命名"""
+        prompt = extractor._build_extraction_prompt("测试文本")
+        assert "身份稳定" in prompt
+        assert "[用户:ID]" in prompt
+
+    def test_canonicalize_nickname_to_user_id(self, extractor):
+        """昵称 Person 节点应被改写为稳定 user_id，昵称降级为 aliases"""
+        llm_response = """{
+          "nodes": [
+            {"label": "Person", "name": "庭", "content": "活跃用户", "confidence": 0.9}
+          ],
+          "edges": [],
+          "extraction_confidence": 0.9
+        }"""
+        context = {"user_aliases": {"234916823": ["庭"]}}
+
+        result = extractor._parse_extraction_result(llm_response, context)
+
+        assert len(result.nodes) == 1
+        node = result.nodes[0]
+        assert node.name == "234916823"
+        assert node.properties.get("user_id") == "234916823"
+        assert "庭" in node.properties.get("aliases", "")
+        # ID 应基于改写后的 name 重新生成
+        assert node.id == node.generate_id()
+
+    def test_canonicalize_edge_resolves_via_alias(self, extractor):
+        """归一化后，引用原昵称的边仍能解析到改写后的节点"""
+        llm_response = """{
+          "nodes": [
+            {"label": "Person", "name": "庭", "content": "用户", "confidence": 0.9},
+            {"label": "Preference", "name": "编程", "content": "喜欢编程", "confidence": 0.8}
+          ],
+          "edges": [
+            {"source_label": "Person", "source_name": "庭",
+             "target_label": "Preference", "target_name": "编程",
+             "relation_type": "HAS_PREFERENCE", "confidence": 0.8}
+          ],
+          "extraction_confidence": 0.85
+        }"""
+        context = {"user_aliases": {"234916823": ["庭"]}}
+
+        result = extractor._parse_extraction_result(llm_response, context)
+
+        person = next(n for n in result.nodes if n.label == "Person")
+        pref = next(n for n in result.nodes if n.label == "Preference")
+        assert person.name == "234916823"
+        assert len(result.edges) == 1
+        assert result.edges[0].source_id == person.id
+        assert result.edges[0].target_id == pref.id
+
+    def test_canonicalize_dedup_same_user_id(self, extractor):
+        """同一 user_id 的重复 Person 节点（昵称+ID）应原地去重合并"""
+        llm_response = """{
+          "nodes": [
+            {"label": "Person", "name": "庭", "content": "描述A", "confidence": 0.9},
+            {"label": "Person", "name": "234916823", "content": "描述B", "confidence": 0.8}
+          ],
+          "edges": [],
+          "extraction_confidence": 0.85
+        }"""
+        context = {"user_aliases": {"234916823": ["庭"]}}
+
+        result = extractor._parse_extraction_result(llm_response, context)
+
+        person_nodes = [n for n in result.nodes if n.label == "Person"]
+        assert len(person_nodes) == 1
+        node = person_nodes[0]
+        assert node.name == "234916823"
+        assert "庭" in node.properties.get("aliases", "")
+        assert "描述A" in node.content
+        assert "描述B" in node.content
+
+    def test_canonicalize_no_aliases_unchanged(self, extractor):
+        """无 user_aliases（降级模式）或非已知参与者时，Person 节点保持原样"""
+        llm_response = """{
+          "nodes": [
+            {"label": "Person", "name": "张三", "content": "第三方", "confidence": 0.9}
+          ],
+          "edges": [],
+          "extraction_confidence": 0.9
+        }"""
+
+        # 无 user_aliases
+        result = extractor._parse_extraction_result(llm_response, {})
+        assert result.nodes[0].name == "张三"
+        assert "user_id" not in result.nodes[0].properties
+
+        # 有 user_aliases 但张三非已知参与者（第三方）
+        context = {"user_aliases": {"234916823": ["庭"]}}
+        result2 = extractor._parse_extraction_result(llm_response, context)
+        assert result2.nodes[0].name == "张三"
+        assert "user_id" not in result2.nodes[0].properties

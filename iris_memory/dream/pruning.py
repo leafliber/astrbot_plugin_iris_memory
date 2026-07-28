@@ -170,6 +170,9 @@ class PruningPhase:
     async def _merge_l3_duplicates(self, l3: "L3KGAdapter") -> tuple:
         try:
             merged, deleted = await l3.merge_duplicate_nodes()
+            merged_by_uid, deleted_by_uid = await l3.merge_person_nodes_by_user_id()
+            merged += merged_by_uid
+            deleted += deleted_by_uid
             if merged > 0:
                 logger.info(
                     f"L3 去重合并完成：合并 {merged} 组，删除 {deleted} 个重复节点"

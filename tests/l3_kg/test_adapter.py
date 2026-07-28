@@ -398,3 +398,327 @@ class TestL3KGAdapter:
         await adapter.update_node_access(["n_keep"])
         remaining2 = adapter._db_fetchall("SELECT id FROM nodes ORDER BY id")
         assert len(remaining2) == 2, "后续 commit 不应刷盘已回滚的脏数据"
+
+    # ------------------------------------------------------------------
+    # merge_person_nodes_by_user_id（按 user_id 合并分裂 Person 节点）回归测试
+    # ------------------------------------------------------------------
+
+    @pytest.mark.asyncio
+    async def test_merge_person_nodes_by_user_id_basic(self, adapter):
+        """分裂节点合并：同 user_id 的昵称/QQ号节点合并，边重定向到保留节点"""
+        self._insert_node_row(
+            adapter,
+            "n_qq",
+            "Person",
+            "234916823",
+            content="desc-qq",
+            created_time="2024-01-01T00:00:00",
+            group_id="group_A",
+            properties='{"user_id":"234916823"}',
+        )
+        self._insert_node_row(
+            adapter,
+            "n_nick",
+            "Person",
+            "庭",
+            content="desc-nick",
+            created_time="2024-01-02T00:00:00",
+            group_id="group_A",
+            properties='{"user_id":"234916823","aliases":"庭"}',
+        )
+        self._insert_node_row(
+            adapter, "n_pref", "Preference", "编程", content="喜欢编程", group_id="group_A"
+        )
+        self._insert_edge_row(adapter, "n_nick", "n_pref", "HAS_PREFERENCE")
+
+        merged, deleted = await adapter.merge_person_nodes_by_user_id()
+
+        assert merged == 1
+        assert deleted == 1
+        remaining = adapter._db_fetchall(
+            "SELECT id, name FROM nodes WHERE label = 'Person'"
+        )
+        assert len(remaining) == 1
+        # 优先保留 name == user_id 的节点
+        assert remaining[0]["id"] == "n_qq"
+        assert remaining[0]["name"] == "234916823"
+        # 边重定向到保留节点
+        edges = adapter._db_fetchall("SELECT source_id, target_id FROM edges")
+        assert len(edges) == 1
+        assert edges[0]["source_id"] == "n_qq"
+        # 昵称合并进保留节点的 aliases
+        import json
+
+        props = json.loads(
+            adapter._db_fetchone(
+                "SELECT properties FROM nodes WHERE id = 'n_qq'"
+            )["properties"]
+        )
+        assert "庭" in props.get("aliases", "")
+        assert props.get("user_id") == "234916823"
+
+    @pytest.mark.asyncio
+    async def test_merge_person_respects_group_isolation(self, adapter):
+        """群隔离：同 user_id 但不同群的 Person 节点不应跨群合并"""
+        self._insert_node_row(
+            adapter,
+            "n_a",
+            "Person",
+            "庭",
+            group_id="group_A",
+            properties='{"user_id":"234916823"}',
+        )
+        self._insert_node_row(
+            adapter,
+            "n_b",
+            "Person",
+            "庭",
+            group_id="group_B",
+            properties='{"user_id":"234916823"}',
+        )
+
+        merged, deleted = await adapter.merge_person_nodes_by_user_id()
+
+        assert merged == 0
+        assert deleted == 0
+        remaining = adapter._db_fetchall("SELECT id FROM nodes WHERE label = 'Person'")
+        assert len(remaining) == 2, "不同群的 Person 节点不应被合并"
+
+    @pytest.mark.asyncio
+    async def test_merge_person_single_node_no_merge(self, adapter):
+        """单个节点不合并"""
+        self._insert_node_row(
+            adapter,
+            "n_qq",
+            "Person",
+            "234916823",
+            group_id="group_A",
+            properties='{"user_id":"234916823"}',
+        )
+
+        merged, deleted = await adapter.merge_person_nodes_by_user_id()
+
+        assert merged == 0
+        assert deleted == 0
+
+    @pytest.mark.asyncio
+    async def test_merge_person_skips_without_user_id(self, adapter):
+        """无 properties.user_id 标记的节点跳过（历史遗留节点不受影响）"""
+        self._insert_node_row(
+            adapter, "n1", "Person", "庭", group_id="group_A", properties="{}"
+        )
+        self._insert_node_row(
+            adapter, "n2", "Person", "庭", group_id="group_A", properties="{}"
+        )
+
+        merged, deleted = await adapter.merge_person_nodes_by_user_id()
+
+        assert merged == 0
+        assert deleted == 0
+        remaining = adapter._db_fetchall("SELECT id FROM nodes WHERE label = 'Person'")
+        assert len(remaining) == 2
+
+    @pytest.mark.asyncio
+    async def test_merge_person_rolls_back_on_exception(self, adapter):
+        """异常回滚：合并中途异常不得留下半合并脏数据"""
+        self._insert_node_row(
+            adapter,
+            "n_qq",
+            "Person",
+            "234916823",
+            group_id="group_A",
+            created_time="2024-01-01T00:00:00",
+            properties='{"user_id":"234916823"}',
+        )
+        self._insert_node_row(
+            adapter,
+            "n_nick",
+            "Person",
+            "庭",
+            group_id="group_A",
+            created_time="2024-01-02T00:00:00",
+            properties='{"user_id":"234916823"}',
+        )
+
+        with patch.object(
+            adapter, "_merge_node_content", side_effect=RuntimeError("注入异常")
+        ):
+            merged, deleted = await adapter.merge_person_nodes_by_user_id()
+
+        assert merged == 0 and deleted == 0
+        remaining = adapter._db_fetchall("SELECT id FROM nodes WHERE label = 'Person'")
+        assert len(remaining) == 2, "异常后不应有半合并的脏数据残留"
+
+    @pytest.mark.asyncio
+    async def test_search_nodes_hits_alias_and_qq(self, adapter):
+        """昵称与 QQ号查询命中同一 Person 节点（别名检索）"""
+        node = GraphNode(
+            id="",
+            label="Person",
+            name="234916823",
+            content="活跃用户",
+            group_id="group_A",
+            properties={"user_id": "234916823", "aliases": "庭,小庭"},
+        )
+        node.id = node.generate_id()
+        await adapter.add_node(node)
+
+        by_qq = await adapter.search_nodes("234916823", group_id="group_A")
+        by_alias = await adapter.search_nodes("庭", group_id="group_A")
+
+        assert len(by_qq) == 1
+        assert len(by_alias) == 1
+        assert by_qq[0]["id"] == by_alias[0]["id"] == node.id
+
+        detailed = await adapter.search_nodes_detailed("小庭", group_id="group_A")
+        assert len(detailed) == 1
+        assert detailed[0]["id"] == node.id
+
+    @pytest.mark.asyncio
+    async def test_merge_duplicate_nodes_unions_aliases(self, adapter):
+        """回归：merge_duplicate_nodes 合并同名节点时 aliases 应并集而非覆盖
+
+        否则通用属性循环会用 dup 的 aliases 覆盖保留节点的别名，丢失历史
+        累积昵称（与 add_node / merge_person_nodes_by_user_id 的并集语义一致）。
+        """
+        import json
+
+        self._insert_node_row(
+            adapter,
+            "n_keep",
+            "Person",
+            "234916823",
+            created_time="2024-01-01T00:00:00",
+            properties='{"user_id":"234916823","aliases":"庭,小庭"}',
+        )
+        self._insert_node_row(
+            adapter,
+            "n_dup",
+            "Person",
+            "234916823",
+            created_time="2024-01-02T00:00:00",
+            properties='{"user_id":"234916823","aliases":"阿庭"}',
+        )
+
+        merged, deleted = await adapter.merge_duplicate_nodes()
+
+        assert merged == 1
+        assert deleted == 1
+        props = json.loads(
+            adapter._db_fetchone(
+                "SELECT properties FROM nodes WHERE id = 'n_keep'"
+            )["properties"]
+        )
+        aliases = {
+            a.strip() for a in props.get("aliases", "").split(",") if a.strip()
+        }
+        assert aliases == {"庭", "小庭", "阿庭"}
+
+    @pytest.mark.asyncio
+    async def test_add_node_unions_aliases(self, adapter):
+        """回归：add_node 合并已存在节点时 aliases 应并集合并而非覆盖
+
+        否则同一用户再次以昵称被提取时，历史累积的别名列表会被本批次
+        单一昵称覆盖，导致别名检索失效。
+        """
+        import json
+
+        node1 = GraphNode(
+            id="",
+            label="Person",
+            name="234916823",
+            content="desc-1",
+            properties={"user_id": "234916823", "aliases": "庭"},
+        )
+        node1.id = node1.generate_id()
+        await adapter.add_node(node1)
+
+        # 同 label+name 生成相同 id，触发已存在节点合并分支
+        node2 = GraphNode(
+            id="",
+            label="Person",
+            name="234916823",
+            content="desc-2",
+            properties={"user_id": "234916823", "aliases": "小庭"},
+        )
+        node2.id = node2.generate_id()
+        assert node2.id == node1.id
+        await adapter.add_node(node2)
+
+        props = json.loads(
+            adapter._db_fetchone(
+                "SELECT properties FROM nodes WHERE id = ?", (node1.id,)
+            )["properties"]
+        )
+        aliases = {
+            a.strip() for a in props.get("aliases", "").split(",") if a.strip()
+        }
+        assert aliases == {"庭", "小庭"}
+
+    @pytest.mark.asyncio
+    async def test_merge_person_absorbs_untagged_legacy_node(self, adapter):
+        """回归：name 匹配已知别名的无标记遗留节点应被吸收进合并
+
+        归一化重命名生成新 ID 的 user_id 节点，历史遗留的无标记昵称节点
+        （name == 别名）若不吸收将形成永久分裂，自动合并永远无法修复。
+        """
+        self._insert_node_row(
+            adapter,
+            "n_tagged",
+            "Person",
+            "234916823",
+            content="new",
+            created_time="2024-02-01T00:00:00",
+            group_id="group_A",
+            properties='{"user_id":"234916823","aliases":"庭"}',
+        )
+        self._insert_node_row(
+            adapter,
+            "n_legacy",
+            "Person",
+            "庭",
+            content="old",
+            created_time="2024-01-01T00:00:00",
+            group_id="group_A",
+            properties="{}",
+        )
+
+        merged, deleted = await adapter.merge_person_nodes_by_user_id()
+
+        assert merged == 1
+        assert deleted == 1
+        remaining = adapter._db_fetchall(
+            "SELECT id, name FROM nodes WHERE label = 'Person'"
+        )
+        assert len(remaining) == 1
+        # 保留 name == user_id 的已标记节点
+        assert remaining[0]["id"] == "n_tagged"
+        assert remaining[0]["name"] == "234916823"
+
+    @pytest.mark.asyncio
+    async def test_merge_person_absorb_respects_group_isolation(self, adapter):
+        """回归：无标记遗留节点的吸收也必须按群隔离，不跨群吸收"""
+        self._insert_node_row(
+            adapter,
+            "n_tagged",
+            "Person",
+            "234916823",
+            group_id="group_A",
+            properties='{"user_id":"234916823","aliases":"庭"}',
+        )
+        # 同名无标记节点位于另一个群，不应被 group_A 吸收
+        self._insert_node_row(
+            adapter,
+            "n_legacy_b",
+            "Person",
+            "庭",
+            group_id="group_B",
+            properties="{}",
+        )
+
+        merged, deleted = await adapter.merge_person_nodes_by_user_id()
+
+        assert merged == 0
+        assert deleted == 0
+        remaining = adapter._db_fetchall("SELECT id FROM nodes WHERE label = 'Person'")
+        assert len(remaining) == 2

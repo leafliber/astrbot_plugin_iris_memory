@@ -987,7 +987,9 @@ class L1Buffer(Component):
                 confidence_str = item.get("confidence", "medium")
                 confidence_value = confidence_to_float(confidence_str)
 
-                user_id = self._extract_user_from_item(content, name_to_id)
+                user_id, user_name = self._extract_user_and_name_from_item(
+                    content, name_to_id
+                )
 
                 # 内容质量校验：拦截第一人称片段、即时性内容、拼接痕迹等
                 # 低质量提取，避免无效记忆污染 L2。
@@ -1008,6 +1010,10 @@ class L1Buffer(Component):
 
                 if user_id:
                     metadata["user_id"] = user_id
+                    if user_name:
+                        # 落盘昵称，供 L3 提取阶段构建 user_id→昵称 别名映射，
+                        # 将 Person 节点归一化到稳定 user_id，避免昵称/QQ号分裂。
+                        metadata["user_name"] = user_name
                 else:
                     # 标记为无主体记忆：总结未能关联到具体用户。
                     # 遗忘清洗阶段会对无主体记忆加速淘汰，避免无主信息
@@ -1061,19 +1067,30 @@ class L1Buffer(Component):
                     name_to_id[user_name] = msg.source
         return name_to_id
 
-    def _extract_user_from_item(
+    def _extract_user_and_name_from_item(
         self, item: str, name_to_id: dict[str, str]
-    ) -> Optional[str]:
+    ) -> tuple[Optional[str], Optional[str]]:
+        """从记忆条目中解析 (user_id, user_name)
+
+        按昵称长度降序匹配，避免短昵称误命中长昵称的子串。
+        未命中返回 (None, None)。
+        """
         if not name_to_id:
-            return None
+            return None, None
 
         for user_name, user_id in sorted(
             name_to_id.items(), key=lambda x: len(x[0]), reverse=True
         ):
             if user_name in item:
-                return user_id
+                return user_id, user_name
 
-        return None
+        return None, None
+
+    def _extract_user_from_item(
+        self, item: str, name_to_id: dict[str, str]
+    ) -> Optional[str]:
+        user_id, _ = self._extract_user_and_name_from_item(item, name_to_id)
+        return user_id
 
     # 第一人称代词开头模式——这些是原始对话片段而非提取后的记忆。
     # 记忆应以第三人称表述（如"张三喜欢Python"），不应以"我想"/"我是"开头。

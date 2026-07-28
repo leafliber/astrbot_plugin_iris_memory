@@ -180,6 +180,7 @@ class EntityExtractor:
 5. **置信度诚实**：不确定 0.3-0.6，确定 0.7-1.0
 6. **宁缺毋滥**：无值得保留的抽象知识则返回空结果
 7. **主体完整**：Preference/Trait/Belief/Goal/Skill 必须同时提取对应 Person 节点并用边连接，缺少主体的属性节点无价值
+8. **身份稳定**：带 [用户:ID] 标记的记忆，其 Person 节点 name 必须使用该 ID（如 QQ 号），禁止使用昵称；昵称仅可写入 content 描述
 {whitelist_hint}
 ## 输出格式（JSON）
 {{
@@ -274,6 +275,10 @@ class EntityExtractor:
                 nodes.append(node)
                 node_key_to_id[f"{node.label}:{node.name}"] = node.id
 
+            nodes, node_key_to_id = self._canonicalize_person_nodes(
+                nodes, node_key_to_id, context
+            )
+
             edges = []
             for edge_data in data.get("edges", []):
                 source_label = edge_data.get("source_label")
@@ -314,6 +319,116 @@ class EntityExtractor:
         except Exception as e:
             logger.error(f"解析提取结果失败：{e}")
             return ExtractionResult()
+
+    def _canonicalize_person_nodes(
+        self,
+        nodes: list[GraphNode],
+        node_key_to_id: dict[str, str],
+        context: dict,
+    ) -> tuple[list[GraphNode], dict[str, str]]:
+        """归一化 Person 节点：昵称改写为稳定 user_id，同 user_id 去重合并
+
+        依据 context["user_aliases"] = {user_id: [昵称...]}：
+        - name 为已知昵称的 Person 节点，name 改写为 user_id，昵称降级为
+          properties["aliases"]，并打 properties["user_id"] 标记；
+        - 同一 user_id 的重复 Person 节点原地去重合并；
+        - 重建 node_key_to_id 时同时注册原昵称键，保证边引用仍能解析。
+
+        无 user_aliases（降级模式）时原样返回，不做任何改写。
+        """
+        user_aliases = context.get("user_aliases") or {}
+        if not user_aliases:
+            return nodes, node_key_to_id
+
+        alias_to_user_id: dict[str, str] = {}
+        for user_id, aliases in user_aliases.items():
+            for alias in aliases:
+                if alias:
+                    alias_to_user_id.setdefault(alias, user_id)
+
+        person_by_user_id: dict[str, GraphNode] = {}
+        result_nodes: list[GraphNode] = []
+
+        for node in nodes:
+            if node.label != "Person":
+                result_nodes.append(node)
+                continue
+
+            user_id = alias_to_user_id.get(node.name)
+            if user_id is None and node.name in user_aliases:
+                user_id = node.name
+
+            if user_id is None:
+                # 非已知会话参与者（如对话中提及的第三方），保持原样
+                result_nodes.append(node)
+                continue
+
+            old_name = node.name
+            if node.name != user_id:
+                node.name = user_id
+                node.id = node.generate_id()
+                alias_list = [
+                    a.strip()
+                    for a in node.properties.get("aliases", "").split(",")
+                    if a.strip()
+                ]
+                if old_name not in alias_list:
+                    alias_list.append(old_name)
+                node.properties["aliases"] = ",".join(alias_list)
+
+            node.properties["user_id"] = user_id
+
+            existing = person_by_user_id.get(user_id)
+            if existing is None:
+                person_by_user_id[user_id] = node
+                result_nodes.append(node)
+            else:
+                self._merge_person_into(existing, node)
+
+        # 重建 node_key_to_id：先登记所有保留节点的 label:name 键，
+        # 再用赋值登记 Person 昵称键，覆盖改写前残留的陈旧昵称→旧ID映射。
+        for node in result_nodes:
+            node_key_to_id[f"{node.label}:{node.name}"] = node.id
+        for node in result_nodes:
+            if node.label != "Person":
+                continue
+            for alias in [
+                a.strip()
+                for a in node.properties.get("aliases", "").split(",")
+                if a.strip()
+            ]:
+                node_key_to_id[f"Person:{alias}"] = node.id
+
+        return result_nodes, node_key_to_id
+
+    def _merge_person_into(self, keep: GraphNode, dup: GraphNode) -> None:
+        """将重复 Person 节点 dup 原地合并进 keep（同一 user_id）"""
+        if dup.content and dup.content not in keep.content:
+            keep.content = (
+                f"{keep.content}；{dup.content}" if keep.content else dup.content
+            )
+            if len(keep.content) > _MAX_CONTENT_LENGTH:
+                keep.content = keep.content[:_MAX_CONTENT_LENGTH]
+
+        keep.confidence = max(keep.confidence, dup.confidence)
+
+        keep_aliases = [
+            a.strip()
+            for a in keep.properties.get("aliases", "").split(",")
+            if a.strip()
+        ]
+        for alias in [
+            a.strip()
+            for a in dup.properties.get("aliases", "").split(",")
+            if a.strip()
+        ]:
+            if alias not in keep_aliases:
+                keep_aliases.append(alias)
+        if keep_aliases:
+            keep.properties["aliases"] = ",".join(keep_aliases)
+
+        if not keep.properties.get("user_id"):
+            keep.properties["user_id"] = dup.properties.get("user_id", "")
 
     def _resolve_node_id(
         self,

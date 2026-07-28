@@ -258,7 +258,9 @@ class DreamTask:
         from .knowledge_extract import KnowledgeExtractPhase
 
         phase = KnowledgeExtractPhase()
-        return await phase.execute(l2, l3, llm, persona_id=persona_id)
+        return await phase.execute(
+            l2, l3, llm, persona_id=persona_id, component_manager=self._component_manager
+        )
 
     async def _run_pruning(self, l2, l3, llm, entries=None, persona_id="default"):
         from .pruning import PruningPhase

@@ -153,6 +153,24 @@ class L3KGAdapter(Component):
                     group_list.append(node.group_id)
                 merged_properties["group_ids"] = ",".join(group_list)
 
+                # aliases 并集合并：update 会用本批次的单一昵称直接覆盖历史累积
+                # 的别名列表，导致旧昵称丢失、别名检索失效。此处从原始 existing
+                # 属性读取历史别名并去重追加本批次别名。
+                merged_alias_list = [
+                    a.strip()
+                    for a in existing["properties"].get("aliases", "").split(",")
+                    if a.strip()
+                ]
+                for alias in [
+                    a.strip()
+                    for a in node.properties.get("aliases", "").split(",")
+                    if a.strip()
+                ]:
+                    if alias not in merged_alias_list:
+                        merged_alias_list.append(alias)
+                if merged_alias_list:
+                    merged_properties["aliases"] = ",".join(merged_alias_list)
+
                 self._db_write(
                     """UPDATE nodes SET
                         content = ?, confidence = ?, access_count = ?,
@@ -665,17 +683,18 @@ class L3KGAdapter(Component):
                 rows = self._db_fetchall(
                     """SELECT id, label, name, content, confidence
                        FROM nodes
-                       WHERE (name LIKE ? OR content LIKE ?) AND group_id = ?
+                       WHERE (name LIKE ? OR content LIKE ? OR properties LIKE ?)
+                             AND group_id = ?
                        LIMIT ?""",
-                    (pattern, pattern, group_id, limit),
+                    (pattern, pattern, pattern, group_id, limit),
                 )
             else:
                 rows = self._db_fetchall(
                     """SELECT id, label, name, content, confidence
                        FROM nodes
-                       WHERE name LIKE ? OR content LIKE ?
+                       WHERE name LIKE ? OR content LIKE ? OR properties LIKE ?
                        LIMIT ?""",
-                    (pattern, pattern, limit),
+                    (pattern, pattern, pattern, limit),
                 )
 
             nodes = [
@@ -711,8 +730,8 @@ class L3KGAdapter(Component):
 
         try:
             pattern = f"%{query}%"
-            conditions = ["(name LIKE ? OR content LIKE ?)"]
-            params: list = [pattern, pattern]
+            conditions = ["(name LIKE ? OR content LIKE ? OR properties LIKE ?)"]
+            params: list = [pattern, pattern, pattern]
 
             if label:
                 conditions.append("label = ?")
@@ -1401,6 +1420,12 @@ class L3KGAdapter(Component):
                     ):
                         group_ids.insert(0, keep_node["group_id"])
 
+                    merged_aliases = [
+                        a.strip()
+                        for a in merged_properties.get("aliases", "").split(",")
+                        if a.strip()
+                    ]
+
                     dup_ids = []
                     for dup in duplicate_nodes:
                         merged_content = self._merge_node_content(
@@ -1415,8 +1440,19 @@ class L3KGAdapter(Component):
                         dup_props = dup.get("properties", {})
                         if isinstance(dup_props, dict):
                             for k, v in dup_props.items():
-                                if k not in ("source_memory_ids", "group_ids"):
+                                if k not in (
+                                    "source_memory_ids",
+                                    "group_ids",
+                                    "aliases",
+                                ):
                                     merged_properties[k] = v
+                            for alias in [
+                                a.strip()
+                                for a in dup_props.get("aliases", "").split(",")
+                                if a.strip()
+                            ]:
+                                if alias not in merged_aliases:
+                                    merged_aliases.append(alias)
                             dup_source_ids = [
                                 x.strip()
                                 for x in dup_props.get("source_memory_ids", "").split(
@@ -1442,123 +1478,17 @@ class L3KGAdapter(Component):
                         dup_ids.append(dup["id"])
 
                     keep_id = keep_node["id"]
-                    dup_ids_set = set(dup_ids)
 
                     if dup_ids:
-                        dup_placeholders = ",".join("?" * len(dup_ids))
-
-                        dup_edges = self._db.execute(
-                            f"""SELECT source_id, target_id, relation_type, weight,
-                                       confidence, access_count, last_access_time,
-                                       created_time, source_memory_id, properties
-                                FROM edges
-                                WHERE source_id IN ({dup_placeholders})
-                                   OR target_id IN ({dup_placeholders})""",
-                            (*dup_ids, *dup_ids),
-                        ).fetchall()
-
-                        self._db.execute(
-                            f"""DELETE FROM edges
-                                WHERE source_id IN ({dup_placeholders})
-                                   OR target_id IN ({dup_placeholders})""",
-                            (*dup_ids, *dup_ids),
-                        )
-
-                        for edge_row in dup_edges:
-                            new_source = (
-                                keep_id
-                                if edge_row["source_id"] in dup_ids_set
-                                else edge_row["source_id"]
-                            )
-                            new_target = (
-                                keep_id
-                                if edge_row["target_id"] in dup_ids_set
-                                else edge_row["target_id"]
-                            )
-
-                            if new_source == new_target:
-                                continue
-
-                            edge_props = edge_row["properties"]
-                            if isinstance(edge_props, str):
-                                try:
-                                    edge_props = json.loads(edge_props)
-                                except (json.JSONDecodeError, TypeError):
-                                    logger.warning(
-                                        f"边 {edge_row['source_id']}-"
-                                        f"{edge_row['relation_type']}-"
-                                        f"{edge_row['target_id']} properties JSON 损坏，"
-                                        "已回退为空字典"
-                                    )
-                                    edge_props = {}
-
-                            existing = self._db.execute(
-                                """SELECT weight, confidence, access_count, properties
-                                   FROM edges
-                                   WHERE source_id = ? AND target_id = ? AND relation_type = ?""",
-                                (new_source, new_target, edge_row["relation_type"]),
-                            ).fetchone()
-
-                            if existing:
-                                existing_props = existing["properties"]
-                                if isinstance(existing_props, str):
-                                    try:
-                                        existing_props = json.loads(existing_props)
-                                    except (json.JSONDecodeError, TypeError):
-                                        logger.warning(
-                                            "已有边 properties JSON 损坏，"
-                                            "已回退为空字典"
-                                        )
-                                        existing_props = {}
-                                existing_props.update(edge_props)
-                                self._db.execute(
-                                    """UPDATE edges SET
-                                        weight = MAX(weight, ?),
-                                        confidence = MAX(confidence, ?),
-                                        access_count = access_count + ?,
-                                        properties = ?
-                                    WHERE source_id = ? AND target_id = ? AND relation_type = ?""",
-                                    (
-                                        edge_row["weight"],
-                                        edge_row["confidence"],
-                                        edge_row["access_count"],
-                                        json.dumps(existing_props, ensure_ascii=False),
-                                        new_source,
-                                        new_target,
-                                        edge_row["relation_type"],
-                                    ),
-                                )
-                            else:
-                                self._db.execute(
-                                    """INSERT INTO edges
-                                        (source_id, target_id, relation_type, weight,
-                                         confidence, access_count, last_access_time,
-                                         created_time, source_memory_id, properties)
-                                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                                    (
-                                        new_source,
-                                        new_target,
-                                        edge_row["relation_type"],
-                                        edge_row["weight"],
-                                        edge_row["confidence"],
-                                        edge_row["access_count"],
-                                        edge_row["last_access_time"],
-                                        edge_row["created_time"],
-                                        edge_row["source_memory_id"],
-                                        json.dumps(edge_props, ensure_ascii=False),
-                                    ),
-                                )
-
-                        self._db.execute(
-                            f"DELETE FROM nodes WHERE id IN ({dup_placeholders})",
-                            dup_ids,
-                        )
+                        self._redirect_edges_and_delete_nodes(dup_ids, keep_id)
                         deleted_count += len(dup_ids)
 
                     if source_ids:
                         merged_properties["source_memory_ids"] = ",".join(source_ids)
                     if group_ids:
                         merged_properties["group_ids"] = ",".join(group_ids)
+                    if merged_aliases:
+                        merged_properties["aliases"] = ",".join(merged_aliases)
 
                     merged_group_id = keep_node.get("group_id", "")
                     if not merged_group_id and group_ids:
@@ -1595,6 +1525,363 @@ class L3KGAdapter(Component):
                 # _db_write 的 commit 一并刷盘，造成节点/边不一致的半提交损坏。
                 self._db.rollback()
                 logger.error(f"合并重复节点失败：{e}", exc_info=True)
+                return 0, 0
+
+    def _redirect_edges_and_delete_nodes(
+        self, dup_ids: list[str], keep_id: str
+    ) -> None:
+        """将重复节点的边重定向到保留节点，去自环，并删除重复节点
+
+        调用方需持有 _db_lock 且处于事务中；本方法不提交，
+        由调用方在合并循环结束后统一 commit，异常时 rollback。
+        """
+        if not dup_ids:
+            return
+
+        dup_ids_set = set(dup_ids)
+        dup_placeholders = ",".join("?" * len(dup_ids))
+
+        dup_edges = self._db.execute(
+            f"""SELECT source_id, target_id, relation_type, weight,
+                       confidence, access_count, last_access_time,
+                       created_time, source_memory_id, properties
+                FROM edges
+                WHERE source_id IN ({dup_placeholders})
+                   OR target_id IN ({dup_placeholders})""",
+            (*dup_ids, *dup_ids),
+        ).fetchall()
+
+        self._db.execute(
+            f"""DELETE FROM edges
+                WHERE source_id IN ({dup_placeholders})
+                   OR target_id IN ({dup_placeholders})""",
+            (*dup_ids, *dup_ids),
+        )
+
+        for edge_row in dup_edges:
+            new_source = (
+                keep_id
+                if edge_row["source_id"] in dup_ids_set
+                else edge_row["source_id"]
+            )
+            new_target = (
+                keep_id
+                if edge_row["target_id"] in dup_ids_set
+                else edge_row["target_id"]
+            )
+
+            if new_source == new_target:
+                continue
+
+            edge_props = edge_row["properties"]
+            if isinstance(edge_props, str):
+                try:
+                    edge_props = json.loads(edge_props)
+                except (json.JSONDecodeError, TypeError):
+                    logger.warning(
+                        f"边 {edge_row['source_id']}-"
+                        f"{edge_row['relation_type']}-"
+                        f"{edge_row['target_id']} properties JSON 损坏，"
+                        "已回退为空字典"
+                    )
+                    edge_props = {}
+
+            existing = self._db.execute(
+                """SELECT weight, confidence, access_count, properties
+                   FROM edges
+                   WHERE source_id = ? AND target_id = ? AND relation_type = ?""",
+                (new_source, new_target, edge_row["relation_type"]),
+            ).fetchone()
+
+            if existing:
+                existing_props = existing["properties"]
+                if isinstance(existing_props, str):
+                    try:
+                        existing_props = json.loads(existing_props)
+                    except (json.JSONDecodeError, TypeError):
+                        logger.warning("已有边 properties JSON 损坏，已回退为空字典")
+                        existing_props = {}
+                existing_props.update(edge_props)
+                self._db.execute(
+                    """UPDATE edges SET
+                        weight = MAX(weight, ?),
+                        confidence = MAX(confidence, ?),
+                        access_count = access_count + ?,
+                        properties = ?
+                    WHERE source_id = ? AND target_id = ? AND relation_type = ?""",
+                    (
+                        edge_row["weight"],
+                        edge_row["confidence"],
+                        edge_row["access_count"],
+                        json.dumps(existing_props, ensure_ascii=False),
+                        new_source,
+                        new_target,
+                        edge_row["relation_type"],
+                    ),
+                )
+            else:
+                self._db.execute(
+                    """INSERT INTO edges
+                        (source_id, target_id, relation_type, weight,
+                         confidence, access_count, last_access_time,
+                         created_time, source_memory_id, properties)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        new_source,
+                        new_target,
+                        edge_row["relation_type"],
+                        edge_row["weight"],
+                        edge_row["confidence"],
+                        edge_row["access_count"],
+                        edge_row["last_access_time"],
+                        edge_row["created_time"],
+                        edge_row["source_memory_id"],
+                        json.dumps(edge_props, ensure_ascii=False),
+                    ),
+                )
+
+        self._db.execute(
+            f"DELETE FROM nodes WHERE id IN ({dup_placeholders})",
+            dup_ids,
+        )
+
+    async def merge_person_nodes_by_user_id(self) -> tuple[int, int]:
+        """按 properties.user_id 合并分裂的 Person 节点（存量修复）
+
+        同一用户的 Person 节点可能因昵称/QQ号命名差异而分裂。本方法按
+        (group_id, properties.user_id) 分组（尊重群隔离，不跨群合并），
+        优先保留 name == user_id 的节点，合并 content/aliases/来源与群信息，
+        重定向边并去自环，删除重复节点。
+
+        分组以带 properties.user_id 标记的节点（提取阶段归一化后写入）为锚点；
+        此外会按群隔离吸收 name 恰等于某已知 user_id/别名 的无标记历史遗留
+        节点进同组合并，修复归一化重命名（生成新 ID）后残留的持久分裂。
+
+        Returns:
+            (合并的节点组数, 删除的重复节点数)
+        """
+        if not self._is_available:
+            return 0, 0
+
+        with self._db_lock:
+            try:
+                rows = self._db.execute(
+                    """SELECT id, name, content, confidence, access_count,
+                              created_time, group_id, properties
+                       FROM nodes WHERE label = 'Person'"""
+                ).fetchall()
+
+                parsed: list[tuple[dict, str]] = []
+                user_groups: dict[tuple[str, str], list[dict]] = {}
+                for row in rows:
+                    props = row["properties"]
+                    if isinstance(props, str):
+                        try:
+                            props = json.loads(props)
+                        except (json.JSONDecodeError, TypeError):
+                            logger.warning(
+                                f"节点 {row['id']} properties JSON 损坏，已回退为空字典"
+                            )
+                            props = {}
+                    props = props if isinstance(props, dict) else {}
+                    node_data = {
+                        "id": row["id"],
+                        "name": row["name"],
+                        "content": row["content"],
+                        "confidence": row["confidence"],
+                        "access_count": row["access_count"],
+                        "created_time": row["created_time"],
+                        "group_id": row["group_id"] or "",
+                        "properties": props,
+                    }
+                    user_id = str(props["user_id"]) if props.get("user_id") else ""
+                    parsed.append((node_data, user_id))
+                    if user_id:
+                        key = (node_data["group_id"], user_id)
+                        user_groups.setdefault(key, []).append(node_data)
+
+                # 由已标记节点构建别名索引：(group_id, 昵称或user_id) -> user_id。
+                # 归一化重命名会生成新 ID 的 user_id 节点，历史遗留的无标记昵称
+                # 节点（name 恰为某已知别名）若不吸收进同组合并，将形成自动合并
+                # 永远无法修复的持久分裂。此处按群隔离将其归并到对应 user_id 组。
+                alias_index: dict[tuple[str, str], str] = {}
+                for (group_id, user_id), group_nodes in user_groups.items():
+                    for node in group_nodes:
+                        match_names = {user_id}
+                        match_names.update(
+                            a.strip()
+                            for a in node["properties"].get("aliases", "").split(",")
+                            if a.strip()
+                        )
+                        for match_name in match_names:
+                            alias_index.setdefault((group_id, match_name), user_id)
+
+                for node_data, user_id in parsed:
+                    if user_id:
+                        continue
+                    target_uid = alias_index.get(
+                        (node_data["group_id"], node_data["name"])
+                    )
+                    if target_uid:
+                        user_groups[(node_data["group_id"], target_uid)].append(
+                            node_data
+                        )
+
+                merged_count = 0
+                deleted_count = 0
+
+                for (_group_id, user_id), nodes in user_groups.items():
+                    if len(nodes) <= 1:
+                        continue
+
+                    # 优先保留 name == user_id 的节点，其次按创建时间升序
+                    nodes.sort(
+                        key=lambda n: (
+                            n["name"] != user_id,
+                            n.get("created_time", "") or "",
+                        )
+                    )
+                    keep_node = nodes[0]
+                    duplicate_nodes = nodes[1:]
+
+                    merged_content = keep_node["content"] or ""
+                    merged_confidence = keep_node["confidence"] or 0.5
+                    merged_access_count = keep_node["access_count"] or 0
+                    merged_properties = dict(keep_node.get("properties", {}))
+
+                    merged_aliases = [
+                        a.strip()
+                        for a in merged_properties.get("aliases", "").split(",")
+                        if a.strip()
+                    ]
+                    if (
+                        keep_node["name"]
+                        and keep_node["name"] != user_id
+                        and keep_node["name"] not in merged_aliases
+                    ):
+                        merged_aliases.append(keep_node["name"])
+
+                    source_ids = [
+                        x.strip()
+                        for x in merged_properties.get("source_memory_ids", "").split(
+                            ","
+                        )
+                        if x.strip()
+                    ]
+                    group_ids = [
+                        x.strip()
+                        for x in merged_properties.get("group_ids", "").split(",")
+                        if x.strip()
+                    ]
+                    if (
+                        keep_node.get("group_id")
+                        and keep_node["group_id"] not in group_ids
+                    ):
+                        group_ids.insert(0, keep_node["group_id"])
+
+                    dup_ids = []
+                    for dup in duplicate_nodes:
+                        merged_content = self._merge_node_content(
+                            merged_content, dup["content"]
+                        )
+                        merged_confidence = max(
+                            merged_confidence, dup.get("confidence", 0.5)
+                        )
+                        merged_access_count += dup.get("access_count", 0)
+
+                        dup_props = dup.get("properties", {})
+                        if isinstance(dup_props, dict):
+                            for a in [
+                                x.strip()
+                                for x in dup_props.get("aliases", "").split(",")
+                                if x.strip()
+                            ]:
+                                if a not in merged_aliases:
+                                    merged_aliases.append(a)
+                            for k, v in dup_props.items():
+                                if k not in (
+                                    "source_memory_ids",
+                                    "group_ids",
+                                    "aliases",
+                                ):
+                                    merged_properties[k] = v
+                            dup_source_ids = [
+                                x.strip()
+                                for x in dup_props.get("source_memory_ids", "").split(
+                                    ","
+                                )
+                                if x.strip()
+                            ]
+                            source_ids.extend(
+                                sid for sid in dup_source_ids if sid not in source_ids
+                            )
+                            dup_group_ids = [
+                                x.strip()
+                                for x in dup_props.get("group_ids", "").split(",")
+                                if x.strip()
+                            ]
+                            group_ids.extend(
+                                gid for gid in dup_group_ids if gid not in group_ids
+                            )
+
+                        if (
+                            dup["name"]
+                            and dup["name"] != user_id
+                            and dup["name"] not in merged_aliases
+                        ):
+                            merged_aliases.append(dup["name"])
+
+                        if dup.get("group_id") and dup["group_id"] not in group_ids:
+                            group_ids.append(dup["group_id"])
+
+                        dup_ids.append(dup["id"])
+
+                    if merged_aliases:
+                        merged_properties["aliases"] = ",".join(merged_aliases)
+                    merged_properties["user_id"] = user_id
+                    if source_ids:
+                        merged_properties["source_memory_ids"] = ",".join(source_ids)
+                    if group_ids:
+                        merged_properties["group_ids"] = ",".join(group_ids)
+
+                    keep_id = keep_node["id"]
+
+                    if dup_ids:
+                        self._redirect_edges_and_delete_nodes(dup_ids, keep_id)
+                        deleted_count += len(dup_ids)
+
+                    merged_group_id = keep_node.get("group_id", "")
+                    if not merged_group_id and group_ids:
+                        merged_group_id = group_ids[0]
+
+                    self._db.execute(
+                        """UPDATE nodes SET content = ?, confidence = ?,
+                           access_count = ?, group_id = ?, properties = ?
+                        WHERE id = ?""",
+                        (
+                            merged_content,
+                            merged_confidence,
+                            merged_access_count,
+                            merged_group_id,
+                            json.dumps(merged_properties, ensure_ascii=False),
+                            keep_id,
+                        ),
+                    )
+
+                    merged_count += 1
+
+                self._db.commit()
+
+                if merged_count > 0:
+                    logger.info(
+                        f"Person 节点按 user_id 合并完成：合并了 {merged_count} 组，"
+                        f"删除了 {deleted_count} 个重复节点"
+                    )
+
+                return merged_count, deleted_count
+            except Exception as e:
+                self._db.rollback()
+                logger.error(f"按 user_id 合并 Person 节点失败：{e}", exc_info=True)
                 return 0, 0
 
     async def export_all(self) -> dict:

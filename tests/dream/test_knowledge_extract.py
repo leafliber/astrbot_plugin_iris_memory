@@ -136,3 +136,147 @@ class TestKnowledgeExtractPhase:
         assert result["memories_processed"] == 0
         assert result["nodes_extracted"] == 0
         assert result["edges_extracted"] == 0
+
+    # ------------------------------------------------------------------
+    # _build_user_aliases（user_id→昵称 别名映射）回归测试
+    # ------------------------------------------------------------------
+
+    @pytest.mark.asyncio
+    async def test_build_user_aliases_from_metadata(self, phase):
+        """从 L2 metadata 的 user_id + user_name 构建别名映射"""
+        from iris_memory.l2_memory.models import MemoryEntry
+
+        memories = [
+            MemoryEntry(
+                id="m1", content="x", metadata={"user_id": "u1", "user_name": "庭"}
+            ),
+            MemoryEntry(
+                id="m2", content="y", metadata={"user_id": "u1", "user_name": "小庭"}
+            ),
+            MemoryEntry(id="m3", content="z", metadata={"user_id": "u2"}),
+        ]
+
+        aliases = await phase._build_user_aliases(
+            memories, "default", component_manager=None
+        )
+
+        # u2 无 user_name，不应出现；u1 聚合两个昵称
+        assert set(aliases.keys()) == {"u1"}
+        assert set(aliases["u1"]) == {"庭", "小庭"}
+
+    @pytest.mark.asyncio
+    async def test_build_user_aliases_enriches_from_profile(self, phase):
+        """有 component_manager 时，用画像 user_name + historical_names 补充"""
+        from iris_memory.l2_memory.models import MemoryEntry
+        from iris_memory.profile.storage import ProfileStorage
+
+        memories = [
+            MemoryEntry(
+                id="m1", content="x", metadata={"user_id": "u1", "user_name": "庭"}
+            ),
+        ]
+
+        profile = Mock()
+        profile.user_name = "阿庭"
+        profile.historical_names = ["旧昵称"]
+
+        profile_storage = Mock(spec=ProfileStorage)
+        profile_storage.is_available = True
+        profile_storage.get_user_profile = AsyncMock(return_value=profile)
+
+        cm = Mock()
+        cm.get_component = Mock(return_value=profile_storage)
+
+        with patch(
+            "iris_memory.dream.knowledge_extract.get_config",
+            return_value=_mock_config(),
+        ):
+            aliases = await phase._build_user_aliases(
+                memories, "default", component_manager=cm
+            )
+
+        assert set(aliases["u1"]) == {"庭", "阿庭", "旧昵称"}
+
+    @pytest.mark.asyncio
+    async def test_build_user_aliases_degrades_without_component_manager(self, phase):
+        """未传 component_manager 时退化为仅 metadata，不报错"""
+        from iris_memory.l2_memory.models import MemoryEntry
+
+        memories = [
+            MemoryEntry(
+                id="m1", content="x", metadata={"user_id": "u1", "user_name": "庭"}
+            ),
+        ]
+
+        aliases = await phase._build_user_aliases(
+            memories, "default", component_manager=None
+        )
+
+        assert aliases == {"u1": ["庭"]}
+
+    @pytest.mark.asyncio
+    async def test_build_user_aliases_degrades_on_profile_error(self, phase):
+        """画像读取异常时退化为仅 metadata，不中断"""
+        from iris_memory.l2_memory.models import MemoryEntry
+
+        memories = [
+            MemoryEntry(
+                id="m1", content="x", metadata={"user_id": "u1", "user_name": "庭"}
+            ),
+        ]
+
+        cm = Mock()
+        cm.get_component = Mock(side_effect=RuntimeError("boom"))
+
+        with patch(
+            "iris_memory.dream.knowledge_extract.get_config",
+            return_value=_mock_config(),
+        ):
+            aliases = await phase._build_user_aliases(
+                memories, "default", component_manager=cm
+            )
+
+        assert aliases == {"u1": ["庭"]}
+
+    @pytest.mark.asyncio
+    async def test_execute_injects_user_aliases(self, phase):
+        """execute 应将构建的 user_aliases 注入提取 context"""
+        from iris_memory.l2_memory.models import MemoryEntry
+        from iris_memory.l3_kg.models import ExtractionResult
+
+        mem = MemoryEntry(
+            id="m1",
+            content="庭喜欢编程",
+            metadata={"group_id": "group_A", "user_id": "u1", "user_name": "庭"},
+        )
+
+        l2 = Mock()
+        l2.is_available = True
+        l2.get_unprocessed_count = AsyncMock(return_value=10)
+        l2.get_unprocessed_memories = AsyncMock(return_value=[mem])
+        l2.mark_memories_processed = AsyncMock()
+
+        l3 = Mock()
+        l3.is_available = True
+        l3.add_node = AsyncMock(return_value=True)
+        l3.add_edge = AsyncMock(return_value=True)
+
+        llm = Mock()
+
+        captured = {}
+
+        async def fake_extract(memories, context):
+            captured.update(context)
+            return ExtractionResult()
+
+        with patch(
+            "iris_memory.dream.knowledge_extract.get_config",
+            return_value=_mock_config(),
+        ):
+            with patch("iris_memory.l3_kg.EntityExtractor") as MockExtractor:
+                MockExtractor.return_value.extract_from_memories = AsyncMock(
+                    side_effect=fake_extract
+                )
+                await phase.execute(l2, l3, llm)
+
+        assert captured.get("user_aliases") == {"u1": ["庭"]}

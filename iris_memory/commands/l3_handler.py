@@ -38,6 +38,7 @@ class L3CommandHandler(CommandHandler):
         return {
             "clear": "清空知识图谱",
             "stats": "查看统计信息",
+            "merge": "合并重复/分裂的 Person 节点",
         }
 
     async def handle(
@@ -52,6 +53,8 @@ class L3CommandHandler(CommandHandler):
             return await self._handle_stats(event, args)
         elif sub_command == "clear":
             return await self._handle_clear(event, args)
+        elif sub_command == "merge":
+            return await self._handle_merge(event, args)
         elif sub_command == "help":
             return CommandResult(success=True, message=self.get_help_text())
         else:
@@ -81,6 +84,38 @@ class L3CommandHandler(CommandHandler):
         )
 
         return CommandResult(success=True, message=message, details=stats)
+
+    async def _handle_merge(
+        self, event: "AstrMessageEvent", args: ParsedArgs
+    ) -> CommandResult:
+        """处理存量重复/分裂 Person 节点合并"""
+        manager = get_component_manager()
+        if not manager:
+            return CommandResult(success=False, message="组件管理器不可用")
+
+        l3_adapter = manager.get_component("l3_kg", L3KGAdapter)
+        if not l3_adapter or not l3_adapter.is_available:
+            return CommandResult(success=False, message="L3 知识图谱组件不可用")
+
+        merged, deleted = await l3_adapter.merge_duplicate_nodes()
+        merged_by_uid, deleted_by_uid = await l3_adapter.merge_person_nodes_by_user_id()
+
+        total_merged = merged + merged_by_uid
+        total_deleted = deleted + deleted_by_uid
+        message = (
+            f"✅ L3 节点合并完成：合并 {total_merged} 组，"
+            f"删除 {total_deleted} 个重复节点"
+        )
+
+        logger.info(
+            f"L3 merge 操作: merged={total_merged}, deleted={total_deleted}"
+        )
+
+        return CommandResult(
+            success=True,
+            message=message,
+            details={"merged": total_merged, "deleted": total_deleted},
+        )
 
     async def _handle_clear(
         self, event: "AstrMessageEvent", args: ParsedArgs

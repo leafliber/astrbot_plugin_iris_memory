@@ -515,6 +515,30 @@ class TestUserIdentification:
 
         assert user_id is None
 
+    def test_extract_user_and_name_from_item(self):
+        """测试从总结条目同时提取 (user_id, user_name)"""
+        buffer = L1Buffer()
+
+        name_to_id = {"张三": "user_001", "李四": "user_002"}
+
+        user_id, user_name = buffer._extract_user_and_name_from_item(
+            "张三提到喜欢吃苹果", name_to_id
+        )
+        assert user_id == "user_001"
+        assert user_name == "张三"
+
+        # 无匹配返回 (None, None)
+        user_id, user_name = buffer._extract_user_and_name_from_item(
+            "王五提到天气", name_to_id
+        )
+        assert user_id is None
+        assert user_name is None
+
+        # 空映射返回 (None, None)
+        user_id, user_name = buffer._extract_user_and_name_from_item("任何内容", {})
+        assert user_id is None
+        assert user_name is None
+
     def test_extract_user_empty_map(self):
         """测试空用户映射"""
         buffer = L1Buffer()

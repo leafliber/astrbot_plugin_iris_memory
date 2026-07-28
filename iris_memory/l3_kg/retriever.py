@@ -7,6 +7,7 @@ from iris_memory.config import get_config
 from .adapter import L3KGAdapter
 from collections import defaultdict
 import asyncio
+import json
 
 logger = get_logger("l3_kg")
 
@@ -47,6 +48,29 @@ _NODE_TYPE_LABELS = {
 
 def _estimate_tokens(text: str) -> int:
     return max(1, len(text) // 2)
+
+
+def _display_name(node: dict) -> str:
+    """节点展示名：Person 节点带昵称时展示为 昵称(QQ号)，便于 LLM 识别"""
+    name = node.get("name", "")
+    if node.get("label") != "Person":
+        return name
+
+    props = node.get("properties")
+    if isinstance(props, str):
+        try:
+            props = json.loads(props)
+        except (json.JSONDecodeError, TypeError):
+            props = {}
+    if not isinstance(props, dict):
+        props = {}
+
+    first_alias = next(
+        (a.strip() for a in props.get("aliases", "").split(",") if a.strip()), ""
+    )
+    if first_alias and first_alias != name:
+        return f"{first_alias}({name})"
+    return name
 
 
 class GraphRetriever:
@@ -212,7 +236,7 @@ class GraphRetriever:
             entity_lines: list[str] = []
             included_in_group: list[str] = []
             for node in group:
-                name = node.get("name", "")
+                name = _display_name(node)
                 content = node.get("content", "")
                 node_id = node.get("id", "")
                 if name and content:
@@ -271,8 +295,8 @@ class GraphRetriever:
                 source_node = node_map.get(source_id, {})
                 target_node = node_map.get(target_id, {})
 
-                source_name = source_node.get("name", source_id)
-                target_name = target_node.get("name", target_id)
+                source_name = _display_name(source_node) or source_id
+                target_name = _display_name(target_node) or target_id
 
                 if source_name and target_name and relation:
                     rel_label = _RELATION_TYPE_LABELS.get(relation, relation)
