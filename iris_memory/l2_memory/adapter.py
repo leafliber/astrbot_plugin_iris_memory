@@ -1254,7 +1254,7 @@ class L2MemoryAdapter(Component):
             return False
 
     async def update_content(self, memory_id: str, new_content: str) -> bool:
-        if not self._is_available or not memory_id:
+        if not self._is_available or self._index is None or not memory_id:
             return False
 
         try:
@@ -1312,7 +1312,7 @@ class L2MemoryAdapter(Component):
     # ========================================================================
 
     async def delete_entries(self, memory_ids: List[str]) -> bool:
-        if not self._is_available or not memory_ids:
+        if not self._is_available or self._index is None or not memory_ids:
             return False
 
         try:
@@ -1540,7 +1540,7 @@ class L2MemoryAdapter(Component):
             return {"total_count": 0, "group_count": 0}
 
     async def delete_by_group(self, group_id: str, persona_id: str = "default") -> int:
-        if not self._is_available:
+        if not self._is_available or self._index is None:
             return 0
 
         try:
@@ -1578,7 +1578,7 @@ class L2MemoryAdapter(Component):
     async def delete_by_user(
         self, user_id: str, group_id: Optional[str] = None, persona_id: str = "default"
     ) -> int:
-        if not self._is_available:
+        if not self._is_available or self._index is None:
             return 0
 
         try:
@@ -1837,6 +1837,14 @@ class L2MemoryAdapter(Component):
         if not self._db and db_path.exists():
             self._db = self._open_db(db_path)
 
+        # 临时标记为可用：迁移依赖导出/导入等公共 API（export_all、
+        # import_from_file、add_memory、get_all_entries），这些方法均通过
+        # _is_available 守卫。而 initialize() 直到迁移成功后才会将
+        # _is_available 置为 True（见本文件 _is_available = True 处），若不在
+        # 此处临时置位，导出会因「L2 记忆库不可用」返回 0 条，迁移被误判失败。
+        # 调用方 initialize() 会依据本方法返回值决定最终可用状态，故临时置位安全。
+        self._is_available = True
+
         old_count = self._count_db()
         if old_count == 0:
             # 空库，直接创建新索引
@@ -1851,7 +1859,17 @@ class L2MemoryAdapter(Component):
             f"开始迁移 {old_count} 条记忆（模型: {new_model}，维度: {new_dim}）"
         )
 
-        backup_path = self._persist_dir / "_migration_backup.json"
+        # 备份文件必须位于 _persist_dir 之外：步骤 2 的 delete_collection() 会
+        # rmtree 整个 _persist_dir，若备份落在其中会被一并删除，导致步骤 4
+        # 导入时找不到文件、迁移失败。
+        import os
+        import tempfile
+
+        backup_fd, backup_name = tempfile.mkstemp(
+            suffix="_migration_backup.json", prefix="iris_l2_"
+        )
+        os.close(backup_fd)
+        backup_path = Path(backup_name)
 
         try:
             # 1. 导出所有记忆

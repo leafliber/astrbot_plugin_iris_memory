@@ -269,6 +269,65 @@ class TestL2MemoryAdapter:
         assert not result
 
     @pytest.mark.asyncio
+    async def test_migrate_on_model_change_when_unavailable(self, mock_faiss_adapter):
+        """回归测试：初始化阶段（_is_available=False）触发模型迁移应成功。
+
+        复现 issue：initialize() 检测到嵌入模型变更时调用 _migrate_on_model_change，
+        此时 _is_available 尚为 False。迁移依赖的导出/导入公共 API（export_all、
+        import_from_file、add_memory、get_all_entries）均以 is_available 守卫，
+        若不在迁移入口临时置位，导出会因「L2 记忆库不可用」返回 0 条，迁移被
+        误判失败，最终导致 L2 记忆库初始化失败。
+        """
+        adapter = mock_faiss_adapter
+        adapter._find_similar_unlocked = Mock(return_value=None)
+        adapter._embed = AsyncMock(return_value=[[0.1] * 8])
+
+        # 预置 3 条旧模型记忆
+        for i in range(3):
+            await adapter.add_memory(f"旧记忆 {i}", metadata={"group_id": "g1"})
+        old_count = adapter._count_db()
+        assert old_count == 3
+
+        # 模拟 initialize() 检测到模型变更后的迁移入口状态：
+        # _load_existing 尚未执行，_is_available 仍为 False，_db/_index 均未就绪
+        adapter._is_available = False
+        adapter._db = None
+        adapter._index = None
+        new_model = "provider:/qwen3-embedding:4b"
+        new_dim = 4
+        adapter._actual_embedding_model = new_model
+        adapter._embedding_dimensions = new_dim
+
+        # _create_index 依赖真实 faiss（测试环境未安装），用 Mock 替代
+        def make_mock_index(dim):
+            idx = Mock()
+            idx.ntotal = 0
+            idx.d = dim
+
+            def fake_add(vectors, ids):
+                idx.ntotal += len(ids)
+
+            idx.add_with_ids = fake_add
+            idx.remove_ids = Mock()
+            return idx
+
+        adapter._create_index = Mock(side_effect=make_mock_index)
+        # 迁移导入时用新维度重新嵌入
+        adapter._embed = AsyncMock(return_value=[[0.2] * new_dim])
+
+        ok = await adapter._migrate_on_model_change(new_model, new_dim)
+
+        assert ok is True
+        # 记忆经 导出 -> 重新嵌入 -> 导入 后保留
+        assert adapter._count_db() == old_count
+        # 元数据已更新为新模型/维度
+        meta = adapter._load_meta()
+        assert meta["embedding_model"] == new_model
+        assert meta["embedding_dimensions"] == new_dim
+        # 迁移过程中临时置位，最终保持可用
+        assert adapter._is_available is True
+
+    @pytest.mark.asyncio
     async def test_update_access(self, mock_faiss_adapter):
         """测试更新访问信息"""
         adapter = mock_faiss_adapter
