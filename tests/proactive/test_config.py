@@ -94,8 +94,10 @@ class TestHiddenLayer:
         assert make_config(hidden={"reply_quality_threshold": -1.0}).quality_threshold == 0.0
 
     def test_hidden_bool(self, make_config):
-        assert make_config(hidden={"proactive_enabled": True}).proactive_enabled is True
-        assert make_config(hidden={"proactive_enabled": False}).proactive_enabled is False
+        cm = make_config(cfg={"proactive": {"proactive_enabled": True}})
+        assert cm.proactive_enabled is True
+        cm = make_config(cfg={"proactive": {"proactive_enabled": False}})
+        assert cm.proactive_enabled is False
 
     def test_hidden_str(self, make_config):
         cm = make_config(hidden={"proactive_instruction": "多聊技术话题"})
@@ -140,9 +142,9 @@ class TestLegacyOverridesMigration:
 
     def test_proactive_keys_keep_name(self):
         result = ConfigManager.legacy_overrides_to_hidden(
-            {"proactive_enabled": True, "proactive_max_per_day": 3}
+            {"proactive_max_per_day": 3, "proactive_min_interval": 200}
         )
-        assert result == {"proactive_enabled": True, "proactive_max_per_day": 3}
+        assert result == {"proactive_max_per_day": 3, "proactive_min_interval": 200}
 
     def test_mute_period_split_into_four_keys(self):
         result = ConfigManager.legacy_overrides_to_hidden(
@@ -157,7 +159,8 @@ class TestLegacyOverridesMigration:
 
     def test_schema_and_unknown_keys_skipped(self):
         result = ConfigManager.legacy_overrides_to_hidden(
-            {"enabled": False, "provider_id": "x", "stats_enabled": True, "no_such_key": 1}
+            {"enabled": False, "provider_id": "x", "stats_enabled": True,
+             "proactive_enabled": True, "no_such_key": 1}
         )
         assert result == {}
 
@@ -167,11 +170,11 @@ class TestLegacyOverridesMigration:
         )
         assert result == {"reply_window_size": 18}
 
-    def test_bool_and_str_coercion(self):
+    def test_str_coercion(self):
         result = ConfigManager.legacy_overrides_to_hidden(
-            {"proactive_enabled": "yes", "proactive_instruction": "  多聊技术话题  "}
+            {"proactive_instruction": "  多聊技术话题  "}
         )
-        assert result == {"proactive_enabled": True, "proactive_instruction": "多聊技术话题"}
+        assert result == {"proactive_instruction": "多聊技术话题"}
 
     def test_migrated_values_round_trip(self, make_config):
         legacy = {"default_n": 42, "mute_period": {"start_hour": 2, "start_minute": 0, "end_hour": 6, "end_minute": 30}}

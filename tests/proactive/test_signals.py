@@ -103,10 +103,14 @@ class TestTimerGate:
     """
 
     def _timer_gate(self, nm_config, overrides=None):
-        base = {"proactive_enabled": True, "proactive_quiet_minutes": 30}
+        base_overrides = {"proactive_quiet_minutes": 30}
         if overrides:
-            base.update(overrides)
-        return _build(nm_config, overrides=base)
+            base_overrides.update(overrides)
+        return _build(
+            nm_config,
+            cfg={"proactive": {"proactive_enabled": True}},
+            overrides=base_overrides,
+        )
 
     def _prime_drive(self, st, *, score=0.0, target=0.5, tick=600):
         data = st.get_state(GID)

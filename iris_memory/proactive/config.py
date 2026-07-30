@@ -39,9 +39,9 @@ _DEFAULTS = {
     "proactive_max_message_len": 300,
 }
 
-# _conf_schema.json 中 proactive 分组内的三个键（嵌套存储，面板管理）
+# _conf_schema.json 中 proactive 分组内的面板键（嵌套存储，面板管理）
 _SCHEMA_GROUP = "proactive"
-_SCHEMA_KEYS = {"enabled", "stats_enabled", "provider_id"}
+_SCHEMA_KEYS = {"enabled", "proactive_enabled", "stats_enabled", "provider_id"}
 
 # 页面管理键 → 隐藏配置键（HiddenConfig 字段名）。
 # 主动发起类键名与隐藏配置字段同名，基本参数类加 reply_ 前缀，
@@ -58,7 +58,6 @@ _HIDDEN_KEY_MAP = {
     "boost_factor": "reply_boost_factor",
     "boost_duration": "reply_boost_duration",
     "max_boosted_replies": "reply_max_boosted_replies",
-    "proactive_enabled": "proactive_enabled",
     "proactive_check_interval": "proactive_check_interval",
     "proactive_quiet_minutes": "proactive_quiet_minutes",
     "proactive_max_per_day": "proactive_max_per_day",
@@ -102,8 +101,8 @@ class ConfigManager:
     """主动回复配置管理
 
     取值优先级：隐藏配置（hidden_get）> AstrBotConfig 平铺值（遗留兼容）> 内置默认值。
-    enabled / stats_enabled / provider_id 三个面板键仍读 _conf_schema.json 的
-    proactive 嵌套组，不经过隐藏配置。
+    enabled / proactive_enabled / stats_enabled / provider_id 四个面板键仍读
+    _conf_schema.json 的 proactive 嵌套组，不经过隐藏配置。
     """
 
     def __init__(
@@ -143,7 +142,7 @@ class ConfigManager:
 
     def _get(self, key: str, default=None):
         if key in _SCHEMA_KEYS:
-            # 三个面板配置项存于 _conf_schema.json 的 proactive 分组（嵌套 dict）
+            # 面板配置项存于 _conf_schema.json 的 proactive 分组（嵌套 dict）
             group = self._cfg.get(_SCHEMA_GROUP)
             if isinstance(group, dict):
                 val = group.get(key)

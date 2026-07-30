@@ -260,13 +260,19 @@
   "proactive": {
     "type": "object",
     "description": "主动回复",
-    "hint": "统一决策主动回复（跟话/跟进/发起）。更多高级参数在插件页面「主动回复」设置页中调整",
+    "hint": "统一决策主动回复（跟话/跟进/发起）。更多高级参数在插件页面「隐藏参数」中调整",
     "items": {
       "enabled": {
         "type": "bool",
         "default": true,
         "description": "启用主动回复",
         "hint": "总开关。关闭后不进行任何主动发言评估（管理指令仍可用）"
+      },
+      "proactive_enabled": {
+        "type": "bool",
+        "default": false,
+        "description": "启用主动发起话题",
+        "hint": "开启后 Iris 会在群冷场或话题结束时主动开启新话题"
       },
       "stats_enabled": {
         "type": "bool",
