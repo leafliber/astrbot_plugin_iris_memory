@@ -132,83 +132,91 @@ def _detect_passive_trigger(event: AstrMessageEvent, req, context: Context) -> N
 class IrisMemoryPlugin(Star):
     """AstrBot 整合记忆插件主类（分层记忆 + 统一决策主动回复）"""
 
-    def __init__(self, context: Context, config: AstrBotConfig):
+    def __init__(self, context: Context, config: AstrBotConfig | None = None):
         super().__init__(context)
         self.context: Context = context
 
-        # ── 记忆侧初始化 ──
-        data_dir = StarTools.get_data_dir()
-        self.config: Config = init_config(config, data_dir)
-        logger.info(f"插件数据目录：{data_dir}")
+        try:
+            # ── 记忆侧初始化 ──
+            data_dir = StarTools.get_data_dir()
+            self.config: Config = init_config(config, data_dir)
+            logger.info(f"插件数据目录：{data_dir}")
 
-        components = create_components(context, self)
-        self.component_manager: Optional[ComponentManager] = ComponentManager(
-            components
-        )
+            components = create_components(context, self)
+            self.component_manager: Optional[ComponentManager] = ComponentManager(
+                components
+            )
 
-        set_component_manager(self.component_manager)
+            set_component_manager(self.component_manager)
 
-        from iris_memory.image.recorder_bridge import init_recorder_bridge
+            from iris_memory.image.recorder_bridge import init_recorder_bridge
 
-        init_recorder_bridge(context)
+            init_recorder_bridge(context)
 
-        self._register_llm_tools()
-        self._register_command_handlers()
-        self._register_web_api()
+            self._register_llm_tools()
+            self._register_command_handlers()
+            self._register_web_api()
 
-        # ── extras（自 v2 保留的低成本功能） ──
-        self._error_processor = ErrorFriendlyProcessor(self.config)
-        self._markdown_stripper = MarkdownStripper(
-            context=self.context,
-            config=self.config,
-        )
+            # ── extras（自 v2 保留的低成本功能） ──
+            self._error_processor = ErrorFriendlyProcessor(self.config)
+            self._markdown_stripper = MarkdownStripper(
+                context=self.context,
+                config=self.config,
+            )
 
-        # ── 主动回复侧初始化 ──
-        self._reply_config = ReplyConfigManager(
-            config if config else context.get_config(),
-            hidden_get=self.config.get,
-        )
-        self._state = StateManager(self._reply_config)
-        self._gatekeeper = Gatekeeper(self._reply_config, self._state)
-        self._sliding_window = SlidingWindow(self._reply_config)
-        self._context_packager = ContextPackager(self._reply_config)
-        self._signals = SignalGate(self._reply_config, self._state)
-        self._decision_core = DecisionCore(
-            self._reply_config, self._state, self._sliding_window, self._context_packager,
-            time_hint_get=lambda gid: resolve_datetime_reminder(
-                self.context, self._group_umo.get(gid),
-            ),
-        )
-        self._tool_ctx = ToolContext()
-        self._admin = AdminCommands(self._state)
-        self._stats = StatsCollector()
-        self._reply_in_progress: dict[str, float] = {}
-        self._passive_active: dict[str, float] = {}
-        self._triggering: dict[str, float] = {}
-        self._follow_pending: set[str] = set()
-        self._group_umo: dict[str, str] = {}
-        self._umo_dirty: bool = False
-        self._self_id: str = ""
-        self._save_task: asyncio.Task | None = None
-        self._save_interval = 30
-        self._proactive = ProactiveEngine(
-            self.context,
-            self._reply_config,
-            self._state,
-            self._sliding_window,
-            self._signals,
-            self._decision_core,
-            self._stats,
-            packager=self._context_packager,
-            umo_get=lambda gid: self._group_umo.get(gid),
-            is_busy=self._is_busy,
-            self_id_get=lambda: self._self_id,
-            save_fn=lambda: self._state.save_dirty(self._kv_save),
-            on_initiate_sent=self._on_initiate_sent,
-            text_transform=self._strip_initiate_text,
-        )
+            # ── 主动回复侧初始化 ──
+            self._reply_config = ReplyConfigManager(
+                config if config else context.get_config(),
+                hidden_get=self.config.get,
+            )
+            self._state = StateManager(self._reply_config)
+            self._gatekeeper = Gatekeeper(self._reply_config, self._state)
+            self._sliding_window = SlidingWindow(self._reply_config)
+            self._context_packager = ContextPackager(self._reply_config)
+            self._signals = SignalGate(self._reply_config, self._state)
+            self._decision_core = DecisionCore(
+                self._reply_config, self._state, self._sliding_window, self._context_packager,
+                time_hint_get=lambda gid: resolve_datetime_reminder(
+                    self.context, self._group_umo.get(gid),
+                ),
+            )
+            self._tool_ctx = ToolContext()
+            self._admin = AdminCommands(self._state)
+            self._stats = StatsCollector()
+            self._reply_in_progress: dict[str, float] = {}
+            self._passive_active: dict[str, float] = {}
+            self._triggering: dict[str, float] = {}
+            self._follow_pending: set[str] = set()
+            self._group_umo: dict[str, str] = {}
+            self._umo_dirty: bool = False
+            self._self_id: str = ""
+            self._save_task: asyncio.Task | None = None
+            self._save_interval = 30
+            self._proactive = ProactiveEngine(
+                self.context,
+                self._reply_config,
+                self._state,
+                self._sliding_window,
+                self._signals,
+                self._decision_core,
+                self._stats,
+                packager=self._context_packager,
+                umo_get=lambda gid: self._group_umo.get(gid),
+                is_busy=self._is_busy,
+                self_id_get=lambda: self._self_id,
+                save_fn=lambda: self._state.save_dirty(self._kv_save),
+                on_initiate_sent=self._on_initiate_sent,
+                text_transform=self._strip_initiate_text,
+            )
 
-        logger.info("Iris Memory 整合插件已加载（等待异步初始化）")
+            logger.info("Iris Memory 整合插件已加载（等待异步初始化）")
+        except Exception:
+            logger.error(
+                "Iris Memory 插件初始化失败，真实错误如下（框架可能将其掩盖为 "
+                "'missing 1 required positional argument: config'，请以下方堆栈为准）：",
+                exc_info=True,
+            )
+            raise
 
     # ========================================================================
     # 记忆侧注册
