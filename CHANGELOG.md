@@ -3,7 +3,13 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [v3.0.0] - TBD
+## [v3.0.1] - 2026-07-30
+
+### Fixed
+
+- **主动发起时间感知缺失**：initiate 直发通路直连 `Context.llm_generate`，绕过了 AstrBot 主管线 `_append_system_reminders` 的当前时间注入，导致 LLM 无时间锚点、从滑动窗口里的旧消息推断时间（典型症状：早上发起时说"晚上好"）。新增 `iris_memory/proactive/time_hint.py`，按主管线格式（`Current datetime: …, Weekday: …`，读取 `provider_settings.datetime_system_prompt` 开关与 `timezone`）生成时间提示，并注入主动发起发言（`proactive.py` `_generate_speech`）与统一决策（`decision.py` `DecisionCore.build_prompt`，经 `main.py` 传入 `time_hint_get`）两条直连通路，使被动回复 / 正常接话 / 主动发起三条管道时间感知一致。新增 13 个用例，全量 1065 用例全绿。
+
+## [v3.0.0]
 
 ### 🔄 重构说明
 

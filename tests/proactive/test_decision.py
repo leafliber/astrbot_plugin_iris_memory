@@ -163,6 +163,35 @@ def _msg(name, uid, content):
     )
 
 
+class TestTimeHintInjection:
+    def test_time_hint_prepended_to_system_prompt(self, nm_config):
+        core = _core_with_hint(nm_config, "Current datetime: 2026-07-30 10:00 (CST), Weekday: Thursday")
+        _, system_prompt = core.build_prompt(_req())
+        assert system_prompt.startswith(
+            "<system_reminder>Current datetime: 2026-07-30 10:00 (CST), Weekday: Thursday</system_reminder>"
+        )
+        assert "适度参与的群成员" in system_prompt
+
+    def test_empty_time_hint_leaves_system_prompt_untouched(self, nm_config):
+        core = _core_with_hint(nm_config, "")
+        _, system_prompt = core.build_prompt(_req())
+        assert "<system_reminder>" not in system_prompt
+        assert system_prompt.startswith("你正在观察一个群聊")
+
+    def test_no_time_hint_get_default(self, nm_config):
+        _, _, _, core = _core(nm_config)
+        _, system_prompt = core.build_prompt(_req())
+        assert "<system_reminder>" not in system_prompt
+
+
+def _core_with_hint(nm_config, hint):
+    cm = nm_config()
+    st = StateManager(cm)
+    win = SlidingWindow(cm)
+    pk = ContextPackager(cm)
+    return DecisionCore(cm, st, win, pk, time_hint_get=lambda gid: hint)
+
+
 class TestDecide:
     @pytest.mark.asyncio
     async def test_success(self, nm_config):

@@ -93,6 +93,7 @@ from iris_memory.proactive.proactive import ProactiveEngine
 from iris_memory.proactive.signals import SignalGate
 from iris_memory.proactive.state import StateManager
 from iris_memory.proactive.stats import StatsCollector
+from iris_memory.proactive.time_hint import resolve_datetime_reminder
 from iris_memory.proactive.tools import ToolContext
 from iris_memory.extras import ErrorFriendlyProcessor, MarkdownStripper
 
@@ -174,6 +175,9 @@ class IrisMemoryPlugin(Star):
         self._signals = SignalGate(self._reply_config, self._state)
         self._decision_core = DecisionCore(
             self._reply_config, self._state, self._sliding_window, self._context_packager,
+            time_hint_get=lambda gid: resolve_datetime_reminder(
+                self.context, self._group_umo.get(gid),
+            ),
         )
         self._tool_ctx = ToolContext()
         self._admin = AdminCommands(self._state)

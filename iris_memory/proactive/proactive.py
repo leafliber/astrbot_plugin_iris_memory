@@ -16,6 +16,7 @@ from .prompts import SPEAK_HINTS
 from .signals import SignalGate
 from .state import StateManager
 from .stats import StatsCollector
+from .time_hint import resolve_datetime_reminder, wrap_system_reminder
 
 # 发起评估被 LLM 否决后的重试间隔（秒），仅内存记录
 _SKIP_RETRY_SECONDS = 30 * 60
@@ -309,11 +310,18 @@ class ProactiveEngine:
         hint = SPEAK_HINTS["initiate"].format(topic=topic)
         prompt = f"{context_block}\n\n{hint}"
 
+        # 直连 llm_generate 不经过主管线，需自行注入当前时间，
+        # 否则 LLM 无时间锚点，会从窗口里的旧消息推断时间（如早上说晚上好）。
+        system_prompt = persona_prompt or ""
+        time_hint = wrap_system_reminder(resolve_datetime_reminder(self._context, umo))
+        if time_hint:
+            system_prompt = f"{time_hint}\n\n{system_prompt}".strip()
+
         try:
             resp = await self._context.llm_generate(
                 chat_provider_id=provider_id,
                 prompt=prompt,
-                system_prompt=persona_prompt or None,
+                system_prompt=system_prompt or None,
             )
         except Exception as e:
             logger.warning(

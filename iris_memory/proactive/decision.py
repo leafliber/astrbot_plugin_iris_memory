@@ -10,9 +10,13 @@ from .parser import Decision, parse_decision
 from .perception import ContextPackager, SlidingWindow
 from .prompts import MOTIVE_INSTRUCTIONS, VALID_MOTIVES, WILLINGNESS_PROMPTS
 from .state import StateManager, ThreadAnchor
+from .time_hint import wrap_system_reminder
 
 # llm_generate(chat_provider_id=..., prompt=..., system_prompt=...) -> response
 LlmGenerateFn = Callable[..., Awaitable[Any]]
+
+# group_id -> 当前时间提示（<system_reminder> 块），无则返回空串
+TimeHintGet = Callable[[str], str]
 
 _MOTIVE_LABELS = {
     "chime_in": "插话",
@@ -148,11 +152,13 @@ class DecisionCore:
         state: StateManager,
         window: SlidingWindow,
         packager: ContextPackager,
+        time_hint_get: TimeHintGet | None = None,
     ) -> None:
         self._config = config
         self._state = state
         self._window = window
         self._packager = packager
+        self._time_hint_get = time_hint_get
 
     def build_prompt(self, req: DecisionRequest) -> tuple[str, str]:
         """组装 (user_prompt, system_prompt)。"""
@@ -178,7 +184,14 @@ class DecisionCore:
 
         messages = self._window.get_messages(req.group_id)
         user_prompt += "\n\n" + self._packager.package(req.group_id, messages, req.motive)
-        return user_prompt, prompts["decision_system"]
+
+        system_prompt = prompts["decision_system"]
+        time_hint = wrap_system_reminder(
+            self._time_hint_get(req.group_id) if self._time_hint_get else ""
+        )
+        if time_hint:
+            system_prompt = f"{time_hint}\n\n{system_prompt}"
+        return user_prompt, system_prompt
 
     async def decide(
         self,
