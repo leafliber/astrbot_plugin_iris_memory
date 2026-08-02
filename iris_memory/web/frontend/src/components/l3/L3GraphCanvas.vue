@@ -1,6 +1,5 @@
 <template>
   <div class="canvas-wrapper">
-    <!-- 顶部工具栏 -->
     <div class="canvas-toolbar">
       <div class="toolbar-left">
         <v-btn-group density="compact" variant="tonal">
@@ -37,7 +36,6 @@
       </div>
     </div>
 
-    <!-- G6 画布容器 -->
     <div ref="containerRef" class="graph-container">
       <div v-if="loading" class="overlay">
         <v-progress-circular indeterminate color="primary" size="56" width="4" />
@@ -48,22 +46,35 @@
         <div class="text-h6 text-medium-emphasis">暂无图谱数据</div>
         <div class="text-body-2 text-medium-emphasis mt-1">L3 知识图谱为空或未启用</div>
       </div>
+
+      <div
+        v-show="tooltip.visible"
+        class="l3-tooltip"
+        :style="{ left: tooltip.x + 'px', top: tooltip.y + 'px' }"
+        v-html="tooltip.content"
+      />
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, shallowRef, watch, onMounted, onUnmounted, nextTick } from 'vue'
-import { Graph } from '@antv/g6'
-import type { GraphData, NodeData, EdgeData } from '@antv/g6'
+import { ref, shallowRef, reactive, watch, onMounted, onUnmounted, nextTick } from 'vue'
+import { useTheme } from 'vuetify'
+import cytoscape from 'cytoscape'
+import type { Core, ElementDefinition, Stylesheet, LayoutOptions } from 'cytoscape'
+import fcose from 'cytoscape-fcose'
+import dagre from 'cytoscape-dagre'
 import type { KGNode, KGEdge, L3LayoutType } from '@/types'
 import {
   getNodeIcon,
-  getTypeColor,
   getNodeLabel,
   getRelationLabel,
   resolveThemeColor,
+  NODE_TYPE_COLORS,
 } from '@/composables/l3Constants'
+
+cytoscape.use(fcose)
+cytoscape.use(dagre)
 
 const props = defineProps<{
   nodes: KGNode[]
@@ -84,46 +95,29 @@ const emit = defineEmits<{
 }>()
 
 const containerRef = ref<HTMLElement | null>(null)
-const graphRef = shallowRef<Graph | null>(null)
+const cyRef = shallowRef<Core | null>(null)
 let resizeObserver: ResizeObserver | null = null
+let resizeTimer: ReturnType<typeof setTimeout> | null = null
 
-// ---- 主题色缓存（canvas 无法消费 CSS 变量）----
-const colorCache = new Map<string, { fill: string; stroke: string; light: string }>()
-const nodeColors = (label: string) => {
-  if (!colorCache.has(label)) {
-    const base = resolveThemeColor(getTypeColor(label), '#5c6bc0')
-    // 解析 rgb 值用于生成透明度变体
-    const match = base.match(/rgb\(([^)]+)\)/)
-    if (match) {
-      const [r, g, b] = match[1].split(',').map((s) => parseInt(s.trim(), 10))
-      colorCache.set(label, {
-        fill: `rgb(${r}, ${g}, ${b})`,
-        stroke: `rgb(${Math.max(0, r - 40)}, ${Math.max(0, g - 40)}, ${Math.max(0, b - 40)})`,
-        light: `rgba(${r}, ${g}, ${b}, 0.15)`,
-      })
-    } else {
-      colorCache.set(label, { fill: base, stroke: base, light: base + '26' })
-    }
-  }
-  return colorCache.get(label)!
-}
+const vuetifyTheme = useTheme()
 
-// ---- 判断是否深色主题 ----
-const isDarkTheme = (): boolean => {
+const tooltip = reactive({ visible: false, x: 0, y: 0, content: '' })
+
+// ---- 主题 ----
+const isDark = (): boolean => {
   try {
-    const bg = getComputedStyle(document.documentElement).getPropertyValue('--v-theme-surface').trim()
+    const bg = getComputedStyle(document.documentElement)
+      .getPropertyValue('--v-theme-surface')
+      .trim()
     if (bg) {
       const [r, g, b] = bg.split(',').map((s) => parseInt(s.trim(), 10))
-      const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255
-      return luminance < 0.5
+      return (0.299 * r + 0.587 * g + 0.114 * b) / 255 < 0.5
     }
-  } catch {
-    // ignore
-  }
-  return false
+  } catch { /* ignore */ }
+  return vuetifyTheme.global.current.value.dark ?? false
 }
 
-// ---- 计算节点度数 ----
+// ---- 度数计算 ----
 const computeDegrees = (): Map<string, number> => {
   const deg = new Map<string, number>()
   props.edges.forEach((e) => {
@@ -133,117 +127,218 @@ const computeDegrees = (): Map<string, number> => {
   return deg
 }
 
-// ---- 布局配置：d3-force 稳定无闪烁 ----
-const layoutConfig = (type: L3LayoutType, nodeCount: number) => {
-  // 根据节点数自适应间距
-  const linkDist = nodeCount > 40 ? 100 : nodeCount > 20 ? 130 : 160
-  const repulsion = nodeCount > 40 ? -120 : -180
+// ---- 样式表 ----
+const buildStylesheet = (): Stylesheet[] => {
+  const dark = isDark()
+  const textColor = dark ? '#e0e0e0' : '#424242'
+  const labelBg = dark ? 'rgba(33,33,33,0.92)' : 'rgba(255,255,255,0.92)'
+  const edgeColor = dark ? '#666666' : '#bdbdbd'
+
+  const sheet: Stylesheet[] = [
+    {
+      selector: 'node',
+      style: {
+        width: 'data(size)' as any,
+        height: 'data(size)' as any,
+        'background-color': '#5c6bc0',
+        'border-width': 2.5,
+        'border-color': dark ? 'rgba(255,255,255,0.85)' : '#ffffff',
+        label: 'data(displayName)' as any,
+        'text-valign': 'bottom',
+        'text-halign': 'center',
+        'font-size': 11,
+        'font-weight': 500,
+        color: textColor,
+        'text-background-color': labelBg,
+        'text-background-opacity': 0.95,
+        'text-background-shape': 'roundrectangle',
+        'text-margin-y': 4,
+        'text-wrap': 'ellipsis',
+        'text-max-width': '90px',
+        'overlay-padding': '4px',
+        'transition-property': 'background-color, border-color, border-width, opacity',
+        'transition-duration': '0.2s',
+      },
+    },
+    ...Object.entries(NODE_TYPE_COLORS).map(
+      ([type, colorName]): Stylesheet => ({
+        selector: `node[type="${type}"]`,
+        style: {
+          'background-color': resolveThemeColor(colorName, '#5c6bc0'),
+        },
+      })
+    ),
+    {
+      selector: 'edge',
+      style: {
+        width: 'data(edgeWidth)' as any,
+        'line-color': edgeColor,
+        'target-arrow-color': edgeColor,
+        'target-arrow-shape': 'triangle',
+        'arrow-scale': 0.85,
+        'curve-style': 'bezier',
+        'control-point-step-size': 20,
+        opacity: 0.55,
+        'transition-property': 'line-color, target-arrow-color, opacity, width',
+        'transition-duration': '0.2s',
+      },
+    },
+    {
+      selector: 'node.highlighted',
+      style: {
+        'border-width': 3.5,
+        'border-color': '#ff9800',
+        'overlay-color': 'rgba(255,152,0,0.12)',
+        'overlay-opacity': 1,
+      },
+    },
+    {
+      selector: 'edge.highlighted',
+      style: {
+        'line-color': '#ff9800',
+        'target-arrow-color': '#ff9800',
+        width: 2.5,
+        opacity: 1,
+      },
+    },
+    {
+      selector: 'node.faded',
+      style: {
+        opacity: 0.25,
+        'text-opacity': 0,
+      },
+    },
+    {
+      selector: 'edge.faded',
+      style: {
+        opacity: 0.08,
+      },
+    },
+    {
+      selector: 'node.selected',
+      style: {
+        'border-width': 3.5,
+        'border-color': '#ff9800',
+        'overlay-color': 'rgba(255,152,0,0.18)',
+        'overlay-opacity': 1,
+      },
+    },
+  ]
+  return sheet
+}
+
+// ---- 布局配置 ----
+const layoutConfig = (type: L3LayoutType, nodeCount: number): LayoutOptions => {
+  const edgeLen = nodeCount > 40 ? 80 : nodeCount > 20 ? 110 : 140
+  const repulsion = nodeCount > 40 ? 3000 : 5000
 
   switch (type) {
     case 'dagre':
       return {
-        type: 'dagre',
-        rankdir: 'LR',
-        nodesep: 30,
-        ranksep: 60,
-        nodeSize: 40,
+        name: 'dagre',
+        rankDir: 'LR',
+        nodeSep: 30,
+        rankSep: 60,
+        padding: 30,
+        animate: true,
+        animationDuration: 400,
       } as any
     case 'radial':
       return {
-        type: 'radial',
-        unitRadius: 110,
-        preventOverlap: true,
-        nodeSize: 40,
-        linkDistance: linkDist,
+        name: 'breadthfirst',
+        circles: true,
+        directed: false,
+        padding: 30,
+        spacingFactor: 1.15,
+        animate: true,
+        animationDuration: 400,
       } as any
     case 'concentric':
       return {
-        type: 'concentric',
+        name: 'concentric',
         minNodeSpacing: 40,
-        preventOverlap: true,
-        nodeSize: 40,
+        padding: 30,
+        animate: true,
+        animationDuration: 400,
+        concentric: (ele: any) => ele.data('degree') ?? 0,
+        levelWidth: () => 2,
       } as any
     case 'force':
     default:
       return {
-        type: 'd3-force',
-        animation: true,
-        alpha: 1,
-        alphaDecay: 0.05,
-        alphaMin: 0.001,
-        alphaTarget: 0,
-        velocityDecay: 0.4,
-        link: {
-          distance: linkDist,
-          strength: 0.3,
-          iterations: 1,
-        },
-        manyBody: {
-          strength: repulsion,
-          theta: 0.9,
-        },
-        center: {
-          strength: 0.06,
-        },
-        collide: {
-          radius: (node: any) => (node.size || 32) / 2 + 6,
-          strength: 0.8,
-          iterations: 2,
-        },
+        name: 'fcose',
+        animate: true,
+        animationDuration: 500,
+        fit: true,
+        padding: 30,
+        nodeRepulsion: repulsion,
+        idealEdgeLength: edgeLen,
+        edgeElasticity: 0.45,
+        nestingFactor: 0.1,
+        gravity: 0.25,
+        numIter: 2500,
+        tile: true,
+        randomize: true,
       } as any
   }
 }
 
 // ---- 数据转换 ----
-const toGraphData = (): GraphData => {
+const toElements = (): ElementDefinition[] => {
   const degrees = computeDegrees()
   const maxDeg = Math.max(1, ...degrees.values())
   const showAllLabels = props.nodes.length <= 15
 
-  return {
-    nodes: props.nodes.map<NodeData>((n) => {
-      const deg = degrees.get(n.id) || 0
-      // 度数映射到 28~46
-      const size = 28 + (deg / maxDeg) * 18
-      return {
+  const nodes: ElementDefinition[] = props.nodes.map((n) => {
+    const deg = degrees.get(n.id) || 0
+    const size = 28 + (deg / maxDeg) * 18
+    const showLabel = showAllLabels || deg >= 2
+    return {
+      data: {
         id: n.id,
-        data: {
-          label: n.label,
-          name: n.name,
-          confidence: n.confidence,
-          degree: deg,
-          size,
-          content: n.content,
-          showLabel: showAllLabels || deg >= 2,
-        },
-      }
-    }),
-    edges: props.edges.map<EdgeData>((e) => ({
+        type: n.label,
+        name: n.name,
+        displayName: showLabel ? n.name : '',
+        confidence: n.confidence,
+        degree: deg,
+        size,
+        content: n.content,
+      },
+    }
+  })
+
+  const edges: ElementDefinition[] = props.edges.map((e, i) => ({
+    data: {
+      id: `e-${e.source}-${e.target}-${i}`,
       source: e.source,
       target: e.target,
-      data: { relation: e.relation, weight: e.weight ?? 1 },
-    })),
-  }
+      relation: e.relation,
+      weight: e.weight ?? 1,
+      edgeWidth: Math.min(1 + (e.weight ?? 1) * 0.6, 3),
+    },
+  }))
+
+  return [...nodes, ...edges]
 }
 
-// ---- Tooltip 内容生成 ----
-const tooltipContent = async (_evt: any, items: any[]): Promise<string> => {
-  if (!items.length) return ''
-  const item = items[0]
-  const data = item.data || {}
-  if (item.type === 'node') {
-    const label = getNodeLabel(data.label || 'Entity')
-    const name = data.name || item.id
-    const deg = data.degree ?? 0
-    const conf = ((data.confidence ?? 0) * 100).toFixed(0)
-    return `<div class="l3-tip">
-      <div class="l3-tip-title">${escapeHtml(name)}</div>
-      <div class="l3-tip-row"><span>类型</span><b>${label}</b></div>
-      <div class="l3-tip-row"><span>连接</span><b>${deg}</b></div>
-      <div class="l3-tip-row"><span>置信度</span><b>${conf}%</b></div>
-    </div>`
-  }
-  // edge
+// ---- Tooltip ----
+const escapeHtml = (s: string): string =>
+  s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+
+const nodeTooltipHtml = (data: any): string => {
+  const label = getNodeLabel(data.type || 'Entity')
+  const name = data.name || data.id
+  const deg = data.degree ?? 0
+  const conf = ((data.confidence ?? 0) * 100).toFixed(0)
+  return `<div class="l3-tip">
+    <div class="l3-tip-title">${escapeHtml(name)}</div>
+    <div class="l3-tip-row"><span>类型</span><b>${escapeHtml(label)}</b></div>
+    <div class="l3-tip-row"><span>连接</span><b>${deg}</b></div>
+    <div class="l3-tip-row"><span>置信度</span><b>${conf}%</b></div>
+  </div>`
+}
+
+const edgeTooltipHtml = (data: any): string => {
   const rel = getRelationLabel(data.relation || '')
   const w = (data.weight ?? 1).toFixed(2)
   return `<div class="l3-tip">
@@ -252,282 +347,200 @@ const tooltipContent = async (_evt: any, items: any[]): Promise<string> => {
   </div>`
 }
 
-const escapeHtml = (s: string): string =>
-  s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+const showTooltip = (renderedPos: { x: number; y: number }, html: string) => {
+  tooltip.x = renderedPos.x + 14
+  tooltip.y = renderedPos.y - 14
+  tooltip.content = html
+  tooltip.visible = true
+}
 
-// ---- 初始化 G6 ----
+const hideTooltip = () => {
+  tooltip.visible = false
+}
+
+// ---- Hover 高亮 ----
+const clearHoverStates = () => {
+  const cy = cyRef.value
+  if (!cy) return
+  cy.elements().removeClass('highlighted faded')
+  hideTooltip()
+}
+
+// ---- 初始化 ----
 const initGraph = () => {
   const container = containerRef.value
   if (!container) return
-  const width = container.clientWidth || 800
-  const height = container.clientHeight || 500
-  const dark = isDarkTheme()
-  const textColor = dark ? '#e0e0e0' : '#424242'
-  const labelBg = dark ? 'rgba(33,33,33,0.9)' : 'rgba(255,255,255,0.92)'
-  const edgeColor = dark ? '#555555' : '#bdbdbd'
-  const gridColor = dark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)'
 
-  const useForce = props.layout === 'force'
-
-  const graph = new Graph({
+  const cy = cytoscape({
     container,
-    width,
-    height,
-    autoFit: 'view',
-    data: toGraphData(),
+    elements: toElements(),
+    style: buildStylesheet(),
     layout: layoutConfig(props.layout, props.nodes.length),
-    theme: dark ? 'dark' : 'light',
-    node: {
-      type: 'circle',
-      style: (d: NodeData) => {
-        const label = (d.data?.label as string) || 'Entity'
-        const name = (d.data?.name as string) || String(d.id)
-        const size = (d.data?.size as number) || 32
-        const colors = nodeColors(label)
-        const showLabel = (d.data?.showLabel as boolean) ?? true
-        const deg = (d.data?.degree as number) || 0
-        return {
-          size,
-          fill: colors.fill,
-          stroke: '#ffffff',
-          lineWidth: 2.5,
-          shadowColor: 'rgba(0,0,0,0.25)',
-          shadowBlur: 8,
-          shadowOffsetX: 0,
-          shadowOffsetY: 2,
-          cursor: 'pointer',
-          icon: false,
-          // 度数 >= 3 的节点显示度数徽标
-          badge: deg >= 3,
-          badges: deg >= 3
-            ? [{ text: String(deg), placement: 'right-top', fill: '#ff9800', color: '#fff' }]
-            : [],
-          labelText: showLabel ? name : '',
-          labelPlacement: 'bottom',
-          labelFontSize: 11,
-          labelFontWeight: 500,
-          labelFill: textColor,
-          labelBackground: true,
-          labelBackgroundFill: labelBg,
-          labelBackgroundOpacity: 0.95,
-          labelBackgroundRadius: 4,
-          labelPadding: [3, 6],
-        }
-      },
-      state: {
-        active: {
-          lineWidth: 3.5,
-          stroke: '#ff9800',
-          shadowColor: 'rgba(255,152,0,0.5)',
-          shadowBlur: 16,
-          labelOpacity: 1,
-        },
-        inactive: {
-          opacity: 0.15,
-          labelOpacity: 0,
-        },
-        selected: {
-          lineWidth: 3.5,
-          stroke: '#ff9800',
-          shadowColor: 'rgba(255,152,0,0.6)',
-          shadowBlur: 18,
-        },
-      },
-    },
-    edge: {
-      type: 'quadratic',
-      style: (d: EdgeData) => {
-        const w = (d.data?.weight as number) ?? 1
-        return {
-          stroke: edgeColor,
-          lineWidth: Math.min(1 + w * 0.6, 3),
-          strokeOpacity: 0.55,
-          endArrow: true as any,
-          endArrowSize: 6,
-          endArrowFill: edgeColor,
-          curveOffset: 20,
-          curvePosition: 0.5,
-          cursor: 'pointer',
-        }
-      },
-      state: {
-        active: {
-          stroke: '#ff9800',
-          lineWidth: 2.5,
-          strokeOpacity: 1,
-          endArrowFill: '#ff9800',
-        },
-        inactive: { opacity: 0.05 },
-      },
-    },
-    behaviors: [
-      'zoom-canvas',
-      'drag-canvas',
-      useForce
-        ? { type: 'drag-element-force', fixed: true }
-        : 'drag-element',
-      {
-        type: 'hover-activate',
-        degree: 1,
-        state: 'active',
-        inactiveState: 'inactive',
-      } as any,
-    ],
-    plugins: [
-      {
-        type: 'grid-line',
-        size: 24,
-        stroke: gridColor,
-        lineWidth: 1,
-        border: false,
-      } as any,
-      {
-        type: 'tooltip',
-        trigger: 'hover',
-        position: 'top',
-        offset: [0, 12],
-        getContent: tooltipContent,
-      } as any,
-      {
-        type: 'minimap',
-        size: [180, 120],
-        position: 'right-bottom',
-        className: 'l3-minimap',
-      } as any,
-    ],
+    minZoom: 0.15,
+    maxZoom: 4,
+    wheelSensitivity: 0.3,
+    boxSelectionEnabled: false,
   })
 
-  // 节点单击：通知父组件打开抽屉
-  graph.on('node:click', (evt: any) => {
-    const id = evt.target?.id as string | undefined
-    if (!id) return
+  // 节点悬停：高亮邻居、淡化其余
+  cy.on('mouseover', 'node', (e) => {
+    const node = e.target
+    const neighborhood = node.closedNeighborhood()
+    cy.elements().not(neighborhood).addClass('faded')
+    neighborhood.addClass('highlighted')
+    showTooltip(e.renderedPosition, nodeTooltipHtml(node.data()))
+  })
+
+  cy.on('mouseout', 'node', () => {
+    clearHoverStates()
+  })
+
+  // 边悬停：仅 tooltip
+  cy.on('mouseover', 'edge', (e) => {
+    showTooltip(e.renderedPosition, edgeTooltipHtml(e.target.data()))
+  })
+
+  cy.on('mouseout', 'edge', () => {
+    hideTooltip()
+  })
+
+  // 画布空白区域：兜底清除
+  cy.on('mouseout', (e) => {
+    if (e.target === cy) clearHoverStates()
+  })
+
+  // 节点单击
+  cy.on('tap', 'node', (e) => {
+    const id = e.target.id() as string
     const node = props.nodes.find((n) => n.id === id)
     if (node) emit('node-click', node)
   })
 
-  // 节点双击：以此节点展开
-  graph.on('node:dblclick', (evt: any) => {
-    const id = evt.target?.id as string | undefined
-    if (id) emit('node-dblclick', id)
+  // 节点双击：展开
+  cy.on('dbltap', 'node', (e) => {
+    emit('node-dblclick', e.target.id() as string)
   })
 
   // 边点击
-  graph.on('edge:click', (evt: any) => {
-    const id = evt.target?.id as string | undefined
-    if (!id) return
-    const edgeData = graph.getEdgeData(id)
+  cy.on('tap', 'edge', (e) => {
+    const d = e.target.data()
     const edge = props.edges.find(
-      (e) => e.source === edgeData?.source && e.target === edgeData?.target
+      (ed) => ed.source === d.source && ed.target === d.target
     )
     if (edge) emit('edge-click', edge)
   })
 
-  graphRef.value = graph
-  graph.render().catch((e) => console.error('G6 render failed:', e))
+  cyRef.value = cy
 }
 
 // ---- 数据更新 ----
-const updateData = async () => {
-  const graph = graphRef.value
-  if (!graph) return
-  graph.setData(toGraphData())
-  try {
-    await graph.render()
-  } catch (e) {
-    console.error('G6 update failed:', e)
-  }
+const updateData = () => {
+  const cy = cyRef.value
+  if (!cy) return
+  cy.elements().remove()
+  cy.add(toElements())
+  runLayout()
+}
+
+const runLayout = () => {
+  const cy = cyRef.value
+  if (!cy) return
+  const count = cy.nodes().length
+  if (count === 0) return
+  const l = cy.layout(layoutConfig(props.layout, count))
+  l.on('layoutstop', () => cy.fit(undefined, 30))
+  l.run()
 }
 
 watch(
-  () => [props.nodes, props.edges],
-  () => nextTick(() => updateData()),
-  { deep: true }
+  () => [props.nodes, props.edges] as const,
+  () => nextTick(() => updateData())
 )
 
-// ---- 布局切换：重建图实例 ----
+// ---- 布局切换 ----
 watch(
   () => props.layout,
+  () => runLayout()
+)
+
+// ---- 主题切换：重建样式 ----
+watch(
+  () => vuetifyTheme.global.name.value,
   () => {
-    destroyGraph()
-    nextTick(() => initGraph())
+    const cy = cyRef.value
+    if (!cy) return
+    cy.style().fromJson(buildStylesheet() as any).update()
   }
 )
 
-// ---- 工具栏操作 ----
+// ---- 工具栏 ----
 const zoomBy = (factor: number) => {
-  const graph = graphRef.value
-  if (!graph) return
-  const cur = graph.getZoom?.() ?? 1
-  graph.zoomTo(Math.min(Math.max(cur * factor, 0.2), 4)).catch(() => {})
+  const cy = cyRef.value
+  if (!cy) return
+  const z = cy.zoom()
+  cy.zoom({ level: Math.min(Math.max(z * factor, 0.15), 4), renderedPosition: { x: cy.width() / 2, y: cy.height() / 2 } })
 }
 
 const fitView = () => {
-  graphRef.value?.fitView({ when: 'always' }).catch(() => {})
+  cyRef.value?.fit(undefined, 30)
 }
 
 const fitCenter = () => {
-  graphRef.value?.fitCenter().catch(() => {})
+  cyRef.value?.center()
 }
 
 // ---- 暴露给父组件 ----
 const focusNode = async (nodeId: string) => {
-  const graph = graphRef.value
-  if (!graph) return
-  if (graph.hasNode(nodeId)) {
+  const cy = cyRef.value
+  if (!cy) return
+  const ele = cy.getElementById(nodeId)
+  if (ele.length) {
     clearSelected()
-    graph.setElementState(nodeId, 'selected')
-    await graph.focusElement(nodeId).catch(() => {})
+    ele.addClass('selected')
+    cy.animate({
+      center: { eles: ele },
+      duration: 350,
+    })
   } else {
     emit('node-dblclick', nodeId)
   }
 }
 
 const highlightNode = (nodeId: string) => {
-  const graph = graphRef.value
-  if (!graph || !graph.hasNode(nodeId)) return
+  const cy = cyRef.value
+  if (!cy) return
+  const ele = cy.getElementById(nodeId)
+  if (!ele.length) return
   clearSelected()
-  graph.setElementState(nodeId, 'selected')
+  ele.addClass('selected')
 }
 
 const clearSelected = () => {
-  const graph = graphRef.value
-  if (!graph) return
-  try {
-    graph.getNodeData().forEach((n) => {
-      if (graph.getElementState(n.id).includes('selected')) {
-        graph.setElementState(n.id, [])
-      }
-    })
-  } catch {
-    // ignore
-  }
+  cyRef.value?.nodes().removeClass('selected')
 }
 
 defineExpose({ focusNode, highlightNode, clearSelected })
 
 // ---- 生命周期 ----
 const handleResize = () => {
-  const graph = graphRef.value
-  const container = containerRef.value
-  if (!graph || !container) return
-  graph.setSize(container.clientWidth, container.clientHeight)
-}
-
-const destroyGraph = () => {
-  graphRef.value?.destroy()
-  graphRef.value = null
+  if (resizeTimer) clearTimeout(resizeTimer)
+  resizeTimer = setTimeout(() => {
+    cyRef.value?.resize()
+  }, 150)
 }
 
 onMounted(() => {
   initGraph()
-  resizeObserver = new ResizeObserver(() => handleResize())
+  resizeObserver = new ResizeObserver(handleResize)
   if (containerRef.value) resizeObserver.observe(containerRef.value)
 })
 
 onUnmounted(() => {
+  if (resizeTimer) clearTimeout(resizeTimer)
   resizeObserver?.disconnect()
   resizeObserver = null
-  destroyGraph()
+  cyRef.value?.destroy()
+  cyRef.value = null
 })
 </script>
 
@@ -564,8 +577,12 @@ onUnmounted(() => {
   position: relative;
   flex: 1;
   width: 100%;
-  min-height: 0; /* 允许 flex 子项收缩，配合 min-height: 360px 的下限 */
+  min-height: 0;
   background: rgb(var(--v-theme-surface));
+  background-image:
+    linear-gradient(rgba(var(--v-theme-on-surface), 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(var(--v-theme-on-surface), 0.04) 1px, transparent 1px);
+  background-size: 24px 24px;
   overflow: hidden;
 }
 
@@ -580,10 +597,46 @@ onUnmounted(() => {
   z-index: 10;
 }
 
-:deep(.l3-minimap) {
-  border-radius: 8px !important;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12) !important;
-  background: rgba(var(--v-theme-surface), 0.95) !important;
-  border: 1px solid rgba(var(--v-theme-on-surface), 0.1) !important;
+.l3-tooltip {
+  position: absolute;
+  z-index: 20;
+  pointer-events: none;
+  max-width: 260px;
+  transform: translateY(-100%);
+}
+</style>
+
+<style>
+.l3-tip {
+  background: rgb(var(--v-theme-surface));
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.12);
+  border-radius: 8px;
+  padding: 10px 14px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.14);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.l3-tip-title {
+  font-weight: 700;
+  font-size: 14px;
+  margin-bottom: 6px;
+  color: rgb(var(--v-theme-on-surface));
+}
+
+.l3-tip-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 1px 0;
+}
+
+.l3-tip-row span {
+  color: rgba(var(--v-theme-on-surface), 0.55);
+}
+
+.l3-tip-row b {
+  color: rgb(var(--v-theme-on-surface));
+  font-weight: 600;
 }
 </style>

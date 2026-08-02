@@ -252,7 +252,7 @@ class ProactiveEngine:
 
             self._window.append(group_id, WindowMessage(
                 sender_id=self._self_id_get() or "iris",
-                sender_name="Iris",
+                sender_name="我",
                 content=text,
                 timestamp=time.time(),
             ))

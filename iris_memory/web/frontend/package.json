@@ -9,14 +9,17 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@antv/g6": "^5.1.1",
     "@mdi/js": "^7.4.47",
+    "cytoscape": "^3.31.0",
+    "cytoscape-dagre": "^2.5.0",
+    "cytoscape-fcose": "^2.2.0",
     "pinia": "^2.1.0",
     "vue": "^3.4.0",
     "vue-router": "^4.2.0",
     "vuetify": "^3.4.0"
   },
   "devDependencies": {
+    "@types/cytoscape": "^3.21.0",
     "@types/node": "^20.10.0",
     "@vitejs/plugin-vue": "^5.0.0",
     "terser": "^5.48.0",

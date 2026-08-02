@@ -163,6 +163,45 @@ def _msg(name, uid, content):
     )
 
 
+class TestSelfMarking:
+    def test_own_message_marked_as_self(self, nm_config):
+        cm = nm_config()
+        st = StateManager(cm)
+        win = SlidingWindow(cm)
+        pk = ContextPackager(cm, self_id_get=lambda: "bot1")
+        core = DecisionCore(cm, st, win, pk)
+        win.append(GID, _msg("我", "bot1", "我先说的"))
+        win.append(GID, _msg("User1", "u1", "好的"))
+        user_prompt, _ = core.build_prompt(_req())
+        assert "[我(bot1)] 我先说的" in user_prompt
+        assert "[User1(u1)] 好的" in user_prompt
+
+    def test_legacy_hardcoded_name_overridden_by_self_id(self, nm_config):
+        cm = nm_config()
+        st = StateManager(cm)
+        win = SlidingWindow(cm)
+        pk = ContextPackager(cm, self_id_get=lambda: "bot1")
+        core = DecisionCore(cm, st, win, pk)
+        win.append(GID, _msg("Iris", "bot1", "旧记录"))
+        user_prompt, _ = core.build_prompt(_req())
+        assert "[我(bot1)] 旧记录" in user_prompt
+        assert "[Iris(bot1)]" not in user_prompt
+
+    def test_unknown_self_id_keeps_original_name(self, nm_config):
+        _, _, win, core = _core(nm_config)
+        win.append(GID, _msg("User1", "u1", "hi"))
+        user_prompt, _ = core.build_prompt(_req())
+        assert "[User1(u1)] hi" in user_prompt
+
+    def test_decision_system_prompt_identifies_self(self, nm_config):
+        _, st, _, core = _core(nm_config)
+        for level in ("low", "medium", "high"):
+            st.set_willingness(GID, level)
+            _, system_prompt = core.build_prompt(_req())
+            assert "名字为「我」的条目" in system_prompt
+            assert "不存在任何人替你代答" in system_prompt
+
+
 class TestTimeHintInjection:
     def test_time_hint_prepended_to_system_prompt(self, nm_config):
         core = _core_with_hint(nm_config, "Current datetime: 2026-07-30 10:00 (CST), Weekday: Thursday")

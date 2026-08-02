@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from collections import deque
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 from xml.sax.saxutils import quoteattr
@@ -92,8 +93,13 @@ class SlidingWindow:
 
 
 class ContextPackager:
-    def __init__(self, config: ConfigManager) -> None:
+    def __init__(
+        self,
+        config: ConfigManager,
+        self_id_get: Callable[[], str] | None = None,
+    ) -> None:
         self._config = config
+        self._self_id_get = self_id_get
         try:
             self._encoding = tiktoken.get_encoding("cl100k_base")
         except Exception as e:
@@ -111,10 +117,14 @@ class ContextPackager:
         messages: list[WindowMessage],
         motive: str,
     ) -> str:
+        self_id = self._self_id_get() if self._self_id_get else ""
         lines: list[str] = []
         token_counts: list[int] = []
         for msg in messages:
-            line = f"[{msg.sender_name}({msg.sender_id})] {msg.content}"
+            # bot 自身发言统一标记为「我」，避免决策模型把自己的历史发言
+            # 误认为第三方群友（曾因硬编码插件名产生"Iris 代答"错觉）
+            name = "我" if self_id and msg.sender_id == self_id else msg.sender_name
+            line = f"[{name}({msg.sender_id})] {msg.content}"
             tc = self._count_tokens(line)
             lines.append(line)
             token_counts.append(tc)

@@ -1,12 +1,152 @@
 import { defineConfig } from 'vite'
+import type { Plugin } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import vuetify from 'vite-plugin-vuetify'
-import { resolve } from 'path'
+import { resolve, join } from 'path'
+import { readdirSync, readFileSync, statSync } from 'fs'
+
+const collectSourceTokens = (root: string): Set<string> => {
+  const tokens = new Set<string>()
+  const walk = (p: string) => {
+    const st = statSync(p)
+    if (st.isDirectory()) {
+      for (const name of readdirSync(p)) walk(join(p, name))
+      return
+    }
+    if (!/\.(vue|ts|css|html)$/.test(p)) return
+    for (const m of readFileSync(p, 'utf8').matchAll(/[A-Za-z_][A-Za-z0-9_-]+/g)) {
+      tokens.add(m[0])
+    }
+  }
+  walk(root)
+  return tokens
+}
+
+const collectVuetifyTokens = (root: string): Set<string> => {
+  const tokens = new Set<string>()
+  const re =
+    /\b(?:d|flex|align|justify|ga|ma|pa|mt|mb|ml|mr|ms|me|pt|pb|pl|pr|ps|pe|text|w|h|overflow|position|rounded|border|elevation|bg|font-weight|cursor|opacity)-[A-Za-z0-9_-]+/g
+  const walk = (p: string) => {
+    const st = statSync(p)
+    if (st.isDirectory()) {
+      for (const name of readdirSync(p)) walk(join(p, name))
+      return
+    }
+    if (!p.endsWith('.js')) return
+    for (const m of readFileSync(p, 'utf8').matchAll(re)) tokens.add(m[0])
+  }
+  walk(root)
+  return tokens
+}
+
+const splitTopLevel = (str: string, sep: string): string[] => {
+  const parts: string[] = []
+  let depth = 0
+  let last = 0
+  for (let k = 0; k < str.length; k++) {
+    const ch = str[k]
+    if (ch === '(' || ch === '[') depth++
+    else if (ch === ')' || ch === ']') depth--
+    else if (ch === sep && depth === 0) {
+      parts.push(str.slice(last, k))
+      last = k + 1
+    }
+  }
+  parts.push(str.slice(last))
+  return parts
+}
+
+const pruneVuetifyCss = (css: string, used: Set<string>): string => {
+  const keepClass = (cls: string) =>
+    used.has(cls) || /^v-|^elevation-|^rounded|^position-|^border-|transition/.test(cls)
+
+  const prune = (input: string): string => {
+    let out = ''
+    let i = 0
+    const n = input.length
+    while (i < n) {
+      if (input.startsWith('/*', i)) {
+        const end = input.indexOf('*/', i + 2)
+        const j = end === -1 ? n : end + 2
+        out += input.slice(i, j)
+        i = j
+        continue
+      }
+      const brace = input.indexOf('{', i)
+      const semi = input.indexOf(';', i)
+      if (brace === -1 || (semi !== -1 && semi < brace)) {
+        const j = semi === -1 ? n : semi + 1
+        out += input.slice(i, j)
+        i = j
+        continue
+      }
+      const prelude = input.slice(i, brace)
+      let depth = 1
+      let j = brace + 1
+      while (j < n && depth > 0) {
+        if (input[j] === '/' && input[j + 1] === '*') {
+          const end = input.indexOf('*/', j + 2)
+          j = end === -1 ? n : end + 2
+          continue
+        }
+        if (input[j] === '{') depth++
+        else if (input[j] === '}') depth--
+        j++
+      }
+      const block = input.slice(brace + 1, j - 1)
+      const head = prelude.trim()
+      if (head.startsWith('@')) {
+        const name = head.split(/[\s(]/)[0]
+        if (name === '@media' || name === '@supports' || name === '@layer' || name === '@container') {
+          const inner = prune(block)
+          if (inner.trim()) out += prelude + '{' + inner + '}'
+        } else {
+          out += input.slice(i, j)
+        }
+      } else {
+        const selectors = splitTopLevel(prelude, ',')
+          .map(s => s.trim())
+          .filter(Boolean)
+        const allDroppable =
+          selectors.length > 0 &&
+          selectors.every(sel => {
+            const m = sel.match(/^\.[A-Za-z_][A-Za-z0-9_-]*$/)
+            return m !== null && !keepClass(m[0].slice(1))
+          })
+        if (!allDroppable) out += input.slice(i, j)
+      }
+      i = j
+    }
+    return out
+  }
+
+  return prune(css)
+}
+
+const vuetifyCssPrune = (): Plugin => {
+  let used: Set<string> | null = null
+  return {
+    name: 'iris:vuetify-css-prune',
+    enforce: 'pre',
+    transform(code, id) {
+      if (!id.includes('vuetify/lib/styles/main.css')) return null
+      if (!used) {
+        used = collectSourceTokens(resolve(__dirname, 'src'))
+        for (const t of collectSourceTokens(resolve(__dirname, 'index.html'))) used.add(t)
+        for (const t of collectVuetifyTokens(resolve(__dirname, 'node_modules/vuetify/lib'))) {
+          used.add(t)
+        }
+      }
+      return { code: pruneVuetifyCss(code, used), map: null }
+    }
+  }
+}
 
 export default defineConfig({
   plugins: [
     vue(),
-    vuetify({ autoImport: true })
+    vuetify({ autoImport: true }),
+    vuetifyCssPrune()
   ],
   resolve: {
     alias: {

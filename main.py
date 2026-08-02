@@ -172,7 +172,9 @@ class IrisMemoryPlugin(Star):
             self._state = StateManager(self._reply_config)
             self._gatekeeper = Gatekeeper(self._reply_config, self._state)
             self._sliding_window = SlidingWindow(self._reply_config)
-            self._context_packager = ContextPackager(self._reply_config)
+            self._context_packager = ContextPackager(
+                self._reply_config, self_id_get=lambda: self._self_id
+            )
             self._signals = SignalGate(self._reply_config, self._state)
             self._decision_core = DecisionCore(
                 self._reply_config, self._state, self._sliding_window, self._context_packager,
@@ -930,7 +932,7 @@ class IrisMemoryPlugin(Star):
         if bot_text:
             self._sliding_window.append(group_id, WindowMessage(
                 sender_id=event.get_self_id() or "iris",
-                sender_name="Iris",
+                sender_name="我",
                 content=bot_text,
                 timestamp=time.time(),
             ))

@@ -3,6 +3,12 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v3.0.2] - 2026-08-02
+
+### Fixed
+
+- **主动回复决策自我标识缺失（把自己的发言误认为第三方"代答"）**：bot 自身消息入滑动窗口时 `sender_name` 硬编码为插件名 `"Iris"`（`main.py` `on_message_sent` 与 `proactive.py` initiate 直发通路两处），决策上下文渲染（`perception.py` `ContextPackager.package`）按 `[昵称(ID)]` 原样透出，而决策 prompt（`prompts.py`）从未声明窗口中哪些条目是 bot 自己的发言。决策调用又复用主管线 provider 人格（如 chito），模型遂将自己以 "Iris" 署名的历史回复误判为另一群友替自己作答，产出"Iris 已代答"之类错误叙事；该叙事经 `observation` 持久化回注（`<recent_observation>`）与锚点 `reason` 注入跨轮自我强化，并可渗入最终发言。修复：① `ContextPackager` 新增 `self_id_get` 回调，渲染层将 `sender_id` 命中 bot 自身的条目统一改写为 `[我(ID)]`（不依赖存储名正确性，亦不受改名影响）；② 两处入窗点 `sender_name` 由 `"Iris"` 改为 `"我"`，移除硬编码插件名；③ 三档意愿（low/medium/high）决策 system prompt 追加自我标识说明，明确 `[我(ID)]` 即 bot 本人发言、不存在他人代答。新增 4 个用例，全量 1069 用例全绿。
+
 ## [v3.0.1] - 2026-07-30
 
 ### Fixed

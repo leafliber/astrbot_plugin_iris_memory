@@ -63,6 +63,16 @@ _DECISION_JSON_FORMAT = (
     "- 如果最近的几条消息都是同一群人在互相回应，即使话题有趣也应设 action 为 \"none\""
 )
 
+# 自我标识说明：决策上下文中 bot 自身的历史发言以 [我(ID)] 渲染，
+# 必须明确告知模型这些条目就是它自己说过的话，否则模型会把自己的发言
+# 误认为第三方群友，产生"别人替我代答"之类的错误叙事。
+_SELF_IDENTITY_NOTE = (
+    "\n\n关于你自己的发言：\n"
+    "- 消息列表中名字为「我」的条目（形如 [我(ID)]）是你自己之前说过的话，"
+    "不是其他群友，不存在任何人替你代答。\n"
+    "- 判断对话流、是否被 @ 或是否已被回应时，把「我」的发言视为你本人的发言。"
+)
+
 # 四种决策动机的指令文本。initiate 中的 {quiet_minutes} 在组装时填充。
 MOTIVE_INSTRUCTIONS = {
     "chime_in": (
@@ -104,6 +114,7 @@ WILLINGNESS_PROMPTS = {
             "- 群友之间正在互相聊天，无论话题是否有趣\n"
             "- 对话正在进行中且没有停顿\n\n"
             "绝大多数情况下应该选择不发言。当不确定时，倾向于不发言。\n\n"
+            + _SELF_IDENTITY_NOTE
             + _DECISION_JSON_FORMAT
         ),
         "persona": (
@@ -132,6 +143,7 @@ WILLINGNESS_PROMPTS = {
             "- 已经有人在充分回答问题\n"
             "- 对话已经自然结束且无新话题\n\n"
             "当不确定时，如果话题与你相关或你能提供有价值的内容，倾向于发言。\n\n"
+            + _SELF_IDENTITY_NOTE
             + _DECISION_JSON_FORMAT
         ),
         "persona": (
@@ -157,6 +169,7 @@ WILLINGNESS_PROMPTS = {
             "- 群友之间正在一来一回地聊天，对话节奏紧凑\n"
             "- 两人或多人正在就某个话题热烈讨论，你的加入会打断他们的交流\n\n"
             "积极寻找参与对话的机会，但不要在对话流最密集的时候强行插入。当不确定对话流状态时，倾向于不发言。\n\n"
+            + _SELF_IDENTITY_NOTE
             + _DECISION_JSON_FORMAT
         ),
         "persona": (

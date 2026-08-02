@@ -105,7 +105,7 @@ class HiddenConfig:
 
     # Token 预算控制
     token_budget_max_tokens: int = field(
-        default=2000,
+        default=5000,
         metadata={"description": "Token 预算上限", "group": "Token 预算"},
     )
 

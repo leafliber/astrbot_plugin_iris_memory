@@ -781,7 +781,7 @@ async def _collect_l2_memory(
         injected_count = 0
         budget_tokens = 0
         if l2_results:
-            max_tokens = config.get("token_budget_max_tokens", 2000)
+            max_tokens = config.get("token_budget_max_tokens", 5000)
             budget_tokens = max_tokens
             trimmed = MemoryRetriever.trim_by_token_budget(l2_results, max_tokens)
             injected_count = len(trimmed)
