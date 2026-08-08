@@ -62,31 +62,31 @@
   "learning": {
     "type": "object",
     "description": "学习模块",
-    "hint": "从群聊对话中学习表达风格、对话样例与群黑话，注入 LLM 上下文让回复更贴合群氛围",
+    "hint": "从群聊对话中学习表达风格、对话样例与圈内暗语，注入 LLM 上下文让回复更贴合群氛围",
     "items": {
       "enable": {
         "type": "bool",
         "default": false,
         "description": "启用学习模块",
-        "hint": "学习群聊表达风格、对话样例与黑话，采集与审查过程会消耗少量 LLM Token"
+        "hint": "学习群聊表达风格、对话样例与暗语，采集与审查过程会消耗少量 LLM Token"
       },
       "jargon_enable": {
         "type": "bool",
         "default": true,
-        "description": "启用黑话学习",
+        "description": "启用暗语学习",
         "hint": "统计群内高频词汇并推断含义，命中时在上下文中给出解释"
       },
       "jargon_infer_use_l1": {
         "type": "bool",
         "default": true,
-        "description": "黑话推断使用 L1 上下文",
-        "hint": "推断黑话含义时携带 L1 缓冲中最近的相关消息原文，推断更准确；关闭则仅凭词条本身推断"
+        "description": "暗语推断使用 L1 上下文",
+        "hint": "推断暗语含义时携带 L1 缓冲中最近的相关消息原文，推断更准确；关闭则仅凭词条本身推断"
       },
       "review_provider": {
         "type": "string",
         "default": "",
         "description": "审查/推断模型",
-        "hint": "用于学习模块内容审查与黑话含义推断的模型，留空则使用默认 Provider",
+        "hint": "用于学习模块内容审查与暗语含义推断的模型，留空则使用默认 Provider",
         "_special": "select_provider"
       },
       "review_batch_size": {

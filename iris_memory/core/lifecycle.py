@@ -291,7 +291,7 @@ async def _start_scheduled_tasks_deferred(component_manager: ComponentManager) -
     elif config.get("scheduled_tasks.enable_dream") and not l2_available:
         logger.warning("L2 记忆库不可用，跳过梦境任务注册")
 
-    # 学习模块周期任务：表达模式衰减 / 黑话扫描推断 / 攒批审查兜底
+    # 学习模块周期任务：表达模式衰减 / 暗语扫描推断 / 攒批审查兜底
     # 组件仅在 learning.enable=true 时注册（create_components），
     # 未启用时组件不存在，check_component 恒为 unavailable，
     # 必须先按配置守卫，否则默认配置下每次启动误报警告

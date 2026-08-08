@@ -69,7 +69,7 @@ class LearningCommandHandler(CommandHandler):
 
     @property
     def description(self) -> str:
-        return "学习模块管理（表达风格/黑话/对话样例）"
+        return "学习模块管理（表达风格/暗语/对话样例）"
 
     @property
     def sub_commands(self) -> dict[str, str]:
@@ -145,7 +145,7 @@ class LearningCommandHandler(CommandHandler):
             + "\n"
             + _fmt("few_shot", "对话样例")
             + "\n"
-            + _fmt("jargon", "黑话词条")
+            + _fmt("jargon", "暗语词条")
         )
         return CommandResult(success=True, message=message, details=stats)
 
@@ -227,12 +227,12 @@ class LearningCommandHandler(CommandHandler):
             storage.clear_by_user(target_user_id, group_id)
             message = (
                 f"✅ 已清空用户 {args.target_user_name or target_user_id}"
-                " 在当前群聊的对话样例（表达模式/黑话无用户维度，不随用户清理）"
+                " 在当前群聊的对话样例（表达模式/暗语无用户维度，不随用户清理）"
             )
 
         else:
             storage.clear_by_user(current_user_id, group_id)
-            message = "✅ 已清空你的对话样例（表达模式/黑话无用户维度，不随用户清理）"
+            message = "✅ 已清空你的对话样例（表达模式/暗语无用户维度，不随用户清理）"
 
         logger.info(f"learning clear 操作: scope={scope.value}")
         return CommandResult(

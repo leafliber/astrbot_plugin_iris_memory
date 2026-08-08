@@ -2,7 +2,7 @@
 Iris Chat Memory - 学习采集与配对
 
 用户消息入口（on_message）与 LLM 响应落库时（on_response）的采集逻辑：
-- on_message：self_id 过滤、剥离图片占位符、空文本跳过，更新黑话词频；
+- on_message：self_id 过滤、剥离图片占位符、空文本跳过，更新暗语词频；
 - on_response：把触发消息与 bot 回复配成 few_shot 对话对落库（pending_review），
   按规则提取表达模式候选，并把对话对放入审查器待审队列。
 """
@@ -59,7 +59,7 @@ class LearningCollector:
         """用户消息采集入口
 
         self_id 过滤、图片占位符剥离、空文本跳过后，
-        更新黑话词频计数。
+        更新暗语词频计数。
 
         Args:
             event: AstrBot 消息事件

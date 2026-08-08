@@ -23,7 +23,7 @@ def _patch_adapter():
 
 
 def _seed_approved(storage):
-    """准备 approved 数据：1 表达模式 + 1 黑话 + 1 对话样例"""
+    """准备 approved 数据：1 表达模式 + 1 暗语 + 1 对话样例"""
     pat = storage.insert_pattern("g1", "chat", "早上好呀")
     storage.update_status("expression_pattern", [pat], "approved")
     storage.upsert_jargon_count("g1", "yyds", 5)
@@ -71,7 +71,7 @@ class TestAssembly:
                 _event("这波 yyds"), storage, JargonLearner(storage), meta
             )
         assert "## 群聊用语与表达风格" in text
-        assert "### 群黑话" in text and "yyds = 永远的神" in text
+        assert "### 圈内暗语" in text and "yyds = 永远的神" in text
         assert "### 常用表达" in text and "早上好呀" in text
         assert "### 对话风格样例" in text and "早呀" in text
         assert meta["pattern_count"] == 1
@@ -98,7 +98,7 @@ class TestAssembly:
             text = await build_learning_context(
                 _event("没有命中词"), storage, JargonLearner(storage), {}
             )
-        assert "### 群黑话" not in text
+        assert "### 圈内暗语" not in text
         assert "### 常用表达" in text
 
 
@@ -134,7 +134,7 @@ class TestTruncation:
         # few_shot 最先被裁掉，pattern 与 jargon 保留
         assert "### 对话风格样例" not in text
         assert "### 常用表达" in text
-        assert "### 群黑话" in text
+        assert "### 圈内暗语" in text
         assert meta["few_shot_count"] == 0
         assert meta["pattern_count"] == 1
         assert meta["jargon_count"] == 1
@@ -154,7 +154,7 @@ class TestTruncation:
             )
         assert "### 对话风格样例" not in text
         assert "### 常用表达" not in text
-        assert "### 群黑话" in text
+        assert "### 圈内暗语" in text
         assert meta["dropped_by_budget"] == 2
 
     @pytest.mark.asyncio

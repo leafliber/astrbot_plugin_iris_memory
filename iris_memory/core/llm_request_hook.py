@@ -7,7 +7,7 @@ LLM 请求钩子处理模块
 - 图片解析（related 模式）
 - L2 记忆注入
 - L3 知识图谱注入
-- learning 学习上下文注入（表达风格/黑话/对话样例）
+- learning 学习上下文注入（表达风格/暗语/对话样例）
 
 注入策略：
 所有动态内容（L1/画像/L2/L3/learning）统一通过 req.extra_user_content_parts 注入，
@@ -262,7 +262,7 @@ def _inject_to_extra_user_content_parts(
         profile_text: 用户画像文本
         l2_text: 相关记忆文本
         l3_text: 知识图谱文本
-        learning_text: 学习上下文文本（表达风格/黑话/对话样例）
+        learning_text: 学习上下文文本（表达风格/暗语/对话样例）
 
     Returns:
         实际注入的合并文本，无内容注入时返回空字符串
@@ -1002,7 +1002,7 @@ async def _collect_learning(
 ) -> str:
     """收集 learning 学习上下文文本（不直接修改 req）
 
-    组装本群已学习的表达模式、命中黑话解释与 few-shot 对话样例，
+    组装本群已学习的表达模式、命中暗语解释与 few-shot 对话样例，
     独立 token 预算（learning_inject_max_tokens）。
 
     Args:

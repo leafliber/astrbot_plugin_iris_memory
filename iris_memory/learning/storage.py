@@ -4,7 +4,7 @@ Iris Chat Memory - 学习模块存储层
 使用独立 SQLite 库（learning.db）持久化三类学习产物：
 - expression_pattern：从对话对规则提取的"场景→表达"模式
 - few_shot：user→bot 对话对样例（经 LLM 审查后注入）
-- jargon：群黑话词频统计与含义推断结果
+- jargon：圈内暗语词频统计与含义推断结果
 
 所有方法为同步方法，sqlite 操作很快，调用方在 async 侧直接调用即可；
 写操作由组件级 asyncio.Lock 保证事件循环内串行，内部再以
@@ -267,7 +267,7 @@ class LearningStorage:
         return removed
 
     # ------------------------------------------------------------------
-    # jargon 黑话
+    # jargon 暗语
     # ------------------------------------------------------------------
 
     def upsert_jargon_count(self, group_id: str, term: str, delta: int) -> int:
@@ -304,7 +304,7 @@ class LearningStorage:
             return {(r["group_id"], r["term"]): int(r["count"]) for r in rows}
 
     def get_active_jargon(self, group_id: str) -> List[Dict[str, Any]]:
-        """取本群已推断且生效的黑话（有含义且未禁用）"""
+        """取本群已推断且生效的暗语（有含义且未禁用）"""
         with self._lock:
             rows = self._db.execute(
                 "SELECT * FROM jargon WHERE group_id=? AND status=?"

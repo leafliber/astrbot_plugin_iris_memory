@@ -106,7 +106,7 @@ class TestUpdateStatus:
 
 
 class TestJargon:
-    """jargon 黑话"""
+    """jargon 暗语"""
 
     def test_upsert_jargon_count_accumulates(self, storage):
         assert storage.upsert_jargon_count("g1", "yyds", 3) == 3

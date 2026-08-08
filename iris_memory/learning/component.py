@@ -9,7 +9,7 @@ storage / collector / expression / jargon / reviewer / injector，
 - run_review / run_jargon_scan / run_decay：周期任务入口。
 
 learning.db 的全部读写操作共用组件级 asyncio.Lock 保证单写者；
-LLM 调用（审查/黑话推断）一律在锁外 await，避免阻塞注入与采集路径。
+LLM 调用（审查/暗语推断）一律在锁外 await，避免阻塞注入与采集路径。
 """
 
 import asyncio
@@ -101,7 +101,7 @@ class LearningComponent(Component):
             try:
                 self._jargon.flush()
             except Exception as e:
-                logger.warning(f"黑话计数 shutdown 刷盘失败：{e}")
+                logger.warning(f"暗语计数 shutdown 刷盘失败：{e}")
         if self._storage:
             try:
                 self._storage.close()
@@ -203,7 +203,7 @@ class LearningComponent(Component):
             logger.warning(f"学习审查执行失败：{e}")
 
     async def run_jargon_scan(self) -> None:
-        """执行一轮黑话扫描：刷盘词频 + 推断跨档词条含义"""
+        """执行一轮暗语扫描：刷盘词频 + 推断跨档词条含义"""
         if not self._is_available or not self._jargon:
             return
         try:
@@ -238,16 +238,16 @@ class LearningComponent(Component):
                                 int(term_info["id"]), meaning, confidence
                             )
                         logger.info(
-                            f"黑话含义推断成功 "
+                            f"暗语含义推断成功 "
                             f"[{term_info.get('group_id')}:{term_info.get('term')}]"
                             f" = {meaning} ({confidence:.2f})"
                         )
                 except Exception as e:
                     logger.warning(
-                        f"黑话推断失败 [{term_info.get('term')}]：{e}"
+                        f"暗语推断失败 [{term_info.get('term')}]：{e}"
                     )
         except Exception as e:
-            logger.warning(f"黑话扫描执行失败：{e}")
+            logger.warning(f"暗语扫描执行失败：{e}")
 
     async def run_decay(self) -> None:
         """执行一轮表达模式衰减淘汰"""

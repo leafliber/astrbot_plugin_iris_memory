@@ -1,5 +1,5 @@
 """
-Iris Chat Memory - 黑话学习
+Iris Chat Memory - 暗语学习
 
 词频统计预筛（零 LLM）+ 低频 LLM 含义推断：
 - 对清洗后文本做 2-4 字 n-gram 滑窗（仅 CJK 表意/字母数字字符段内），
@@ -60,7 +60,7 @@ def _is_valid_term(term: str) -> bool:
 
 
 class JargonLearner:
-    """黑话词频统计与含义推断
+    """暗语词频统计与含义推断
 
     内存维护 {(group_id, term): count}，累计 _FLUSH_EVERY 次更新
     或组件 shutdown 时批量 upsert_jargon_count 刷盘。
@@ -89,7 +89,7 @@ class JargonLearner:
             key = (row["group_id"], row["term"])
             if row.get("last_inferred_at"):
                 self._inferred_tier[key] = self._tier_of(int(row["count"]))
-        logger.info(f"已加载 {len(self._counts)} 条黑话词频计数")
+        logger.info(f"已加载 {len(self._counts)} 条暗语词频计数")
 
     def update_counts(self, group_id: str, text: str) -> None:
         """对一条消息文本做 n-gram 滑窗计数
@@ -127,7 +127,7 @@ class JargonLearner:
                 new_total = self._storage.upsert_jargon_count(group_id, term, delta)
                 self._counts[(group_id, term)] = new_total
             except Exception as e:
-                logger.warning(f"黑话计数刷盘失败 [{group_id}:{term}]：{e}")
+                logger.warning(f"暗语计数刷盘失败 [{group_id}:{term}]：{e}")
         self._dirty.clear()
         self._pending_updates = 0
 
@@ -211,13 +211,13 @@ class JargonLearner:
         else:
             prompt = (
                 f"群聊中高频出现词语「{term}」（已出现 {term_info.get('count', 0)} 次），"
-                f"请推断它作为网络用语/群内黑话的可能含义。"
+                f"请推断它作为网络用语/群内暗语的可能含义。"
                 '只输出 JSON：{"meaning": "含义简述", "confidence": 0到1的置信度}'
                 "；如果无法确定含义，confidence 给 0。"
             )
 
         system_prompt = (
-            "你是群聊用语分析助手，擅长根据上下文推断网络用语和群内黑话的含义。"
+            "你是群聊用语分析助手，擅长根据上下文推断网络用语和群内暗语的含义。"
             "只输出 JSON，不要输出其他内容。"
         )
 
@@ -229,7 +229,7 @@ class JargonLearner:
                 timeout=60,
             )
         except Exception as e:
-            logger.warning(f"黑话含义推断 LLM 调用失败 [{term}]：{e}")
+            logger.warning(f"暗语含义推断 LLM 调用失败 [{term}]：{e}")
             return None
 
         meaning, confidence = self._parse_infer_result(raw)
@@ -237,7 +237,7 @@ class JargonLearner:
         self._inferred_tier[key] = self._tier_of(int(term_info.get("count", 0)))
 
         if confidence < 0.5 or not meaning:
-            logger.debug(f"黑话推断置信度不足 [{term}]：confidence={confidence}")
+            logger.debug(f"暗语推断置信度不足 [{term}]：confidence={confidence}")
             return None
 
         return meaning, confidence
@@ -270,7 +270,7 @@ class JargonLearner:
     # ------------------------------------------------------------------
 
     def match_terms(self, group_id: str, text: str, max_items: int = 5) -> List[Dict[str, Any]]:
-        """匹配消息文本中命中的已推断黑话
+        """匹配消息文本中命中的已推断暗语
 
         Args:
             group_id: 群 ID

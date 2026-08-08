@@ -1,7 +1,7 @@
 """
 Iris Chat Memory - 学习上下文注入组装
 
-从学习库中取本群已通过的表达模式、消息命中的黑话解释、
+从学习库中取本群已通过的表达模式、消息命中的暗语解释、
 few-shot 对话样例，组装 `## 群聊用语与表达风格` 分小节文本：
 - 单条条目截断 learning_inject_max_item_chars（默认 200）；
 - 整体超 learning_inject_max_tokens（默认 600）按
@@ -45,7 +45,7 @@ async def build_learning_context(
     Args:
         event: AstrBot 消息事件
         storage: 学习存储实例
-        jargon: 黑话学习器实例
+        jargon: 暗语学习器实例
         meta: 运行日志元信息字典（填充 counts/budget，照 llm_request_hook 风格）
 
     Returns:
@@ -66,7 +66,7 @@ async def build_learning_context(
     if patterns:
         storage.record_pattern_hit([int(p["id"]) for p in patterns])
 
-    # 2. 用户消息命中的已推断黑话（最多 5 条）
+    # 2. 用户消息命中的已推断暗语（最多 5 条）
     user_text = getattr(event, "message_str", "") or ""
     jargon_hits = jargon.match_terms(group_id, user_text, max_items=5)
 
@@ -99,7 +99,7 @@ async def build_learning_context(
         """按分小节组装完整文本"""
         parts = [_SECTION_HEADER]
         if jg:
-            parts.append("### 群黑话\n" + "\n".join(jg))
+            parts.append("### 圈内暗语\n" + "\n".join(jg))
         if pt:
             parts.append("### 常用表达\n" + "\n".join(pt))
         if fs:

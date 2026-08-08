@@ -1,4 +1,4 @@
-"""黑话学习与采集测试"""
+"""暗语学习与采集测试"""
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
