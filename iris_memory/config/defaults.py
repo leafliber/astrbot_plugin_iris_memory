@@ -711,6 +711,44 @@ class HiddenConfig:
         },
     )
 
+    # 学习模块内部参数
+    learning_inject_max_tokens: int = field(
+        default=600,
+        metadata={"description": "学习上下文注入最大 Token 数", "group": "学习模块"},
+    )
+    learning_inject_max_item_chars: int = field(
+        default=200,
+        metadata={
+            "description": "学习注入单条条目最大字符数",
+            "group": "学习模块",
+        },
+    )
+    learning_few_shot_max: int = field(
+        default=3,
+        metadata={"description": "注入的对话样例最大条数", "group": "学习模块"},
+    )
+    learning_pattern_top_n: int = field(
+        default=5,
+        metadata={"description": "注入的表达模式 Top-N 条数", "group": "学习模块"},
+    )
+
+
+@dataclass
+class LearningConfig:
+    """学习模块配置（用户可见选项）
+
+    从群聊对话中学习表达风格、对话样例与群黑话，
+    注入 LLM 上下文让回复更贴合群氛围。
+    """
+
+    enable: bool = False
+    jargon_enable: bool = True
+    jargon_infer_use_l1: bool = True
+    review_provider: str = ""
+    review_batch_size: int = 10
+    pattern_max_count: int = 300
+    pattern_decay_days: int = 15
+
 
 @dataclass
 class Defaults:
@@ -726,6 +764,7 @@ class Defaults:
     isolation_config: IsolationConfig = field(default_factory=IsolationConfig)
     scheduled_tasks: ScheduledTasksConfig = field(default_factory=ScheduledTasksConfig)
     context_control: ContextControlConfig = field(default_factory=ContextControlConfig)
+    learning: LearningConfig = field(default_factory=LearningConfig)
     hidden: HiddenConfig = field(default_factory=HiddenConfig)
 
     def get_by_flat_key(self, flat_key: str) -> Optional[object]:

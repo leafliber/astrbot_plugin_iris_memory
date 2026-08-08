@@ -20,6 +20,7 @@ from .l2_handler import L2CommandHandler
 from .l3_handler import L3CommandHandler
 from .profile_handler import ProfileCommandHandler
 from .all_handler import AllCommandHandler
+from .learning_handler import LearningCommandHandler
 from .executor import execute_command
 
 __all__ = [
@@ -36,5 +37,6 @@ __all__ = [
     "L3CommandHandler",
     "ProfileCommandHandler",
     "AllCommandHandler",
+    "LearningCommandHandler",
     "execute_command",
 ]

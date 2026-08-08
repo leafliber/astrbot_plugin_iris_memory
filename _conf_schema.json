@@ -59,6 +59,56 @@
       }
     }
   },
+  "learning": {
+    "type": "object",
+    "description": "学习模块",
+    "hint": "从群聊对话中学习表达风格、对话样例与群黑话，注入 LLM 上下文让回复更贴合群氛围",
+    "items": {
+      "enable": {
+        "type": "bool",
+        "default": false,
+        "description": "启用学习模块",
+        "hint": "学习群聊表达风格、对话样例与黑话，采集与审查过程会消耗少量 LLM Token"
+      },
+      "jargon_enable": {
+        "type": "bool",
+        "default": true,
+        "description": "启用黑话学习",
+        "hint": "统计群内高频词汇并推断含义，命中时在上下文中给出解释"
+      },
+      "jargon_infer_use_l1": {
+        "type": "bool",
+        "default": true,
+        "description": "黑话推断使用 L1 上下文",
+        "hint": "推断黑话含义时携带 L1 缓冲中最近的相关消息原文，推断更准确；关闭则仅凭词条本身推断"
+      },
+      "review_provider": {
+        "type": "string",
+        "default": "",
+        "description": "审查/推断模型",
+        "hint": "用于学习模块内容审查与黑话含义推断的模型，留空则使用默认 Provider",
+        "_special": "select_provider"
+      },
+      "review_batch_size": {
+        "type": "int",
+        "default": 10,
+        "description": "攒批审查数量",
+        "hint": "待审查的对话对与表达模式累计达到此数量时触发一次 LLM 批量审查"
+      },
+      "pattern_max_count": {
+        "type": "int",
+        "default": 300,
+        "description": "表达模式上限",
+        "hint": "已学习的表达模式最大数量，超量时按命中率淘汰"
+      },
+      "pattern_decay_days": {
+        "type": "int",
+        "default": 15,
+        "description": "表达模式衰减天数",
+        "hint": "表达模式超过此天数未被命中将衰减淘汰"
+      }
+    }
+  },
   "l2_memory": {
     "type": "object",
     "description": "L2 记忆库",

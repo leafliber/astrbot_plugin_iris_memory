@@ -74,6 +74,7 @@ from iris_memory.commands import (
     L3CommandHandler,
     ProfileCommandHandler,
     AllCommandHandler,
+    LearningCommandHandler,
 )
 from iris_memory.proactive.admin import AdminCommands
 from iris_memory.proactive.api import (
@@ -250,6 +251,7 @@ class IrisMemoryPlugin(Star):
                 L3CommandHandler(),
                 ProfileCommandHandler(),
                 AllCommandHandler(),
+                LearningCommandHandler(),
             ]
             for handler in handlers:
                 registry.register(handler)

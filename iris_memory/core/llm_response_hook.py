@@ -67,3 +67,11 @@ async def handle_llm_response(
     )
 
     logger.debug(f"已添加助手响应到会话 {session_id} 的 L1 Buffer")
+
+    # 学习模块旁路采集：对话对配对落库 + 表达模式提取，异常不影响主流程
+    learning = component_manager.get_available_component("learning")
+    if learning:
+        try:
+            await learning.on_response(event, resp)
+        except Exception as e:
+            logger.error(f"learning on_response 失败，已隔离：{e}", exc_info=True)

@@ -7,14 +7,15 @@ LLM 请求钩子处理模块
 - 图片解析（related 模式）
 - L2 记忆注入
 - L3 知识图谱注入
+- learning 学习上下文注入（表达风格/黑话/对话样例）
 
 注入策略：
-所有动态内容（L1/画像/L2/L3）统一通过 req.extra_user_content_parts 注入，
+所有动态内容（L1/画像/L2/L3/learning）统一通过 req.extra_user_content_parts 注入，
 作为额外的用户消息内容块放在本轮用户输入之后。不修改 req.system_prompt、
 req.contexts 和 req.prompt。
 
 这样做的理由：
-- L1/L2/L3/画像均为每轮变化的动态上下文，不属于稳定角色设定
+- L1/L2/L3/画像/learning 均为每轮变化的动态上下文，不属于稳定角色设定
 - 注入 system_prompt 会使系统提示词每轮变化，破坏模型服务端的提示词缓存，
   显著增加请求成本和首 token 延迟
 - extra_user_content_parts 适合承载"本轮相关记忆片段"等动态上下文
@@ -88,7 +89,7 @@ async def preprocess_llm_request(
     执行所有 LLM 对话前的预处理逻辑。
 
     注入策略：
-    - req.extra_user_content_parts: L1/画像/L2/L3（全部作为动态上下文内容块）
+    - req.extra_user_content_parts: L1/画像/L2/L3/learning（全部作为动态上下文内容块）
     - req.system_prompt: 不修改
     - req.contexts: 不修改
     - req.prompt: 不修改
@@ -107,7 +108,8 @@ async def preprocess_llm_request(
     l2_text = ""
     l2_results = []
     l3_text = ""
-    inject_meta: dict = {"l1": {}, "profile": {}, "l2": {}, "l3": {}}
+    learning_text = ""
+    inject_meta: dict = {"l1": {}, "profile": {}, "l2": {}, "l3": {}, "learning": {}}
 
     try:
         await _parse_images_if_related_mode(event, req, component_manager)
@@ -148,8 +150,15 @@ async def preprocess_llm_request(
     except Exception as e:
         logger.error(f"L3 知识图谱检索失败，已隔离：{e}", exc_info=True)
 
+    try:
+        learning_text = await _collect_learning(
+            event, component_manager, meta=inject_meta["learning"]
+        )
+    except Exception as e:
+        logger.error(f"learning 学习上下文收集失败，已隔离：{e}", exc_info=True)
+
     combined = _inject_to_extra_user_content_parts(
-        req, l1_text, profile_text, l2_text, l3_text
+        req, l1_text, profile_text, l2_text, l3_text, learning_text
     )
 
     _record_injection_log(
@@ -159,6 +168,7 @@ async def preprocess_llm_request(
         profile_text=profile_text,
         l2_text=l2_text,
         l3_text=l3_text,
+        learning_text=learning_text,
         meta=inject_meta,
         combined=combined,
         user_message=user_message,
@@ -175,6 +185,7 @@ def _record_injection_log(
     profile_text: str,
     l2_text: str,
     l3_text: str,
+    learning_text: str,
     meta: dict,
     combined: str,
     user_message: str,
@@ -199,6 +210,7 @@ def _record_injection_log(
             "profile": {"chars": len(profile_text), "injected": bool(profile_text), **meta.get("profile", {})},
             "l2_memory": {"chars": len(l2_text), "injected": bool(l2_text), **meta.get("l2", {})},
             "l3_kg": {"chars": len(l3_text), "injected": bool(l3_text), **meta.get("l3", {})},
+            "learning": {"chars": len(learning_text), "injected": bool(learning_text), **meta.get("learning", {})},
         }
         injected_count = sum(1 for s in sections.values() if s["injected"])
 
@@ -234,14 +246,15 @@ def _inject_to_extra_user_content_parts(
     profile_text: str,
     l2_text: str,
     l3_text: str,
+    learning_text: str = "",
 ) -> str:
     """将所有动态内容注入到 req.extra_user_content_parts
 
-    所有内容（L1/画像/L2/L3）均为每轮变化的动态上下文，通过
+    所有内容（L1/画像/L2/L3/learning）均为每轮变化的动态上下文，通过
     extra_user_content_parts 注入，避免修改 system_prompt 导致
     提示词缓存失效。
 
-    注入顺序：L1 上下文 → 画像 → L2 记忆 → L3 知识图谱
+    注入顺序：L1 上下文 → 画像 → L2 记忆 → L3 知识图谱 → learning 学习上下文
 
     Args:
         req: LLM 提供者请求对象
@@ -249,6 +262,7 @@ def _inject_to_extra_user_content_parts(
         profile_text: 用户画像文本
         l2_text: 相关记忆文本
         l3_text: 知识图谱文本
+        learning_text: 学习上下文文本（表达风格/黑话/对话样例）
 
     Returns:
         实际注入的合并文本，无内容注入时返回空字符串
@@ -258,6 +272,7 @@ def _inject_to_extra_user_content_parts(
         ("profile", profile_text),
         ("l2_memory", l2_text),
         ("l3_kg", l3_text),
+        ("learning", learning_text),
     ]
 
     parts = []
@@ -975,6 +990,59 @@ async def _collect_l3_knowledge_graph(
 
     except Exception as e:
         logger.error(f"L3 知识图谱注入失败: {e}", exc_info=True)
+        if meta is not None:
+            meta["error"] = str(e)
+        return ""
+
+
+async def _collect_learning(
+    event: "AstrMessageEvent",
+    component_manager: "ComponentManager",
+    meta: Optional[dict] = None,
+) -> str:
+    """收集 learning 学习上下文文本（不直接修改 req）
+
+    组装本群已学习的表达模式、命中黑话解释与 few-shot 对话样例，
+    独立 token 预算（learning_inject_max_tokens）。
+
+    Args:
+        event: AstrBot 消息事件对象
+        component_manager: 组件管理器实例
+        meta: 可选的运行日志元信息字典，函数会填充条目数与预算统计
+
+    Returns:
+        格式化的学习上下文文本，不可用时返回空字符串
+    """
+    from iris_memory.config import get_config
+
+    config = get_config()
+
+    if not config.get("learning.enable"):
+        logger.debug("学习模块未启用，跳过学习上下文注入")
+        if meta is not None:
+            meta["skipped"] = "disabled"
+        return ""
+
+    # 组件仅在 learning.enable=true 时注册，上面的配置检查已覆盖未启用场景，
+    # 故此处不再有 disabled 分支（对照 _collect_l2_memory 的历史结构，该分支实际不可达）
+    learning_status = component_manager.check_component("learning")
+    if learning_status == "initializing":
+        logger.debug("学习模块正在初始化中，跳过学习上下文注入")
+        if meta is not None:
+            meta["skipped"] = "initializing"
+        return ""
+    if learning_status != "available":
+        logger.debug("学习模块组件不可用，跳过学习上下文注入")
+        if meta is not None:
+            meta["skipped"] = "component_unavailable"
+        return ""
+
+    learning = component_manager.get_available_component("learning")
+
+    try:
+        return await learning.build_context(event, meta=meta)
+    except Exception as e:
+        logger.error(f"learning 学习上下文注入失败: {e}", exc_info=True)
         if meta is not None:
             meta["error"] = str(e)
         return ""

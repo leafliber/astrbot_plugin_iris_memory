@@ -591,6 +591,7 @@ class LLMManager(Component):
             "image_parsing": "l1_buffer.image_parsing.provider",
             "profile_analysis": "profile.analysis_provider",
             "l2_query_rewrite": "l2_query_rewrite_provider",
+            "learning_review": "learning.review_provider",
         }
 
         config_key = module_config_map.get(module)
