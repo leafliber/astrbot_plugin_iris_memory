@@ -30,6 +30,7 @@ def register_all_routes(context) -> None:
     from .routes.hidden_config_routes import register_hidden_config_routes
     from .routes.ui_preferences_routes import register_ui_preferences_routes
     from .routes.run_log_routes import register_run_log_routes
+    from .routes.learning import register_learning_routes
 
     register_memory_routes(context)
     register_profile_routes(context)
@@ -39,5 +40,6 @@ def register_all_routes(context) -> None:
     register_hidden_config_routes(context)
     register_ui_preferences_routes(context)
     register_run_log_routes(context)
+    register_learning_routes(context)
 
     logger.info("所有 Web API 路由已注册")

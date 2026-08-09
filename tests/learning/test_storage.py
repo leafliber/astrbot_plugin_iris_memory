@@ -267,3 +267,111 @@ class TestListByGroup:
 
         with pytest.raises(ValueError):
             storage.list_by_group("sqlite_master", "g1")
+
+
+class TestWebCrud:
+    """Web 管理 CRUD（list_rows/count_rows/delete_rows/update_row/insert_jargon/list_groups）"""
+
+    def test_list_rows_filter_and_order(self, storage):
+        storage.insert_pair("g1", "u1", "问1", "答1")
+        storage.insert_pair("g2", "u2", "问2", "答2")
+        pid = storage.insert_pair("g1", "u1", "问3", "答3")
+        storage.update_status("few_shot", [pid], "approved")
+
+        assert len(storage.list_rows("few_shot")) == 3
+        rows = storage.list_rows("few_shot", group_id="g1")
+        assert len(rows) == 2
+        rows = storage.list_rows("few_shot", group_id="g1", status="approved")
+        assert len(rows) == 1 and rows[0]["user_text"] == "问3"
+
+    def test_list_rows_pagination(self, storage):
+        for i in range(5):
+            storage.insert_pair("g1", "u1", f"问{i}", f"答{i}")
+        page1 = storage.list_rows("few_shot", limit=2, offset=0)
+        page2 = storage.list_rows("few_shot", limit=2, offset=2)
+        assert len(page1) == 2 and len(page2) == 2
+        assert {r["id"] for r in page1}.isdisjoint({r["id"] for r in page2})
+
+    def test_list_rows_jargon_ordered_by_count(self, storage):
+        storage.upsert_jargon_count("g1", "低频", 1)
+        storage.upsert_jargon_count("g1", "高频", 9)
+        rows = storage.list_rows("jargon")
+        assert [r["term"] for r in rows] == ["高频", "低频"]
+
+    def test_list_rows_invalid_table(self, storage):
+        import pytest
+
+        with pytest.raises(ValueError):
+            storage.list_rows("sqlite_master")
+
+    def test_count_rows(self, storage):
+        storage.insert_pair("g1", "u1", "问1", "答1")
+        storage.insert_pair("g1", "u1", "问2", "答2")
+        storage.insert_pair("g2", "u2", "问3", "答3")
+        assert storage.count_rows("few_shot") == 3
+        assert storage.count_rows("few_shot", group_id="g1") == 2
+        assert storage.count_rows("few_shot", status="approved") == 0
+
+    def test_delete_rows(self, storage):
+        pid1 = storage.insert_pair("g1", "u1", "问1", "答1")
+        pid2 = storage.insert_pair("g1", "u1", "问2", "答2")
+        assert storage.delete_rows("few_shot", [pid1]) == 1
+        assert storage.count_rows("few_shot") == 1
+        assert storage.delete_rows("few_shot", [pid1, pid2, 999]) == 1
+        assert storage.delete_rows("few_shot", []) == 0
+
+    def test_delete_rows_invalid_table(self, storage):
+        import pytest
+
+        with pytest.raises(ValueError):
+            storage.delete_rows("sqlite_master", [1])
+
+    def test_update_row_allowed_fields(self, storage):
+        storage.upsert_jargon_count("g1", " yyds ", 5)
+        row = storage.list_rows("jargon")[0]
+        ok = storage.update_row(
+            "jargon", row["id"], {"meaning": "永远的神", "confidence": 0.9}
+        )
+        assert ok
+        row = storage.list_rows("jargon")[0]
+        assert row["meaning"] == "永远的神"
+        assert row["confidence"] == 0.9
+        assert row["count"] == 5  # 未触及
+
+    def test_update_row_rejects_unknown_field(self, storage):
+        pid = storage.insert_pair("g1", "u1", "问", "答")
+        import pytest
+
+        with pytest.raises(ValueError):
+            storage.update_row("few_shot", pid, {"group_id": "g2"})
+        with pytest.raises(ValueError):
+            storage.update_row("few_shot", pid, {"id": 99})
+
+    def test_update_row_no_fields_returns_false(self, storage):
+        pid = storage.insert_pair("g1", "u1", "问", "答")
+        assert storage.update_row("few_shot", pid, {}) is False
+
+    def test_update_row_missing_id_returns_false(self, storage):
+        assert storage.update_row("jargon", 999, {"meaning": "x"}) is False
+
+    def test_insert_jargon_new_and_conflict(self, storage):
+        jid = storage.insert_jargon("g1", "绝绝子", meaning="太棒了", confidence=0.8)
+        row = storage.list_rows("jargon")[0]
+        assert row["id"] == jid
+        assert row["status"] == "active"
+        assert row["count"] == 0
+
+        # 同群同词冲突：更新含义，不新增行
+        storage.upsert_jargon_count("g1", "绝绝子", 3)
+        jid2 = storage.insert_jargon("g1", "绝绝子", meaning="非常好", confidence=0.9)
+        assert jid2 == jid
+        rows = storage.list_rows("jargon")
+        assert len(rows) == 1
+        assert rows[0]["meaning"] == "非常好"
+        assert rows[0]["count"] == 3  # 计数保留
+
+    def test_list_groups(self, storage):
+        storage.insert_pair("g2", "u1", "问", "答")
+        storage.insert_pattern("g1", "scene", "表达")
+        storage.upsert_jargon_count("", "无群词", 1)
+        assert storage.list_groups() == ["g1", "g2"]

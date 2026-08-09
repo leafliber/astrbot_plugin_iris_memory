@@ -36,6 +36,12 @@ const routes: RouteRecordRaw[] = [
     meta: { title: '画像管理', icon: 'mdi-account-group' }
   },
   {
+    path: '/learning',
+    name: 'Learning',
+    component: () => import('@/views/LearningView.vue'),
+    meta: { title: '学习管理', icon: 'mdi-school' }
+  },
+  {
     path: '/data-manage',
     name: 'DataManage',
     component: () => import('@/views/DataManageView.vue'),

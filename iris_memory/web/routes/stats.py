@@ -29,6 +29,40 @@ def _get_uptime() -> int:
         return 0
 
 
+# 可选组件名 → 启用配置键（配置关闭时组件不注册，补报为 disabled）
+_OPTIONAL_COMPONENT_CONFIG = {
+    "l1_buffer": "l1_buffer.enable",
+    "learning": "learning.enable",
+    "l2_memory": "l2_memory.enable",
+    "l3_kg": "l3_kg.enable",
+    "profile": "profile.enable",
+    "image_quota": "l1_buffer.image_parsing.enable",
+    "image_cache": "l1_buffer.image_parsing.enable",
+}
+
+
+def _augment_disabled_components(component_states: Dict[str, Any]) -> Dict[str, Any]:
+    """把配置禁用而未注册的组件补报为 unavailable/disabled 状态
+
+    前端 ComponentDisabled 依赖 error_type='disabled' 展示"已禁用"；
+    未注册组件此前在状态中缺失，页面会停在"等待初始化"遮罩。
+    """
+    try:
+        from iris_memory.config import get_config
+
+        config = get_config()
+    except Exception:
+        return component_states
+    for name, key in _OPTIONAL_COMPONENT_CONFIG.items():
+        if name not in component_states and not config.get(key):
+            component_states[name] = {
+                "status": "unavailable",
+                "error": "组件未启用",
+                "error_type": "disabled",
+            }
+    return component_states
+
+
 async def get_token_stats():
     try:
         manager = get_component_manager()
@@ -125,7 +159,7 @@ async def get_system_stats():
     try:
         manager = get_component_manager()
 
-        component_states = manager.get_all_states()
+        component_states = _augment_disabled_components(manager.get_all_states())
 
         global_status = manager.status.global_status.value
 
@@ -232,7 +266,7 @@ async def get_all_stats():
             except Exception as e:
                 logger.warning(f"获取图谱统计失败：{e}")
 
-        component_states = manager.get_all_states()
+        component_states = _augment_disabled_components(manager.get_all_states())
         global_status = manager.status.global_status.value
 
         system_stats = {

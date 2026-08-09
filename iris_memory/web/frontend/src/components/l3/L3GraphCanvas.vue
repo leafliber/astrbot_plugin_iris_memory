@@ -61,7 +61,7 @@
 import { ref, shallowRef, reactive, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { useTheme } from 'vuetify'
 import cytoscape from 'cytoscape'
-import type { Core, ElementDefinition, Stylesheet, LayoutOptions } from 'cytoscape'
+import type { Core, ElementDefinition, StylesheetStyle, LayoutOptions } from 'cytoscape'
 import fcose from 'cytoscape-fcose'
 import dagre from 'cytoscape-dagre'
 import type { KGNode, KGEdge, L3LayoutType } from '@/types'
@@ -128,13 +128,15 @@ const computeDegrees = (): Map<string, number> => {
 }
 
 // ---- 样式表 ----
-const buildStylesheet = (): Stylesheet[] => {
+const buildStylesheet = (): StylesheetStyle[] => {
   const dark = isDark()
   const textColor = dark ? '#e0e0e0' : '#424242'
   const labelBg = dark ? 'rgba(33,33,33,0.92)' : 'rgba(255,255,255,0.92)'
   const edgeColor = dark ? '#666666' : '#bdbdbd'
 
-  const sheet: Stylesheet[] = [
+  // cytoscape 3.34 自带类型对 style 字段约束过严（如 transition-duration 要求 number），
+  // 此处按运行时实际接受的写法构造，返回时再收敛为 StylesheetStyle[]
+  const sheet: any[] = [
     {
       selector: 'node',
       style: {
@@ -161,7 +163,7 @@ const buildStylesheet = (): Stylesheet[] => {
       },
     },
     ...Object.entries(NODE_TYPE_COLORS).map(
-      ([type, colorName]): Stylesheet => ({
+      ([type, colorName]) => ({
         selector: `node[type="${type}"]`,
         style: {
           'background-color': resolveThemeColor(colorName, '#5c6bc0'),

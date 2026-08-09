@@ -303,6 +303,7 @@ export const COMPONENT_DISPLAY_NAMES: Record<string, string> = {
   l2_memory: 'L2 记忆',
   l3_kg: 'L3 图谱',
   profile: '画像管理',
+  learning: '学习管理',
   llm_manager: 'LLM 管理器'
 }
 

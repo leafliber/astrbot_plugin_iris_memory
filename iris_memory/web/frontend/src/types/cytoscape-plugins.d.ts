@@ -1,9 +1,9 @@
 declare module 'cytoscape-fcose' {
-  const ext: { name: string; type: string; payload: any }
+  const ext: (cy: any) => void
   export default ext
 }
 
 declare module 'cytoscape-dagre' {
-  const ext: { name: string; type: string; payload: any }
+  const ext: (cy: any) => void
   export default ext
 }
