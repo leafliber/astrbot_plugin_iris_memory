@@ -2,6 +2,7 @@ import { defineConfig } from 'vite'
 import type { Plugin } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import vuetify from 'vite-plugin-vuetify'
+import { initSync, parse } from 'es-module-lexer'
 import { resolve, join } from 'path'
 import { readdirSync, readFileSync, statSync } from 'fs'
 
@@ -142,11 +143,57 @@ const vuetifyCssPrune = (): Plugin => {
   }
 }
 
+/**
+ * AstrBot 会在下发插件 Page 的 JS 时重写相对 import，并给资源 URL 追加
+ * asset_token。其扫描器要求 import/export/from 与相邻语法之间存在空白；
+ * Terser 默认生成的 `import{...}from"./chunk.js"` 无法被识别。
+ *
+ * 这里利用模块词法分析结果只调整真实静态 import/export 声明，不触碰字符串、
+ * 正则或业务代码。动态 import() 本身已符合 AstrBot 的扫描规则。
+ */
+const astrBotPluginPageImportCompat = (): Plugin => {
+  initSync()
+  return {
+    name: 'iris:astrbot-plugin-page-import-compat',
+    enforce: 'post',
+    generateBundle(_options, bundle) {
+      for (const output of Object.values(bundle)) {
+        if (output.type !== 'chunk') continue
+        const [imports] = parse(output.code)
+        let code = output.code
+        for (const imported of [...imports].sort((a, b) => b.ss - a.ss)) {
+          if (
+            imported.d !== -1 ||
+            !imported.n ||
+            !(imported.n.startsWith('./') || imported.n.startsWith('../') || imported.n.startsWith('/'))
+          ) {
+            continue
+          }
+          const prefix = code.slice(imported.ss, imported.s)
+          const compatiblePrefix = prefix
+            .replace(/^(import|export)(?=[{*])/, '$1 ')
+            .replace(/\bfrom(?=["']$)/, ' from ')
+            .replace(/^import(?=["']$)/, 'import ')
+          const isAstrBotRewritable =
+            /^(?:import|export)\s+[\s\S]*\s+from\s+["']$/.test(compatiblePrefix) ||
+            /^import\s+["']$/.test(compatiblePrefix)
+          if (!isAstrBotRewritable) {
+            throw new Error(`无法生成 AstrBot 可重写的模块导入：${imported.n}`)
+          }
+          code = code.slice(0, imported.ss) + compatiblePrefix + code.slice(imported.s)
+        }
+        output.code = code
+      }
+    }
+  }
+}
+
 export default defineConfig({
   plugins: [
     vue(),
     vuetify({ autoImport: true }),
-    vuetifyCssPrune()
+    vuetifyCssPrune(),
+    astrBotPluginPageImportCompat()
   ],
   resolve: {
     alias: {
@@ -160,6 +207,8 @@ export default defineConfig({
   },
   build: {
     target: 'es2020',
+    // modulepreload 由运行时代码拼接 URL，无法继承插件 Page 的 asset_token。
+    modulePreload: false,
     outDir: resolve(import.meta.dirname, '../../../pages/iris'),
     emptyOutDir: true,
     sourcemap: false,
