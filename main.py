@@ -85,7 +85,12 @@ from iris_memory.proactive.api import (
     sync_stats_group_state,
 )
 from iris_memory.proactive.config import ConfigManager as ReplyConfigManager
-from iris_memory.proactive.decision import DecisionCore, DecisionRequest
+from iris_memory.proactive.decision import (
+    INPUT_SAFETY_COOLDOWN_MINUTES,
+    DecisionCore,
+    DecisionRequest,
+    SafetyCleanupResult,
+)
 from iris_memory.proactive.perception import (
     ContextPackager,
     Gatekeeper,
@@ -551,6 +556,7 @@ class IrisMemoryPlugin(Star):
         if not group_id:
             return
         msg = self._admin.reset_group(group_id)
+        self._sliding_window.remove_group(group_id)
         await self._state.save_dirty(self._kv_save)
         event.set_result(msg)
 
@@ -757,18 +763,27 @@ class IrisMemoryPlugin(Star):
 
         if outcome.error or outcome.decision is None:
             if outcome.error_kind == "input_content_safety_1026":
+                cleanup, cooldown = await self._clear_rejected_reply_context(
+                    group_id,
+                    outcome.dynamic_context_sources,
+                    record_skip=True,
+                )
                 logger.error(
                     "Iris Reply: decision input rejected by provider safety filter "
                     f"for group {group_id} (1026, retryable=false, "
-                    f"dynamic_sources={len(outcome.dynamic_context_sources or [])}): "
+                    f"dynamic_sources={cleanup.dynamic_source_count}, "
+                    f"window_removed={cleanup.window_removed}, "
+                    f"observation_cleared={cleanup.observation_cleared}, "
+                    f"anchor_cleared={cleanup.anchor_cleared}, "
+                    f"cooldown={cooldown}min): "
                     f"{outcome.error}"
                 )
             else:
                 logger.error(f"Iris Reply: decision LLM call failed for group {group_id}: {outcome.error}")
+                async with self._state.get_lock(group_id):
+                    self._state.record_skip_reply(group_id)
+                await self._state.save_dirty(self._kv_save)
             self._stats.record_decision_error(group_id, motive)
-            async with self._state.get_lock(group_id):
-                self._state.record_skip_reply(group_id)
-            await self._state.save_dirty(self._kv_save)
             self._triggering.pop(group_id, None)
             event.stop_event()
             return True
@@ -873,6 +888,28 @@ class IrisMemoryPlugin(Star):
         event.set_extra("iris_speak_hint", hint)
         logger.info(f"Iris Reply: decision speak ({motive}) for group {group_id}")
         return False
+
+    async def _clear_rejected_reply_context(
+        self,
+        group_id: str,
+        dynamic_context_sources: list[dict[str, Any]] | None,
+        *,
+        record_skip: bool,
+    ) -> tuple[SafetyCleanupResult, int]:
+        """隔离一次被 Provider 安全过滤拒绝的主动回复动态上下文。"""
+        async with self._state.get_lock(group_id):
+            cleanup = self._decision_core.clear_rejected_dynamic_context(
+                group_id,
+                dynamic_context_sources,
+            )
+            if record_skip:
+                self._state.record_skip_reply(group_id)
+            cooldown = self._state.set_cooldown(
+                group_id,
+                INPUT_SAFETY_COOLDOWN_MINUTES,
+            )
+        await self._state.save_dirty(self._kv_save)
+        return cleanup, cooldown
 
     @filter.on_llm_response()
     async def on_llm_response(self, event: AstrMessageEvent, resp: LLMResponse) -> None:
@@ -1001,12 +1038,23 @@ class IrisMemoryPlugin(Star):
 
         if outcome.error or outcome.decision is None:
             if outcome.error_kind == "input_content_safety_1026":
+                cleanup, cooldown = await self._clear_rejected_reply_context(
+                    group_id,
+                    outcome.dynamic_context_sources,
+                    record_skip=False,
+                )
                 logger.warning(
                     "Iris Reply: passive watch input rejected by provider safety filter "
                     f"for group {group_id} (1026, retryable=false, "
-                    f"dynamic_sources={len(outcome.dynamic_context_sources or [])}): "
+                    f"dynamic_sources={cleanup.dynamic_source_count}, "
+                    f"window_removed={cleanup.window_removed}, "
+                    f"observation_cleared={cleanup.observation_cleared}, "
+                    f"anchor_cleared={cleanup.anchor_cleared}, "
+                    f"cooldown={cooldown}min): "
                     f"{outcome.error}"
                 )
+                self._stats.record_decision_error(group_id, "watch")
+                return
             else:
                 logger.warning(f"Iris Reply: passive watch eval failed for group {group_id}: {outcome.error}")
             self._stats.record_decision_error(group_id, "watch")

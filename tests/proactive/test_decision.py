@@ -268,6 +268,12 @@ class TestDecide:
 
     @pytest.mark.asyncio
     async def test_1026_is_non_retryable_and_records_dynamic_sources(self, nm_config):
+        from iris_memory.core.run_log import (
+            get_run_log_manager,
+            reset_run_log_manager,
+        )
+
+        reset_run_log_manager()
         _, state, window, core = _core(nm_config)
         state.set_observation(GID, "正在讨论一条消息")
         state.write_anchor(GID, kind="chime_in", bot_message="此前回复")
@@ -292,6 +298,19 @@ class TestDecide:
         )
         assert window_source["content"] == "触发安全检查的原始消息"
         assert window_source["sender_id"] == "u1"
+
+        log = get_run_log_manager().get_entries("proactive", limit=1)[0]
+        detail = log["detail"]
+        assert detail["user_prompt"] == "[Provider 输入安全过滤拒绝，动态 prompt 已脱敏]"
+        assert "触发安全检查的原始消息" not in str(detail)
+        logged_window = next(
+            item
+            for item in detail["dynamic_context_sources"]
+            if item["source"] == "window_message"
+        )
+        assert logged_window["redacted"] is True
+        assert "content" not in logged_window
+        assert "sender_id" not in logged_window
 
     def test_error_classifier_keeps_other_provider_errors_retryable(self):
         assert classify_decision_error("Error code: 422 input new_sensitive (1026)") == (

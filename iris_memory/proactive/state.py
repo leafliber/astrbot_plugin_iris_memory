@@ -311,6 +311,28 @@ class StateManager:
     def get_observation(self, group_id: str) -> str:
         return self._ensure_group(group_id).last_observation
 
+    def clear_decision_context(self, group_id: str) -> dict[str, bool]:
+        """清除会重新进入主动回复决策 prompt 的持久化动态上下文。"""
+        data = self._ensure_group(group_id)
+        anchor = data.anchor
+        had_observation = bool(data.last_observation)
+        had_anchor = bool(
+            anchor.kind
+            or anchor.topic
+            or anchor.bot_message
+            or anchor.participants
+            or anchor.keywords
+            or anchor.reason
+            or anchor.created_at
+        )
+        data.last_observation = ""
+        anchor.clear()
+        self._mark_dirty(group_id, data)
+        return {
+            "observation": had_observation,
+            "anchor": had_anchor,
+        }
+
     def record_drift(self, group_id: str) -> None:
         data = self._ensure_group(group_id)
         data.last_drift_time = time.time()

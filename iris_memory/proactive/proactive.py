@@ -9,7 +9,11 @@ from astrbot.api.event import MessageChain
 from astrbot.api.star import Context
 
 from .config import ConfigManager
-from .decision import DecisionCore, DecisionRequest
+from .decision import (
+    INPUT_SAFETY_COOLDOWN_MINUTES,
+    DecisionCore,
+    DecisionRequest,
+)
 from .parser import Decision
 from .perception import ContextPackager, SlidingWindow, WindowMessage
 from .prompts import SPEAK_HINTS
@@ -184,11 +188,27 @@ class ProactiveEngine:
                 self._stats.record_decision_error(group_id, "initiate")
                 self._skip_retry_after[group_id] = time.time() + _SKIP_RETRY_SECONDS
                 if outcome.error_kind == "input_content_safety_1026":
+                    async with self._state.get_lock(group_id):
+                        cleanup = self._core.clear_rejected_dynamic_context(
+                            group_id,
+                            outcome.dynamic_context_sources,
+                        )
+                        cooldown = self._state.set_cooldown(
+                            group_id,
+                            INPUT_SAFETY_COOLDOWN_MINUTES,
+                        )
+                    await self._save_fn()
                     logger.warning(
                         "Iris Reply: initiate input rejected by provider safety filter "
-                        "for group %s (1026, retryable=false, dynamic_sources=%d)",
+                        "for group %s (1026, retryable=false, dynamic_sources=%d, "
+                        "window_removed=%d, observation_cleared=%s, "
+                        "anchor_cleared=%s, cooldown=%dmin)",
                         group_id,
-                        len(outcome.dynamic_context_sources or []),
+                        cleanup.dynamic_source_count,
+                        cleanup.window_removed,
+                        cleanup.observation_cleared,
+                        cleanup.anchor_cleared,
+                        cooldown,
                     )
                 return f"决策调用失败: {outcome.error}"
 

@@ -200,6 +200,29 @@ class TestAnchor:
         assert anchor.active is False
         assert anchor.has_context is False
 
+    def test_clear_decision_context_preserves_unrelated_state(self, state):
+        state.set_willingness(GID, "high")
+        state.get_state(GID).msg_count = 7
+        state.set_observation(GID, "旧观察")
+        state.write_anchor(
+            GID,
+            kind="follow_up",
+            topic="旧话题",
+            bot_message="旧回复",
+            users=["u1"],
+            keywords=["旧关键词"],
+            reason="旧原因",
+        )
+
+        cleared = state.clear_decision_context(GID)
+
+        assert cleared == {"observation": True, "anchor": True}
+        assert state.get_observation(GID) == ""
+        assert state.get_anchor(GID).has_context is False
+        assert state.get_anchor(GID).topic == ""
+        assert state.get_willingness(GID) == "high"
+        assert state.get_state(GID).msg_count == 7
+
 
 class TestInitiateAccounting:
     def test_record_initiate(self, state):

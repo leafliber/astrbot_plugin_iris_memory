@@ -33,6 +33,30 @@ _INPUT_SENSITIVE_1026 = re.compile(
     re.IGNORECASE,
 )
 
+INPUT_SAFETY_COOLDOWN_MINUTES = 30
+
+
+def _redact_dynamic_context_sources(
+    sources: list[dict[str, Any]] | None,
+) -> list[dict[str, Any]]:
+    """为安全拒绝日志移除消息正文、昵称、用户 ID 与关键词值。"""
+    redacted: list[dict[str, Any]] = []
+    for source in sources or []:
+        item = {
+            key: value
+            for key, value in source.items()
+            if key
+            not in {
+                "content",
+                "values",
+                "sender_id",
+                "sender_name",
+            }
+        }
+        item["redacted"] = True
+        redacted.append(item)
+    return redacted
+
 
 def _record_decision_log(
     req: "DecisionRequest",
@@ -48,6 +72,7 @@ def _record_decision_log(
 
         if outcome.error or outcome.decision is None:
             title = f"{motive_label}决策失败（{wake_label}触发）"
+            safety_rejected = outcome.error_kind == "input_content_safety_1026"
             get_run_log_manager().record(
                 "proactive",
                 title,
@@ -58,13 +83,21 @@ def _record_decision_log(
                 quiet_minutes=req.quiet_minutes,
                 provider_id=provider_id,
                 system_prompt=outcome.system_prompt,
-                user_prompt=outcome.user_prompt,
+                user_prompt=(
+                    "[Provider 输入安全过滤拒绝，动态 prompt 已脱敏]"
+                    if safety_rejected
+                    else outcome.user_prompt
+                ),
                 raw_response=outcome.raw_text,
                 duration_ms=round(outcome.duration_ms, 1),
                 error=outcome.error,
                 error_kind=outcome.error_kind,
                 retryable=outcome.retryable,
-                dynamic_context_sources=outcome.dynamic_context_sources,
+                dynamic_context_sources=(
+                    _redact_dynamic_context_sources(outcome.dynamic_context_sources)
+                    if safety_rejected
+                    else outcome.dynamic_context_sources
+                ),
             )
             return
 
@@ -135,6 +168,16 @@ class DecisionOutcome:
     error_kind: str = ""
     retryable: bool = True
     dynamic_context_sources: list[dict[str, Any]] | None = None
+
+
+@dataclass(frozen=True)
+class SafetyCleanupResult:
+    """一次 Provider 输入安全拒绝后的主动回复上下文清理结果。"""
+
+    window_removed: int
+    observation_cleared: bool
+    anchor_cleared: bool
+    dynamic_source_count: int
 
 
 def classify_decision_error(exc: BaseException | str) -> tuple[str, bool]:
@@ -264,6 +307,38 @@ class DecisionCore:
                 }
             )
         return sources
+
+    def clear_rejected_dynamic_context(
+        self,
+        group_id: str,
+        dynamic_context_sources: list[dict[str, Any]] | None,
+    ) -> SafetyCleanupResult:
+        """清除被 Provider 拒绝的动态上下文，并保留请求期间的新消息。
+
+        调用方应持有该群的 StateManager 锁，并在返回后持久化 dirty state。
+        """
+        sources = dynamic_context_sources or []
+        timestamps = [
+            item.get("timestamp")
+            for item in sources
+            if item.get("source") == "window_message"
+            and isinstance(item.get("timestamp"), (int, float))
+            and not isinstance(item.get("timestamp"), bool)
+        ]
+        window_removed = 0
+        if timestamps:
+            window_removed = self._window.discard_through(
+                group_id,
+                max(timestamps),
+            )
+
+        cleared = self._state.clear_decision_context(group_id)
+        return SafetyCleanupResult(
+            window_removed=window_removed,
+            observation_cleared=cleared["observation"],
+            anchor_cleared=cleared["anchor"],
+            dynamic_source_count=len(sources),
+        )
 
     async def decide(
         self,

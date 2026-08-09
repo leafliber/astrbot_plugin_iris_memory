@@ -156,6 +156,7 @@ def register_web_apis(
         if not group_id:
             return jsonify({"error": "group_id required"}), 400
         state.reset_group(group_id)
+        window.remove_group(group_id)
         await state.save_dirty(kv_save)
         return jsonify({"ok": True, "group_id": group_id})
 

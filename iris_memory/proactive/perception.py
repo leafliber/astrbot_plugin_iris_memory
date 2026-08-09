@@ -86,6 +86,23 @@ class SlidingWindow:
     def remove_group(self, group_id: str) -> None:
         self._windows.pop(group_id, None)
 
+    def discard_through(self, group_id: str, timestamp: float) -> int:
+        """丢弃不晚于 ``timestamp`` 的消息，保留决策调用期间新到达的消息。"""
+        window = self._windows.get(group_id)
+        if not window:
+            return 0
+
+        remaining = [msg for msg in window if msg.timestamp > timestamp]
+        removed = len(window) - len(remaining)
+        if remaining:
+            self._windows[group_id] = deque(
+                remaining,
+                maxlen=self._config.window_size,
+            )
+        else:
+            self._windows.pop(group_id, None)
+        return removed
+
     def cleanup(self, active_group_ids: set[str]) -> None:
         stale = [gid for gid in self._windows if gid not in active_group_ids]
         for gid in stale:

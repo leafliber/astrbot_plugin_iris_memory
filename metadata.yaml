@@ -1,6 +1,6 @@
 name: astrbot_plugin_iris_memory # 插件唯一识别名，以 astrbot_plugin_ 前缀开头
 display_name: Iris Memory 智能陪伴  # 用于展示的名字，可以是方便人类阅读的名字
-desc: AstrBot 轻量化三合一智能陪伴插件，整合分层记忆、主动回复与人格自学习迭代，并提供知识图谱、画像和 Dashboard 管理。
-version: v3.0.1 # 插件版本号
+desc: 轻量化三合一智能陪伴插件，集分层记忆、主动回复与人格自学习迭代于一体，并提供知识图谱、画像和 Dashboard 管理。
+version: v3.0.3 # 插件版本号
 author: Leafiber # 作者
 repo: https://github.com/leafliber/astrbot_plugin_iris_memory # 插件的仓库地址
