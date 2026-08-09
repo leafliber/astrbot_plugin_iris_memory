@@ -137,6 +137,21 @@ class TestCollection:
         await comp.shutdown()
 
     @pytest.mark.asyncio
+    async def test_on_response_records_current_persona(self, config):
+        comp = LearningComponent()
+        await comp.initialize()
+        event = _event()
+        event.get_extra.return_value = "p1"
+        with patch(
+            "iris_memory.learning.collector.get_adapter",
+            return_value=_fake_adapter(),
+        ):
+            await comp.on_response(event, _resp())
+        assert comp.storage.get_pending_pairs(10)[0]["persona_id"] == "p1"
+        assert comp.storage.get_pending_patterns(10)[0]["persona_id"] == "p1"
+        await comp.shutdown()
+
+    @pytest.mark.asyncio
     async def test_on_message_updates_jargon(self, config):
         comp = LearningComponent()
         await comp.initialize()

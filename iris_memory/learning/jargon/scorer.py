@@ -1,10 +1,14 @@
 """暗语候选的本地统计评分、准入与子串聚类。"""
 
 import math
-from collections import Counter, defaultdict
-from typing import Any, Dict, List, Set
+from collections import Counter
+from typing import Any, Dict, List
 
 from iris_memory.config import get_config
+from iris_memory.learning.jargon_clustering import (
+    cluster_candidate_items,
+    select_candidate_representative,
+)
 from .models import CandidateCluster
 
 
@@ -17,14 +21,6 @@ def _entropy(counts: Dict[str, int]) -> float:
         probability = count / total
         result -= probability * math.log(probability + 1e-12)
     return min(1.0, result / math.log(max(2, len(counts))))
-
-
-def _support_containment(short: Dict[str, Any], long: Dict[str, Any]) -> float:
-    short_support = set(short.get("support_hashes") or [])
-    long_support = set(long.get("support_hashes") or [])
-    if not short_support:
-        return 0.0
-    return len(short_support & long_support) / len(short_support)
 
 
 class CandidateScorer:
@@ -104,57 +100,29 @@ class CandidateScorer:
             ):
                 eligible.append(item)
 
-        # 先在每群内构造“短词被长词支配”的无向簇。
-        by_group: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
-        for item in eligible:
-            by_group[item["group_id"]].append(item)
+        # 使用管理页共用的同源聚类，同时连接包含片段和只错开一字的滑窗。
         clusters: List[CandidateCluster] = []
-        for group_id, items in by_group.items():
-            adjacency: Dict[int, Set[int]] = {int(i["id"]): set() for i in items}
-            by_id = {int(i["id"]): i for i in items}
-            for short in items:
-                for long in items:
-                    if short["id"] == long["id"] or len(short["term"]) >= len(long["term"]):
-                        continue
-                    if short["term"] not in long["term"]:
-                        continue
-                    if int(long["message_count"]) < int(short["message_count"]) * count_ratio:
-                        continue
-                    if _support_containment(short, long) >= support_ratio:
-                        adjacency[int(short["id"])].add(int(long["id"]))
-                        adjacency[int(long["id"])].add(int(short["id"]))
-            seen: Set[int] = set()
-            for root in sorted(by_id):
-                if root in seen:
-                    continue
-                stack, component = [root], []
-                while stack:
-                    current = stack.pop()
-                    if current in seen:
-                        continue
-                    seen.add(current)
-                    component.append(by_id[current])
-                    stack.extend(adjacency[current] - seen)
-                component.sort(key=lambda i: (len(i["term"]), i["local_score"]), reverse=True)
-                canonical = component[0]
-                contexts: List[Dict[str, str]] = []
-                for member in component:
-                    for context in member.get("contexts") or []:
-                        if not any(c.get("user_id") == context.get("user_id") for c in contexts):
-                            contexts.append(context)
-                        if len(contexts) >= 4:
-                            break
-                ids = sorted(int(i["id"]) for i in component)
-                clusters.append(CandidateCluster(
-                    cluster_id=f"{group_id}:{ids[0]}", group_id=group_id,
-                    candidate_ids=ids, terms=[i["term"] for i in component],
-                    canonical_hint=canonical["term"],
-                    message_count=max(int(i["message_count"]) for i in component),
-                    user_count=max(len(i.get("user_counts") or {}) for i in component),
-                    span_hours=max(float(i["span_hours"]) for i in component),
-                    local_score=max(float(i["local_score"]) for i in component),
-                    contexts=contexts,
-                ))
+        for component in cluster_candidate_items(eligible, support_ratio, count_ratio):
+            canonical = select_candidate_representative(component)
+            contexts: List[Dict[str, str]] = []
+            for member in component:
+                for context in member.get("contexts") or []:
+                    if not any(c.get("user_id") == context.get("user_id") for c in contexts):
+                        contexts.append(context)
+                    if len(contexts) >= 4:
+                        break
+            ids = sorted(int(i["id"]) for i in component)
+            group_id = str(canonical["group_id"])
+            clusters.append(CandidateCluster(
+                cluster_id=f"{group_id}:{ids[0]}", group_id=group_id,
+                candidate_ids=ids, terms=[i["term"] for i in component],
+                canonical_hint=canonical["term"],
+                message_count=max(int(i["message_count"]) for i in component),
+                user_count=max(len(i.get("user_counts") or {}) for i in component),
+                span_hours=max(float(i["span_hours"]) for i in component),
+                local_score=max(float(i["local_score"]) for i in component),
+                contexts=contexts,
+            ))
         clusters.sort(key=lambda c: (c.local_score, c.message_count, c.user_count), reverse=True)
         self.scores = scores
         return clusters

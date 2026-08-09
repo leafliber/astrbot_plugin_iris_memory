@@ -173,7 +173,9 @@ async def preprocess_llm_request(
         _run_stage(
             "learning",
             inject_meta["learning"],
-            _collect_learning(event, component_manager, meta=inject_meta["learning"]),
+            _collect_learning(
+                event, req, component_manager, meta=inject_meta["learning"]
+            ),
             "",
         )
     )
@@ -1181,6 +1183,7 @@ async def _collect_l3_knowledge_graph(
 
 async def _collect_learning(
     event: "AstrMessageEvent",
+    req: "ProviderRequest",
     component_manager: "ComponentManager",
     meta: Optional[dict] = None,
 ) -> str:
@@ -1191,6 +1194,7 @@ async def _collect_learning(
 
     Args:
         event: AstrBot 消息事件对象
+        req: 当前 Provider 请求，用于读取生效 Persona 与 system prompt
         component_manager: 组件管理器实例
         meta: 可选的运行日志元信息字典，函数会填充条目数与预算统计
 
@@ -1224,7 +1228,22 @@ async def _collect_learning(
     learning = component_manager.get_available_component("learning")
 
     try:
-        return await learning.build_context(event, meta=meta)
+        conversation = getattr(req, "conversation", None)
+        raw_persona_id = getattr(conversation, "persona_id", None)
+        persona_id = str(raw_persona_id or "default").strip() or "default"
+        persona_prompt = getattr(req, "system_prompt", "") or ""
+        # on_llm_response 没有 ProviderRequest，通过事件透传本轮实际 Persona，
+        # 保证新采集的 few-shot / 表达模式归属正确。
+        try:
+            event.set_extra("iris_learning_persona_id", persona_id)
+        except Exception:
+            pass
+        return await learning.build_context(
+            event,
+            meta=meta,
+            persona_id=persona_id,
+            persona_prompt=persona_prompt,
+        )
     except Exception as e:
         logger.error(f"learning 学习上下文注入失败: {e}", exc_info=True)
         if meta is not None:

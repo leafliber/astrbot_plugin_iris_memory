@@ -95,7 +95,12 @@ class LearningCollector:
             group_id, user_id, text, is_group=is_group, is_bot=is_bot
         )
 
-    def on_response(self, event: "AstrMessageEvent", resp: "LLMResponse") -> Optional[int]:
+    def on_response(
+        self,
+        event: "AstrMessageEvent",
+        resp: "LLMResponse",
+        persona_id: str = "default",
+    ) -> Optional[int]:
         """LLM 响应采集入口：对话对配对落库 + 表达模式提取
 
         跳过：无法取到触发消息文本、回复为空、回复超 500 token。
@@ -136,6 +141,7 @@ class LearningCollector:
             user_text=user_text,
             bot_text=bot_text,
             message_id=message_id,
+            persona_id=persona_id,
         )
         self._reviewer.enqueue(pair_id)
 
@@ -147,6 +153,7 @@ class LearningCollector:
                 scene=scene,
                 expression=expr,
                 source_pair_id=pair_id,
+                persona_id=persona_id,
             )
             self._reviewer.enqueue_pattern(pattern_id)
 

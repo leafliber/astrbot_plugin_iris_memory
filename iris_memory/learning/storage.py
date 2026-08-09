@@ -20,22 +20,31 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from iris_memory.core import get_logger
+from iris_memory.learning.jargon_clustering import (
+    cluster_candidate_items,
+    select_candidate_representative,
+)
 
 logger = get_logger("learning.storage")
 
-_SCHEMA_VERSION = 2
+_SCHEMA_VERSION = 3
 
 # JSON 备份格式版本。导出使用原始数据库字段，便于完整保留自动暗语漏斗数据。
-LEARNING_EXPORT_VERSION = "1.0"
+LEARNING_EXPORT_VERSION = "1.1"
+
+# V2 及更早版本没有 persona_id。升级时以特殊值保留这些数据，首次由某个
+# Persona 使用时必须先复审，通过后再归属给该 Persona。
+LEGACY_PERSONA_ID = "__legacy__"
+DEFAULT_PERSONA_ID = "default"
 
 _EXPORT_COLUMNS = {
     "few_shot": (
-        "id", "group_id", "user_id", "user_text", "bot_text", "message_id",
-        "status", "created_at",
+        "id", "group_id", "persona_id", "user_id", "user_text", "bot_text",
+        "message_id", "status", "created_at",
     ),
     "expression_pattern": (
-        "id", "group_id", "scene", "expression", "source_pair_id", "hit_count",
-        "status", "created_at", "last_hit_at",
+        "id", "group_id", "persona_id", "scene", "expression", "source_pair_id",
+        "hit_count", "status", "created_at", "last_hit_at",
     ),
     "jargon": (
         "id", "group_id", "term", "aliases_json", "meaning", "confidence",
@@ -88,6 +97,7 @@ _SCHEMA = """
 CREATE TABLE IF NOT EXISTS expression_pattern (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     group_id TEXT NOT NULL DEFAULT '',
+    persona_id TEXT NOT NULL DEFAULT 'default',
     scene TEXT NOT NULL DEFAULT '',
     expression TEXT NOT NULL,
     source_pair_id INTEGER,
@@ -100,6 +110,7 @@ CREATE TABLE IF NOT EXISTS expression_pattern (
 CREATE TABLE IF NOT EXISTS few_shot (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     group_id TEXT NOT NULL DEFAULT '',
+    persona_id TEXT NOT NULL DEFAULT 'default',
     user_id TEXT NOT NULL DEFAULT '',
     user_text TEXT NOT NULL,
     bot_text TEXT NOT NULL,
@@ -185,6 +196,15 @@ CREATE TABLE IF NOT EXISTS jargon_reactivation (
     FOREIGN KEY(jargon_id) REFERENCES jargon(id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS persona_review_state (
+    persona_id TEXT PRIMARY KEY,
+    prompt_hash TEXT NOT NULL DEFAULT '',
+    review_hash TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'idle',
+    last_error TEXT NOT NULL DEFAULT '',
+    updated_at REAL NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_pattern_group_status ON expression_pattern(group_id, status);
 CREATE INDEX IF NOT EXISTS idx_fewshot_group_status ON few_shot(group_id, status);
 CREATE INDEX IF NOT EXISTS idx_fewshot_user ON few_shot(user_id);
@@ -219,7 +239,7 @@ class LearningStorage:
             self._db.execute("PRAGMA journal_mode=WAL")
 
     def init_schema(self) -> None:
-        """创建 V2 表结构；旧暗语 schema 明确报错，不做隐式迁移。"""
+        """创建 V3 表结构，并迁移 V2 的人格归属字段。"""
         with self._lock:
             existing = self._db.execute(
                 "SELECT 1 FROM sqlite_master WHERE type='table' AND name='jargon'"
@@ -235,6 +255,28 @@ class LearningStorage:
                         "请先自行处理并重建 learning.db"
                     )
             self._db.executescript(_SCHEMA)
+            # SQLite 的 CREATE TABLE IF NOT EXISTS 不会为旧表补列。旧数据
+            # 不能武断归给 default Persona，先标记为 legacy，首次使用时复审。
+            for table in ("few_shot", "expression_pattern"):
+                columns = {
+                    row["name"]
+                    for row in self._db.execute(
+                        f"PRAGMA table_info({table})"
+                    ).fetchall()
+                }
+                if "persona_id" not in columns:
+                    self._db.execute(
+                        f"ALTER TABLE {table} ADD COLUMN persona_id TEXT "
+                        f"NOT NULL DEFAULT '{LEGACY_PERSONA_ID}'"
+                    )
+            self._db.execute(
+                "CREATE INDEX IF NOT EXISTS idx_pattern_persona_group_status "
+                "ON expression_pattern(persona_id, group_id, status)"
+            )
+            self._db.execute(
+                "CREATE INDEX IF NOT EXISTS idx_fewshot_persona_group_status "
+                "ON few_shot(persona_id, group_id, status)"
+            )
             self._db.execute(f"PRAGMA user_version={_SCHEMA_VERSION}")
             self._db.commit()
 
@@ -254,6 +296,7 @@ class LearningStorage:
         user_text: str,
         bot_text: str,
         message_id: Optional[str] = None,
+        persona_id: str = DEFAULT_PERSONA_ID,
     ) -> int:
         """插入一条 user→bot 对话对（status=pending_review）
 
@@ -262,10 +305,11 @@ class LearningStorage:
         """
         with self._lock:
             cur = self._db.execute(
-                "INSERT INTO few_shot (group_id, user_id, user_text, bot_text,"
-                " message_id, status, created_at) VALUES (?,?,?,?,?,?,?)",
+                "INSERT INTO few_shot (group_id, persona_id, user_id, user_text, bot_text,"
+                " message_id, status, created_at) VALUES (?,?,?,?,?,?,?,?)",
                 (
                     group_id,
+                    persona_id or DEFAULT_PERSONA_ID,
                     user_id,
                     user_text,
                     bot_text,
@@ -287,14 +331,14 @@ class LearningStorage:
             return [dict(r) for r in rows]
 
     def get_approved_few_shots(
-        self, group_id: str, limit: int
+        self, group_id: str, limit: int, persona_id: str = DEFAULT_PERSONA_ID
     ) -> List[Dict[str, Any]]:
         """取本群已通过的对话样例（最新优先）"""
         with self._lock:
             rows = self._db.execute(
-                "SELECT * FROM few_shot WHERE group_id=? AND status=?"
+                "SELECT * FROM few_shot WHERE group_id=? AND persona_id=? AND status=?"
                 " ORDER BY created_at DESC LIMIT ?",
-                (group_id, STATUS_APPROVED, limit),
+                (group_id, persona_id or DEFAULT_PERSONA_ID, STATUS_APPROVED, limit),
             ).fetchall()
             return [dict(r) for r in rows]
 
@@ -308,6 +352,7 @@ class LearningStorage:
         scene: str,
         expression: str,
         source_pair_id: Optional[int] = None,
+        persona_id: str = DEFAULT_PERSONA_ID,
     ) -> int:
         """插入一条表达模式候选（status=pending_review）
 
@@ -317,9 +362,12 @@ class LearningStorage:
         with self._lock:
             cur = self._db.execute(
                 "INSERT INTO expression_pattern"
-                " (group_id, scene, expression, source_pair_id, hit_count,"
-                " status, created_at, last_hit_at) VALUES (?,?,?,?,0,?,?,NULL)",
-                (group_id, scene, expression, source_pair_id, STATUS_PENDING, time.time()),
+                " (group_id, persona_id, scene, expression, source_pair_id, hit_count,"
+                " status, created_at, last_hit_at) VALUES (?,?,?,?,?,0,?,?,NULL)",
+                (
+                    group_id, persona_id or DEFAULT_PERSONA_ID, scene, expression,
+                    source_pair_id, STATUS_PENDING, time.time(),
+                ),
             )
             self._db.commit()
             return int(cur.lastrowid)
@@ -335,14 +383,15 @@ class LearningStorage:
             return [dict(r) for r in rows]
 
     def get_approved_patterns(
-        self, group_id: str, limit: int
+        self, group_id: str, limit: int, persona_id: str = DEFAULT_PERSONA_ID
     ) -> List[Dict[str, Any]]:
         """取本群已通过的表达模式（按命中数降序）"""
         with self._lock:
             rows = self._db.execute(
-                "SELECT * FROM expression_pattern WHERE group_id=? AND status=?"
+                "SELECT * FROM expression_pattern"
+                " WHERE group_id=? AND persona_id=? AND status=?"
                 " ORDER BY hit_count DESC, created_at DESC LIMIT ?",
-                (group_id, STATUS_APPROVED, limit),
+                (group_id, persona_id or DEFAULT_PERSONA_ID, STATUS_APPROVED, limit),
             ).fetchall()
             return [dict(r) for r in rows]
 
@@ -399,6 +448,189 @@ class LearningStorage:
                 removed += cur.rowcount
             self._db.commit()
         return removed
+
+    # ------------------------------------------------------------------
+    # Persona 变更检测与学习内容复审
+    # ------------------------------------------------------------------
+
+    def observe_persona_prompt(self, persona_id: str, prompt_hash: str) -> str:
+        """原子记录人格指纹，返回 baseline/unchanged/changed/reviewing。
+
+        新人格若已有导入或旧版遗留数据，也必须先复审，不能直接建立基线。
+        """
+        persona_id = persona_id or DEFAULT_PERSONA_ID
+        now = time.time()
+        with self._lock:
+            row = self._db.execute(
+                "SELECT * FROM persona_review_state WHERE persona_id=?",
+                (persona_id,),
+            ).fetchone()
+            if row is None:
+                active = self._db.execute(
+                    "SELECT ("
+                    " (SELECT COUNT(*) FROM few_shot WHERE persona_id IN (?,?)"
+                    "   AND status IN (?,?)) +"
+                    " (SELECT COUNT(*) FROM expression_pattern WHERE persona_id IN (?,?)"
+                    "   AND status IN (?,?))"
+                    ") AS c",
+                    (
+                        persona_id, LEGACY_PERSONA_ID, STATUS_PENDING, STATUS_APPROVED,
+                        persona_id, LEGACY_PERSONA_ID, STATUS_PENDING, STATUS_APPROVED,
+                    ),
+                ).fetchone()
+                has_items = bool(active and int(active["c"]) > 0)
+                status = "reviewing" if has_items else "idle"
+                self._db.execute(
+                    "INSERT INTO persona_review_state"
+                    " (persona_id,prompt_hash,review_hash,status,last_error,updated_at)"
+                    " VALUES (?,?,?,?,?,?)",
+                    (
+                        persona_id,
+                        "" if has_items else prompt_hash,
+                        prompt_hash if has_items else "",
+                        status,
+                        "",
+                        now,
+                    ),
+                )
+                self._db.commit()
+                return "changed" if has_items else "baseline"
+
+            if row["status"] == "reviewing" and row["review_hash"] == prompt_hash:
+                return "reviewing"
+            if row["status"] == "idle" and row["prompt_hash"] == prompt_hash:
+                return "unchanged"
+
+            self._db.execute(
+                "UPDATE persona_review_state SET review_hash=?, status='reviewing',"
+                " last_error='', updated_at=? WHERE persona_id=?",
+                (prompt_hash, now, persona_id),
+            )
+            self._db.commit()
+            return "changed"
+
+    def get_persona_review_items(
+        self, persona_id: str
+    ) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+        """返回该人格仍可能生效的对话样例与表达规则（含旧版遗留）。"""
+        persona_id = persona_id or DEFAULT_PERSONA_ID
+        params = (
+            persona_id, LEGACY_PERSONA_ID, STATUS_PENDING, STATUS_APPROVED,
+        )
+        with self._lock:
+            pairs = self._db.execute(
+                "SELECT * FROM few_shot WHERE persona_id IN (?,?)"
+                " AND status IN (?,?) ORDER BY id",
+                params,
+            ).fetchall()
+            patterns = self._db.execute(
+                "SELECT * FROM expression_pattern WHERE persona_id IN (?,?)"
+                " AND status IN (?,?) ORDER BY id",
+                params,
+            ).fetchall()
+            return [dict(row) for row in pairs], [dict(row) for row in patterns]
+
+    def apply_persona_review_batch(
+        self,
+        persona_id: str,
+        accepted_pair_ids: List[int],
+        rejected_pair_ids: List[int],
+        accepted_pattern_ids: List[int],
+        rejected_pattern_ids: List[int],
+    ) -> Dict[str, int]:
+        """删除不兼容条目，并把通过的旧版条目归属给当前人格。"""
+        persona_id = persona_id or DEFAULT_PERSONA_ID
+
+        def placeholders(ids: List[int]) -> str:
+            return ",".join("?" for _ in ids)
+
+        deleted_pairs = 0
+        deleted_patterns = 0
+        with self._lock:
+            if rejected_pair_ids:
+                cur = self._db.execute(
+                    f"DELETE FROM few_shot WHERE id IN ({placeholders(rejected_pair_ids)})"
+                    " AND persona_id IN (?,?)",
+                    (*rejected_pair_ids, persona_id, LEGACY_PERSONA_ID),
+                )
+                deleted_pairs = max(0, int(cur.rowcount))
+            if rejected_pattern_ids:
+                cur = self._db.execute(
+                    f"DELETE FROM expression_pattern"
+                    f" WHERE id IN ({placeholders(rejected_pattern_ids)})"
+                    " AND persona_id IN (?,?)",
+                    (*rejected_pattern_ids, persona_id, LEGACY_PERSONA_ID),
+                )
+                deleted_patterns = max(0, int(cur.rowcount))
+            if accepted_pair_ids:
+                self._db.execute(
+                    f"UPDATE few_shot SET persona_id=?"
+                    f" WHERE id IN ({placeholders(accepted_pair_ids)})"
+                    " AND persona_id=?",
+                    (persona_id, *accepted_pair_ids, LEGACY_PERSONA_ID),
+                )
+            if accepted_pattern_ids:
+                self._db.execute(
+                    f"UPDATE expression_pattern SET persona_id=?"
+                    f" WHERE id IN ({placeholders(accepted_pattern_ids)})"
+                    " AND persona_id=?",
+                    (persona_id, *accepted_pattern_ids, LEGACY_PERSONA_ID),
+                )
+            self._db.commit()
+        return {
+            "few_shot": deleted_pairs,
+            "expression_pattern": deleted_patterns,
+            "total": deleted_pairs + deleted_patterns,
+        }
+
+    def is_persona_review_target(self, persona_id: str, prompt_hash: str) -> bool:
+        """当前领取的复审目标是否仍是指定人格指纹。"""
+        with self._lock:
+            row = self._db.execute(
+                "SELECT status,review_hash FROM persona_review_state WHERE persona_id=?",
+                (persona_id or DEFAULT_PERSONA_ID,),
+            ).fetchone()
+            return bool(
+                row and row["status"] == "reviewing" and row["review_hash"] == prompt_hash
+            )
+
+    def finish_persona_review(self, persona_id: str, prompt_hash: str) -> bool:
+        """提交已完成的人格复审指纹；目标已变化时不覆盖。"""
+        with self._lock:
+            cur = self._db.execute(
+                "UPDATE persona_review_state SET prompt_hash=?, review_hash='',"
+                " status='idle', last_error='', updated_at=?"
+                " WHERE persona_id=? AND status='reviewing' AND review_hash=?",
+                (
+                    prompt_hash, time.time(), persona_id or DEFAULT_PERSONA_ID,
+                    prompt_hash,
+                ),
+            )
+            self._db.commit()
+            return bool(cur.rowcount)
+
+    def fail_persona_review(
+        self, persona_id: str, prompt_hash: str, error: str
+    ) -> None:
+        """记录失败；下次请求观察到相同新指纹时会重新领取。"""
+        with self._lock:
+            self._db.execute(
+                "UPDATE persona_review_state SET status='failed', last_error=?,"
+                " updated_at=? WHERE persona_id=? AND review_hash=?",
+                (
+                    (error or "unknown")[:500], time.time(),
+                    persona_id or DEFAULT_PERSONA_ID, prompt_hash,
+                ),
+            )
+            self._db.commit()
+
+    def is_persona_reviewing(self, persona_id: str) -> bool:
+        with self._lock:
+            row = self._db.execute(
+                "SELECT status FROM persona_review_state WHERE persona_id=?",
+                (persona_id or DEFAULT_PERSONA_ID,),
+            ).fetchone()
+            return bool(row and row["status"] != "idle")
 
     # ------------------------------------------------------------------
     # jargon 暗语
@@ -723,11 +955,10 @@ class LearningStorage:
             ).fetchone()
             return dict(row) if row else {"day": day, "call_count": 0, "candidate_count": 0}
 
-    def list_jargon_candidates(
+    def _load_jargon_candidate_items(
         self, group_id: Optional[str] = None, state: Optional[str] = None,
-        limit: int = 50, offset: int = 0,
     ) -> List[Dict[str, Any]]:
-        """分页列出候选及证据摘要，供管理页只读观察。"""
+        """读取候选及全部证据；调用方须持有 ``_lock``。"""
         clauses, params = [], []
         if group_id:
             clauses.append("c.group_id=?")
@@ -736,44 +967,131 @@ class LearningStorage:
             clauses.append("c.state=?")
             params.append(state)
         where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
+        rows = self._db.execute(
+            "SELECT c.*,d.message_count,d.user_stats_json,d.support_hashes_json"
+            " FROM jargon_candidate c LEFT JOIN jargon_candidate_daily d"
+            f" ON d.candidate_id=c.id{where} ORDER BY c.group_id,c.id,d.day",
+            params,
+        ).fetchall()
+        merged: Dict[int, Dict[str, Any]] = {}
+        for row in rows:
+            candidate_id = int(row["id"])
+            item = merged.setdefault(candidate_id, {
+                **{key: row[key] for key in row.keys() if key not in {
+                    "message_count", "user_stats_json", "support_hashes_json",
+                }},
+                "message_count": 0,
+                "user_counts": {},
+                "support_hashes": set(),
+            })
+            item["message_count"] += int(row["message_count"] or 0)
+            for user_id, user_stats in self._loads(row["user_stats_json"], {}).items():
+                item["user_counts"][user_id] = (
+                    item["user_counts"].get(user_id, 0)
+                    + int(user_stats.get("count", 0))
+                )
+            item["support_hashes"].update(
+                self._loads(row["support_hashes_json"], [])
+            )
+        for item in merged.values():
+            item["user_count"] = len(item["user_counts"])
+            item["support_hashes"] = sorted(item["support_hashes"])
+        return list(merged.values())
+
+    @staticmethod
+    def _summarize_jargon_candidate_cluster(
+        component: List[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        representative = select_candidate_representative(component)
+        item = dict(representative)
+        candidate_ids = sorted(int(member["id"]) for member in component)
+        item.update({
+            "cluster_id": (
+                f"{representative['group_id']}:{representative['state']}:{candidate_ids[0]}"
+            ),
+            "cluster_size": len(component),
+            "cluster_terms": [str(member["term"]) for member in component],
+            "candidate_ids": candidate_ids,
+            # 同源片段的证据不能求和，否则会把一条消息重复计算多次。
+            "message_count": max(int(member.get("message_count") or 0) for member in component),
+            "user_count": max(int(member.get("user_count") or 0) for member in component),
+            "local_score": max(float(member.get("local_score") or 0.0) for member in component),
+            "first_seen_at": min(float(member["first_seen_at"]) for member in component),
+            "last_seen_at": max(float(member["last_seen_at"]) for member in component),
+        })
+        if not item.get("verdict_reason"):
+            item["verdict_reason"] = next(
+                (member.get("verdict_reason") for member in component if member.get("verdict_reason")),
+                None,
+            )
+        item.pop("user_counts", None)
+        item.pop("support_hashes", None)
+        return item
+
+    def query_jargon_candidate_clusters(
+        self,
+        group_id: Optional[str] = None,
+        state: Optional[str] = None,
+        limit: Optional[int] = 50,
+        offset: int = 0,
+        support_ratio: float = 0.85,
+        count_ratio: float = 0.8,
+    ) -> tuple[List[Dict[str, Any]], int]:
+        """按稳定同源簇分页列出候选，返回 ``(items, total_clusters)``。"""
         with self._lock:
-            rows = self._db.execute(
-                "SELECT c.*,COALESCE(SUM(d.message_count),0) AS message_count"
-                " FROM jargon_candidate c LEFT JOIN jargon_candidate_daily d"
-                f" ON d.candidate_id=c.id{where} GROUP BY c.id"
-                " ORDER BY c.local_score DESC,c.last_seen_at DESC LIMIT ? OFFSET ?",
-                (*params, limit, offset),
-            ).fetchall()
-            result = []
-            for row in rows:
-                item = dict(row)
-                daily = self._db.execute(
-                    "SELECT user_stats_json FROM jargon_candidate_daily WHERE candidate_id=?",
-                    (item["id"],),
-                ).fetchall()
-                users = set()
-                for entry in daily:
-                    users.update(self._loads(entry["user_stats_json"], {}).keys())
-                item["user_count"] = len(users)
-                result.append(item)
-            return result
+            raw_items = self._load_jargon_candidate_items(group_id, state)
+        components = cluster_candidate_items(
+            raw_items,
+            support_ratio=support_ratio,
+            count_ratio=count_ratio,
+            partition_fields=("group_id", "state"),
+        )
+        items = [self._summarize_jargon_candidate_cluster(c) for c in components]
+        items.sort(
+            key=lambda item: (
+                float(item.get("local_score") or 0.0),
+                float(item.get("last_seen_at") or 0.0),
+                -int(item.get("id") or 0),
+            ),
+            reverse=True,
+        )
+        total = len(items)
+        if limit is None:
+            return items[max(0, offset):], total
+        return items[max(0, offset):max(0, offset) + max(0, limit)], total
+
+    def list_jargon_candidates(
+        self, group_id: Optional[str] = None, state: Optional[str] = None,
+        limit: int = 50, offset: int = 0,
+        support_ratio: float = 0.85, count_ratio: float = 0.8,
+    ) -> List[Dict[str, Any]]:
+        """分页列出已折叠的候选簇及证据摘要，供管理页只读观察。"""
+        items, _ = self.query_jargon_candidate_clusters(
+            group_id, state, limit, offset, support_ratio, count_ratio
+        )
+        return items
 
     def count_jargon_candidates(
-        self, group_id: Optional[str] = None, state: Optional[str] = None
+        self, group_id: Optional[str] = None, state: Optional[str] = None,
+        support_ratio: float = 0.85, count_ratio: float = 0.8,
     ) -> int:
-        clauses, params = [], []
-        if group_id:
-            clauses.append("group_id=?")
-            params.append(group_id)
-        if state:
-            clauses.append("state=?")
-            params.append(state)
-        where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
-        with self._lock:
-            row = self._db.execute(
-                f"SELECT COUNT(*) AS c FROM jargon_candidate{where}", params
-            ).fetchone()
-            return int(row["c"])
+        _, total = self.query_jargon_candidate_clusters(
+            group_id, state, 0, 0, support_ratio, count_ratio
+        )
+        return total
+
+    def get_jargon_candidate_cluster_stats(
+        self, support_ratio: float = 0.85, count_ratio: float = 0.8,
+    ) -> Dict[str, Any]:
+        """返回按状态统计的候选簇数量，避免 n-gram 片段放大漏斗数字。"""
+        items, total = self.query_jargon_candidate_clusters(
+            limit=None, support_ratio=support_ratio, count_ratio=count_ratio
+        )
+        distribution: Dict[str, int] = {}
+        for item in items:
+            candidate_state = str(item.get("state") or "collecting")
+            distribution[candidate_state] = distribution.get(candidate_state, 0) + 1
+        return {"total": total, "by_status": distribution}
 
     def maintain_jargon(self, now: float, window_days: int, expire_days: int,
                         rejected_days: int, dormant_days: int, max_per_group: int) -> Dict[str, int]:
@@ -982,6 +1300,7 @@ class LearningStorage:
             "few_shot",
             "jargon_candidate",
             "jargon",
+            "persona_review_state",
         )
         deleted: Dict[str, int] = {}
         with self._lock:
@@ -1047,6 +1366,9 @@ class LearningStorage:
                 raise ValueError("导入记录必须是字典")
             values = dict(row)
             values.pop("id", None)
+            if table in {"few_shot", "expression_pattern"} and "persona_id" not in values:
+                # 兼容 1.0 备份：来源人格未知，首次使用时必须复审。
+                values["persona_id"] = LEGACY_PERSONA_ID
             if overrides:
                 values.update(overrides)
             allowed = [c for c in _EXPORT_COLUMNS[table] if c != "id"]
@@ -1071,10 +1393,13 @@ class LearningStorage:
                     existing = None
                     if skip_duplicates:
                         existing = self._db.execute(
-                            "SELECT id FROM few_shot WHERE group_id=? AND user_id=?"
+                            "SELECT id FROM few_shot WHERE group_id=? AND persona_id=?"
+                            " AND user_id=?"
                             " AND user_text=? AND bot_text=? AND message_id IS ? LIMIT 1",
                             (
-                                row.get("group_id", ""), row.get("user_id", ""),
+                                row.get("group_id", ""),
+                                row.get("persona_id", LEGACY_PERSONA_ID),
+                                row.get("user_id", ""),
                                 row.get("user_text", ""), row.get("bot_text", ""),
                                 row.get("message_id"),
                             ),
@@ -1098,10 +1423,13 @@ class LearningStorage:
                     existing = None
                     if skip_duplicates:
                         existing = self._db.execute(
-                            "SELECT id FROM expression_pattern WHERE group_id=? AND scene=?"
+                            "SELECT id FROM expression_pattern WHERE group_id=?"
+                            " AND persona_id=? AND scene=?"
                             " AND expression=? AND source_pair_id IS ? LIMIT 1",
                             (
-                                row.get("group_id", ""), row.get("scene", ""),
+                                row.get("group_id", ""),
+                                row.get("persona_id", LEGACY_PERSONA_ID),
+                                row.get("scene", ""),
                                 row.get("expression", ""), source_id,
                             ),
                         ).fetchone()

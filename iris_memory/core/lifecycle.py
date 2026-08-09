@@ -99,7 +99,7 @@ def create_components(context: "Context", star: "Star") -> Tuple[Component, ...]
     if config.get("learning.enable"):
         from iris_memory.learning import LearningComponent
 
-        components.append(LearningComponent())
+        components.append(LearningComponent(context))
         logger.debug("已添加 LearningComponent 组件")
 
     # 阶段2.6: 人格自迭代（后台初始化，独立语料池与状态机）

@@ -68,6 +68,10 @@ export interface JargonTopItem {
 
 export interface JargonCandidateItem {
   id: number
+  cluster_id: string
+  cluster_size: number
+  cluster_terms: string[]
+  candidate_ids: number[]
   group_id: string
   term: string
   state: string

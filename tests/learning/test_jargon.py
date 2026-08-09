@@ -10,6 +10,7 @@ from iris_memory.learning.collector import LearningCollector, clean_text
 from iris_memory.learning.jargon import CandidateExtractor, JargonLearner
 from iris_memory.learning.jargon.models import CandidateCluster
 from iris_memory.learning.jargon.reviewer import JargonReviewer
+from iris_memory.learning.jargon_clustering import cluster_candidate_items
 from iris_memory.learning.reviewer import LearningReviewer
 
 
@@ -38,6 +39,35 @@ class TestExtractor:
     def test_terms_unique_inside_one_message(self):
         terms = [o["term"] for o in CandidateExtractor().extract("绝绝子绝绝子").observations]
         assert len(terms) == len(set(terms))
+
+
+class TestCandidateClustering:
+    def test_containment_and_shifted_windows_are_folded(self):
+        common = {"group_id": "g", "message_count": 6, "support_hashes": ["h1", "h2"]}
+        items = [
+            {**common, "id": 1, "term": "可以把钱给我", "local_score": 0.66},
+            {**common, "id": 2, "term": "以把钱给我", "local_score": 0.66},
+            {**common, "id": 3, "term": "把钱给我", "local_score": 0.66},
+            {**common, "id": 4, "term": "终于收到地球", "local_score": 0.65},
+            {**common, "id": 5, "term": "于收到地球信", "local_score": 0.65},
+            {**common, "id": 6, "term": "高铁", "local_score": 0.66},
+        ]
+
+        term_sets = [set(item["term"] for item in cluster) for cluster in cluster_candidate_items(items)]
+
+        assert {"可以把钱给我", "以把钱给我", "把钱给我"} in term_sets
+        assert {"终于收到地球", "于收到地球信"} in term_sets
+        assert {"高铁"} in term_sets
+
+    def test_text_overlap_without_shared_evidence_is_not_folded(self):
+        items = [
+            {"id": 1, "group_id": "g", "term": "终于收到地球", "message_count": 6,
+             "support_hashes": ["a", "b"]},
+            {"id": 2, "group_id": "g", "term": "于收到地球信", "message_count": 6,
+             "support_hashes": ["c", "d"]},
+        ]
+
+        assert len(cluster_candidate_items(items)) == 2
 
 
 class TestCollector:
@@ -98,6 +128,18 @@ class TestScoringAndReview:
         assert len(clusters) == 1
         assert "绝绝子" in clusters[0].terms
         assert clusters[0].review_token
+
+    def test_shifted_sentence_windows_share_one_review_cluster(self, config, storage):
+        config._hidden.set("learning_jargon_llm_trigger_size", 1)
+        config._hidden.set("learning_jargon_llm_min_interval_hours", 0)
+        jargon, _ = _make(storage)
+        _seed_eligible(jargon, text="火星终于收到地球信号了")
+
+        clusters = jargon.prepare_review()
+
+        assert len(clusters) == 1
+        assert "终于收到地球" in clusters[0].terms
+        assert "于收到地球信" in clusters[0].terms
 
     @pytest.mark.asyncio
     async def test_batch_reviewer_protocol(self):

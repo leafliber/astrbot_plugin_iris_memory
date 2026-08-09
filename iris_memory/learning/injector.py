@@ -39,6 +39,7 @@ async def build_learning_context(
     storage: LearningStorage,
     jargon: JargonLearner,
     meta: Optional[Dict[str, Any]] = None,
+    persona_id: str = "default",
 ) -> str:
     """组装学习注入文本
 
@@ -62,7 +63,7 @@ async def build_learning_context(
     max_tokens = config.get_int("learning_inject_max_tokens", 600) or 600
 
     # 1. 已通过的表达模式 top-N（按命中数），并记录命中
-    patterns = storage.get_approved_patterns(group_id, top_n)
+    patterns = storage.get_approved_patterns(group_id, top_n, persona_id)
     if patterns:
         storage.record_pattern_hit([int(p["id"]) for p in patterns])
 
@@ -71,7 +72,7 @@ async def build_learning_context(
     jargon_hits = jargon.match_terms(group_id, user_text, max_items=5)
 
     # 3. 已通过的 few-shot 对话样例（最近 N 条）
-    few_shots = storage.get_approved_few_shots(group_id, few_shot_max)
+    few_shots = storage.get_approved_few_shots(group_id, few_shot_max, persona_id)
 
     if not patterns and not jargon_hits and not few_shots:
         if meta is not None:
@@ -134,5 +135,6 @@ async def build_learning_context(
         meta["dropped_by_budget"] = dropped
         meta["budget_tokens"] = max_tokens
         meta["used_tokens"] = count_tokens(text)
+        meta["persona_id"] = persona_id
 
     return text

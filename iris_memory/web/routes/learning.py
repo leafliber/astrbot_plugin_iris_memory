@@ -14,6 +14,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from quart import jsonify, request
 
+from iris_memory.config import get_config
 from iris_memory.core import get_component_manager, get_logger
 from iris_memory.learning import LearningComponent
 from iris_memory.learning.storage import (
@@ -143,6 +144,12 @@ async def get_stats():
 
         storage = component.storage
         stats = storage.get_stats()
+        config = get_config()
+        support_ratio = config.get_float("learning_jargon_substring_support_ratio", 0.85) or 0.85
+        count_ratio = config.get_float("learning_jargon_substring_count_ratio", 0.8) or 0.8
+        stats["jargon_candidate"] = storage.get_jargon_candidate_cluster_stats(
+            support_ratio, count_ratio
+        )
         jargon_top = storage.list_rows("jargon", limit=10)
         usage = storage.get_jargon_usage(datetime.now().date().isoformat())
 
@@ -164,10 +171,13 @@ async def list_jargon_candidates():
         component, error = get_learning_component()
         if error:
             return error
-        items = component.storage.list_jargon_candidates(
-            group_id, state, page_size, (page - 1) * page_size
+        config = get_config()
+        support_ratio = config.get_float("learning_jargon_substring_support_ratio", 0.85) or 0.85
+        count_ratio = config.get_float("learning_jargon_substring_count_ratio", 0.8) or 0.8
+        items, total = component.storage.query_jargon_candidate_clusters(
+            group_id, state, page_size, (page - 1) * page_size,
+            support_ratio, count_ratio,
         )
-        total = component.storage.count_jargon_candidates(group_id, state)
         return jsonify({"success": True, "items": items, "total": total})
     except Exception as e:
         return handle_exception(e, "获取暗语候选")
@@ -192,6 +202,7 @@ async def add_item():
 
         storage = component.storage
         group_id = data.get("group_id") or ""
+        persona_id = data.get("persona_id") or "default"
 
         if table == "jargon":
             row_id = storage.insert_jargon(
@@ -205,6 +216,7 @@ async def add_item():
                 group_id=group_id,
                 scene=data.get("scene") or "",
                 expression=data["expression"],
+                persona_id=persona_id,
             )
         else:  # few_shot
             row_id = storage.insert_pair(
@@ -212,6 +224,7 @@ async def add_item():
                 user_id=data.get("user_id") or "",
                 user_text=data["user_text"],
                 bot_text=data["bot_text"],
+                persona_id=persona_id,
             )
 
         logger.info(f"手动新增学习数据：table={table}, id={row_id}")

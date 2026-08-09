@@ -78,6 +78,36 @@ class TestCandidateStorage:
         assert self._record(storage, now=now + 1801, message_hash="h3") == 1
         assert storage.get_jargon_candidate_snapshots(14)[0]["message_count"] == 2
 
+    def test_management_list_folds_same_source_fragments(self, storage):
+        now = time.time()
+        observations = [
+            {"term": "可以把钱给我", "left": ["<B>"], "right": ["<E>"]},
+            {"term": "以把钱给我", "left": ["可"], "right": ["<E>"]},
+            {"term": "把钱给我", "left": ["以"], "right": ["<E>"]},
+        ]
+        for index in range(6):
+            storage.record_jargon_observations(
+                "g", f"u{index}", "same-message", "可以把钱给我",
+                observations, now + index, 1800,
+            )
+        storage.record_jargon_observations(
+            "g", "rail-user", "rail-message", "高铁",
+            [{"term": "高铁", "left": ["<B>"], "right": ["<E>"]}],
+            now, 1800,
+        )
+
+        items, total = storage.query_jargon_candidate_clusters()
+
+        assert total == 2
+        phrase = next(item for item in items if item["term"] == "可以把钱给我")
+        assert phrase["cluster_size"] == 3
+        assert set(phrase["cluster_terms"]) == {"可以把钱给我", "以把钱给我", "把钱给我"}
+        assert phrase["message_count"] == 6
+        assert phrase["user_count"] == 6
+        assert storage.get_jargon_candidate_cluster_stats() == {
+            "total": 2, "by_status": {"collecting": 2},
+        }
+
     def test_claim_and_promote(self, storage):
         self._record(storage)
         cid = storage.get_jargon_candidate_snapshots(14)[0]["id"]

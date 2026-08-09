@@ -8,46 +8,61 @@
       show-retry
       @retry="refreshState"
     >
-      <v-card color="surface" variant="flat" class="iris-hero-card mb-3">
-        <v-card-title class="d-flex align-center iris-section-title">
-          <v-icon icon="mdi-account-cog" color="primary" class="mr-2" />
-          人格自迭代
-          <v-spacer />
-          <v-btn
-            variant="tonal"
-            size="small"
-            prepend-icon="mdi-account-switch"
-            class="mr-2"
-            @click="cloneDialog = true"
-          >
-            克隆 default
-          </v-btn>
-          <v-btn
-            color="primary"
-            variant="tonal"
-            size="small"
-            prepend-icon="mdi-plus"
-            class="mr-2"
-            @click="openCreate"
-          >
-            新建任务
-          </v-btn>
-          <v-btn
-            color="primary"
-            variant="tonal"
-            size="small"
-            prepend-icon="mdi-refresh"
-            :loading="loading"
-            @click="loadAll"
-          >
-            刷新
-          </v-btn>
-        </v-card-title>
-        <v-card-text class="pt-0">
-          <v-alert type="info" variant="tonal" density="compact">
-            群和用户范围只决定学习语料来源，不改变 Persona 的会话适用范围。默认仅维护
-            <code>IRIS_EVOLUTION</code> 受控区块；每次修改都保留完整快照并可非破坏性回滚。
-          </v-alert>
+      <v-card color="surface" variant="flat" class="iris-hero-card persona-hero mb-3">
+        <v-card-text class="pa-4 pa-sm-5">
+          <div class="persona-hero__layout">
+            <div class="persona-hero__heading">
+              <div class="persona-hero__icon" aria-hidden="true">
+                <v-icon icon="mdi-account-cog" color="primary" size="28" />
+              </div>
+              <div>
+                <h1 class="persona-hero__title">人格自迭代</h1>
+                <p class="persona-hero__subtitle">
+                  让 Persona 从真实对话中持续学习。创建任务并选择学习范围，达到条件后系统会安全生成新版本。
+                </p>
+              </div>
+            </div>
+            <div class="persona-hero__actions">
+              <v-btn
+                variant="outlined"
+                size="large"
+                prepend-icon="mdi-account-switch"
+                @click="cloneDialog = true"
+              >
+                克隆 default
+              </v-btn>
+              <v-btn
+                color="primary"
+                variant="flat"
+                size="large"
+                prepend-icon="mdi-plus"
+                class="persona-create-btn"
+                @click="openCreate"
+              >
+                新建迭代任务
+              </v-btn>
+              <v-tooltip text="刷新数据" location="bottom">
+                <template #activator="{ props }">
+                  <v-btn
+                    v-bind="props"
+                    icon="mdi-refresh"
+                    variant="text"
+                    size="small"
+                    aria-label="刷新数据"
+                    :loading="loading"
+                    @click="loadAll"
+                  />
+                </template>
+              </v-tooltip>
+            </div>
+          </div>
+          <div class="persona-safety-note mt-4">
+            <v-icon icon="mdi-shield-check" color="primary" size="18" />
+            <span>
+              群和用户范围只决定学习语料来源，不改变 Persona 的会话适用范围。默认仅维护
+              <code>IRIS_EVOLUTION</code> 受控区块；每次修改都保留完整快照并可非破坏性回滚。
+            </span>
+          </div>
         </v-card-text>
       </v-card>
 
@@ -85,12 +100,109 @@
 
       <v-window v-model="tab">
         <v-window-item value="jobs">
-          <v-row>
+          <v-card
+            v-if="loading && !jobs.length"
+            color="surface"
+            variant="flat"
+            class="iris-card"
+          >
+            <v-skeleton-loader type="article, actions" />
+          </v-card>
+
+          <v-card
+            v-else-if="!jobs.length"
+            color="surface"
+            variant="flat"
+            class="iris-card persona-onboarding-card"
+          >
+            <v-row no-gutters>
+              <v-col cols="12" md="7" class="pa-5 pa-sm-6">
+                <div class="text-h6 font-weight-bold mb-1">从一个迭代任务开始</div>
+                <p class="text-body-2 text-medium-emphasis mb-5">
+                  任务会把“学习哪些对话、如何改写 Persona、何时发布”绑定在一起。配置一次，后续可自动运行。
+                </p>
+                <div class="persona-onboarding-steps">
+                  <div class="persona-onboarding-step">
+                    <span class="persona-onboarding-step__index">1</span>
+                    <div>
+                      <div class="font-weight-medium">准备具名 Persona</div>
+                      <div class="text-body-2 text-medium-emphasis">已有 Persona 可直接选择；没有时先克隆 default。</div>
+                    </div>
+                  </div>
+                  <div class="persona-onboarding-step">
+                    <span class="persona-onboarding-step__index">2</span>
+                    <div>
+                      <div class="font-weight-medium">设置学习范围与迭代方向</div>
+                      <div class="text-body-2 text-medium-emphasis">选择群、用户和审批方式，默认配置适合首次使用。</div>
+                    </div>
+                  </div>
+                  <div class="persona-onboarding-step">
+                    <span class="persona-onboarding-step__index">3</span>
+                    <div>
+                      <div class="font-weight-medium">等待语料积累或手动运行</div>
+                      <div class="text-body-2 text-medium-emphasis">每次变更都会生成版本，可审批、查看差异和回滚。</div>
+                    </div>
+                  </div>
+                </div>
+              </v-col>
+
+              <v-col cols="12" md="5" class="persona-onboarding-cta pa-5 pa-sm-6">
+                <div class="persona-onboarding-cta__icon mb-4" aria-hidden="true">
+                  <v-icon icon="mdi-lightning-bolt" size="28" />
+                </div>
+
+                <template v-if="personasDegraded">
+                  <div class="text-h6 font-weight-bold">暂时无法读取 Persona</div>
+                  <div class="text-body-2 text-medium-emphasis mt-2 mb-5">
+                    PersonaManager 当前不可用，请刷新后再创建任务。
+                  </div>
+                  <v-btn color="primary" variant="flat" size="large" block prepend-icon="mdi-refresh" @click="loadAll">
+                    刷新重试
+                  </v-btn>
+                </template>
+
+                <template v-else-if="iterablePersonas.length">
+                  <div class="text-h6 font-weight-bold">创建第一个迭代任务</div>
+                  <div class="text-body-2 text-medium-emphasis mt-2 mb-5">
+                    已检测到 {{ iterablePersonas.length }} 个可用 Persona。推荐先使用“受控区块 + 自动发布”的默认配置。
+                  </div>
+                  <v-btn color="primary" variant="flat" size="large" block prepend-icon="mdi-plus" @click="openCreate">
+                    开始创建
+                  </v-btn>
+                  <v-btn variant="text" size="small" class="mt-2" block prepend-icon="mdi-account-switch" @click="cloneDialog = true">
+                    或克隆 default
+                  </v-btn>
+                </template>
+
+                <template v-else>
+                  <div class="text-h6 font-weight-bold">先准备具名 Persona</div>
+                  <div class="text-body-2 text-medium-emphasis mt-2 mb-5">
+                    当前没有可迭代的 Persona。先克隆 default，完成后即可创建任务。
+                  </div>
+                  <v-btn color="primary" variant="flat" size="large" block prepend-icon="mdi-account-switch" @click="cloneDialog = true">
+                    克隆 default
+                  </v-btn>
+                </template>
+              </v-col>
+            </v-row>
+          </v-card>
+
+          <v-row v-else>
             <v-col cols="12" lg="4" xl="3">
               <v-card color="surface" variant="flat" class="iris-card job-list-card">
-                <v-card-title class="iris-section-title">
+                <v-card-title class="iris-section-title job-list-title">
                   <v-icon icon="mdi-file-tree" color="primary" />
                   任务
+                  <v-spacer />
+                  <v-btn
+                    color="primary"
+                    variant="tonal"
+                    size="small"
+                    prepend-icon="mdi-plus"
+                    @click="openCreate"
+                  >
+                    新建
+                  </v-btn>
                 </v-card-title>
                 <v-divider />
                 <v-list v-if="jobs.length" class="iris-list pa-2" density="compact">
@@ -777,6 +889,117 @@ onUnmounted(() => window.removeEventListener('iris:refresh', handleGlobalRefresh
 </script>
 
 <style scoped>
+.persona-hero {
+  overflow: hidden;
+}
+.persona-hero__layout {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+}
+.persona-hero__heading {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  min-width: 0;
+}
+.persona-hero__icon {
+  display: grid;
+  flex: 0 0 auto;
+  width: 48px;
+  height: 48px;
+  place-items: center;
+  border-radius: 14px;
+  background: rgba(var(--v-theme-primary), 0.12);
+}
+.persona-hero__title {
+  margin: 0 0 5px;
+  color: rgba(var(--v-theme-on-surface), 0.92);
+  font-size: 1.35rem;
+  font-weight: 700;
+  line-height: 1.3;
+}
+.persona-hero__subtitle {
+  max-width: 620px;
+  margin: 0;
+  color: rgba(var(--v-theme-on-surface), 0.62);
+  font-size: 0.9rem;
+  line-height: 1.6;
+}
+.persona-hero__actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 10px;
+}
+.persona-create-btn {
+  box-shadow: 0 6px 16px rgba(var(--v-theme-primary), 0.24) !important;
+}
+.persona-safety-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 10px 12px;
+  color: rgba(var(--v-theme-on-surface), 0.68);
+  background: rgba(var(--v-theme-primary), 0.055);
+  border: 1px solid rgba(var(--v-theme-primary), 0.1);
+  border-radius: 9px;
+  font-size: 0.8rem;
+  line-height: 1.55;
+}
+.persona-safety-note .v-icon {
+  flex: 0 0 auto;
+  margin-top: 1px;
+}
+.persona-onboarding-card {
+  overflow: hidden;
+}
+.persona-onboarding-steps {
+  display: grid;
+  gap: 18px;
+}
+.persona-onboarding-step {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr);
+  align-items: start;
+  gap: 12px;
+}
+.persona-onboarding-step__index {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  color: rgb(var(--v-theme-primary));
+  background: rgba(var(--v-theme-primary), 0.12);
+  border-radius: 50%;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+.persona-onboarding-cta {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  background: linear-gradient(
+    145deg,
+    rgba(var(--v-theme-primary), 0.12),
+    rgba(var(--v-theme-primary), 0.035)
+  );
+  border-left: 1px solid rgba(var(--v-theme-primary), 0.1);
+}
+.persona-onboarding-cta__icon {
+  display: grid;
+  width: 52px;
+  height: 52px;
+  place-items: center;
+  color: rgb(var(--v-theme-on-primary));
+  background: rgb(var(--v-theme-primary));
+  border-radius: 15px;
+  box-shadow: 0 6px 16px rgba(var(--v-theme-primary), 0.22);
+}
+.job-list-title :deep(.v-btn .v-icon) {
+  margin-right: 4px;
+}
 .job-list-card { min-height: 320px; }
 .job-list-card :deep(.v-list-item) { margin-bottom: 6px; border: 1px solid rgba(var(--v-theme-on-surface), 0.06); }
 .job-list-card :deep(.v-list-item--active) { border-color: rgba(var(--v-theme-primary), 0.3); }
@@ -784,7 +1007,23 @@ onUnmounted(() => window.removeEventListener('iris:refresh', handleGlobalRefresh
 .revision-panels :deep(.v-expansion-panel) { border: 1px solid rgba(var(--v-theme-on-surface), 0.08); margin-bottom: 6px; }
 .run-result { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 code { color: rgb(var(--v-theme-primary)); }
+@media (max-width: 1080px) {
+  .persona-hero__layout {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .persona-hero__actions {
+    flex-wrap: wrap;
+  }
+}
 @media (max-width: 700px) {
   .persona-evolution-view :deep(.v-card-title) { flex-wrap: wrap; gap: 6px; }
+  .persona-hero__actions > :deep(.v-btn:not(.v-btn--icon)) {
+    flex: 1 1 210px;
+  }
+  .persona-onboarding-cta {
+    border-top: 1px solid rgba(var(--v-theme-primary), 0.1);
+    border-left: 0;
+  }
 }
 </style>

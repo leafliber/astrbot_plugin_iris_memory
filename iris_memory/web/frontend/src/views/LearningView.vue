@@ -97,10 +97,22 @@
         </v-card-title>
         <v-card-text class="pt-0">
           <v-table v-if="jargonCandidates.length" density="compact" class="iris-table">
-            <thead><tr><th>候选</th><th>群</th><th>消息</th><th>用户</th><th>评分</th><th>状态</th><th>判定原因</th></tr></thead>
+            <thead><tr><th>候选簇</th><th>群</th><th>消息</th><th>用户</th><th>统计分</th><th>状态</th><th>判定原因</th></tr></thead>
             <tbody>
-              <tr v-for="item in jargonCandidates" :key="item.id">
-                <td class="font-weight-medium">{{ item.term }}</td>
+              <tr v-for="item in jargonCandidates" :key="item.cluster_id">
+                <td>
+                  <div class="d-flex align-center ga-2">
+                    <span class="font-weight-medium">{{ item.term }}</span>
+                    <v-chip
+                      v-if="item.cluster_size > 1"
+                      size="x-small"
+                      variant="outlined"
+                      :title="item.cluster_terms.join(' / ')"
+                    >
+                      已折叠 {{ item.cluster_size }} 个片段
+                    </v-chip>
+                  </div>
+                </td>
                 <td>{{ item.group_id }}</td>
                 <td>{{ item.message_count }}</td>
                 <td>{{ item.user_count }}</td>
