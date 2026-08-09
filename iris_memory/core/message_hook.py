@@ -7,6 +7,8 @@
 - 图片解析（all 模式）
 """
 
+import asyncio
+import time
 from collections import OrderedDict
 from typing import TYPE_CHECKING, Any, cast
 
@@ -21,6 +23,20 @@ logger = get_logger("message_hook")
 
 _name_cache: OrderedDict = OrderedDict()
 _NAME_CACHE_MAX_SIZE = 1000
+_IMAGE_QUEUE_TASK_EXTRA = "_iris_image_background_task"
+_IMAGE_BACKGROUND_TASKS: set[asyncio.Task] = set()
+
+
+async def _wait_for_image_background_tasks() -> None:
+    """等待当前事件循环的图片后台任务（关闭与测试用）。"""
+    loop = asyncio.get_running_loop()
+    tasks = [
+        task
+        for task in tuple(_IMAGE_BACKGROUND_TASKS)
+        if task.get_loop() is loop and not task.done()
+    ]
+    if tasks:
+        await asyncio.gather(*tasks, return_exceptions=True)
 
 
 def _get_cached_name(key: str) -> str | None:
@@ -77,8 +93,85 @@ async def handle_user_message(
                 f"persona_evolution on_message 失败，已隔离：{e}", exc_info=True
             )
 
-    await _queue_images_to_l1_buffer(event, component_manager)
-    await _parse_images_if_enabled(event, component_manager)
+    # 图片下载、哈希、入队与 all 模式解析可能包含外部 HTTP/LLM
+    # 调用，统一移到后台，不再阻塞消息进入主 LLM 的关键路径。
+    _schedule_image_pipeline(event, component_manager)
+
+
+def _schedule_image_pipeline(
+    event: "AstrMessageEvent", component_manager: "ComponentManager"
+) -> None:
+    """后台执行图片下载/入队，all 模式再继续解析。"""
+    # 捕获当前函数引用，后台任务延迟启动时仍使用同一实现。
+    queue_fn = _queue_images_to_l1_buffer
+    parse_all_fn = _parse_images_if_enabled
+
+    async def runner() -> None:
+        started = time.perf_counter()
+        queued_count = 0
+        errors: list[str] = []
+        try:
+            try:
+                queued_count = int(await queue_fn(event, component_manager) or 0)
+            except Exception as exc:
+                errors.append(f"queue: {exc}")
+                logger.error(f"后台图片下载/入队失败，已隔离：{exc}", exc_info=True)
+            try:
+                await parse_all_fn(event, component_manager)
+            except Exception as exc:
+                errors.append(f"parse: {exc}")
+                logger.error(f"后台 all 模式图片解析失败，已隔离：{exc}", exc_info=True)
+        finally:
+            duration_ms = round((time.perf_counter() - started) * 1000, 2)
+            if queued_count or errors:
+                logger.info(
+                    "后台图片入队链完成：queued=%d, duration=%.1fms",
+                    queued_count,
+                    duration_ms,
+                )
+                _record_image_pipeline_timing(
+                    event,
+                    queued_count=queued_count,
+                    duration_ms=duration_ms,
+                    error="; ".join(errors),
+                )
+
+    task = asyncio.create_task(runner(), name="iris-image-pipeline")
+    _IMAGE_BACKGROUND_TASKS.add(task)
+    task.add_done_callback(_IMAGE_BACKGROUND_TASKS.discard)
+    try:
+        event.set_extra(_IMAGE_QUEUE_TASK_EXTRA, task)
+    except Exception:
+        pass
+
+
+def _record_image_pipeline_timing(
+    event: "AstrMessageEvent",
+    *,
+    queued_count: int,
+    duration_ms: float,
+    error: str,
+) -> None:
+    try:
+        from iris_memory.core.run_log import get_run_log_manager
+        from iris_memory.platform import get_adapter
+
+        adapter = get_adapter(event)
+        get_run_log_manager().record(
+            "injection",
+            f"后台图片入队{'失败' if error else '完成'}",
+            success=not error,
+            group_id=adapter.get_group_id(event) or "",
+            session_id=adapter.get_session_id(event) or "",
+            stage="image",
+            operation="download_queue_and_all_parse",
+            blocking=False,
+            queued_count=queued_count,
+            duration_ms=duration_ms,
+            error=error,
+        )
+    except Exception as exc:
+        logger.debug(f"后台图片耗时日志记录失败（已忽略）：{exc}")
 
 
 def _backfill_reply_from_buffer(
@@ -390,7 +483,7 @@ async def update_l1_buffer(
 
 async def _queue_images_to_l1_buffer(
     event: "AstrMessageEvent", component_manager: "ComponentManager"
-) -> None:
+) -> int:
     """提取图片并入队到 L1 Buffer 图片队列（内部函数）
 
     支持 pHash 感知哈希去重和无效图过滤。
@@ -414,17 +507,17 @@ async def _queue_images_to_l1_buffer(
 
     config = get_config()
     if not config.get("l1_buffer.image_parsing.enable"):
-        return
+        return 0
 
     adapter = get_adapter(event)
     images = adapter.get_images(event)
 
     if not images:
-        return
+        return 0
 
     buffer = component_manager.get_available_component("l1_buffer")
     if not buffer:
-        return
+        return 0
 
     l1_buffer = cast("L1Buffer", buffer)
     session_id = adapter.get_session_id(event)
@@ -592,6 +685,7 @@ async def _queue_images_to_l1_buffer(
 
     if queued_count > 0:
         logger.debug(f"已入队 {queued_count} 张图片到 L1 Buffer 图片队列")
+    return queued_count
 
 
 async def _parse_images_if_enabled(

@@ -10,7 +10,12 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from iris_memory.proactive.decision import DecisionCore, DecisionRequest, build_anchor_block
+from iris_memory.proactive.decision import (
+    DecisionCore,
+    DecisionRequest,
+    build_anchor_block,
+    classify_decision_error,
+)
 from iris_memory.proactive.perception import ContextPackager, SlidingWindow
 from iris_memory.proactive.state import StateManager, ThreadAnchor
 
@@ -260,6 +265,40 @@ class TestDecide:
         assert outcome.decision is None
         assert outcome.error == "boom"
         assert outcome.duration_ms >= 0
+
+    @pytest.mark.asyncio
+    async def test_1026_is_non_retryable_and_records_dynamic_sources(self, nm_config):
+        _, state, window, core = _core(nm_config)
+        state.set_observation(GID, "正在讨论一条消息")
+        state.write_anchor(GID, kind="chime_in", bot_message="此前回复")
+        window.append(GID, _msg("User1", "u1", "触发安全检查的原始消息"))
+        error = RuntimeError("input new_sensitive (1026)")
+
+        outcome = await core.decide(
+            _req(), AsyncMock(side_effect=error), "minimax-provider"
+        )
+
+        assert outcome.error_kind == "input_content_safety_1026"
+        assert outcome.retryable is False
+        assert {item["source"] for item in outcome.dynamic_context_sources} >= {
+            "recent_observation",
+            "thread.bot_message",
+            "window_message",
+        }
+        window_source = next(
+            item
+            for item in outcome.dynamic_context_sources
+            if item["source"] == "window_message"
+        )
+        assert window_source["content"] == "触发安全检查的原始消息"
+        assert window_source["sender_id"] == "u1"
+
+    def test_error_classifier_keeps_other_provider_errors_retryable(self):
+        assert classify_decision_error("Error code: 422 input new_sensitive (1026)") == (
+            "input_content_safety_1026",
+            False,
+        )
+        assert classify_decision_error("timeout") == ("provider_error", True)
 
     @pytest.mark.asyncio
     async def test_invalid_motive_asserts(self, nm_config):

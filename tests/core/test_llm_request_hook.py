@@ -9,10 +9,11 @@ from datetime import datetime
 
 from iris_memory.l1_buffer.models import ContextMessage
 from iris_memory.core.llm_request_hook import (
-    preprocess_llm_request,
-    _inject_to_extra_user_content_parts,
     _build_image_map,
     _get_inline_image_desc,
+    _has_memory_retrieval_intent,
+    _inject_to_extra_user_content_parts,
+    preprocess_llm_request,
 )
 
 
@@ -39,6 +40,7 @@ def _make_component_manager(buffer=None):
 
 _ADAPTER_PATCH = "iris_memory.platform.get_adapter"
 _COLLECT_PROFILE_PATCH = "iris_memory.core.llm_request_hook._collect_user_profile"
+_COLLECT_L1_PATCH = "iris_memory.core.llm_request_hook._collect_l1_context"
 _COLLECT_L2_PATCH = "iris_memory.core.llm_request_hook._collect_l2_memory"
 _COLLECT_L3_PATCH = "iris_memory.core.llm_request_hook._collect_l3_knowledge_graph"
 _PARSE_IMAGES_PATCH = "iris_memory.core.llm_request_hook._parse_images_if_related_mode"
@@ -86,6 +88,81 @@ def _get_extra_parts_text(req):
         text = getattr(part, "text", None) or str(part)
         texts.append(text)
     return "\n".join(texts)
+
+
+class TestMemoryRetrievalIntent:
+    def test_explicit_recall_requests_match(self):
+        assert _has_memory_retrieval_intent("你还记得我之前说过喜欢什么吗？")
+        assert _has_memory_retrieval_intent("帮我回顾一下我们上次聊的方案")
+        assert _has_memory_retrieval_intent("从历史记录里找一下那段内容")
+
+    def test_ordinary_messages_do_not_trigger_rewrite(self):
+        assert not _has_memory_retrieval_intent("今天天气不错")
+        assert not _has_memory_retrieval_intent("帮我把这段代码优化一下")
+        assert not _has_memory_retrieval_intent("")
+
+
+class TestParallelCollection:
+    @pytest.mark.asyncio
+    async def test_independent_stages_start_together_and_l3_waits_only_for_l2(self):
+        started: set[str] = set()
+        all_independent_started = asyncio.Event()
+        l2_done = False
+
+        async def independent(stage, result):
+            nonlocal l2_done
+            started.add(stage)
+            if len(started) == 4:
+                all_independent_started.set()
+            await all_independent_started.wait()
+            if stage == "l2":
+                l2_done = True
+            return result
+
+        async def collect_l1(*args, **kwargs):
+            return await independent("l1", "L1")
+
+        async def collect_profile(*args, **kwargs):
+            return await independent("profile", "PROFILE")
+
+        async def collect_l2(*args, **kwargs):
+            return await independent("l2", ("L2", ["node"]))
+
+        async def collect_learning(*args, **kwargs):
+            return await independent("learning", "LEARNING")
+
+        async def collect_l3(*args, **kwargs):
+            assert l2_done
+            assert args[2] == ["node"]
+            return "L3"
+
+        req = MagicMock(extra_user_content_parts=[])
+        event = MagicMock(message_str="普通消息")
+        cm = MagicMock()
+        record_log = MagicMock()
+
+        with (
+            patch(_GET_CONFIG_PATCH, return_value=_default_config()),
+            patch(_COLLECT_L1_PATCH, side_effect=collect_l1),
+            patch(_COLLECT_PROFILE_PATCH, side_effect=collect_profile),
+            patch(_COLLECT_L2_PATCH, side_effect=collect_l2),
+            patch(_COLLECT_L3_PATCH, side_effect=collect_l3),
+            patch(
+                "iris_memory.core.llm_request_hook._collect_learning",
+                side_effect=collect_learning,
+            ),
+            patch("iris_memory.core.llm_request_hook._record_injection_log", record_log),
+            patch(_LOG_CONTEXT_PATCH),
+        ):
+            await asyncio.wait_for(preprocess_llm_request(event, req, cm), timeout=1)
+
+        assert started == {"l1", "profile", "l2", "learning"}
+        timings = record_log.call_args.kwargs["meta"]
+        assert all(
+            "duration_ms" in timings[stage]
+            for stage in ("image", "l1", "profile", "l2", "l3", "learning")
+        )
+        assert record_log.call_args.kwargs["total_duration_ms"] >= 0
 
 
 class TestInjectToExtraUserContentParts:

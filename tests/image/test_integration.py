@@ -7,7 +7,10 @@ import pytest
 from unittest.mock import Mock, AsyncMock, patch
 
 from iris_memory.image import ImageInfo, ParseResult
-from iris_memory.core.message_hook import handle_user_message
+from iris_memory.core.message_hook import (
+    _wait_for_image_background_tasks,
+    handle_user_message,
+)
 
 
 class TestImageParsingIntegration:
@@ -135,6 +138,7 @@ class TestImageParsingIntegration:
 
             # 执行测试
             await handle_user_message(mock_event, mock_component_manager)
+            await _wait_for_image_background_tasks()
 
             # 验证配额检查
             mock_quota_manager.check_quota.assert_called_once()
@@ -174,6 +178,7 @@ class TestImageParsingIntegration:
 
             # 执行测试
             await handle_user_message(mock_event, mock_component_manager)
+            await _wait_for_image_background_tasks()
 
             # 验证配额管理器未被调用
             mock_quota_manager.check_quota.assert_not_called()
@@ -204,6 +209,7 @@ class TestImageParsingIntegration:
 
             # 执行测试
             await handle_user_message(mock_event, mock_component_manager)
+            await _wait_for_image_background_tasks()
 
             # 验证配额管理器未被调用
             mock_quota_manager.check_quota.assert_not_called()
@@ -238,6 +244,7 @@ class TestImageParsingIntegration:
 
             # 执行测试
             await handle_user_message(mock_event, mock_component_manager)
+            await _wait_for_image_background_tasks()
 
             # 验证 LLM 未被调用
             mock_llm_manager.generate_with_images.assert_not_called()
@@ -273,6 +280,7 @@ class TestImageParsingIntegration:
             mock_get_adapter.return_value = mock_adapter
 
             await handle_user_message(mock_event, mock_component_manager)
+            await _wait_for_image_background_tasks()
 
             mock_llm_manager.generate_with_images.assert_not_called()
 
@@ -307,6 +315,7 @@ class TestImageParsingIntegration:
             mock_l1_buffer.is_available = False
 
             await handle_user_message(mock_event, mock_component_manager)
+            await _wait_for_image_background_tasks()
 
             mock_llm_manager.generate_with_images.assert_not_called()
 
@@ -359,6 +368,7 @@ class TestImageParsingIntegration:
 
             # 执行测试
             await handle_user_message(mock_event, mock_component_manager)
+            await _wait_for_image_background_tasks()
 
             # 验证 LLM 调用了两次
             assert mock_llm_manager.generate_with_images.call_count == 2
@@ -396,6 +406,7 @@ class TestImageParsingIntegration:
 
             # 执行测试
             await handle_user_message(mock_event, mock_component_manager)
+            await _wait_for_image_background_tasks()
 
             # 验证配额未使用
             mock_quota_manager.use_quota.assert_not_called()
@@ -438,6 +449,7 @@ class TestImageParsingIntegration:
             mock_get_adapter.return_value = mock_adapter
 
             await handle_user_message(mock_event, mock_component_manager)
+            await _wait_for_image_background_tasks()
 
             mock_llm_manager.generate_with_images.assert_called()
 
@@ -487,6 +499,7 @@ class TestImageParsingIntegration:
 
             # 执行测试
             await handle_user_message(mock_event, mock_component_manager)
+            await _wait_for_image_background_tasks()
 
             # 验证 ImageParser 使用正确的 provider 创建
             MockImageParser.assert_called_once_with(

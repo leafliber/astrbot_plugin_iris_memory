@@ -756,7 +756,15 @@ class IrisMemoryPlugin(Star):
         outcome = await self._decision_core.decide(req, self.context.llm_generate, provider_id)
 
         if outcome.error or outcome.decision is None:
-            logger.error(f"Iris Reply: decision LLM call failed for group {group_id}: {outcome.error}")
+            if outcome.error_kind == "input_content_safety_1026":
+                logger.error(
+                    "Iris Reply: decision input rejected by provider safety filter "
+                    f"for group {group_id} (1026, retryable=false, "
+                    f"dynamic_sources={len(outcome.dynamic_context_sources or [])}): "
+                    f"{outcome.error}"
+                )
+            else:
+                logger.error(f"Iris Reply: decision LLM call failed for group {group_id}: {outcome.error}")
             self._stats.record_decision_error(group_id, motive)
             async with self._state.get_lock(group_id):
                 self._state.record_skip_reply(group_id)
@@ -992,7 +1000,15 @@ class IrisMemoryPlugin(Star):
         outcome = await self._decision_core.decide(req, self.context.llm_generate, provider_id)
 
         if outcome.error or outcome.decision is None:
-            logger.warning(f"Iris Reply: passive watch eval failed for group {group_id}: {outcome.error}")
+            if outcome.error_kind == "input_content_safety_1026":
+                logger.warning(
+                    "Iris Reply: passive watch input rejected by provider safety filter "
+                    f"for group {group_id} (1026, retryable=false, "
+                    f"dynamic_sources={len(outcome.dynamic_context_sources or [])}): "
+                    f"{outcome.error}"
+                )
+            else:
+                logger.warning(f"Iris Reply: passive watch eval failed for group {group_id}: {outcome.error}")
             self._stats.record_decision_error(group_id, "watch")
             async with self._state.get_lock(group_id):
                 self._state.write_anchor(

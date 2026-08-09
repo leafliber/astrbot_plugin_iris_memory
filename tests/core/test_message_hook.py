@@ -1,11 +1,15 @@
 """测试消息钩子处理模块"""
 
+import asyncio
+
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 from contextlib import ExitStack
 from datetime import datetime
 
 from iris_memory.core.message_hook import (
+    _schedule_image_pipeline,
+    _wait_for_image_background_tasks,
     handle_user_message,
     update_l1_buffer,
     _backfill_reply_from_buffer,
@@ -176,6 +180,7 @@ class TestHandleUserMessage:
 
         buffer.add_message.assert_not_called()
 
+
     @pytest.mark.asyncio
     async def test_handle_with_empty_content(self):
         """测试消息内容为空时的处理"""
@@ -217,6 +222,42 @@ class TestHandleUserMessage:
             await handle_user_message(event, component_manager)
 
         buffer.add_message.assert_not_called()
+
+
+class TestImageBackgroundPipeline:
+    @pytest.mark.asyncio
+    async def test_scheduling_does_not_wait_for_download_or_parse(self):
+        queue_started = asyncio.Event()
+        release_queue = asyncio.Event()
+        parse_called = asyncio.Event()
+
+        async def slow_queue(*args, **kwargs):
+            queue_started.set()
+            await release_queue.wait()
+            return 1
+
+        async def parse_all(*args, **kwargs):
+            parse_called.set()
+
+        event = MagicMock()
+        with (
+            patch(
+                "iris_memory.core.message_hook._queue_images_to_l1_buffer",
+                side_effect=slow_queue,
+            ),
+            patch(
+                "iris_memory.core.message_hook._parse_images_if_enabled",
+                side_effect=parse_all,
+            ),
+            patch("iris_memory.core.message_hook._record_image_pipeline_timing"),
+        ):
+            _schedule_image_pipeline(event, MagicMock())
+            await asyncio.wait_for(queue_started.wait(), timeout=1)
+            assert not parse_called.is_set()
+            release_queue.set()
+            await _wait_for_image_background_tasks()
+
+        assert parse_called.is_set()
 
 
 class TestUpdateL1Buffer:

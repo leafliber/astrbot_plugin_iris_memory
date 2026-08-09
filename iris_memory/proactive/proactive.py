@@ -183,6 +183,13 @@ class ProactiveEngine:
             if outcome.error or outcome.decision is None:
                 self._stats.record_decision_error(group_id, "initiate")
                 self._skip_retry_after[group_id] = time.time() + _SKIP_RETRY_SECONDS
+                if outcome.error_kind == "input_content_safety_1026":
+                    logger.warning(
+                        "Iris Reply: initiate input rejected by provider safety filter "
+                        "for group %s (1026, retryable=false, dynamic_sources=%d)",
+                        group_id,
+                        len(outcome.dynamic_context_sources or []),
+                    )
                 return f"决策调用失败: {outcome.error}"
 
             decision = outcome.decision

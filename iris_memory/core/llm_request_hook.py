@@ -25,8 +25,11 @@ req.contexts 和 req.prompt。
 使其不持久化到会话历史中。若当前 AstrBot 版本不支持 mark_as_temp()，则自动跳过。
 """
 
-from typing import TYPE_CHECKING, List, Optional, cast
+import asyncio
 import re
+import time
+from collections.abc import Awaitable
+from typing import TYPE_CHECKING, Any, List, Optional, cast
 
 from iris_memory.core import get_logger
 
@@ -67,6 +70,25 @@ _KG_STOPWORDS = frozenset(
 _QUOTED_PATTERN = re.compile(r'[""「」『』]([^""「」『』]+)[""「」『』]')
 _CHINESE_WORD_PATTERN = re.compile(r"[一-龥]{2,6}")
 
+# 查询改写本身需要额外调用一次 LLM。仅在用户明确引用过去的信息、记忆、
+# 偏好或历史对话时才值得支付这段延迟；普通闲聊仍会使用原始消息做 L2 检索。
+_MEMORY_INTENT_PATTERNS = (
+    re.compile(
+        r"(?:还|是否)?记得|记不记得|回忆|忘了|记忆|"
+        r"以前|之前|曾经|上次|过去|历史|"
+        r"我(?:之前|以前|上次)?(?:说过|提过|告诉过)|"
+        r"你知道我|关于我|我的(?:偏好|喜好|习惯|经历)"
+    ),
+    re.compile(
+        r"\b(?:remember|recall|memory|memories|previously|before|last\s+time|"
+        r"told\s+you|mentioned|my\s+(?:preference|preferences|history))\b",
+        re.IGNORECASE,
+    ),
+)
+
+_IMAGE_QUEUE_TASK_EXTRA = "_iris_image_background_task"
+_IMAGE_BACKGROUND_TASKS: set[asyncio.Task] = set()
+
 if TYPE_CHECKING:
     from astrbot.api.event import AstrMessageEvent
     from astrbot.api.provider import ProviderRequest
@@ -99,43 +121,22 @@ async def preprocess_llm_request(
         req: LLM 提供者请求对象
         component_manager: 组件管理器实例
     """
-    # 故障隔离：每个步骤独立 try/except，单步异常不影响其余已收集的上下文。
-    # 历史 bug：无顶层 try/except，[t.result() for t in done] 会 re-raise，
-    # 异常穿透使已收集的 L1/画像/L2/L3 注入全丢，违背故障隔离约定。
+    # 图片只调度后台解析，不再占用 on_llm_request 的会话锁。
+    # L1 / 画像 / L2 / learning 互不依赖，并发收集；L3 仅等待 L2
+    # 的结果，以便使用关联节点做图扩展。每个任务内部故障隔离。
+    preprocess_started = time.perf_counter()
+    inject_meta: dict = {
+        "image": {},
+        "l1": {},
+        "profile": {},
+        "l2": {},
+        "l3": {},
+        "learning": {},
+    }
 
-    l1_text = ""
-    profile_text = ""
-    l2_text = ""
-    l2_results = []
-    l3_text = ""
-    learning_text = ""
-    inject_meta: dict = {"l1": {}, "profile": {}, "l2": {}, "l3": {}, "learning": {}}
-
-    try:
-        await _parse_images_if_related_mode(event, req, component_manager)
-    except Exception as e:
-        logger.error(f"图片解析（related 模式）失败，已隔离：{e}", exc_info=True)
-
-    try:
-        l1_text = await _collect_l1_context(
-            event, req, component_manager, meta=inject_meta["l1"]
-        )
-    except Exception as e:
-        logger.error(f"L1 上下文收集失败，已隔离：{e}", exc_info=True)
-
-    try:
-        profile_text = await _collect_user_profile(
-            event, component_manager, meta=inject_meta["profile"]
-        )
-    except Exception as e:
-        logger.error(f"用户画像收集失败，已隔离：{e}", exc_info=True)
-
-    try:
-        l2_text, l2_results = await _collect_l2_memory(
-            event, component_manager, meta=inject_meta["l2"]
-        )
-    except Exception as e:
-        logger.error(f"L2 记忆检索失败，已隔离：{e}", exc_info=True)
+    image_started = time.perf_counter()
+    _schedule_related_image_parse(event, req, component_manager, inject_meta["image"])
+    inject_meta["image"]["duration_ms"] = _elapsed_ms(image_started)
 
     user_message = ""
     if hasattr(event, "message_str") and event.message_str:
@@ -143,19 +144,60 @@ async def preprocess_llm_request(
     elif hasattr(event, "get_message_str"):
         user_message = event.get_message_str()
 
-    try:
-        l3_text = await _collect_l3_knowledge_graph(
-            event, component_manager, l2_results, user_message, meta=inject_meta["l3"]
+    l1_task = asyncio.create_task(
+        _run_stage(
+            "l1",
+            inject_meta["l1"],
+            _collect_l1_context(event, req, component_manager, meta=inject_meta["l1"]),
+            "",
         )
-    except Exception as e:
-        logger.error(f"L3 知识图谱检索失败，已隔离：{e}", exc_info=True)
+    )
+    profile_task = asyncio.create_task(
+        _run_stage(
+            "profile",
+            inject_meta["profile"],
+            _collect_user_profile(event, component_manager, meta=inject_meta["profile"]),
+            "",
+        )
+    )
+    l2_task = asyncio.create_task(
+        _run_stage(
+            "l2",
+            inject_meta["l2"],
+            _collect_l2_memory(event, component_manager, meta=inject_meta["l2"]),
+            ("", []),
+        )
+    )
+    learning_task = asyncio.create_task(
+        _run_stage(
+            "learning",
+            inject_meta["learning"],
+            _collect_learning(event, component_manager, meta=inject_meta["learning"]),
+            "",
+        )
+    )
 
-    try:
-        learning_text = await _collect_learning(
-            event, component_manager, meta=inject_meta["learning"]
+    async def collect_l3_after_l2() -> str:
+        _l2_text, l2_results = await l2_task
+        return await _run_stage(
+            "l3",
+            inject_meta["l3"],
+            _collect_l3_knowledge_graph(
+                event,
+                component_manager,
+                l2_results,
+                user_message,
+                meta=inject_meta["l3"],
+            ),
+            "",
         )
-    except Exception as e:
-        logger.error(f"learning 学习上下文收集失败，已隔离：{e}", exc_info=True)
+
+    l3_task = asyncio.create_task(collect_l3_after_l2())
+    l1_text, profile_text, l2_pair, l3_text, learning_text = await asyncio.gather(
+        l1_task, profile_task, l2_task, l3_task, learning_task
+    )
+    l2_text, _l2_results = l2_pair
+    total_duration_ms = _elapsed_ms(preprocess_started)
 
     combined = _inject_to_extra_user_content_parts(
         req, l1_text, profile_text, l2_text, l3_text, learning_text
@@ -172,9 +214,122 @@ async def preprocess_llm_request(
         meta=inject_meta,
         combined=combined,
         user_message=user_message,
+        total_duration_ms=total_duration_ms,
     )
 
     _log_final_context(req)
+
+
+def _elapsed_ms(started: float) -> float:
+    return round((time.perf_counter() - started) * 1000, 2)
+
+
+async def _run_stage(
+    stage: str,
+    meta: dict,
+    awaitable: Awaitable[Any],
+    fallback: Any,
+) -> Any:
+    """运行单个上下文收集阶段，统一记录耗时并隔离异常。"""
+    started = time.perf_counter()
+    try:
+        return await awaitable
+    except Exception as exc:
+        meta["error"] = str(exc)
+        logger.error(f"{stage} 上下文收集失败，已隔离：{exc}", exc_info=True)
+        return fallback
+    finally:
+        meta["duration_ms"] = _elapsed_ms(started)
+
+
+def _schedule_related_image_parse(
+    event: "AstrMessageEvent",
+    req: "ProviderRequest",
+    component_manager: "ComponentManager",
+    meta: dict,
+) -> None:
+    """将 related 模式图片解析移到后台，当前 LLM 请求不等待结果。"""
+    try:
+        from iris_memory.config import get_config
+
+        config = get_config()
+        if not config.get("l1_buffer.image_parsing.enable"):
+            meta["skipped"] = "disabled"
+            return
+        if config.get("l1_buffer.image_parsing.mode", "related") != "related":
+            meta["skipped"] = "not_related_mode"
+            return
+
+        parse_fn = _parse_images_if_related_mode
+        queue_task = None
+        try:
+            candidate = event.get_extra(_IMAGE_QUEUE_TASK_EXTRA)
+            if isinstance(candidate, asyncio.Future):
+                queue_task = candidate
+        except Exception:
+            pass
+
+        async def runner() -> None:
+            started = time.perf_counter()
+            error = ""
+            try:
+                if queue_task is not None:
+                    # 下载/入队也在后台。先等它完成，避免 related
+                    # 解析与入队竞态，但不阻塞当前回复。
+                    await asyncio.shield(queue_task)
+                await parse_fn(event, req, component_manager)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                error = str(exc)
+                logger.error(f"后台图片解析失败，已隔离：{exc}", exc_info=True)
+            finally:
+                duration_ms = _elapsed_ms(started)
+                logger.info("后台图片解析完成：duration=%.1fms", duration_ms)
+                _record_background_image_timing(
+                    event,
+                    operation="related_parse",
+                    duration_ms=duration_ms,
+                    error=error,
+                )
+
+        task = asyncio.create_task(runner(), name="iris-related-image-parse")
+        _IMAGE_BACKGROUND_TASKS.add(task)
+        task.add_done_callback(_IMAGE_BACKGROUND_TASKS.discard)
+        meta["background_scheduled"] = True
+        meta["blocking"] = False
+    except Exception as exc:
+        meta["error"] = str(exc)
+        logger.error(f"调度后台图片解析失败：{exc}", exc_info=True)
+
+
+def _record_background_image_timing(
+    event: "AstrMessageEvent",
+    *,
+    operation: str,
+    duration_ms: float,
+    error: str = "",
+) -> None:
+    """记录不在当前注入链内完成的图片阶段耗时。"""
+    try:
+        from iris_memory.core.run_log import get_run_log_manager
+        from iris_memory.platform import get_adapter
+
+        adapter = get_adapter(event)
+        get_run_log_manager().record(
+            "injection",
+            f"后台图片处理{'失败' if error else '完成'}",
+            success=not error,
+            group_id=adapter.get_group_id(event) or "",
+            session_id=adapter.get_session_id(event) or "",
+            stage="image",
+            operation=operation,
+            blocking=False,
+            duration_ms=round(duration_ms, 2),
+            error=error,
+        )
+    except Exception as exc:
+        logger.debug(f"后台图片耗时日志记录失败（已忽略）：{exc}")
 
 
 def _record_injection_log(
@@ -189,6 +344,7 @@ def _record_injection_log(
     meta: dict,
     combined: str,
     user_message: str,
+    total_duration_ms: float,
 ) -> None:
     """写入统一运行日志（injection 类型），失败不影响主流程"""
     try:
@@ -234,6 +390,11 @@ def _record_injection_log(
             total_chars=len(combined),
             sections=sections,
             image=image_meta,
+            stage_timings_ms={
+                stage: round(float(meta.get(stage, {}).get("duration_ms", 0.0)), 2)
+                for stage in ("image", "l1", "profile", "l2", "l3", "learning")
+            },
+            total_duration_ms=round(total_duration_ms, 2),
             content=combined,
         )
     except Exception as e:
@@ -676,6 +837,10 @@ async def _rewrite_query_for_retrieval(
     if not config.get("l2_query_rewrite_enable", True):
         return None
 
+    if not _has_memory_retrieval_intent(user_message):
+        logger.debug("用户消息无明确记忆检索意图，跳过 L2 查询改写")
+        return None
+
     llm_manager = component_manager.get_component("llm_manager")
     if not llm_manager or not llm_manager.is_available:
         return None
@@ -709,6 +874,17 @@ async def _rewrite_query_for_retrieval(
     except Exception as e:
         logger.debug(f"查询改写失败：{e}，使用原始消息")
         return None
+
+
+def _has_memory_retrieval_intent(text: str) -> bool:
+    """判断消息是否明确要求回忆过往信息。
+
+    这里只控制「是否额外调用 LLM 改写查询」，不控制 L2 检索本身；
+    未命中时仍会用原始消息检索，因此宁可保守跳过改写。
+    """
+    if not text or not text.strip():
+        return False
+    return any(pattern.search(text) for pattern in _MEMORY_INTENT_PATTERNS)
 
 
 async def _collect_l2_memory(

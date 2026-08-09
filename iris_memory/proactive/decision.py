@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
@@ -24,6 +25,13 @@ _MOTIVE_LABELS = {
     "initiate": "主动发起",
     "watch": "跟进评估",
 }
+
+_INPUT_SENSITIVE_1026 = re.compile(
+    r"(?:input\s+new_sensitive\s*\(\s*1026\s*\)|"
+    r"['\"]?message['\"]?\s*:\s*['\"]input\s+new_sensitive|"
+    r"['\"]?code['\"]?\s*:\s*1026)",
+    re.IGNORECASE,
+)
 
 
 def _record_decision_log(
@@ -54,6 +62,9 @@ def _record_decision_log(
                 raw_response=outcome.raw_text,
                 duration_ms=round(outcome.duration_ms, 1),
                 error=outcome.error,
+                error_kind=outcome.error_kind,
+                retryable=outcome.retryable,
+                dynamic_context_sources=outcome.dynamic_context_sources,
             )
             return
 
@@ -121,6 +132,17 @@ class DecisionOutcome:
     raw_text: str = ""
     error: str = ""
     duration_ms: float = 0.0
+    error_kind: str = ""
+    retryable: bool = True
+    dynamic_context_sources: list[dict[str, Any]] | None = None
+
+
+def classify_decision_error(exc: BaseException | str) -> tuple[str, bool]:
+    """将已知 Provider 错误分类为（类型，是否可原样重试）。"""
+    message = str(exc)
+    if _INPUT_SENSITIVE_1026.search(message):
+        return "input_content_safety_1026", False
+    return "provider_error", True
 
 
 def build_anchor_block(anchor: ThreadAnchor, motive: str) -> str:
@@ -193,6 +215,56 @@ class DecisionCore:
             system_prompt = f"{time_hint}\n\n{system_prompt}"
         return user_prompt, system_prompt
 
+    def collect_dynamic_context_sources(self, req: DecisionRequest) -> list[dict[str, Any]]:
+        """返回决策 prompt 中所有动态内容的来源，供安全拦截定位。"""
+        sources: list[dict[str, Any]] = []
+
+        observation = self._state.get_observation(req.group_id)
+        if observation:
+            sources.append({"source": "recent_observation", "content": observation})
+
+        anchor = self._state.get_anchor(req.group_id)
+        if anchor.bot_message:
+            sources.append({"source": "thread.bot_message", "content": anchor.bot_message})
+        if anchor.participants:
+            sources.append(
+                {
+                    "source": "thread.participants",
+                    "values": sorted(anchor.participants),
+                }
+            )
+        if anchor.keywords:
+            sources.append(
+                {"source": "thread.keywords", "values": sorted(anchor.keywords)}
+            )
+        if anchor.reason:
+            sources.append({"source": "thread.reason", "content": anchor.reason})
+
+        if req.motive == "initiate" and self._config.proactive_instruction:
+            sources.append(
+                {
+                    "source": "proactive_instruction",
+                    "content": self._config.proactive_instruction,
+                }
+            )
+
+        messages = self._window.get_messages(req.group_id)
+        total = len(messages)
+        for index, msg in enumerate(messages):
+            sources.append(
+                {
+                    "source": "window_message",
+                    "window_index": index,
+                    "from_latest": total - index - 1,
+                    "sender_id": msg.sender_id,
+                    "sender_name": msg.sender_name,
+                    "timestamp": msg.timestamp,
+                    "chars": len(msg.content),
+                    "content": msg.content,
+                }
+            )
+        return sources
+
     async def decide(
         self,
         req: DecisionRequest,
@@ -202,6 +274,7 @@ class DecisionCore:
         """执行一次决策调用。LLM 异常不抛出，以 error 字段返回。"""
         assert req.motive in VALID_MOTIVES, f"unknown motive: {req.motive}"
         user_prompt, system_prompt = self.build_prompt(req)
+        dynamic_context_sources = self.collect_dynamic_context_sources(req)
         start = time.time()
         try:
             response = await llm_generate(
@@ -210,12 +283,16 @@ class DecisionCore:
                 system_prompt=system_prompt,
             )
         except Exception as e:
+            error_kind, retryable = classify_decision_error(e)
             outcome = DecisionOutcome(
                 decision=None,
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
                 error=str(e),
                 duration_ms=(time.time() - start) * 1000,
+                error_kind=error_kind,
+                retryable=retryable,
+                dynamic_context_sources=dynamic_context_sources,
             )
             _record_decision_log(req, provider_id, outcome)
             return outcome
@@ -226,6 +303,7 @@ class DecisionCore:
             user_prompt=user_prompt,
             raw_text=raw,
             duration_ms=(time.time() - start) * 1000,
+            dynamic_context_sources=dynamic_context_sources,
         )
         _record_decision_log(req, provider_id, outcome)
         return outcome
