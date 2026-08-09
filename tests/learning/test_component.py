@@ -37,6 +37,8 @@ def _fake_adapter():
     adapter.get_session_id.return_value = "sess1"
     adapter.get_group_id.return_value = "g1"
     adapter.get_user_id.return_value = "u1"
+    adapter.is_group_message.return_value = True
+    adapter.get_raw_message.return_value = {}
     return adapter
 
 
@@ -150,7 +152,7 @@ class TestCollection:
             ),
         ):
             await comp.on_message(_event())
-        assert comp._jargon._counts  # 词频已统计
+        assert comp.storage.get_stats()["jargon_candidate"]["total"] > 0
         await comp.shutdown()
 
 

@@ -1,0 +1,1 @@
+var n=window.AstrBotPluginPage,t=null;function a(){return t||(t=n.ready()),t}function r(n){return null==n?n:JSON.parse(JSON.stringify(n))}async function i(t,i){return await a(),n.apiGet(t,r(i))}async function u(t,i){return await a(),n.apiPost(t,r(i))}async function o(t,r,i){return await a(),n.download(t,r,i)}export{i as n,u as r,o as t};

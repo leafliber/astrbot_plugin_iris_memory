@@ -56,10 +56,10 @@ async def build_learning_context(
     session_id = adapter.get_session_id(event)
     group_id = adapter.get_group_id(event) or session_id
 
-    top_n = int(config.get("learning_pattern_top_n", 5) or 5)
-    few_shot_max = int(config.get("learning_few_shot_max", 3) or 3)
-    max_item_chars = int(config.get("learning_inject_max_item_chars", 200) or 200)
-    max_tokens = int(config.get("learning_inject_max_tokens", 600) or 600)
+    top_n = config.get_int("learning_pattern_top_n", 5) or 5
+    few_shot_max = config.get_int("learning_few_shot_max", 3) or 3
+    max_item_chars = config.get_int("learning_inject_max_item_chars", 200) or 200
+    max_tokens = config.get_int("learning_inject_max_tokens", 600) or 600
 
     # 1. 已通过的表达模式 top-N（按命中数），并记录命中
     patterns = storage.get_approved_patterns(group_id, top_n)

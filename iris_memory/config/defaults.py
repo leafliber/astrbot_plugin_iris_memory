@@ -731,6 +731,122 @@ class HiddenConfig:
         default=5,
         metadata={"description": "注入的表达模式 Top-N 条数", "group": "学习模块"},
     )
+    learning_jargon_window_days: int = field(
+        default=14,
+        metadata={"description": "暗语候选滚动统计窗口（天）", "group": "学习模块·暗语"},
+    )
+    learning_jargon_ngram_max: int = field(
+        default=6,
+        metadata={"description": "中文暗语候选最大字数", "group": "学习模块·暗语"},
+    )
+    learning_jargon_candidates_per_message: int = field(
+        default=64,
+        metadata={"description": "单条消息最多采集的暗语候选数", "group": "学习模块·暗语"},
+    )
+    learning_jargon_user_cooldown_minutes: int = field(
+        default=30,
+        metadata={"description": "同一用户重复贡献同一候选的冷却时间（分钟）", "group": "学习模块·暗语"},
+    )
+    learning_jargon_min_messages: int = field(
+        default=6,
+        metadata={"description": "暗语候选进入审查的最少有效消息数", "group": "学习模块·暗语"},
+    )
+    learning_jargon_min_users_small: int = field(
+        default=2,
+        metadata={"description": "小群暗语候选最少不同发送者数", "group": "学习模块·暗语"},
+    )
+    learning_jargon_min_users_large: int = field(
+        default=3,
+        metadata={"description": "活跃群暗语候选最少不同发送者数", "group": "学习模块·暗语"},
+    )
+    learning_jargon_large_group_users: int = field(
+        default=10,
+        metadata={"description": "启用活跃群发送者门槛的人数", "group": "学习模块·暗语"},
+    )
+    learning_jargon_max_single_user_ratio: float = field(
+        default=0.6,
+        metadata={"description": "单一发送者贡献占比上限", "group": "学习模块·暗语"},
+    )
+    learning_jargon_min_span_hours: float = field(
+        default=6.0,
+        metadata={"description": "普通候选最小传播时间跨度（小时）", "group": "学习模块·暗语"},
+    )
+    learning_jargon_fast_track_messages: int = field(
+        default=8,
+        metadata={"description": "快速传播通道最少消息数", "group": "学习模块·暗语"},
+    )
+    learning_jargon_fast_track_users: int = field(
+        default=5,
+        metadata={"description": "快速传播通道最少发送者数", "group": "学习模块·暗语"},
+    )
+    learning_jargon_substring_support_ratio: float = field(
+        default=0.85,
+        metadata={"description": "短词被长词支配的证据重合阈值", "group": "学习模块·暗语"},
+    )
+    learning_jargon_substring_count_ratio: float = field(
+        default=0.8,
+        metadata={"description": "短词被长词支配的频次比例阈值", "group": "学习模块·暗语"},
+    )
+    learning_jargon_llm_batch_size: int = field(
+        default=12,
+        metadata={"description": "单次 LLM 暗语审查最大候选簇数", "group": "学习模块·暗语"},
+    )
+    learning_jargon_llm_trigger_size: int = field(
+        default=8,
+        metadata={"description": "立即触发批量暗语审查的候选簇数", "group": "学习模块·暗语"},
+    )
+    learning_jargon_llm_max_wait_hours: float = field(
+        default=6.0,
+        metadata={"description": "不足一批时候选最长等待时间（小时）", "group": "学习模块·暗语"},
+    )
+    learning_jargon_llm_min_interval_hours: float = field(
+        default=6.0,
+        metadata={"description": "两次暗语 LLM 调用最小间隔（小时）", "group": "学习模块·暗语"},
+    )
+    learning_jargon_llm_daily_limit: int = field(
+        default=4,
+        metadata={"description": "暗语审查每日 LLM 调用硬上限", "group": "学习模块·暗语"},
+    )
+    learning_jargon_max_clusters_per_group: int = field(
+        default=4,
+        metadata={"description": "单批次每个群最多审查的候选簇数", "group": "学习模块·暗语"},
+    )
+    learning_jargon_approve_confidence: float = field(
+        default=0.85,
+        metadata={"description": "暗语自动批准最低置信度", "group": "学习模块·暗语"},
+    )
+    learning_jargon_reject_confidence: float = field(
+        default=0.75,
+        metadata={"description": "非暗语自动拒绝最低置信度", "group": "学习模块·暗语"},
+    )
+    learning_jargon_retry_days: int = field(
+        default=7,
+        metadata={"description": "不确定候选再次审查的最短等待天数", "group": "学习模块·暗语"},
+    )
+    learning_jargon_retry_evidence_multiplier: float = field(
+        default=2.0,
+        metadata={"description": "不确定候选复审所需证据增长倍数", "group": "学习模块·暗语"},
+    )
+    learning_jargon_max_llm_attempts: int = field(
+        default=2,
+        metadata={"description": "单个暗语候选最多 LLM 审查次数", "group": "学习模块·暗语"},
+    )
+    learning_jargon_candidate_expire_days: int = field(
+        default=30,
+        metadata={"description": "无新证据候选自动过期天数", "group": "学习模块·暗语"},
+    )
+    learning_jargon_rejected_retention_days: int = field(
+        default=60,
+        metadata={"description": "被拒候选保留与冷却天数", "group": "学习模块·暗语"},
+    )
+    learning_jargon_dormant_days: int = field(
+        default=60,
+        metadata={"description": "正式暗语无使用转休眠的天数", "group": "学习模块·暗语"},
+    )
+    learning_jargon_max_candidates_per_group: int = field(
+        default=3000,
+        metadata={"description": "每群暗语候选存储上限", "group": "学习模块·暗语"},
+    )
 
     # 人格自迭代 Job 创建默认值（文档 §15.1）
     persona_evolution_edit_mode: str = field(
@@ -834,7 +950,6 @@ class LearningConfig:
 
     enable: bool = False
     jargon_enable: bool = True
-    jargon_infer_use_l1: bool = True
     review_provider: str = ""
     review_batch_size: int = 10
     pattern_max_count: int = 300

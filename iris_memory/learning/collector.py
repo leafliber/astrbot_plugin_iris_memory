@@ -2,7 +2,7 @@
 Iris Chat Memory - 学习采集与配对
 
 用户消息入口（on_message）与 LLM 响应落库时（on_response）的采集逻辑：
-- on_message：self_id 过滤、剥离图片占位符、空文本跳过，更新暗语词频；
+- on_message：过滤自己/平台 bot，保留原始命令特征后交给暗语漏斗采集；
 - on_response：把触发消息与 bot 回复配成 few_shot 对话对落库（pending_review），
   按规则提取表达模式候选，并把对话对放入审查器待审队列。
 """
@@ -58,8 +58,7 @@ class LearningCollector:
     ) -> None:
         """用户消息采集入口
 
-        self_id 过滤、图片占位符剥离、空文本跳过后，
-        更新暗语词频计数。
+        self_id 过滤后，将群聊原文、发送者和来源信息交给暗语漏斗。
 
         Args:
             event: AstrBot 消息事件
@@ -75,13 +74,26 @@ class LearningCollector:
         except Exception:
             pass
 
-        cleaned = clean_text(text)
-        if not cleaned:
+        if not text:
             return
 
         adapter = get_adapter(event)
         group_id = adapter.get_group_id(event) or session_id
-        self._jargon.update_counts(group_id, cleaned)
+        is_group = adapter.is_group_message(event)
+        is_bot = False
+        try:
+            raw = adapter.get_raw_message(event) or {}
+            sender = raw.get("sender") or {}
+            is_bot = bool(
+                raw.get("is_bot") or raw.get("bot")
+                or (isinstance(sender, dict) and sender.get("is_bot"))
+                or str(raw.get("post_type") or "") in {"meta_event", "notice"}
+            )
+        except Exception:
+            is_bot = False
+        self._jargon.record_message(
+            group_id, user_id, text, is_group=is_group, is_bot=is_bot
+        )
 
     def on_response(self, event: "AstrMessageEvent", resp: "LLMResponse") -> Optional[int]:
         """LLM 响应采集入口：对话对配对落库 + 表达模式提取

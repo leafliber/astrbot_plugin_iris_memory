@@ -74,13 +74,7 @@
         "type": "bool",
         "default": true,
         "description": "启用暗语学习",
-        "hint": "统计群内高频词汇并推断含义，命中时在上下文中给出解释"
-      },
-      "jargon_infer_use_l1": {
-        "type": "bool",
-        "default": true,
-        "description": "暗语推断使用 L1 上下文",
-        "hint": "推断暗语含义时携带 L1 缓冲中最近的相关消息原文，推断更准确；关闭则仅凭词条本身推断"
+        "hint": "通过多用户滚动统计和少量批量 LLM 审查自动发现群内暗语，命中时注入解释"
       },
       "review_provider": {
         "type": "string",

@@ -58,7 +58,7 @@
       <v-card color="surface" variant="flat" class="iris-card mt-3 mb-3">
         <v-card-title class="d-flex align-center iris-section-title">
           <v-icon icon="mdi-chart-pie" color="primary" class="mr-2" />
-          暗语词频 Top 10
+          正式暗语证据 Top 10
         </v-card-title>
         <v-card-text class="pt-0">
           <v-table v-if="jargonTop.length" density="compact" class="iris-table">
@@ -66,7 +66,7 @@
               <tr>
                 <th>词条</th>
                 <th>群</th>
-                <th>次数</th>
+                <th>证据数</th>
                 <th>含义</th>
               </tr>
             </thead>
@@ -76,12 +76,41 @@
                 <td>
                   <v-chip size="x-small" variant="tonal" color="info">{{ t.group_id }}</v-chip>
                 </td>
-                <td>{{ t.count }}</td>
+                <td>{{ t.evidence_count }}</td>
                 <td class="text-medium-emphasis">{{ t.meaning || '—' }}</td>
               </tr>
             </tbody>
           </v-table>
           <div v-else class="text-body-2 text-medium-emphasis">暂无暗语数据</div>
+        </v-card-text>
+      </v-card>
+
+      <!-- 自动暗语漏斗 -->
+      <v-card color="surface" variant="flat" class="iris-card mb-3">
+        <v-card-title class="d-flex align-center iris-section-title">
+          <v-icon icon="mdi-filter-variant" color="primary" class="mr-2" />
+          自动暗语漏斗
+          <v-spacer />
+          <v-chip size="small" variant="tonal">
+            今日 LLM {{ jargonLlmUsage.call_count }} 次 / 审查 {{ jargonLlmUsage.candidate_count }} 簇
+          </v-chip>
+        </v-card-title>
+        <v-card-text class="pt-0">
+          <v-table v-if="jargonCandidates.length" density="compact" class="iris-table">
+            <thead><tr><th>候选</th><th>群</th><th>消息</th><th>用户</th><th>评分</th><th>状态</th><th>判定原因</th></tr></thead>
+            <tbody>
+              <tr v-for="item in jargonCandidates" :key="item.id">
+                <td class="font-weight-medium">{{ item.term }}</td>
+                <td>{{ item.group_id }}</td>
+                <td>{{ item.message_count }}</td>
+                <td>{{ item.user_count }}</td>
+                <td>{{ item.local_score.toFixed(2) }}</td>
+                <td><v-chip size="x-small" variant="tonal">{{ item.state }}</v-chip></td>
+                <td class="cell-ellipsis" :title="item.verdict_reason || ''">{{ item.verdict_reason || '—' }}</td>
+              </tr>
+            </tbody>
+          </v-table>
+          <div v-else class="text-body-2 text-medium-emphasis">暂无候选</div>
         </v-card-text>
       </v-card>
 
@@ -175,7 +204,7 @@
                     禁用
                   </v-btn>
                   <v-btn
-                    v-if="item.status === 'disabled'"
+                    v-if="item.status === 'disabled' || item.status === 'dormant'"
                     size="x-small"
                     variant="tonal"
                     color="info"
@@ -445,8 +474,8 @@
           <v-card-text>
             <div v-if="editingItem" class="text-caption text-medium-emphasis mb-3">
               创建于 {{ formatTime(editingItem.created_at) }}
-              <template v-if="editingItem.last_inferred_at">
-                · 最近推断 {{ formatTime(editingItem.last_inferred_at) }}
+              <template v-if="editingItem.approved_at">
+                · 批准于 {{ formatTime(editingItem.approved_at) }}
               </template>
               <template v-if="editingItem.last_hit_at">
                 · 最近命中 {{ formatTime(editingItem.last_hit_at) }}
@@ -525,6 +554,7 @@ import {
   getLearningList,
   getLearningGroups,
   getLearningStats,
+  getJargonCandidates,
   addLearningItem,
   updateLearningItem,
   deleteLearningItems,
@@ -534,7 +564,9 @@ import {
   type JargonTopItem,
   type JargonItem,
   type ExpressionPatternItem,
-  type FewShotItem
+  type FewShotItem,
+  type JargonCandidateItem,
+  type JargonLlmUsage
 } from '@/api/learning'
 
 const { status, error, errorType, refreshState } = useComponentState('learning')
@@ -553,14 +585,16 @@ const STATUS_LABELS: Record<string, string> = {
   pending_review: '待审查',
   approved: '已通过',
   disabled: '已禁用',
-  active: '生效中'
+  active: '生效中',
+  dormant: '休眠'
 }
 
 const STATUS_COLORS: Record<string, string> = {
   pending_review: 'warning',
   approved: 'success',
   disabled: 'default',
-  active: 'info'
+  active: 'info',
+  dormant: 'warning'
 }
 
 const statusLabel = (s: string): string => STATUS_LABELS[s] || s
@@ -648,6 +682,7 @@ const commonStatusOptions = [
 const jargonStatusOptions = [
   { title: '全部', value: '' },
   { title: '生效中', value: 'active' },
+  { title: '休眠', value: 'dormant' },
   { title: '已禁用', value: 'disabled' }
 ]
 
@@ -658,7 +693,7 @@ const jargonStatusOptions = [
 const jargonHeaders = [
   { title: '词条', key: 'term', minWidth: '140px', sortable: false },
   { title: '群', key: 'group_id', width: '110px', sortable: false },
-  { title: '次数', key: 'count', width: '80px', sortable: false },
+  { title: '证据数', key: 'evidence_count', width: '90px', sortable: false },
   { title: '含义', key: 'meaning', minWidth: '200px', sortable: false },
   { title: '置信度', key: 'confidence', width: '90px', sortable: false },
   { title: '状态', key: 'status', width: '100px', sortable: false },
@@ -689,6 +724,8 @@ const fewshotHeaders = [
 
 const stats = ref<LearningStats | null>(null)
 const jargonTop = ref<JargonTopItem[]>([])
+const jargonCandidates = ref<JargonCandidateItem[]>([])
+const jargonLlmUsage = ref<JargonLlmUsage>({ day: '', call_count: 0, candidate_count: 0 })
 const statsLoading = ref(false)
 
 const statCards = computed(() => {
@@ -700,7 +737,11 @@ const statCards = computed(() => {
       label,
       icon,
       total: ts?.total ?? 0,
-      pending: by.pending_review ?? 0,
+      pending: table === 'jargon'
+        ? ((stats.value?.jargon_candidate?.by_status?.collecting ?? 0)
+          + (stats.value?.jargon_candidate?.by_status?.queued ?? 0)
+          + (stats.value?.jargon_candidate?.by_status?.deferred ?? 0))
+        : (by.pending_review ?? 0),
       // 暗语无 approved 状态，其"已通过"一栏显示生效中（active）数量
       approved: table === 'jargon' ? (by.active ?? 0) : (by.approved ?? 0),
       disabled: by.disabled ?? 0
@@ -719,6 +760,9 @@ const loadStats = async () => {
     const result = await getLearningStats()
     stats.value = result.stats
     jargonTop.value = result.jargon_top
+    jargonLlmUsage.value = result.jargon_llm_usage
+    const candidates = await getJargonCandidates(20)
+    jargonCandidates.value = candidates.items
   } catch (e: unknown) {
     notify((e as Error).message || '获取学习统计失败', 'error')
   } finally {
@@ -875,6 +919,7 @@ const editStatusOptions = computed(() => {
     // 暗语无审查语义，仅 生效中/已禁用
     return [
       { title: '生效中', value: 'active' },
+      { title: '休眠', value: 'dormant' },
       { title: '已禁用', value: 'disabled' }
     ]
   }

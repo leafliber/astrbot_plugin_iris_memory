@@ -51,6 +51,7 @@ class TestValidateTableStatus:
         "table,status",
         [
             ("jargon", "active"),
+            ("jargon", "dormant"),
             ("jargon", "disabled"),
             ("expression_pattern", "pending_review"),
             ("expression_pattern", "approved"),

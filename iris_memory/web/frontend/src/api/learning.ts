@@ -2,18 +2,21 @@ import { apiGet, apiPost } from './request'
 
 export type LearningTable = 'jargon' | 'expression_pattern' | 'few_shot'
 
-export type LearningStatus = 'pending_review' | 'approved' | 'disabled' | 'active'
+export type LearningStatus = 'pending_review' | 'approved' | 'disabled' | 'active' | 'dormant'
 
 // 圈内暗语
 export interface JargonItem {
   id: number
   group_id: string
   term: string
-  count: number
+  aliases_json: string
+  evidence_count: number
   meaning: string
   confidence: number
+  category: string
   status: string
-  last_inferred_at: number
+  approved_at: number
+  last_seen_at: number
   created_at: number
 }
 
@@ -53,13 +56,33 @@ export interface LearningStats {
   jargon: LearningTableStats
   expression_pattern: LearningTableStats
   few_shot: LearningTableStats
+  jargon_candidate: LearningTableStats
 }
 
 export interface JargonTopItem {
   term: string
   group_id: string
-  count: number
+  evidence_count: number
   meaning: string
+}
+
+export interface JargonCandidateItem {
+  id: number
+  group_id: string
+  term: string
+  state: string
+  message_count: number
+  user_count: number
+  local_score: number
+  category?: string
+  verdict_reason?: string
+  last_seen_at: number
+}
+
+export interface JargonLlmUsage {
+  day: string
+  call_count: number
+  candidate_count: number
 }
 
 export interface LearningListParams {
@@ -93,10 +116,24 @@ export async function getLearningGroups(): Promise<string[]> {
   return response.groups || []
 }
 
-export async function getLearningStats(): Promise<{ stats: LearningStats; jargon_top: JargonTopItem[] }> {
+export async function getLearningStats(): Promise<{
+  stats: LearningStats
+  jargon_top: JargonTopItem[]
+  jargon_llm_usage: JargonLlmUsage
+}> {
   const response = await apiGet<any>('learning/stats')
   checkSuccess(response, '获取学习统计失败')
-  return { stats: response.stats, jargon_top: response.jargon_top || [] }
+  return {
+    stats: response.stats,
+    jargon_top: response.jargon_top || [],
+    jargon_llm_usage: response.jargon_llm_usage || { day: '', call_count: 0, candidate_count: 0 }
+  }
+}
+
+export async function getJargonCandidates(pageSize = 20): Promise<{ items: JargonCandidateItem[]; total: number }> {
+  const response = await apiGet<any>('learning/candidates', { page: 1, page_size: pageSize })
+  checkSuccess(response, '获取暗语候选失败')
+  return { items: response.items || [], total: response.total || 0 }
 }
 
 export async function addLearningItem(table: LearningTable, fields: Record<string, unknown>): Promise<number> {

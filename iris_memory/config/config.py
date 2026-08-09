@@ -144,6 +144,34 @@ class Config:
 
         return default
 
+    def get_int(self, flat_key: str, default: int = 0) -> int:
+        """读取整数配置，并将 JSON 中常见的数字/字符串值安全收窄为 ``int``。"""
+        value = self.get(flat_key, default)
+        if isinstance(value, bool):
+            return int(value)
+        if isinstance(value, int):
+            return value
+        if isinstance(value, (float, str)):
+            try:
+                return int(value)
+            except (OverflowError, TypeError, ValueError):
+                pass
+        return default
+
+    def get_float(self, flat_key: str, default: float = 0.0) -> float:
+        """读取浮点配置，并将 JSON 中常见的数字/字符串值安全收窄为 ``float``。"""
+        value = self.get(flat_key, default)
+        if isinstance(value, bool):
+            return float(value)
+        if isinstance(value, (int, float)):
+            return float(value)
+        if isinstance(value, str):
+            try:
+                return float(value)
+            except ValueError:
+                pass
+        return default
+
     def _get_user_config(self, flat_key: str) -> Optional[object]:
         """从 AstrBotConfig 获取用户配置(支持多层嵌套访问)
 

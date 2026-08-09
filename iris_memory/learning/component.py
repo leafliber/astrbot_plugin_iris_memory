@@ -6,7 +6,7 @@ storage / collector / expression / jargon / reviewer / injector，
 向钩子与调度器暴露统一调用面：
 - on_message / on_response：消息与 LLM 响应采集；
 - build_context：注入文本组装；
-- run_review / run_jargon_scan / run_decay：周期任务入口。
+- run_review / run_jargon_scan / run_decay：周期任务入口；暗语扫描使用批量 LLM。
 
 learning.db 的全部读写操作共用组件级 asyncio.Lock 保证单写者；
 LLM 调用（审查/暗语推断）一律在锁外 await，避免阻塞注入与采集路径。
@@ -53,6 +53,8 @@ class LearningComponent(Component):
         self._collector: Optional[LearningCollector] = None
         # learning.db 单写者锁：写库操作共用
         self._db_lock = asyncio.Lock()
+        # 暗语扫描单飞，防止周期任务与手动触发重复领取批次。
+        self._jargon_scan_lock = asyncio.Lock()
 
     @property
     def name(self) -> str:
@@ -81,7 +83,6 @@ class LearningComponent(Component):
             self._storage.init_schema()
 
             self._jargon = JargonLearner(self._storage)
-            self._jargon.load_counts()
 
             self._reviewer = LearningReviewer(self._storage)
             self._collector = LearningCollector(
@@ -97,11 +98,6 @@ class LearningComponent(Component):
 
     async def shutdown(self) -> None:
         """关闭学习模块：词频计数刷盘、关闭数据库"""
-        if self._jargon:
-            try:
-                self._jargon.flush()
-            except Exception as e:
-                logger.warning(f"暗语计数 shutdown 刷盘失败：{e}")
         if self._storage:
             try:
                 self._storage.close()
@@ -203,7 +199,15 @@ class LearningComponent(Component):
             logger.warning(f"学习审查执行失败：{e}")
 
     async def run_jargon_scan(self) -> None:
-        """执行一轮暗语扫描：刷盘词频 + 推断跨档词条含义"""
+        """执行一轮暗语扫描：本地漏斗、批量 LLM 鉴别与生命周期维护。"""
+        if self._jargon_scan_lock.locked():
+            logger.debug("暗语扫描已有任务执行，本轮跳过")
+            return
+        async with self._jargon_scan_lock:
+            await self._run_jargon_scan_once()
+
+    async def _run_jargon_scan_once(self) -> None:
+        """单次暗语扫描实现；由 run_jargon_scan 保证单飞。"""
         if not self._is_available or not self._jargon:
             return
         try:
@@ -211,50 +215,18 @@ class LearningComponent(Component):
             if not config.get("learning.jargon_enable"):
                 return
             async with self._db_lock:
-                self._jargon.flush()
-                terms = self._jargon.get_terms_for_inference()
-            if not terms:
+                self._jargon.maintain()
+                clusters = self._jargon.prepare_review()
+            if not clusters:
                 return
 
             llm_manager = self._get_llm_manager()
             if not llm_manager:
                 return
-            l1_buffer = self._get_l1_buffer()
-
-            for term_info in terms:
-                try:
-                    # 推断含 LLM await（最长 60s/词），必须在锁外执行；
-                    # 仅落库写操作持锁
-                    result = await self._jargon.infer(
-                        term_info,
-                        llm_manager,
-                        l1_buffer=l1_buffer,
-                        session_id=term_info.get("group_id", ""),
-                    )
-                    if result and self._storage:
-                        meaning, confidence = result
-                        async with self._db_lock:
-                            # 快照比较更新：推断期间被管理员改动
-                            # （状态/含义）的词条跳过回写
-                            written = self._storage.mark_jargon_inferred(
-                                int(term_info["id"]), meaning, confidence,
-                                snapshot=term_info,
-                            )
-                        if written:
-                            logger.info(
-                                f"暗语含义推断成功 "
-                                f"[{term_info.get('group_id')}:{term_info.get('term')}]"
-                                f" = {meaning} ({confidence:.2f})"
-                            )
-                        else:
-                            logger.info(
-                                f"暗语推断结果跳过回写（词条已被修改）"
-                                f" [{term_info.get('group_id')}:{term_info.get('term')}]"
-                            )
-                except Exception as e:
-                    logger.warning(
-                        f"暗语推断失败 [{term_info.get('term')}]：{e}"
-                    )
+            # 单次批量调用，LLM await 必须在数据库锁外。
+            verdicts = await self._jargon.request_verdicts(clusters, llm_manager)
+            async with self._db_lock:
+                self._jargon.apply_verdicts(clusters, verdicts)
         except Exception as e:
             logger.warning(f"暗语扫描执行失败：{e}")
 
@@ -264,8 +236,8 @@ class LearningComponent(Component):
             return
         try:
             config = get_config()
-            decay_days = int(config.get("learning.pattern_decay_days", 15) or 15)
-            max_count = int(config.get("learning.pattern_max_count", 300) or 300)
+            decay_days = config.get_int("learning.pattern_decay_days", 15) or 15
+            max_count = config.get_int("learning.pattern_max_count", 300) or 300
             async with self._db_lock:
                 expression.decay(self._storage, decay_days, max_count)
         except Exception as e:
@@ -287,18 +259,4 @@ class LearningComponent(Component):
                 return llm_manager
         except Exception as e:
             logger.debug(f"获取 LLMManager 失败：{e}")
-        return None
-
-    @staticmethod
-    def _get_l1_buffer() -> Any:
-        """取 L1 缓冲组件（不可用返回 None）"""
-        try:
-            manager = get_component_manager()
-            if not manager:
-                return None
-            l1 = manager.get_component("l1_buffer")
-            if l1 and getattr(l1, "is_available", False):
-                return l1
-        except Exception as e:
-            logger.debug(f"获取 L1 缓冲失败：{e}")
         return None

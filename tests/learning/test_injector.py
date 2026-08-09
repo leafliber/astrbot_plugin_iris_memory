@@ -26,9 +26,7 @@ def _seed_approved(storage):
     """准备 approved 数据：1 表达模式 + 1 暗语 + 1 对话样例"""
     pat = storage.insert_pattern("g1", "chat", "早上好呀")
     storage.update_status("expression_pattern", [pat], "approved")
-    storage.upsert_jargon_count("g1", "yyds", 5)
-    term = storage.get_jargon_terms_for_inference([3])[0]
-    storage.mark_jargon_inferred(term["id"], "永远的神", 0.9)
+    storage.insert_jargon("g1", "yyds", "永远的神", 0.9)
     pid = storage.insert_pair("g1", "u1", "早", "早呀")
     storage.update_status("few_shot", [pid], "approved")
 

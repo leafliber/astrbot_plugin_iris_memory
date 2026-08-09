@@ -33,6 +33,24 @@ class TestConfig:
 
         assert config.get("nonexistent", "default") == "default"
 
+    def test_typed_numeric_getters(self, tmp_path: Path):
+        astrbot_config = {
+            "numbers": {
+                "integer": "12",
+                "decimal": "0.75",
+                "invalid": {"unexpected": True},
+            },
+        }
+        hidden_manager = HiddenConfigManager(
+            tmp_path / "hidden_config.json", HiddenConfig()
+        )
+        config = Config(astrbot_config, hidden_manager, Defaults(), tmp_path)
+
+        assert config.get_int("numbers.integer", 6) == 12
+        assert config.get_float("numbers.decimal", 0.5) == 0.75
+        assert config.get_int("numbers.invalid", 6) == 6
+        assert config.get_float("numbers.invalid", 0.5) == 0.5
+
     def test_set_hidden_config(self, tmp_path: Path):
         astrbot_config = {}
 

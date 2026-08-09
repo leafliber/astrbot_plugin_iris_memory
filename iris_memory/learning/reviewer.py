@@ -97,7 +97,7 @@ class LearningReviewer:
             (pending pairs, pending patterns)
         """
         config = get_config()
-        batch_size = int(config.get("learning.review_batch_size", 10) or 10)
+        batch_size = config.get_int("learning.review_batch_size", 10) or 10
         fetch_limit = batch_size * 2
 
         pairs = self._storage.get_pending_pairs(fetch_limit)

@@ -14,6 +14,7 @@ from iris_memory.core import get_logger, get_component_manager
 from iris_memory.learning import LearningComponent
 from iris_memory.learning.storage import (
     STATUS_ACTIVE,
+    STATUS_DORMANT,
     STATUS_APPROVED,
     STATUS_DISABLED,
     STATUS_PENDING,
@@ -35,6 +36,7 @@ _STATUS_LABELS = {
     STATUS_APPROVED: "已通过",
     STATUS_DISABLED: "已禁用",
     STATUS_ACTIVE: "生效中",
+    STATUS_DORMANT: "休眠",
 }
 
 # show 类别词到表名
@@ -174,8 +176,8 @@ class LearningCommandHandler(CommandHandler):
 
         if category == "jargon":
             lines = [
-                f"- {_truncate(r['term'], 20)} ×{r['count']}"
-                f"｜{_truncate(r.get('meaning') or '（未推断）')}"
+                f"- {_truncate(r['term'], 20)}｜证据 {r['evidence_count']}"
+                f"｜{_truncate(r.get('meaning') or '（无含义）')}"
                 f"｜{_STATUS_LABELS.get(r['status'], r['status'])}"
                 for r in rows
             ]

@@ -163,7 +163,7 @@ export default defineConfig({
     outDir: resolve(import.meta.dirname, '../../../pages/iris'),
     emptyOutDir: true,
     sourcemap: false,
-    chunkSizeWarningLimit: 2000,
+    chunkSizeWarningLimit: 600,
     cssCodeSplit: false,
     minify: 'terser',
     terserOptions: {
@@ -184,9 +184,21 @@ export default defineConfig({
     rollupOptions: {
       output: {
         entryFileNames: 'iris.js',
-        chunkFileNames: 'iris.js',
+        chunkFileNames: 'chunks/[name]-[hash].js',
         assetFileNames: 'iris.[ext]',
-        codeSplitting: false
+        manualChunks(id) {
+          if (!id.includes('node_modules')) return undefined
+          if (id.includes('cytoscape')) return 'graph-vendor'
+          if (id.includes('vuetify')) return 'vuetify-vendor'
+          if (
+            id.includes('/node_modules/vue/') ||
+            id.includes('/node_modules/vue-router/') ||
+            id.includes('/node_modules/pinia/')
+          ) {
+            return 'vue-vendor'
+          }
+          return 'vendor'
+        }
       }
     }
   }

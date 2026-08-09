@@ -9,6 +9,7 @@
 """
 
 import os
+from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
 from quart import jsonify, request
@@ -143,11 +144,33 @@ async def get_stats():
         storage = component.storage
         stats = storage.get_stats()
         jargon_top = storage.list_rows("jargon", limit=10)
+        usage = storage.get_jargon_usage(datetime.now().date().isoformat())
 
-        return jsonify({"success": True, "stats": stats, "jargon_top": jargon_top})
+        return jsonify({
+            "success": True, "stats": stats, "jargon_top": jargon_top,
+            "jargon_llm_usage": usage,
+        })
 
     except Exception as e:
         return handle_exception(e, "获取学习统计")
+
+
+async def list_jargon_candidates():
+    """只读查看自动暗语漏斗中的候选和判定原因。"""
+    try:
+        group_id = request.args.get("group_id") or None
+        state = request.args.get("state") or None
+        page, page_size = parse_pagination(request.args)
+        component, error = get_learning_component()
+        if error:
+            return error
+        items = component.storage.list_jargon_candidates(
+            group_id, state, page_size, (page - 1) * page_size
+        )
+        total = component.storage.count_jargon_candidates(group_id, state)
+        return jsonify({"success": True, "items": items, "total": total})
+    except Exception as e:
+        return handle_exception(e, "获取暗语候选")
 
 
 async def add_item():
@@ -297,6 +320,7 @@ def register_learning_routes(context) -> None:
         (f"{prefix}/list", list_items, ["GET"], "获取学习数据列表"),
         (f"{prefix}/groups", list_groups, ["GET"], "获取学习数据群列表"),
         (f"{prefix}/stats", get_stats, ["GET"], "获取学习统计"),
+        (f"{prefix}/candidates", list_jargon_candidates, ["GET"], "获取暗语候选"),
         (f"{prefix}/add", add_item, ["POST"], "新增学习数据"),
         (f"{prefix}/update", update_item, ["POST"], "更新学习数据"),
         (f"{prefix}/delete", delete_items, ["POST"], "删除学习数据"),
