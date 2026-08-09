@@ -59,13 +59,6 @@ export interface LearningStats {
   jargon_candidate: LearningTableStats
 }
 
-export interface JargonTopItem {
-  term: string
-  group_id: string
-  evidence_count: number
-  meaning: string
-}
-
 export interface JargonCandidateItem {
   id: number
   cluster_id: string
@@ -122,14 +115,12 @@ export async function getLearningGroups(): Promise<string[]> {
 
 export async function getLearningStats(): Promise<{
   stats: LearningStats
-  jargon_top: JargonTopItem[]
   jargon_llm_usage: JargonLlmUsage
 }> {
   const response = await apiGet<any>('learning/stats')
   checkSuccess(response, '获取学习统计失败')
   return {
     stats: response.stats,
-    jargon_top: response.jargon_top || [],
     jargon_llm_usage: response.jargon_llm_usage || { day: '', call_count: 0, candidate_count: 0 }
   }
 }

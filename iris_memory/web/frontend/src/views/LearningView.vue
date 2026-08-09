@@ -33,101 +33,13 @@
         </v-card-text>
       </v-card>
 
-      <!-- 统计区 -->
-      <v-row>
-        <v-col v-for="card in statCards" :key="card.table" cols="12" md="4">
-          <v-card color="surface" variant="flat" class="iris-card h-100">
-            <v-card-title class="d-flex align-center iris-section-title">
-              <v-icon :icon="card.icon" color="primary" class="mr-2" />
-              {{ card.label }}
-              <v-spacer />
-              <span class="text-h6">{{ card.total }}</span>
-            </v-card-title>
-            <v-card-text class="pt-0">
-              <div class="d-flex align-center flex-wrap ga-2">
-                <v-chip size="small" variant="tonal" color="warning">待审查 {{ card.pending }}</v-chip>
-                <v-chip size="small" variant="tonal" color="success">已通过 {{ card.approved }}</v-chip>
-                <v-chip size="small" variant="tonal">已禁用 {{ card.disabled }}</v-chip>
-              </div>
-            </v-card-text>
-          </v-card>
-        </v-col>
-      </v-row>
-
-      <!-- 暗语词频 Top 10 -->
-      <v-card color="surface" variant="flat" class="iris-card mt-3 mb-3">
-        <v-card-title class="d-flex align-center iris-section-title">
-          <v-icon icon="mdi-chart-pie" color="primary" class="mr-2" />
-          正式暗语证据 Top 10
-        </v-card-title>
-        <v-card-text class="pt-0">
-          <v-table v-if="jargonTop.length" density="compact" class="iris-table">
-            <thead>
-              <tr>
-                <th>词条</th>
-                <th>群</th>
-                <th>证据数</th>
-                <th>含义</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="(t, i) in jargonTop" :key="`${t.group_id}-${t.term}`">
-                <td class="font-weight-medium">{{ i + 1 }}. {{ t.term }}</td>
-                <td>
-                  <v-chip size="x-small" variant="tonal" color="info">{{ t.group_id }}</v-chip>
-                </td>
-                <td>{{ t.evidence_count }}</td>
-                <td class="text-medium-emphasis">{{ t.meaning || '—' }}</td>
-              </tr>
-            </tbody>
-          </v-table>
-          <div v-else class="text-body-2 text-medium-emphasis">暂无暗语数据</div>
-        </v-card-text>
-      </v-card>
-
-      <!-- 自动暗语漏斗 -->
+      <!-- 已学习内容：页面主任务，优先展示 -->
       <v-card color="surface" variant="flat" class="iris-card mb-3">
         <v-card-title class="d-flex align-center iris-section-title">
-          <v-icon icon="mdi-filter-variant" color="primary" class="mr-2" />
-          自动暗语漏斗
-          <v-spacer />
-          <v-chip size="small" variant="tonal">
-            今日 LLM {{ jargonLlmUsage.call_count }} 次 / 审查 {{ jargonLlmUsage.candidate_count }} 簇
-          </v-chip>
+          <v-icon icon="mdi-database-check-outline" color="primary" class="mr-2" />
+          已学习内容
         </v-card-title>
-        <v-card-text class="pt-0">
-          <v-table v-if="jargonCandidates.length" density="compact" class="iris-table">
-            <thead><tr><th>候选簇</th><th>群</th><th>消息</th><th>用户</th><th>统计分</th><th>状态</th><th>判定原因</th></tr></thead>
-            <tbody>
-              <tr v-for="item in jargonCandidates" :key="item.cluster_id">
-                <td>
-                  <div class="d-flex align-center ga-2">
-                    <span class="font-weight-medium">{{ item.term }}</span>
-                    <v-chip
-                      v-if="item.cluster_size > 1"
-                      size="x-small"
-                      variant="outlined"
-                      :title="item.cluster_terms.join(' / ')"
-                    >
-                      已折叠 {{ item.cluster_size }} 个片段
-                    </v-chip>
-                  </div>
-                </td>
-                <td>{{ item.group_id }}</td>
-                <td>{{ item.message_count }}</td>
-                <td>{{ item.user_count }}</td>
-                <td>{{ item.local_score.toFixed(2) }}</td>
-                <td><v-chip size="x-small" variant="tonal">{{ item.state }}</v-chip></td>
-                <td class="cell-ellipsis" :title="item.verdict_reason || ''">{{ item.verdict_reason || '—' }}</td>
-              </tr>
-            </tbody>
-          </v-table>
-          <div v-else class="text-body-2 text-medium-emphasis">暂无候选</div>
-        </v-card-text>
-      </v-card>
-
-      <!-- 数据表 tabs -->
-      <v-card color="surface" variant="flat" class="iris-card mb-3">
+        <v-divider />
         <v-tabs v-model="activeTab" color="primary">
           <v-tab value="jargon">
             <v-icon icon="mdi-tag" class="mr-1" />
@@ -429,6 +341,72 @@
         </v-window>
       </v-card>
 
+      <!-- 辅助信息：统计概览 -->
+      <div class="d-flex align-center mb-2 mt-4 text-subtitle-1 font-weight-medium">
+        <v-icon icon="mdi-chart-box-outline" color="primary" class="mr-2" />
+        学习概览
+      </div>
+      <v-row class="mb-3">
+        <v-col v-for="card in statCards" :key="card.table" cols="12" md="4">
+          <v-card color="surface" variant="flat" class="iris-card h-100">
+            <v-card-title class="d-flex align-center iris-section-title">
+              <v-icon :icon="card.icon" color="primary" class="mr-2" />
+              {{ card.label }}
+              <v-spacer />
+              <span class="text-h6">{{ card.total }}</span>
+            </v-card-title>
+            <v-card-text class="pt-0">
+              <div class="d-flex align-center flex-wrap ga-2">
+                <v-chip size="small" variant="tonal" color="warning">待审查 {{ card.pending }}</v-chip>
+                <v-chip size="small" variant="tonal" color="success">已通过 {{ card.approved }}</v-chip>
+                <v-chip size="small" variant="tonal">已禁用 {{ card.disabled }}</v-chip>
+              </div>
+            </v-card-text>
+          </v-card>
+        </v-col>
+      </v-row>
+
+      <!-- 辅助信息：自动暗语漏斗 -->
+      <v-card color="surface" variant="flat" class="iris-card mb-3">
+        <v-card-title class="d-flex align-center iris-section-title">
+          <v-icon icon="mdi-filter-variant" color="primary" class="mr-2" />
+          自动暗语漏斗
+          <v-spacer />
+          <v-chip size="small" variant="tonal">
+            今日 LLM {{ jargonLlmUsage.call_count }} 次 / 审查 {{ jargonLlmUsage.candidate_count }} 簇
+          </v-chip>
+        </v-card-title>
+        <v-card-text class="pt-0">
+          <v-table v-if="jargonCandidates.length" density="compact" class="iris-table">
+            <thead><tr><th>候选簇</th><th>群</th><th>消息</th><th>用户</th><th>统计分</th><th>状态</th><th>判定原因</th></tr></thead>
+            <tbody>
+              <tr v-for="item in jargonCandidates" :key="item.cluster_id">
+                <td>
+                  <div class="d-flex align-center ga-2">
+                    <span class="font-weight-medium">{{ item.term }}</span>
+                    <v-chip
+                      v-if="item.cluster_size > 1"
+                      size="x-small"
+                      variant="outlined"
+                      :title="item.cluster_terms.join(' / ')"
+                    >
+                      已折叠 {{ item.cluster_size }} 个片段
+                    </v-chip>
+                  </div>
+                </td>
+                <td>{{ item.group_id }}</td>
+                <td>{{ item.message_count }}</td>
+                <td>{{ item.user_count }}</td>
+                <td>{{ item.local_score.toFixed(2) }}</td>
+                <td><v-chip size="x-small" variant="tonal">{{ item.state }}</v-chip></td>
+                <td class="cell-ellipsis" :title="item.verdict_reason || ''">{{ item.verdict_reason || '—' }}</td>
+              </tr>
+            </tbody>
+          </v-table>
+          <div v-else class="text-body-2 text-medium-emphasis">暂无候选</div>
+        </v-card-text>
+      </v-card>
+
       <!-- 新增对话框 -->
       <v-dialog v-model="addDialog" max-width="560" class="iris-dialog">
         <v-card>
@@ -573,7 +551,6 @@ import {
   setLearningStatus,
   type LearningTable,
   type LearningStats,
-  type JargonTopItem,
   type JargonItem,
   type ExpressionPatternItem,
   type FewShotItem,
@@ -735,7 +712,6 @@ const fewshotHeaders = [
 // ============================================
 
 const stats = ref<LearningStats | null>(null)
-const jargonTop = ref<JargonTopItem[]>([])
 const jargonCandidates = ref<JargonCandidateItem[]>([])
 const jargonLlmUsage = ref<JargonLlmUsage>({ day: '', call_count: 0, candidate_count: 0 })
 const statsLoading = ref(false)
@@ -771,7 +747,6 @@ const loadStats = async () => {
   try {
     const result = await getLearningStats()
     stats.value = result.stats
-    jargonTop.value = result.jargon_top
     jargonLlmUsage.value = result.jargon_llm_usage
     const candidates = await getJargonCandidates(20)
     jargonCandidates.value = candidates.items

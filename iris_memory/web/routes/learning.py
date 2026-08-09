@@ -150,11 +150,10 @@ async def get_stats():
         stats["jargon_candidate"] = storage.get_jargon_candidate_cluster_stats(
             support_ratio, count_ratio
         )
-        jargon_top = storage.list_rows("jargon", limit=10)
         usage = storage.get_jargon_usage(datetime.now().date().isoformat())
 
         return jsonify({
-            "success": True, "stats": stats, "jargon_top": jargon_top,
+            "success": True, "stats": stats,
             "jargon_llm_usage": usage,
         })
 
