@@ -1,5 +1,4 @@
-# Iris Memory
-
+# Iris Memory - 三合一智能陪伴
 > 面向 AstrBot 的轻量化三合一智能陪伴插件：记忆、主动回复、人格自学习迭代。
 
 [![AstrBot Plugin](https://img.shields.io/badge/AstrBot-Plugin-6f42c1)](https://github.com/AstrBotDevs/AstrBot)

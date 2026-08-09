@@ -20,6 +20,7 @@ from datetime import datetime
 from typing import Dict, List, Optional, cast
 
 from iris_memory.core import get_logger
+from iris_memory.llm_modules import DREAM_PATTERN_DISCOVERY
 from iris_memory.config import get_config
 from iris_memory.l2_memory.adapter import L2MemoryAdapter
 from iris_memory.l3_kg.adapter import L3KGAdapter
@@ -227,7 +228,7 @@ PERSON 必须填写，无法确定归属用户时不要输出该模式。没有�
 
         try:
             response = await llm.generate_direct(
-                prompt=prompt, module="dream_pattern_discovery"
+                prompt=prompt, module=DREAM_PATTERN_DISCOVERY
             )
 
             if not response or not response.strip():

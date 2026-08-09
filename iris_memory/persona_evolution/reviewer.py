@@ -15,6 +15,7 @@ from iris_memory.core import get_logger
 from .analyzer import extract_json_object
 from .models import ErrorCode
 from .prompts import build_review_prompt
+from iris_memory.llm_modules import PERSONA_EVOLUTION_REVIEW
 
 logger = get_logger("persona_evolution.reviewer")
 
@@ -107,7 +108,7 @@ class PromptReviewer:
         try:
             raw = await llm_manager.generate_direct(
                 prompt,
-                module="persona_evolution_review",
+                module=PERSONA_EVOLUTION_REVIEW,
                 provider_id=provider_id or None,
             )
         except asyncio.TimeoutError:

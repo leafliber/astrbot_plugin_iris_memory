@@ -14,6 +14,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from iris_memory.core import get_logger
 from .models import ErrorCode
 from .prompts import build_analysis_prompt
+from iris_memory.llm_modules import PERSONA_EVOLUTION_ANALYSIS
 
 logger = get_logger("persona_evolution.analyzer")
 
@@ -113,7 +114,7 @@ class StyleAnalyzer:
         try:
             raw = await llm_manager.generate_direct(
                 prompt,
-                module="persona_evolution_analysis",
+                module=PERSONA_EVOLUTION_ANALYSIS,
                 provider_id=provider_id or None,
             )
         except asyncio.TimeoutError:

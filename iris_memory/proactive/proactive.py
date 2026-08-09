@@ -21,6 +21,7 @@ from .signals import SignalGate
 from .state import StateManager
 from .stats import StatsCollector
 from .time_hint import resolve_datetime_reminder, wrap_system_reminder
+from iris_memory.llm_modules import PROACTIVE_REPLY_INITIATE
 
 # 发起评估被 LLM 否决后的重试间隔（秒），仅内存记录
 _SKIP_RETRY_SECONDS = 30 * 60
@@ -63,6 +64,7 @@ class ProactiveEngine:
         decision_core: DecisionCore,
         stats: StatsCollector,
         *,
+        llm_manager,
         packager: ContextPackager,
         umo_get: Callable[[str], str | None],
         is_busy: Callable[[str], bool],
@@ -77,6 +79,7 @@ class ProactiveEngine:
         self._window = window
         self._signals = signals
         self._core = decision_core
+        self._llm_manager = llm_manager
         self._stats = stats
         self._packager = packager
         self._umo_get = umo_get
@@ -182,7 +185,7 @@ class ProactiveEngine:
                 motive="initiate",
                 quiet_minutes=quiet_minutes,
             )
-            outcome = await self._core.decide(req, self._context.llm_generate, provider_id)
+            outcome = await self._core.decide(req, self._llm_manager, provider_id)
 
             if outcome.error or outcome.decision is None:
                 self._stats.record_decision_error(group_id, "initiate")
@@ -345,14 +348,15 @@ class ProactiveEngine:
             system_prompt = f"{time_hint}\n\n{system_prompt}".strip()
 
         try:
-            resp = await self._context.llm_generate(
-                chat_provider_id=provider_id,
+            text = await self._llm_manager.generate_direct(
                 prompt=prompt,
                 system_prompt=system_prompt or None,
+                provider_id=provider_id,
+                module=PROACTIVE_REPLY_INITIATE,
             )
         except Exception as e:
             logger.warning(
                 "Iris Reply: speech generation failed for group %s: %s", group_id, e,
             )
             return ""
-        return (resp.completion_text or "").strip()
+        return (text or "").strip()

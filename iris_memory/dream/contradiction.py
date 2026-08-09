@@ -17,6 +17,7 @@ from datetime import datetime
 from typing import Dict, List, Optional, cast
 
 from iris_memory.core import get_logger
+from iris_memory.llm_modules import DREAM_CONTRADICTION
 from iris_memory.config import get_config
 from iris_memory.l2_memory.adapter import L2MemoryAdapter
 from iris_memory.l3_kg.adapter import L3KGAdapter
@@ -252,7 +253,7 @@ class ContradictionPhase:
 仅在确有冲突时 conflict=true；keep 是该组中应保留的 1-based 编号。"""
         try:
             response = await llm.generate_direct(
-                prompt=prompt, module="dream_contradiction"
+                prompt=prompt, module=DREAM_CONTRADICTION
             )
             decisions = self._parse_batch_decisions(response)
         except Exception as e:
@@ -351,7 +352,7 @@ MERGED: <合并后的正确记忆内容>
 
         try:
             response = await llm.generate_direct(
-                prompt=prompt, module="dream_contradiction"
+                prompt=prompt, module=DREAM_CONTRADICTION
             )
 
             if not response or not response.strip():

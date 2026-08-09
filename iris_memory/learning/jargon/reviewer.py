@@ -1,6 +1,7 @@
 """批量 LLM 暗语鉴别。"""
 
 import json
+from iris_memory.llm_modules import LEARNING_JARGON_REVIEW
 import re
 from typing import Any, Dict, List, Optional
 
@@ -50,7 +51,10 @@ class JargonReviewer:
         )
         try:
             raw = await llm_manager.generate_direct(
-                prompt=prompt, module="learning_review", system_prompt=_SYSTEM_PROMPT, timeout=60
+                prompt=prompt,
+                module=LEARNING_JARGON_REVIEW,
+                system_prompt=_SYSTEM_PROMPT,
+                timeout=60,
             )
         except Exception as exc:
             logger.warning(f"批量暗语审查调用失败：{exc}")

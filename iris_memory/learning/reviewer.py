@@ -16,6 +16,7 @@ from typing import Any, Dict, List
 
 from iris_memory.config import get_config
 from iris_memory.core import get_logger
+from iris_memory.llm_modules import LEARNING_DIALOGUE_REVIEW
 from .storage import (
     LearningStorage,
     STATUS_APPROVED,
@@ -128,7 +129,7 @@ class LearningReviewer:
             try:
                 raw = await llm_manager.generate_direct(
                     prompt=prompt,
-                    module="learning_review",
+                    module=LEARNING_DIALOGUE_REVIEW,
                     system_prompt=_SYSTEM_PROMPT,
                     timeout=60,
                 )

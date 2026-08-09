@@ -3,6 +3,7 @@
 from typing import List
 from iris_memory.core import get_logger
 from iris_memory.config import get_config
+from iris_memory.llm_modules import L3_KG_EXTRACTION
 from .models import (
     GraphNode,
     GraphEdge,
@@ -33,7 +34,7 @@ class EntityExtractor:
     L3 定位：高度浓缩的结构化知识，场景弱相关，聚焦高层次内容和关联。
     """
 
-    def __init__(self, llm_manager, module: str = "l3_kg_extraction"):
+    def __init__(self, llm_manager, module: str = L3_KG_EXTRACTION):
         self.llm_manager = llm_manager
         self.module = module
         self.config = get_config()

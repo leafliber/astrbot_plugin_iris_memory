@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import time
 import re
-from collections.abc import Awaitable, Callable
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -12,9 +12,7 @@ from .perception import ContextPackager, SlidingWindow
 from .prompts import MOTIVE_INSTRUCTIONS, VALID_MOTIVES, WILLINGNESS_PROMPTS
 from .state import StateManager, ThreadAnchor
 from .time_hint import wrap_system_reminder
-
-# llm_generate(chat_provider_id=..., prompt=..., system_prompt=...) -> response
-LlmGenerateFn = Callable[..., Awaitable[Any]]
+from iris_memory.llm_modules import proactive_decision_module
 
 # group_id -> 当前时间提示（<system_reminder> 块），无则返回空串
 TimeHintGet = Callable[[str], str]
@@ -343,7 +341,7 @@ class DecisionCore:
     async def decide(
         self,
         req: DecisionRequest,
-        llm_generate: LlmGenerateFn,
+        llm_manager: Any,
         provider_id: str,
     ) -> DecisionOutcome:
         """执行一次决策调用。LLM 异常不抛出，以 error 字段返回。"""
@@ -352,10 +350,11 @@ class DecisionCore:
         dynamic_context_sources = self.collect_dynamic_context_sources(req)
         start = time.time()
         try:
-            response = await llm_generate(
-                chat_provider_id=provider_id,
+            raw = await llm_manager.generate_direct(
                 prompt=user_prompt,
                 system_prompt=system_prompt,
+                provider_id=provider_id,
+                module=proactive_decision_module(req.motive),
             )
         except Exception as e:
             error_kind, retryable = classify_decision_error(e)
@@ -371,7 +370,6 @@ class DecisionCore:
             )
             _record_decision_log(req, provider_id, outcome)
             return outcome
-        raw = response.completion_text or ""
         outcome = DecisionOutcome(
             decision=parse_decision(raw, mode=req.motive),
             system_prompt=system_prompt,

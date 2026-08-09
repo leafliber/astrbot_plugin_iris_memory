@@ -375,6 +375,9 @@ export interface TokenStats {
   total_input_tokens: number
   total_output_tokens: number
   total_calls: number
+  successful_calls: number
+  failed_calls: number
+  pending_calls: number
 }
 
 export interface TokenStatsResponse {

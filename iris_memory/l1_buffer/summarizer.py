@@ -12,6 +12,7 @@ import re
 from iris_memory.core import get_logger
 from iris_memory.config import get_config
 from .models import ContextMessage, SegmentedMessageQueue
+from iris_memory.llm_modules import L1_SUMMARIZER
 
 if TYPE_CHECKING:
     from iris_memory.llm import LLMManager
@@ -109,7 +110,7 @@ class Summarizer:
 
             summary = await self.llm_manager.generate_direct(
                 prompt=prompt,
-                module="l1_summarizer",
+                module=L1_SUMMARIZER,
                 provider_id=self.provider if self.provider else None,
             )
 

@@ -13,6 +13,7 @@ from iris_memory.core import get_logger
 from .analyzer import extract_json_object
 from .models import ErrorCode
 from .prompts import build_generation_prompt
+from iris_memory.llm_modules import PERSONA_EVOLUTION_GENERATE
 
 logger = get_logger("persona_evolution.generator")
 
@@ -86,7 +87,7 @@ class CandidateGenerator:
         try:
             raw = await llm_manager.generate_direct(
                 prompt,
-                module="persona_evolution_generate",
+                module=PERSONA_EVOLUTION_GENERATE,
                 provider_id=provider_id or None,
             )
         except asyncio.TimeoutError:

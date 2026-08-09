@@ -9,6 +9,7 @@ from typing import List, Dict, Union, TYPE_CHECKING
 import json
 
 from iris_memory.core import get_logger
+from iris_memory.llm_modules import PROFILE_ANALYSIS
 from iris_memory.config import get_config
 from .models import UpdateTier
 
@@ -86,7 +87,7 @@ class ProfileAnalyzer:
 
         try:
             response = await self._llm_manager.generate_direct(
-                prompt=prompt, module="profile_analysis"
+                prompt=prompt, module=PROFILE_ANALYSIS
             )
 
             result = self._parse_json_response(response)
@@ -122,7 +123,7 @@ class ProfileAnalyzer:
 
         try:
             response = await self._llm_manager.generate_direct(
-                prompt=prompt, module="profile_analysis"
+                prompt=prompt, module=PROFILE_ANALYSIS
             )
 
             result = self._parse_json_response(response)

@@ -240,12 +240,11 @@ class TestDecide:
     @pytest.mark.asyncio
     async def test_success(self, nm_config):
         _, _, _, core = _core(nm_config)
-        llm_generate = AsyncMock(
-            return_value=SimpleNamespace(
-                completion_text='{"action": "speak", "obs": "ok"}'
-            )
+        generate_direct = AsyncMock(
+            return_value='{"action": "speak", "obs": "ok"}'
         )
-        outcome = await core.decide(_req(), llm_generate, "p1")
+        llm_manager = SimpleNamespace(generate_direct=generate_direct)
+        outcome = await core.decide(_req(), llm_manager, "p1")
         assert outcome.error == ""
         assert outcome.decision is not None
         assert outcome.decision.should_speak is True
@@ -253,15 +252,18 @@ class TestDecide:
         assert outcome.raw_text == '{"action": "speak", "obs": "ok"}'
         assert outcome.duration_ms >= 0
         assert outcome.system_prompt and outcome.user_prompt
-        llm_generate.assert_awaited_once()
-        kwargs = llm_generate.await_args.kwargs
-        assert kwargs["chat_provider_id"] == "p1"
+        generate_direct.assert_awaited_once()
+        kwargs = generate_direct.await_args.kwargs
+        assert kwargs["provider_id"] == "p1"
+        assert kwargs["module"] == "proactive_decision_chime_in"
 
     @pytest.mark.asyncio
     async def test_llm_error_returned_not_raised(self, nm_config):
         _, _, _, core = _core(nm_config)
-        llm_generate = AsyncMock(side_effect=RuntimeError("boom"))
-        outcome = await core.decide(_req(), llm_generate, "p1")
+        llm_manager = SimpleNamespace(
+            generate_direct=AsyncMock(side_effect=RuntimeError("boom"))
+        )
+        outcome = await core.decide(_req(), llm_manager, "p1")
         assert outcome.decision is None
         assert outcome.error == "boom"
         assert outcome.duration_ms >= 0
@@ -281,7 +283,9 @@ class TestDecide:
         error = RuntimeError("input new_sensitive (1026)")
 
         outcome = await core.decide(
-            _req(), AsyncMock(side_effect=error), "minimax-provider"
+            _req(),
+            SimpleNamespace(generate_direct=AsyncMock(side_effect=error)),
+            "minimax-provider",
         )
 
         assert outcome.error_kind == "input_content_safety_1026"

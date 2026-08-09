@@ -92,6 +92,18 @@ class LLMManager(Component):
         self._reset_state()
         logger.info("LLMManager 已关闭")
 
+    @staticmethod
+    def _extract_usage(llm_resp: "LLMResponse") -> tuple[int, int]:
+        """兼容不同 Provider 的 usage 实现，缺失时按 0 处理。"""
+        usage = getattr(llm_resp, "usage", None)
+        if not usage:
+            return 0, 0
+        input_tokens = int(getattr(usage, "input_other", 0) or 0) + int(
+            getattr(usage, "input_cached", 0) or 0
+        )
+        output_tokens = int(getattr(usage, "output", 0) or 0)
+        return input_tokens, output_tokens
+
     async def generate(
         self,
         prompt: str,
@@ -162,12 +174,7 @@ class LLMManager(Component):
 
             duration_ms = int((time.time() - start_time) * 1000)
 
-            if llm_resp.usage:
-                input_tokens = llm_resp.usage.input_other + llm_resp.usage.input_cached
-                output_tokens = llm_resp.usage.output
-            else:
-                input_tokens = 0
-                output_tokens = 0
+            input_tokens, output_tokens = self._extract_usage(llm_resp)
 
             if self._token_stats:
                 await self._token_stats.record_usage(
@@ -212,6 +219,8 @@ class LLMManager(Component):
 
         except asyncio.TimeoutError:
             duration_ms = int((time.time() - start_time) * 1000)
+            if self._token_stats:
+                await self._token_stats.record_failure(module)
             log = CallLog(
                 call_id=call_id,
                 timestamp=datetime.now(),
@@ -247,6 +256,8 @@ class LLMManager(Component):
 
         except Exception as e:
             duration_ms = int((time.time() - start_time) * 1000)
+            if self._token_stats:
+                await self._token_stats.record_failure(module)
             log = CallLog(
                 call_id=call_id,
                 timestamp=datetime.now(),
@@ -358,12 +369,7 @@ class LLMManager(Component):
 
             duration_ms = int((time.time() - start_time) * 1000)
 
-            if llm_resp.usage:
-                input_tokens = llm_resp.usage.input_other + llm_resp.usage.input_cached
-                output_tokens = llm_resp.usage.output
-            else:
-                input_tokens = 0
-                output_tokens = 0
+            input_tokens, output_tokens = self._extract_usage(llm_resp)
 
             if self._token_stats:
                 await self._token_stats.record_usage(
@@ -410,6 +416,8 @@ class LLMManager(Component):
 
         except asyncio.TimeoutError:
             duration_ms = int((time.time() - start_time) * 1000)
+            if self._token_stats:
+                await self._token_stats.record_failure(module)
             log = CallLog(
                 call_id=call_id,
                 timestamp=datetime.now(),
@@ -447,6 +455,8 @@ class LLMManager(Component):
 
         except Exception as e:
             duration_ms = int((time.time() - start_time) * 1000)
+            if self._token_stats:
+                await self._token_stats.record_failure(module)
             log = CallLog(
                 call_id=call_id,
                 timestamp=datetime.now(),
@@ -593,6 +603,8 @@ class LLMManager(Component):
             "profile_analysis": "profile.analysis_provider",
             "l2_query_rewrite": "l2_query_rewrite_provider",
             "learning_review": "learning.review_provider",
+            "learning_dialogue_review": "learning.review_provider",
+            "learning_jargon_review": "learning.review_provider",
             "persona_evolution_analysis": "persona_evolution.provider",
             "persona_evolution_generate": "persona_evolution.provider",
             "persona_evolution_review": "persona_evolution.review_provider",
@@ -682,7 +694,10 @@ class LLMManager(Component):
     ) -> None:
         """写入统一运行日志（llm_call 类型），失败不影响主流程"""
         try:
-            path_label = "直接调用" if path == "direct" else "钩子调用"
+            path_label = {
+                "direct": "直接调用",
+                "framework": "主管线调用",
+            }.get(path, "钩子调用")
             status = "成功" if success else "失败"
             get_run_log_manager().record(
                 "llm_call",
@@ -760,6 +775,106 @@ class LLMManager(Component):
             **kwargs,
         )
 
+    async def record_framework_response(
+        self,
+        *,
+        module: str,
+        provider_id: str,
+        response: "LLMResponse",
+        started_at: Optional[float] = None,
+        prompt: str = "",
+    ) -> None:
+        """结算由 AstrBot 主管线执行、但由本插件触发的 LLM 响应。
+
+        插话、跟进等回复必须保留 AstrBot 的人格、工具与钩子链，无法通过
+        ``generate_direct`` 发起；它们在 ``on_llm_response`` 由本方法统一
+        纳入 Token 统计和调用日志。
+        """
+        if not self._is_available:
+            return
+
+        response_text = getattr(response, "completion_text", "") or ""
+        input_tokens, output_tokens = self._extract_usage(response)
+        duration_ms = int(
+            max(0.0, time.time() - (started_at or time.time())) * 1000
+        )
+        if self._token_stats:
+            await self._token_stats.record_completion(
+                module=module,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                success=True,
+            )
+
+        log = CallLog(
+            call_id=str(uuid.uuid4()),
+            timestamp=datetime.now(),
+            module=module,
+            provider_id=provider_id or "default",
+            prompt=self._truncate_text(prompt, 500),
+            response=self._truncate_text(response_text, 500),
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            duration_ms=duration_ms,
+            success=True,
+            metadata={"path": "framework"},
+        )
+        self._call_logs.append(log)
+        self._record_run_log(
+            path="framework",
+            module=module,
+            provider_id=provider_id or "default",
+            prompt=prompt,
+            response_text=response_text,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            duration_ms=duration_ms,
+            success=True,
+        )
+
+    async def record_framework_failure(
+        self,
+        *,
+        module: str,
+        provider_id: str,
+        error_message: str,
+        started_at: Optional[float] = None,
+    ) -> None:
+        """供框架异常钩子可用时结算主管线失败调用。"""
+        if not self._is_available:
+            return
+        duration_ms = int(
+            max(0.0, time.time() - (started_at or time.time())) * 1000
+        )
+        if self._token_stats:
+            await self._token_stats.record_completion(
+                module,
+                input_tokens=0,
+                output_tokens=0,
+                success=False,
+            )
+        self._call_logs.append(
+            CallLog(
+                call_id=str(uuid.uuid4()),
+                timestamp=datetime.now(),
+                module=module,
+                provider_id=provider_id or "default",
+                prompt="",
+                response="",
+                input_tokens=0,
+                output_tokens=0,
+                duration_ms=duration_ms,
+                success=False,
+                error_message=error_message,
+                metadata={"path": "framework"},
+            )
+        )
+
+    async def record_framework_attempt(self, module: str) -> None:
+        """在 AstrBot 主管线开始执行前登记插件触发的请求。"""
+        if self._is_available and self._token_stats:
+            await self._token_stats.record_attempt(module)
+
     async def get_token_stats(self, module: str = "global") -> Dict[str, Any]:
         """获取 Token 统计
 
@@ -775,6 +890,9 @@ class LLMManager(Component):
                 "total_input_tokens": 0,
                 "total_output_tokens": 0,
                 "total_calls": 0,
+                "successful_calls": 0,
+                "failed_calls": 0,
+                "pending_calls": 0,
             }
 
         usage = await self._token_stats.get_stats(module)
@@ -783,6 +901,9 @@ class LLMManager(Component):
             "total_input_tokens": usage.total_input_tokens,
             "total_output_tokens": usage.total_output_tokens,
             "total_calls": usage.total_calls,
+            "successful_calls": usage.successful_calls,
+            "failed_calls": usage.failed_calls,
+            "pending_calls": usage.pending_calls,
         }
 
     async def get_all_token_stats(self) -> Dict[str, Dict[str, Any]]:
@@ -800,6 +921,9 @@ class LLMManager(Component):
                 "total_input_tokens": usage.total_input_tokens,
                 "total_output_tokens": usage.total_output_tokens,
                 "total_calls": usage.total_calls,
+                "successful_calls": usage.successful_calls,
+                "failed_calls": usage.failed_calls,
+                "pending_calls": usage.pending_calls,
             }
             for module, usage in all_stats.items()
         }
@@ -835,6 +959,7 @@ class LLMManager(Component):
                 "duration_ms": log.duration_ms,
                 "success": log.success,
                 "error_message": log.error_message,
+                "metadata": log.metadata,
             }
             for log in logs
         ]

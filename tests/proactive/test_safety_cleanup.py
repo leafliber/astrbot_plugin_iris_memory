@@ -45,7 +45,11 @@ def _components(nm_config, *, cfg=None):
 async def _rejected_outcome(core: DecisionCore, *, motive: str = "chime_in"):
     return await core.decide(
         DecisionRequest(group_id=GID, wake="message", motive=motive),
-        AsyncMock(side_effect=RuntimeError("input new_sensitive (1026)")),
+        SimpleNamespace(
+            generate_direct=AsyncMock(
+                side_effect=RuntimeError("input new_sensitive (1026)")
+            )
+        ),
         "provider",
     )
 
@@ -109,6 +113,9 @@ class TestRuntimeSafetyPaths:
         plugin.context = SimpleNamespace(
             llm_generate=AsyncMock(side_effect=RuntimeError("input new_sensitive (1026)"))
         )
+        plugin._llm_manager = SimpleNamespace(
+            generate_direct=plugin.context.llm_generate
+        )
         plugin._state = state
         plugin._sliding_window = window
         plugin._decision_core = core
@@ -147,6 +154,9 @@ class TestRuntimeSafetyPaths:
         plugin.context = SimpleNamespace(
             llm_generate=AsyncMock(side_effect=RuntimeError("temporary timeout"))
         )
+        plugin._llm_manager = SimpleNamespace(
+            generate_direct=plugin.context.llm_generate
+        )
         plugin._state = state
         plugin._sliding_window = window
         plugin._decision_core = core
@@ -180,6 +190,9 @@ class TestRuntimeSafetyPaths:
         plugin = object.__new__(IrisMemoryPlugin)
         plugin.context = SimpleNamespace(
             llm_generate=AsyncMock(side_effect=RuntimeError("input new_sensitive (1026)"))
+        )
+        plugin._llm_manager = SimpleNamespace(
+            generate_direct=plugin.context.llm_generate
         )
         plugin._state = state
         plugin._sliding_window = window
@@ -222,6 +235,7 @@ class TestRuntimeSafetyPaths:
             Mock(),
             core,
             Mock(),
+            llm_manager=SimpleNamespace(generate_direct=context.llm_generate),
             packager=packager,
             umo_get=lambda _gid: "umo",
             is_busy=lambda _gid: False,

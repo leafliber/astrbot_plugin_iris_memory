@@ -18,6 +18,7 @@ from iris_memory.config import get_config
 from iris_memory.l2_memory.adapter import L2MemoryAdapter
 from iris_memory.l3_kg.adapter import L3KGAdapter
 from iris_memory.llm.manager import LLMManager
+from iris_memory.llm_modules import DREAM_KNOWLEDGE_INDUCTION
 
 logger = get_logger("dream.knowledge_extract")
 
@@ -93,7 +94,7 @@ class KnowledgeExtractPhase:
 
         from iris_memory.l3_kg import EntityExtractor
 
-        extractor = EntityExtractor(llm, module="dream_knowledge_induction")
+        extractor = EntityExtractor(llm, module=DREAM_KNOWLEDGE_INDUCTION)
 
         all_processed_ids: List[str] = []
         total_nodes = 0

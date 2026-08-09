@@ -32,6 +32,7 @@ from collections.abc import Awaitable
 from typing import TYPE_CHECKING, Any, List, Optional, cast
 
 from iris_memory.core import get_logger
+from iris_memory.llm_modules import L2_QUERY_REWRITE
 
 _KG_STOPWORDS = frozenset(
     {
@@ -855,7 +856,7 @@ async def _rewrite_query_for_retrieval(
 
     try:
         rewritten = await asyncio.wait_for(
-            llm_manager.generate_direct(prompt=prompt, module="l2_query_rewrite"),
+            llm_manager.generate_direct(prompt=prompt, module=L2_QUERY_REWRITE),
             timeout=timeout_ms / 1000.0,
         )
 

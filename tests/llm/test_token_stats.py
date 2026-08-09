@@ -30,6 +30,8 @@ class TestTokenUsage:
             "total_input_tokens": 100,
             "total_output_tokens": 50,
             "total_calls": 1,
+            "successful_calls": 0,
+            "failed_calls": 0,
         }
 
     def test_from_dict(self):
@@ -45,6 +47,18 @@ class TestTokenUsage:
         assert usage.total_input_tokens == 100
         assert usage.total_output_tokens == 0
         assert usage.total_calls == 0
+
+    def test_from_dict_marks_stale_pending_as_failed(self):
+        usage = TokenUsage.from_dict(
+            {
+                "total_calls": 3,
+                "successful_calls": 1,
+                "failed_calls": 1,
+            }
+        )
+        assert usage.successful_calls == 1
+        assert usage.failed_calls == 2
+        assert usage.pending_calls == 0
 
 
 class TestTokenStatsManager:
@@ -251,6 +265,7 @@ class TestTokenStatsManager:
         # record_usage 应将模块名登记到 _known_modules
         assert "test_module" in manager1._known_modules
         assert "global" in manager1._known_modules
+        assert "test_module" in store["token_stats:modules"]
 
         # 模拟重启：新建 manager（_cache 为空，_known_modules 重置为 {"global"}）
         manager2 = TokenStatsManager(storage)
@@ -260,6 +275,39 @@ class TestTokenStatsManager:
         # 不应返回空缓存——应从 KV 加载已持久化的 global 统计
         # （bug 版本会返回空 dict，"global" 不在结果中）
         assert "global" in all_stats
+        assert "test_module" in all_stats
+        assert all_stats["test_module"].total_input_tokens == 100
         assert all_stats["global"].total_input_tokens == 100
         assert all_stats["global"].total_output_tokens == 50
         assert all_stats["global"].total_calls == 1
+
+    @pytest.mark.asyncio
+    async def test_concurrent_recording_is_lossless(self):
+        """并发完成的内部任务不得相互覆盖模块或全局累计。"""
+        import asyncio
+
+        store: dict = {}
+        storage = MagicMock()
+
+        async def _get_kv_data(key, default=None):
+            await asyncio.sleep(0)
+            return store.get(key, default if default is not None else {})
+
+        async def _put_kv_data(key, value):
+            await asyncio.sleep(0)
+            store[key] = value
+
+        storage.get_kv_data = _get_kv_data
+        storage.put_kv_data = _put_kv_data
+        manager = TokenStatsManager(storage)
+
+        await asyncio.gather(
+            *(manager.record_usage("parallel", 10, 5) for _ in range(25))
+        )
+
+        stats = await manager.get_stats("parallel")
+        global_stats = await manager.get_stats("global")
+        assert stats.total_calls == 25
+        assert stats.successful_calls == 25
+        assert stats.total_tokens == 375
+        assert global_stats.total_calls == 25

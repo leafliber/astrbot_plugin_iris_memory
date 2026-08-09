@@ -18,6 +18,7 @@ import re
 
 from iris_memory.core import get_logger
 from .models import ImageInfo, ParseResult
+from iris_memory.llm_modules import IMAGE_PARSING
 from .recorder_bridge import MessageRecorderBridge
 
 if TYPE_CHECKING:
@@ -285,7 +286,7 @@ class ImageParser:
             response = await self._llm_manager.generate_with_images(
                 prompt=prompt,
                 image_urls=[image_url],
-                module="image_parsing",
+                module=IMAGE_PARSING,
                 provider_id=self._provider if self._provider else None,
             )
 

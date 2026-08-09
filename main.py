@@ -68,6 +68,8 @@ from iris_memory.tools import (
     GetProfileTool,
 )
 from iris_memory.web import register_all_routes
+from iris_memory.llm import LLMManager
+from iris_memory.llm_modules import proactive_reply_module
 from iris_memory.commands import (
     get_registry,
     execute_command,
@@ -155,6 +157,9 @@ class IrisMemoryPlugin(Star):
             self.component_manager: Optional[ComponentManager] = ComponentManager(
                 components
             )
+            self._llm_manager = self.component_manager.get_component(
+                "llm_manager", LLMManager
+            )
 
             set_component_manager(self.component_manager)
 
@@ -211,6 +216,7 @@ class IrisMemoryPlugin(Star):
                 self._signals,
                 self._decision_core,
                 self._stats,
+                llm_manager=self._llm_manager,
                 packager=self._context_packager,
                 umo_get=lambda gid: self._group_umo.get(gid),
                 is_busy=self._is_busy,
@@ -739,6 +745,25 @@ class IrisMemoryPlugin(Star):
         if hint:
             req.extra_user_content_parts.append(TextPart(text=hint).mark_as_temp())
 
+        # 插话、跟进及白名单被动回复继续走 AstrBot 主管线，在响应钩子中
+        # 交给 LLMManager 统一结算 Token 和调用日志。
+        mode = event.get_extra("iris_mode")
+        if mode in ("chime_in", "follow_up", "passive"):
+            provider_id = event.get_extra("iris_llm_provider_id") or ""
+            if not provider_id:
+                provider_id = await self._get_provider_id(event) or ""
+            module = proactive_reply_module(mode)
+            await self._llm_manager.record_framework_attempt(module)
+            event.set_extra(
+                "iris_llm_tracking",
+                {
+                    "module": module,
+                    "provider_id": provider_id,
+                    "started_at": time.time(),
+                    "prompt": getattr(req, "prompt", "") or "",
+                },
+            )
+
     async def _handle_reply_decision(self, event: AstrMessageEvent) -> bool:
         """主动回复统一决策执行点。
 
@@ -759,7 +784,7 @@ class IrisMemoryPlugin(Star):
         provider_id = info.get("provider_id", "")
 
         req = DecisionRequest(group_id=group_id, wake="message", motive=motive)
-        outcome = await self._decision_core.decide(req, self.context.llm_generate, provider_id)
+        outcome = await self._decision_core.decide(req, self._llm_manager, provider_id)
 
         if outcome.error or outcome.decision is None:
             if outcome.error_kind == "input_content_safety_1026":
@@ -880,6 +905,7 @@ class IrisMemoryPlugin(Star):
         self._triggering.pop(group_id, None)
 
         event.set_extra("iris_mode", motive)
+        event.set_extra("iris_llm_provider_id", provider_id)
         event.set_extra("iris_decision_obs", decision.observation)
 
         hint = SPEAK_HINTS.get(motive, SPEAK_HINTS["chime_in"])
@@ -913,6 +939,20 @@ class IrisMemoryPlugin(Star):
 
     @filter.on_llm_response()
     async def on_llm_response(self, event: AstrMessageEvent, resp: LLMResponse) -> None:
+        tracking = event.get_extra("iris_llm_tracking")
+        if tracking and self._llm_manager:
+            try:
+                await self._llm_manager.record_framework_response(
+                    module=tracking["module"],
+                    provider_id=tracking.get("provider_id", ""),
+                    response=resp,
+                    started_at=tracking.get("started_at"),
+                    prompt=tracking.get("prompt", ""),
+                )
+                event.set_extra("iris_llm_tracking", None)
+            except Exception as e:
+                logger.warning(f"Iris Reply: 主管线 LLM 统计失败：{e}")
+
         # 1. 记忆侧：bot 回复入 L1
         if self.component_manager:
             await handle_llm_response(event, resp, self.component_manager)
@@ -1034,7 +1074,7 @@ class IrisMemoryPlugin(Star):
             return
 
         req = DecisionRequest(group_id=group_id, wake="message", motive="watch")
-        outcome = await self._decision_core.decide(req, self.context.llm_generate, provider_id)
+        outcome = await self._decision_core.decide(req, self._llm_manager, provider_id)
 
         if outcome.error or outcome.decision is None:
             if outcome.error_kind == "input_content_safety_1026":

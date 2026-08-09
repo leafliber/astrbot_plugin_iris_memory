@@ -9,6 +9,7 @@ from .caller import LLMCaller
 from .manager import LLMManager
 from .token_stats import TokenUsage, TokenStatsManager
 from .call_log import CallLog
+from iris_memory.llm_modules import ALL_LLM_MODULES
 
 __all__ = [
     # 协议接口
@@ -20,4 +21,5 @@ __all__ = [
     "TokenStatsManager",
     # 调用日志
     "CallLog",
+    "ALL_LLM_MODULES",
 ]

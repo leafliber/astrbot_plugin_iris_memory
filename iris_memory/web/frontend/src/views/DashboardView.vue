@@ -174,7 +174,12 @@
                   <th>模块</th>
                   <th class="text-right">输入 Token</th>
                   <th class="text-right">输出 Token</th>
+                  <th class="text-right">总 Token</th>
                   <th class="text-right">调用次数</th>
+                  <th class="text-right">成功</th>
+                  <th class="text-right">失败</th>
+                  <th class="text-right">待结算</th>
+                  <th class="text-right">成功率</th>
                 </tr>
               </thead>
               <tbody>
@@ -182,7 +187,12 @@
                   <td class="font-weight-medium">{{ getModuleName(module) }}</td>
                   <td class="text-right text-primary">{{ formatNumber(stat.total_input_tokens) }}</td>
                   <td class="text-right text-secondary">{{ formatNumber(stat.total_output_tokens) }}</td>
+                  <td class="text-right">{{ formatNumber(stat.total_input_tokens + stat.total_output_tokens) }}</td>
                   <td class="text-right">{{ stat.total_calls }}</td>
+                  <td class="text-right text-success">{{ stat.successful_calls ?? stat.total_calls }}</td>
+                  <td class="text-right text-error">{{ stat.failed_calls ?? 0 }}</td>
+                  <td class="text-right text-medium-emphasis">{{ stat.pending_calls ?? 0 }}</td>
+                  <td class="text-right">{{ formatSuccessRate(stat) }}</td>
                 </tr>
               </tbody>
             </v-table>
@@ -501,9 +511,40 @@ const getModuleName = (module: string): string => {
   const names: Record<string, string> = {
     global: '全局',
     l1_summarizer: 'L1 摘要器',
+    l2_query_rewrite: 'L2 查询改写',
+    l3_kg_extraction: 'L3 知识提取',
+    image_parsing: '图片解析',
+    profile_analysis: '用户画像分析',
+    learning_review: '学习审查（旧）',
+    learning_dialogue_review: '对话学习审查',
+    learning_jargon_review: '暗语鉴别',
+    persona_evolution_analysis: '人格自迭代 · 分析',
+    persona_evolution_generate: '人格自迭代 · 生成',
+    persona_evolution_review: '人格自迭代 · 审查',
+    proactive_decision_chime_in: '主动回复 · 插话决策',
+    proactive_decision_follow_up: '主动回复 · 跟进决策',
+    proactive_decision_initiate: '主动回复 · 发起决策',
+    proactive_decision_watch: '主动回复 · 跟进评估',
+    proactive_reply_chime_in: '主动回复 · 插话生成',
+    proactive_reply_follow_up: '主动回复 · 跟进生成',
+    proactive_reply_initiate: '主动回复 · 发起生成',
+    proactive_reply_passive: '主动回复 · 被动回复',
+    dream_consolidation: '梦境 · 记忆整合',
+    dream_temporal_anchor: '梦境 · 时间锚定',
+    dream_contradiction: '梦境 · 矛盾检测',
+    dream_pattern_discovery: '梦境 · 模式发现',
+    dream_knowledge_induction: '梦境 · 知识归纳',
+    dream_pruning_confirm: '梦境 · 遗忘确认',
     llm_manager: 'LLM 管理器'
   }
   return names[module] || module
+}
+
+const formatSuccessRate = (stat: TokenStats): string => {
+  const successful = stat.successful_calls ?? stat.total_calls
+  const completed = successful + (stat.failed_calls ?? 0)
+  if (!completed) return '—'
+  return `${((successful / completed) * 100).toFixed(1)}%`
 }
 
 const formatNumber = (num: number): string => {

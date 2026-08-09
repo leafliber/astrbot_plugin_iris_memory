@@ -85,6 +85,15 @@ async def get_token_stats():
                 "total_calls": stat.total_calls
                 if hasattr(stat, "total_calls")
                 else stat.get("total_calls", 0),
+                "successful_calls": stat.successful_calls
+                if hasattr(stat, "successful_calls")
+                else stat.get("successful_calls", stat.get("total_calls", 0)),
+                "failed_calls": stat.failed_calls
+                if hasattr(stat, "failed_calls")
+                else stat.get("failed_calls", 0),
+                "pending_calls": stat.pending_calls
+                if hasattr(stat, "pending_calls")
+                else stat.get("pending_calls", 0),
             }
 
         logger.info("获取Token统计成功")
@@ -233,6 +242,9 @@ async def get_all_stats():
                 "total_input_tokens": 0,
                 "total_output_tokens": 0,
                 "total_calls": 0,
+                "successful_calls": 0,
+                "failed_calls": 0,
+                "pending_calls": 0,
             }
         }
         llm_manager = manager.get_component("llm_manager", LLMManager)
@@ -250,6 +262,15 @@ async def get_all_stats():
                         "total_calls": stat.total_calls
                         if hasattr(stat, "total_calls")
                         else stat.get("total_calls", 0),
+                        "successful_calls": stat.successful_calls
+                        if hasattr(stat, "successful_calls")
+                        else stat.get("successful_calls", stat.get("total_calls", 0)),
+                        "failed_calls": stat.failed_calls
+                        if hasattr(stat, "failed_calls")
+                        else stat.get("failed_calls", 0),
+                        "pending_calls": stat.pending_calls
+                        if hasattr(stat, "pending_calls")
+                        else stat.get("pending_calls", 0),
                     }
             except Exception as e:
                 logger.warning(f"获取Token统计失败：{e}")

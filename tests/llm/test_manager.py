@@ -103,6 +103,32 @@ class TestLLMManager:
         assert len(logs) == 1
         assert logs[0]["success"] is False
         assert "API Error" in logs[0]["error_message"]
+        stats = await manager.get_token_stats("l1_summarizer")
+        assert stats["total_calls"] == 1
+        assert stats["successful_calls"] == 0
+        assert stats["failed_calls"] == 1
+
+    @pytest.mark.asyncio
+    async def test_record_framework_response(self, mock_context, mock_storage, mock_config):
+        """AstrBot 主管线回复也由 LLMManager 统一结算。"""
+        manager = LLMManager(mock_context, mock_storage)
+        await manager.initialize()
+        response = await mock_context.llm_generate()
+
+        await manager.record_framework_attempt("proactive_reply_chime_in")
+        await manager.record_framework_response(
+            module="proactive_reply_chime_in",
+            provider_id="p1",
+            response=response,
+            prompt="hello",
+        )
+
+        stats = await manager.get_token_stats("proactive_reply_chime_in")
+        assert stats["total_calls"] == 1
+        assert stats["successful_calls"] == 1
+        assert stats["total_input_tokens"] == 100
+        assert stats["total_output_tokens"] == 50
+        assert manager.get_recent_call_logs()[0]["metadata"]["path"] == "framework"
 
     @pytest.mark.asyncio
     async def test_call_protocol(self, mock_context, mock_storage, mock_config):

@@ -15,6 +15,7 @@ from datetime import datetime
 from typing import Dict, List, Optional, cast
 
 from iris_memory.core import get_logger
+from iris_memory.llm_modules import DREAM_CONSOLIDATION
 from iris_memory.config import get_config
 from iris_memory.l2_memory.adapter import L2MemoryAdapter
 from iris_memory.l3_kg.adapter import L3KGAdapter
@@ -336,7 +337,7 @@ class ConsolidationPhase:
 4. 仅输出合并后的内容。"""
         try:
             merged = await llm_manager.generate_direct(
-                prompt=prompt, module="dream_consolidation"
+                prompt=prompt, module=DREAM_CONSOLIDATION
             )
             return merged.strip() if merged and merged.strip() else None
         except Exception as e:
@@ -357,7 +358,7 @@ class ConsolidationPhase:
 合并后："""
 
             merged = await llm_manager.generate_direct(
-                prompt=prompt, module="dream_consolidation"
+                prompt=prompt, module=DREAM_CONSOLIDATION
             )
 
             if not merged or not merged.strip():

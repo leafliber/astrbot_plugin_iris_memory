@@ -111,7 +111,7 @@ class TestScoringAndReview:
         verdicts = await JargonReviewer().review([cluster], llm)
         assert verdicts and verdicts[0].decision == "approve"
         assert llm.generate_direct.call_count == 1
-        assert llm.generate_direct.call_args.kwargs["module"] == "learning_review"
+        assert llm.generate_direct.call_args.kwargs["module"] == "learning_jargon_review"
 
     def test_invalid_canonical_is_deferred(self):
         cluster = CandidateCluster("g:1", "g", [1], ["绝绝子"], "绝绝子", 6, 2, 8, 0.8)
