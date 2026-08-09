@@ -260,18 +260,10 @@ class ConsolidationPhase:
             reverse=True,
         )
 
-        current_content = sorted_entries[0].content
         best_metadata = sorted_entries[0].metadata
-
-        for i in range(1, len(sorted_entries)):
-            merged = await self._merge_memories(
-                current_content, sorted_entries[i].content, llm_manager
-            )
-            if merged:
-                current_content = merged
-            else:
-                if len(sorted_entries[i].content) > len(current_content):
-                    current_content = sorted_entries[i].content
+        current_content = await self._merge_memory_group(sorted_entries, llm_manager)
+        if not current_content:
+            current_content = sorted_entries[0].content
 
         group_id = best_metadata.get("group_id")
         max_confidence = max(e.metadata.get("confidence", 0.5) for e in entries)
@@ -319,6 +311,37 @@ class ConsolidationPhase:
         else:
             logger.warning("合并记忆存储失败，原始记忆未删除，保留原样")
             return 0, 0
+
+    async def _merge_memory_group(
+        self, entries: List["MemoryEntry"], llm_manager: "LLMManager"
+    ) -> Optional[str]:
+        """一次 LLM 调用合并整组记忆，避免串行两两合并。"""
+        memory_lines = []
+        for index, entry in enumerate(entries, 1):
+            timestamp = entry.metadata.get("timestamp", "未知时间")
+            user_id = entry.metadata.get("user_id", "")
+            subject = f" 用户:{user_id}" if user_id else ""
+            memory_lines.append(
+                f"[{index}] 时间:{timestamp}{subject}\n{entry.content}"
+            )
+
+        prompt = f"""将以下关于同一话题的记忆合并为一条完整记忆。
+
+{chr(10).join(memory_lines)}
+
+要求：
+1. 合并重复信息，保留各条独特细节；
+2. 发生冲突时依据给出的时间优先保留较新事实；
+3. 必须保留主体（是谁的偏好/行为），不得写成无主体表述；
+4. 仅输出合并后的内容。"""
+        try:
+            merged = await llm_manager.generate_direct(
+                prompt=prompt, module="dream_consolidation"
+            )
+            return merged.strip() if merged and merged.strip() else None
+        except Exception as e:
+            logger.error(f"LLM 整组合并失败：{e}")
+            return None
 
     async def _merge_memories(
         self, content1: str, content2: str, llm_manager: "LLMManager"

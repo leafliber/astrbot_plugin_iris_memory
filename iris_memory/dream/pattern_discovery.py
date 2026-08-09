@@ -13,6 +13,8 @@ Features:
 """
 
 import random
+import hashlib
+import inspect
 from collections import defaultdict
 from datetime import datetime
 from typing import Dict, List, Optional, cast
@@ -96,15 +98,28 @@ class PatternDiscoveryPhase:
             patterns_written = 0
 
             for group_key, group_entries in groups.items():
-                if len(group_entries) < 3:
+                analysis_entries = [
+                    entry
+                    for entry in group_entries
+                    if entry.metadata.get("source") != "dream_pattern"
+                ]
+                if len(analysis_entries) < 3:
+                    continue
+
+                group_hash = self._group_content_hash(analysis_entries)
+                if all(
+                    entry.metadata.get("dream_pattern_input_hash") == group_hash
+                    for entry in analysis_entries
+                ):
+                    logger.debug(f"分组 [{group_key}] 内容未变化，跳过模式挖掘")
                     continue
 
                 groups_analyzed += 1
 
                 sample = (
-                    random.sample(group_entries, self._sample_size)
-                    if len(group_entries) > self._sample_size
-                    else group_entries
+                    random.sample(analysis_entries, self._sample_size)
+                    if len(analysis_entries) > self._sample_size
+                    else analysis_entries
                 )
 
                 try:
@@ -119,20 +134,15 @@ class PatternDiscoveryPhase:
                         if conf_level < min_level:
                             continue
 
-                        is_dup = await self._check_duplicate(
-                            pattern["description"], l2, persona_id
-                        )
-                        if is_dup:
-                            logger.debug(
-                                f"模式已存在，跳过：{pattern['description'][:50]}"
-                            )
-                            continue
-
                         written = await self._write_pattern(
                             pattern, group_key, l2, l3, persona_id
                         )
                         if written:
                             patterns_written += 1
+
+                    # 只有 LLM 正常返回（含 NONE）才记录输入版本；异常会抛到
+                    # 外层并保留未扫描状态，供后续任务重试。
+                    await self._mark_group_scanned(analysis_entries, group_hash, l2)
 
                 except Exception as e:
                     logger.error(f"分组 [{group_key}] 模式挖掘失败：{e}", exc_info=True)
@@ -173,6 +183,24 @@ class PatternDiscoveryPhase:
 
         return dict(groups)
 
+    @staticmethod
+    def _group_content_hash(entries: list) -> str:
+        payload = "\n".join(
+            f"{entry.id}\0{entry.content}\0{entry.metadata.get('updated_at', '')}"
+            for entry in sorted(entries, key=lambda item: item.id)
+            if entry.metadata.get("source") != "dream_pattern"
+        )
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+    async def _mark_group_scanned(
+        self, entries: list, group_hash: str, l2: "L2MemoryAdapter"
+    ) -> None:
+        for entry in entries:
+            if entry.metadata.get("source") == "dream_pattern":
+                continue
+            entry.metadata["dream_pattern_input_hash"] = group_hash
+            await l2.update_metadata(entry.id, entry.metadata)
+
     async def _extract_patterns(self, entries: list, llm: "LLMManager") -> List[dict]:
         memory_texts = []
         for i, entry in enumerate(entries, 1):
@@ -212,7 +240,7 @@ PERSON 必须填写，无法确定归属用户时不要输出该模式。没有�
 
         except Exception as e:
             logger.error(f"LLM 模式提取失败：{e}")
-            return []
+            raise
 
     def _parse_patterns(self, response: str) -> List[dict]:
         patterns = []
@@ -285,21 +313,37 @@ PERSON 必须填写，无法确定归属用户时不要输出该模式。没有�
             )
             return False
 
-        new_id = await l2.add_memory(
-            description,
-            metadata={
-                "source": "dream_pattern",
-                "confidence": confidence,
-                "timestamp": datetime.now().isoformat(),
-                "group_id": group_key if group_key != "_all" else None,
-                "evidence": pattern.get("evidence", ""),
-                "pattern_type": node_type,
-                "user_id": person_id,
-            },
-            persona_id=persona_id,
+        metadata = {
+            "source": "dream_pattern",
+            "confidence": confidence,
+            "timestamp": datetime.now().isoformat(),
+            "group_id": group_key if group_key != "_all" else None,
+            "evidence": pattern.get("evidence", ""),
+            "pattern_type": node_type,
+            "user_id": person_id,
+            # 模式阶段已经直接构建 L3 节点和关系，避免下一阶段再次抽取。
+            "kg_processed": True,
+        }
+        add_with_result = getattr(l2, "add_memory_with_result", None)
+        write_result = (
+            add_with_result(description, metadata=metadata, persona_id=persona_id)
+            if callable(add_with_result)
+            else None
         )
+        if write_result is not None and inspect.isawaitable(write_result):
+            new_id, created = await write_result
+        elif isinstance(write_result, tuple) and len(write_result) == 2:
+            new_id, created = write_result
+        else:
+            # 兼容旧适配器/测试桩；正式 L2 均走上面的向量复用接口。
+            new_id = await l2.add_memory(
+                description, metadata=metadata, persona_id=persona_id
+            )
+            created = bool(new_id)
 
-        if not new_id:
+        if not new_id or not created:
+            if new_id:
+                logger.debug(f"模式已存在，跳过重复写入：{description[:50]}")
             return False
 
         if l3 and l3.is_available:
@@ -313,6 +357,7 @@ PERSON 必须填写，无法确定归属用户时不要输出该模式。没有�
                     confidence=confidence,
                     group_id=group_key if group_key != "_all" else None,
                     properties={"source": "dream_pattern"},
+                    persona_id=persona_id,
                 )
                 node.id = node.generate_id()
                 node_added = await l3.add_node(node)
@@ -326,6 +371,7 @@ PERSON 必须填写，无法确定归属用户时不要输出该模式。没有�
                         node_type,
                         group_key,
                         confidence,
+                        persona_id,
                     )
             except Exception as e:
                 logger.debug(f"写入 L3 节点失败：{e}")
@@ -340,6 +386,7 @@ PERSON 必须填写，无法确定归属用户时不要输出该模式。没有�
         node_type: str,
         group_key: str,
         confidence: float,
+        persona_id: str = "default",
     ) -> None:
         """查找或创建 Person 节点，建立关系边"""
         relation_type = _TYPE_TO_RELATION.get(node_type)
@@ -348,7 +395,9 @@ PERSON 必须填写，无法确定归属用户时不要输出该模式。没有�
 
         try:
             # 搜索是否已有该 Person 节点
-            existing = await l3.search_nodes(person_id_str, limit=5)
+            existing = await l3.search_nodes(
+                person_id_str, limit=5, persona_id=persona_id
+            )
             person_node_id = None
             for n in existing:
                 if n.get("label") == "Person" and n.get("name", "") == person_id_str:
@@ -365,6 +414,7 @@ PERSON 必须填写，无法确定归属用户时不要输出该模式。没有�
                     confidence=0.5,
                     group_id=group_key if group_key != "_all" else None,
                     properties={"source": "dream_pattern"},
+                    persona_id=persona_id,
                 )
                 person.id = person.generate_id()
                 added = await l3.add_node(person)
@@ -379,6 +429,7 @@ PERSON 必须填写，无法确定归属用户时不要输出该模式。没有�
                 relation_type=relation_type,
                 weight=confidence,
                 confidence=confidence,
+                persona_id=persona_id,
             )
             await l3.add_edge(edge)
             logger.debug(

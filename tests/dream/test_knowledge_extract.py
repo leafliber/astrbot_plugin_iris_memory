@@ -12,6 +12,7 @@ import pytest
 from unittest.mock import Mock, AsyncMock, patch
 
 from iris_memory.dream.knowledge_extract import KnowledgeExtractPhase
+from iris_memory.l2_memory.models import MemoryEntry
 
 
 def _mock_config():
@@ -280,3 +281,19 @@ class TestKnowledgeExtractPhase:
                 await phase.execute(l2, l3, llm)
 
         assert captured.get("user_aliases") == {"u1": ["庭"]}
+
+    @pytest.mark.asyncio
+    async def test_empty_extraction_is_finalized_after_two_identical_attempts(
+        self, phase
+    ):
+        memory = MemoryEntry(id="m1", content="一次性寒暄", metadata={})
+        l2 = Mock()
+        l2.update_metadata = AsyncMock(return_value=True)
+
+        first = await phase._record_empty_result([memory], l2)
+        second = await phase._record_empty_result([memory], l2)
+
+        assert first == 0
+        assert second == 1
+        assert memory.metadata["kg_empty_attempts"] == 2
+        assert memory.metadata["kg_processed"] is True

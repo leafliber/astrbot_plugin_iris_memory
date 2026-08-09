@@ -21,6 +21,34 @@ class TestConfig:
 
         assert config.get("l1_buffer.enable")
 
+    def test_legacy_dream_switches_do_not_map_to_new_stages(self, tmp_path: Path):
+        astrbot_config = {
+            "scheduled_tasks": {
+                "dream_enable_consolidation": False,
+                "dream_enable_temporal_anchor": False,
+                "dream_enable_contradiction": False,
+                "dream_enable_pattern_discovery": False,
+                "dream_enable_knowledge_extract": False,
+                "dream_enable_pruning": False,
+            }
+        }
+        hidden_manager = HiddenConfigManager(
+            tmp_path / "hidden_config.json", HiddenConfig()
+        )
+        config = Config(astrbot_config, hidden_manager, Defaults(), tmp_path)
+
+        new_switches = [
+            "dream_stage_temporal_anchor_enabled",
+            "dream_stage_reconciliation_enabled",
+            "dream_stage_knowledge_induction_enabled",
+            "dream_stage_l2_pruning_enabled",
+            "dream_stage_l3_maintenance_enabled",
+        ]
+        assert all(
+            config.get(f"scheduled_tasks.{switch}") is True
+            for switch in new_switches
+        )
+
     def test_get_with_default(self, tmp_path: Path):
         astrbot_config = {}
 

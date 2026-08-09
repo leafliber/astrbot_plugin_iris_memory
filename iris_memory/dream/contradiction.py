@@ -12,6 +12,8 @@ Features:
 """
 
 import random
+import json
+from datetime import datetime
 from typing import Dict, List, Optional, cast
 
 from iris_memory.core import get_logger
@@ -37,6 +39,7 @@ class ContradictionPhase:
         self._scan_budget = 200
         self._query_batch_size = 50
         self._query_top_k = 5
+        self._llm_batch_size = 5
 
     async def execute(
         self,
@@ -59,6 +62,9 @@ class ContradictionPhase:
         )
         self._query_batch_size = cast(
             int, config.get("dream_contradiction_query_batch_size")
+        )
+        self._llm_batch_size = cast(
+            int, config.get("dream_contradiction_llm_batch_size", 5)
         )
 
         if not llm:
@@ -89,17 +95,20 @@ class ContradictionPhase:
             contradictions_found = 0
             resolved = 0
 
-            for group in candidate_groups[: self._max_groups]:
-                groups_checked += 1
-
+            selected_groups = candidate_groups[: self._max_groups]
+            for offset in range(0, len(selected_groups), self._llm_batch_size):
+                batch = selected_groups[offset : offset + self._llm_batch_size]
                 try:
-                    result = await self._check_and_resolve(group, l2, llm)
-                    if result is not None:
-                        contradictions_found += 1
-                        if result:
-                            resolved += 1
+                    batch_results = await self._check_and_resolve_batch(batch, l2, llm)
+                    groups_checked += len(batch)
+                    for result in batch_results:
+                        if result is not None:
+                            contradictions_found += 1
+                            if result:
+                                resolved += 1
                 except Exception as e:
-                    logger.error(f"矛盾消解失败：{e}", exc_info=True)
+                    groups_checked += len(batch)
+                    logger.error(f"批量矛盾消解失败：{e}", exc_info=True)
 
             logger.info(
                 f"矛盾消解完成：检查 {groups_checked} 组，"
@@ -150,7 +159,7 @@ class ContradictionPhase:
         else:
             groups_by_gid = {None: scan_entries}
 
-        candidates: List[List["MemoryEntry"]] = []
+        candidate_edges: list[tuple[float, tuple[str, str]]] = []
         seen_pairs: set = set()
         total_queries = 0
 
@@ -172,7 +181,6 @@ class ContradictionPhase:
                     continue
 
                 for query_entry, results in zip(batch, results_batch):
-                    related = []
                     for result in results:
                         if result.entry.id == query_entry.id:
                             continue
@@ -189,20 +197,129 @@ class ContradictionPhase:
                             continue
                         seen_pairs.add(pair_key)
 
-                        # 检索命中的条目可能不在本次采样范围内，从全量索引补齐
-                        hit_entry = entry_index.get(result.entry.id, result.entry)
-                        related.append(hit_entry)
-
-                    if related:
-                        candidates.append([query_entry] + related)
+                        candidate_edges.append((result.score, pair_key))
 
                 total_queries += len(batch)
+
+        # 每条记忆每轮最多进入一个二元候选。这样既避免重复 LLM 判断/陈旧
+        # 删除，也不会把 A-B、B-C 的相似链误当成 A/B/C 必须三选一。
+        candidates: List[List["MemoryEntry"]] = []
+        used_ids: set[str] = set()
+        for _score, pair in sorted(candidate_edges, reverse=True):
+            left_id, right_id = pair
+            if left_id in used_ids or right_id in used_ids:
+                continue
+            left = entry_index.get(left_id)
+            right = entry_index.get(right_id)
+            if left is None or right is None:
+                continue
+            candidates.append([left, right])
+            used_ids.update(pair)
 
         logger.info(
             f"矛盾检测扫描 {total_queries} 条记忆，"
             f"发现 {len(candidates)} 组矛盾候选"
         )
         return candidates
+
+    async def _check_and_resolve_batch(
+        self,
+        groups: List[List["MemoryEntry"]],
+        l2: "L2MemoryAdapter",
+        llm: "LLMManager",
+    ) -> List[Optional[bool]]:
+        """一次调用判断多个互不重叠候选组，并安全应用结果。"""
+        if not groups:
+            return []
+
+        sections = []
+        for group_index, group in enumerate(groups, 1):
+            lines = []
+            for memory_index, entry in enumerate(group, 1):
+                ts = entry.metadata.get("timestamp", "未知时间")
+                lines.append(f"[{memory_index}] {ts}: {entry.content}")
+            sections.append(f"GROUP {group_index}\n" + "\n".join(lines))
+
+        prompt = f"""判断下列多组记忆是否各自存在逻辑矛盾。各组相互独立。
+
+{chr(10).join(sections)}
+
+严格输出 JSON 数组，每组一个对象：
+[
+  {{"group": 1, "conflict": true, "keep": 2, "merged": "保留主体的正确记忆"}},
+  {{"group": 2, "conflict": false, "keep": null, "merged": ""}}
+]
+仅在确有冲突时 conflict=true；keep 是该组中应保留的 1-based 编号。"""
+        try:
+            response = await llm.generate_direct(
+                prompt=prompt, module="dream_contradiction"
+            )
+            decisions = self._parse_batch_decisions(response)
+        except Exception as e:
+            logger.error(f"矛盾消解 LLM 批量调用失败：{e}")
+            return [None] * len(groups)
+
+        results: List[Optional[bool]] = [None] * len(groups)
+        for decision in decisions:
+            try:
+                group_idx = int(decision.get("group", 0)) - 1
+                if group_idx < 0 or group_idx >= len(groups):
+                    continue
+                if decision.get("conflict") is not True:
+                    continue
+                group = groups[group_idx]
+                keep_idx = int(decision.get("keep", 0)) - 1
+                merged = str(decision.get("merged", "")).strip()
+                if keep_idx < 0 or keep_idx >= len(group) or not merged:
+                    continue
+                results[group_idx] = await self._apply_resolution(
+                    group, keep_idx, merged, l2
+                )
+            except (TypeError, ValueError):
+                continue
+        return results
+
+    @staticmethod
+    def _parse_batch_decisions(response: Optional[str]) -> List[dict]:
+        if not response:
+            return []
+        text = response.strip()
+        if text.startswith("```json"):
+            text = text[7:]
+        elif text.startswith("```"):
+            text = text[3:]
+        if text.endswith("```"):
+            text = text[:-3]
+        try:
+            data = json.loads(text.strip())
+            return data if isinstance(data, list) else []
+        except (json.JSONDecodeError, TypeError):
+            return []
+
+    async def _apply_resolution(
+        self,
+        group: List["MemoryEntry"],
+        resolved_idx: int,
+        merged_content: str,
+        l2: "L2MemoryAdapter",
+    ) -> bool:
+        keep_entry = group[resolved_idx]
+        delete_ids = [e.id for e in group if e.id != keep_entry.id]
+        success = await l2.update_content(keep_entry.id, merged_content)
+        if not success:
+            logger.warning("矛盾合并内容更新失败，保留全部原始记忆")
+            return False
+
+        keep_entry.metadata["confidence"] = min(
+            1.0, keep_entry.metadata.get("confidence", 0.5) + 0.1
+        )
+        keep_entry.metadata["updated_at"] = datetime.now().isoformat()
+        keep_entry.metadata["kg_processed"] = False
+        await l2.update_metadata(keep_entry.id, keep_entry.metadata)
+        if delete_ids:
+            await l2.delete_entries(delete_ids)
+        logger.info(f"矛盾消解：保留 [{resolved_idx + 1}]，删除 {len(delete_ids)} 条")
+        return True
 
     async def _check_and_resolve(
         self,
@@ -255,30 +372,9 @@ MERGED: <合并后的正确记忆内容>
             if resolved_idx is None or not merged_content:
                 return None
 
-            keep_entry = group[resolved_idx]
-            delete_ids = [e.id for e in group if e.id != keep_entry.id]
-
-            success = await l2.update_content(keep_entry.id, merged_content)
-            if success:
-                # update_content 内部已把 metadata["timestamp"] 刷新为 now，
-                # 随后 update_metadata 若用 keep_entry.metadata（陈旧副本）
-                # 整 blob 覆盖写回，会把新 timestamp 覆盖回旧值。修复：
-                # 先同步 timestamp，再写 confidence。
-                from datetime import datetime
-
-                keep_entry.metadata["confidence"] = min(
-                    1.0, keep_entry.metadata.get("confidence", 0.5) + 0.1
-                )
-                keep_entry.metadata["timestamp"] = datetime.now().isoformat()
-                await l2.update_metadata(keep_entry.id, keep_entry.metadata)
-
-            if delete_ids:
-                await l2.delete_entries(delete_ids)
-
-            logger.info(
-                f"矛盾消解：保留 [{resolved_idx + 1}]，删除 {len(delete_ids)} 条"
+            return await self._apply_resolution(
+                group, resolved_idx, merged_content, l2
             )
-            return True
 
         except Exception as e:
             logger.error(f"矛盾消解 LLM 调用失败：{e}")

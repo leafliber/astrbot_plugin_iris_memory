@@ -1,5 +1,5 @@
 """
-Iris Memory - AstrBot 整合记忆插件（分层记忆 + 统一决策主动回复）
+Iris Memory - AstrBot 轻量化三合一插件
 
 v3.0 架构：
 - 记忆侧（源自 Iris Chat Memory 轻量方案）：
@@ -8,6 +8,8 @@ v3.0 架构：
 - 主动回复侧（源自 Iris Reply 统一决策模型）：
   chime_in 跟话 / follow_up 跟进 / initiate 发起 / watch 被动评估，
   SignalGate 本地零成本门控 + 单次 LLM 统一决策 + ThreadAnchor 记账
+- 人格自学习迭代：
+  脱敏采样 + 风格分析 + 候选生成 + 独立审查 + Revision 审批/回滚
 
 钩子编排（等价于原两插件并存时的兼容性契约）：
   群消息 → on_message（主动回复门控，设 iris_mode extra）
@@ -132,7 +134,7 @@ def _detect_passive_trigger(event: AstrMessageEvent, req, context: Context) -> N
 
 
 class IrisMemoryPlugin(Star):
-    """AstrBot 整合记忆插件主类（分层记忆 + 统一决策主动回复）"""
+    """AstrBot 轻量化三合一插件主类。"""
 
     def __init__(self, context: Context, config: AstrBotConfig | None = None):
         super().__init__(context)

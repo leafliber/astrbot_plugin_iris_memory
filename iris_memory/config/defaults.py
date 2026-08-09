@@ -77,12 +77,11 @@ class ScheduledTasksConfig:
 
     provider: str = ""
     enable_dream: bool = True
-    dream_enable_consolidation: bool = True
-    dream_enable_temporal_anchor: bool = True
-    dream_enable_contradiction: bool = True
-    dream_enable_pattern_discovery: bool = True
-    dream_enable_knowledge_extract: bool = True
-    dream_enable_pruning: bool = True
+    dream_stage_temporal_anchor_enabled: bool = True
+    dream_stage_reconciliation_enabled: bool = True
+    dream_stage_knowledge_induction_enabled: bool = True
+    dream_stage_l2_pruning_enabled: bool = True
+    dream_stage_l3_maintenance_enabled: bool = True
 
 
 @dataclass
@@ -359,6 +358,10 @@ class HiddenConfig:
     dream_contradiction_query_batch_size: int = field(
         default=50,
         metadata={"description": "矛盾检测向量检索批量查询大小", "group": "梦境任务"},
+    )
+    dream_contradiction_llm_batch_size: int = field(
+        default=5,
+        metadata={"description": "单次 LLM 判断的矛盾候选组数", "group": "梦境任务"},
     )
     dream_pattern_sample_size: int = field(
         default=30,

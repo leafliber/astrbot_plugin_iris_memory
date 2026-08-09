@@ -13,6 +13,7 @@ import pytest
 from unittest.mock import Mock, AsyncMock, patch
 
 from iris_memory.dream.contradiction import ContradictionPhase
+from iris_memory.l2_memory.models import MemoryEntry, MemorySearchResult
 
 
 def _mock_config():
@@ -107,3 +108,58 @@ class TestContradictionPhase:
     def test_parse_merged_content_no_merged(self, phase):
         response = "NO_CONFLICT"
         assert phase._parse_merged_content(response) is None
+
+    @pytest.mark.asyncio
+    async def test_apply_resolution_does_not_delete_when_update_fails(self, phase):
+        entries = [
+            MemoryEntry(id="m1", content="旧事实"),
+            MemoryEntry(id="m2", content="新事实"),
+        ]
+        l2 = Mock()
+        l2.update_content = AsyncMock(return_value=False)
+        l2.update_metadata = AsyncMock()
+        l2.delete_entries = AsyncMock()
+
+        result = await phase._apply_resolution(entries, 1, "合并事实", l2)
+
+        assert result is False
+        l2.delete_entries.assert_not_awaited()
+        l2.update_metadata.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_similarity_chain_becomes_disjoint_pairs(self, phase):
+        entries = [
+            MemoryEntry(id="a", content="A"),
+            MemoryEntry(id="b", content="B"),
+            MemoryEntry(id="c", content="C"),
+        ]
+
+        def hit(entry, score):
+            return MemorySearchResult(entry=entry, score=score, distance=1 - score)
+
+        l2 = Mock()
+        l2.batch_retrieve_by_ids = AsyncMock(
+            return_value=[
+                [hit(entries[1], 0.8)],
+                [hit(entries[0], 0.8), hit(entries[2], 0.7)],
+                [hit(entries[1], 0.7)],
+            ]
+        )
+        phase._scan_budget = 10
+        phase._query_batch_size = 10
+        phase._query_top_k = 5
+
+        with patch(
+            "iris_memory.dream.contradiction.get_config",
+            return_value=Mock(
+                get=Mock(
+                    side_effect=lambda key, default=None: {
+                        "isolation_config.enable_group_memory_isolation": False,
+                    }.get(key, default)
+                )
+            ),
+        ):
+            groups = await phase._find_contradiction_candidates(entries, l2)
+
+        assert len(groups) == 1
+        assert {entry.id for entry in groups[0]} == {"a", "b"}

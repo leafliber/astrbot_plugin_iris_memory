@@ -1,16 +1,15 @@
 """
 Iris Chat Memory - 梦境任务主编排器
 
-记忆的离线深度加工，6 阶段流水线：
-1. 合并重复项 — 归拢同一话题的碎片记忆
-2. 时间锚定 — 将相对时间表达转换为绝对日期
-3. 矛盾消解 — 检测并解决逻辑冲突
-4. 模式挖掘 — 发现隐含的行为规律
-5. 知识提取 — L2→L3 结构化
-6. 遗忘清洗 — 淘汰低价值记忆
+记忆的离线深度加工，收敛为 4 个 persona 阶段 + 1 个全局维护阶段：
+1. 时间锚定 — 将相对时间表达转换为绝对日期（零 LLM）
+2. 记忆协调 — 一次近邻扫描完成重复合并与矛盾消解
+3. 知识归纳 — 增量模式发现 + L2→L3 结构化
+4. L2 遗忘清洗 — 淘汰低价值记忆
+5. 全局 L3 维护 — 每轮仅执行一次图谱去重与淘汰
 
 Features:
-    - 6 阶段可独立开关
+    - 5 个执行阶段独立开关
     - 阶段间数据流：前阶段输出影响后阶段
     - 统一报告输出
     - 单阶段失败不阻塞后续阶段
@@ -42,6 +41,11 @@ class DreamPhaseReport:
     duration_ms: int
     details: dict = field(default_factory=dict)
     error: Optional[str] = None
+    llm_calls: int = 0
+    input_tokens: int = 0
+    output_tokens: int = 0
+    embedding_requests: int = 0
+    embedded_texts: int = 0
 
 
 @dataclass
@@ -50,6 +54,16 @@ class DreamReport:
     finished_at: str = ""
     total_duration_ms: int = 0
     phases: List[DreamPhaseReport] = field(default_factory=list)
+
+    @property
+    def cost(self) -> dict:
+        return {
+            "llm_calls": sum(p.llm_calls for p in self.phases),
+            "input_tokens": sum(p.input_tokens for p in self.phases),
+            "output_tokens": sum(p.output_tokens for p in self.phases),
+            "embedding_requests": sum(p.embedding_requests for p in self.phases),
+            "embedded_texts": sum(p.embedded_texts for p in self.phases),
+        }
 
     @property
     def summary(self) -> str:
@@ -62,25 +76,32 @@ class DreamReport:
             parts.append(f"{len(failed)} 阶段失败")
         if skipped:
             parts.append(f"{len(skipped)} 阶段跳过")
-        return f"梦境完成：{', '.join(parts)}，耗时 {self.total_duration_ms}ms"
+        cost = self.cost
+        return (
+            f"梦境完成：{', '.join(parts)}，耗时 {self.total_duration_ms}ms，"
+            f"LLM {cost['llm_calls']} 次，Embedding {cost['embedding_requests']} 次"
+        )
 
 
 _PHASE_CONFIG_KEYS = {
-    "consolidation": "scheduled_tasks.dream_enable_consolidation",
-    "temporal_anchor": "scheduled_tasks.dream_enable_temporal_anchor",
-    "contradiction": "scheduled_tasks.dream_enable_contradiction",
-    "pattern_discovery": "scheduled_tasks.dream_enable_pattern_discovery",
-    "knowledge_extract": "scheduled_tasks.dream_enable_knowledge_extract",
-    "pruning": "scheduled_tasks.dream_enable_pruning",
+    "temporal_anchor": "scheduled_tasks.dream_stage_temporal_anchor_enabled",
+    "reconciliation": "scheduled_tasks.dream_stage_reconciliation_enabled",
+    "knowledge_induction": "scheduled_tasks.dream_stage_knowledge_induction_enabled",
+    "pruning": "scheduled_tasks.dream_stage_l2_pruning_enabled",
 }
+_GLOBAL_L3_CONFIG_KEY = "scheduled_tasks.dream_stage_l3_maintenance_enabled"
 
-_PHASES_THAT_MUTATE_ENTRIES = {"consolidation", "contradiction", "temporal_anchor"}
+_PHASES_THAT_MUTATE_ENTRIES = {
+    "reconciliation",
+    "temporal_anchor",
+    "knowledge_induction",
+}
 
 
 class DreamTask:
     """梦境任务 - 记忆离线深度加工
 
-    6 阶段流水线，每个阶段可独立开关。
+    4 个 persona 阶段 + 1 个全局维护阶段。
     阶段间有数据流：前一阶段的输出影响后一阶段的输入。
     单阶段失败不阻塞后续阶段执行。
 
@@ -131,6 +152,21 @@ class DreamTask:
             await self._run_pipeline_for_persona(persona_id, l2, l3, llm, report)
             await self._invalidate_entries()
 
+        # L3 是共享适配器；全图去重/孤儿清理/淘汰每轮只执行一次，避免随
+        # persona 数量线性重复。L2 清洗仍在各 persona 流水线内独立执行。
+        if l3 and config.get(_GLOBAL_L3_CONFIG_KEY):
+            global_report = await self._run_phase(
+                "pruning_l3_global",
+                True,
+                self._run_global_pruning,
+                l2,
+                l3,
+                llm,
+                [],
+                "*",
+            )
+            report.phases.append(global_report)
+
         finished_at = datetime.now()
         report.finished_at = finished_at.isoformat()
         report.total_duration_ms = int(
@@ -148,16 +184,14 @@ class DreamTask:
         llm: Optional["LLMManager"],
         report: DreamReport,
     ) -> None:
-        """对单个 persona 执行完整 6 阶段流水线"""
+        """对单个 persona 执行优化后的流水线"""
         config = get_config()
         logger.info(f"🌙 persona [{persona_id}] 开始加工...")
 
         phase_order = [
-            ("consolidation", self._run_consolidation),
             ("temporal_anchor", self._run_temporal_anchor),
-            ("contradiction", self._run_contradiction),
-            ("pattern_discovery", self._run_pattern_discovery),
-            ("knowledge_extract", self._run_knowledge_extract),
+            ("reconciliation", self._run_reconciliation),
+            ("knowledge_induction", self._run_knowledge_induction),
             ("pruning", self._run_pruning),
         ]
 
@@ -165,7 +199,7 @@ class DreamTask:
             config_key = _PHASE_CONFIG_KEYS[phase_name]
             enabled = bool(config.get(config_key))
 
-            needs_entries = phase_name != "knowledge_extract"
+            needs_entries = True
             entries = (
                 await self._get_entries(l2, persona_id)
                 if (enabled and needs_entries)
@@ -198,8 +232,11 @@ class DreamTask:
             )
 
         phase_start = datetime.now()
+        before_cost = await self._cost_snapshot(l2, llm)
         try:
             details = await phase_func(l2, l3, llm, entries, persona_id)
+            after_cost = await self._cost_snapshot(l2, llm)
+            cost = self._cost_delta(before_cost, after_cost)
             duration_ms = int((datetime.now() - phase_start).total_seconds() * 1000)
             logger.info(
                 f"阶段 [{phase_name}] (persona {persona_id}) 完成，耗时 {duration_ms}ms"
@@ -210,8 +247,11 @@ class DreamTask:
                 success=True,
                 duration_ms=duration_ms,
                 details=details or {},
+                **cost,
             )
         except Exception as e:
+            after_cost = await self._cost_snapshot(l2, llm)
+            cost = self._cost_delta(before_cost, after_cost)
             duration_ms = int((datetime.now() - phase_start).total_seconds() * 1000)
             logger.error(
                 f"阶段 [{phase_name}] (persona {persona_id}) 失败：{e}", exc_info=True
@@ -222,13 +262,42 @@ class DreamTask:
                 success=False,
                 duration_ms=duration_ms,
                 error=str(e),
+                **cost,
             )
 
-    async def _run_consolidation(self, l2, l3, llm, entries=None, persona_id="default"):
-        from .consolidation import ConsolidationPhase
+    @staticmethod
+    async def _cost_snapshot(l2, llm) -> dict:
+        llm_stats = (
+            await llm.get_token_stats("global")
+            if llm and hasattr(llm, "get_token_stats")
+            else {}
+        )
+        embedding_stats = (
+            l2.get_embedding_stats() if hasattr(l2, "get_embedding_stats") else {}
+        )
+        return {
+            "llm_calls": int(llm_stats.get("total_calls", 0)),
+            "input_tokens": int(llm_stats.get("total_input_tokens", 0)),
+            "output_tokens": int(llm_stats.get("total_output_tokens", 0)),
+            "embedding_requests": int(embedding_stats.get("requests", 0)),
+            "embedded_texts": int(embedding_stats.get("texts", 0)),
+        }
 
-        phase = ConsolidationPhase()
-        return await phase.execute(l2, l3, llm, entries=entries, persona_id=persona_id)
+    @staticmethod
+    def _cost_delta(before: dict, after: dict) -> dict:
+        return {
+            key: max(0, int(after.get(key, 0)) - int(before.get(key, 0)))
+            for key in before
+        }
+
+    async def _run_reconciliation(
+        self, l2, l3, llm, entries=None, persona_id="default"
+    ):
+        from .reconciliation import ReconciliationPhase
+
+        return await ReconciliationPhase().execute(
+            l2, l3, llm, entries=entries, persona_id=persona_id
+        )
 
     async def _run_temporal_anchor(
         self, l2, l3, llm, entries=None, persona_id="default"
@@ -238,35 +307,48 @@ class DreamTask:
         phase = TemporalAnchorPhase()
         return await phase.execute(l2, l3, llm, entries=entries, persona_id=persona_id)
 
-    async def _run_contradiction(self, l2, l3, llm, entries=None, persona_id="default"):
-        from .contradiction import ContradictionPhase
-
-        phase = ContradictionPhase()
-        return await phase.execute(l2, l3, llm, entries=entries, persona_id=persona_id)
-
-    async def _run_pattern_discovery(
+    async def _run_knowledge_induction(
         self, l2, l3, llm, entries=None, persona_id="default"
     ):
-        from .pattern_discovery import PatternDiscoveryPhase
+        from .knowledge_induction import KnowledgeInductionPhase
 
-        phase = PatternDiscoveryPhase()
-        return await phase.execute(l2, l3, llm, entries=entries, persona_id=persona_id)
-
-    async def _run_knowledge_extract(
-        self, l2, l3, llm, entries=None, persona_id="default"
-    ):
-        from .knowledge_extract import KnowledgeExtractPhase
-
-        phase = KnowledgeExtractPhase()
-        return await phase.execute(
-            l2, l3, llm, persona_id=persona_id, component_manager=self._component_manager
+        return await KnowledgeInductionPhase().execute(
+            l2,
+            l3,
+            llm,
+            entries=entries,
+            persona_id=persona_id,
+            component_manager=self._component_manager,
         )
 
     async def _run_pruning(self, l2, l3, llm, entries=None, persona_id="default"):
         from .pruning import PruningPhase
 
         phase = PruningPhase()
-        return await phase.execute(l2, l3, llm, entries=entries, persona_id=persona_id)
+        return await phase.execute(
+            l2,
+            None,
+            llm,
+            entries=entries,
+            persona_id=persona_id,
+            process_l2=True,
+            process_l3=False,
+        )
+
+    async def _run_global_pruning(
+        self, l2, l3, llm, entries=None, persona_id="*"
+    ):
+        from .pruning import PruningPhase
+
+        return await PruningPhase().execute(
+            l2,
+            l3,
+            llm,
+            entries=[],
+            persona_id=persona_id,
+            process_l2=False,
+            process_l3=True,
+        )
 
     def _get_l2(self) -> Optional["L2MemoryAdapter"]:
         adapter = self._component_manager.get_component("l2_memory", L2MemoryAdapter)

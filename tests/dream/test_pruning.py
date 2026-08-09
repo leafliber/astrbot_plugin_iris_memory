@@ -139,7 +139,32 @@ class TestPruningPhase:
             entries = [("id1", "content1", 0.8)]
             result = await phase._llm_confirm_eviction(entries, llm, source="l2")
 
-            assert "id1" in result
+        assert "id1" in result
+
+    @pytest.mark.asyncio
+    async def test_llm_confirm_eviction_batches_and_requires_explicit_forget(
+        self, phase
+    ):
+        config = Mock()
+        config.get = Mock(
+            side_effect=lambda key, default=None: {
+                "forgetting_llm_confirm_enable": True,
+                "forgetting_llm_confirm_threshold": 0.5,
+                "forgetting_llm_confirm_provider": None,
+            }.get(key, default)
+        )
+        llm = Mock()
+        llm.generate_direct = AsyncMock(
+            return_value='{"forget": ["id1"], "keep": ["id2"]}'
+        )
+
+        with patch("iris_memory.dream.pruning.get_config", return_value=config):
+            result = await phase._llm_confirm_eviction(
+                [("id1", "低价值一", 0.1), ("id2", "低价值二", 0.1)], llm
+            )
+
+        assert result == ["id1"]
+        llm.generate_direct.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_execute_with_entries_parameter(self, phase):

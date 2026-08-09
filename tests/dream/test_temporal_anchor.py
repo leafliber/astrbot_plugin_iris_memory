@@ -10,7 +10,8 @@ TemporalAnchorPhase 时间锚定测试
 
 import pytest
 from datetime import datetime
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, AsyncMock, patch
+from iris_memory.l2_memory.models import MemoryEntry
 
 from iris_memory.dream.temporal_anchor import (
     TemporalAnchorPhase,
@@ -88,6 +89,38 @@ class TestTemporalAnchorPhase:
 
         assert result["scanned"] == 0
         assert result["anchored"] == 0
+
+    @pytest.mark.asyncio
+    async def test_execute_is_zero_llm_and_batches_embedding_updates(self, phase):
+        entries = [
+            MemoryEntry(
+                id="m1",
+                content="昨天决定使用 Redis",
+                metadata={"timestamp": "2026-05-25T10:00:00"},
+            ),
+            MemoryEntry(
+                id="m2",
+                content="3天前开始学习 Rust",
+                metadata={"timestamp": "2026-05-25T10:00:00"},
+            ),
+        ]
+        l2 = Mock()
+        l2.get_all_entries = AsyncMock(return_value=entries)
+        l2.batch_update_contents = AsyncMock(return_value=2)
+        llm = Mock()
+        llm.generate_direct = AsyncMock()
+
+        with patch(
+            "iris_memory.dream.temporal_anchor.get_config", return_value=_mock_config()
+        ):
+            result = await phase.execute(l2, None, llm)
+
+        assert result == {"scanned": 2, "anchored": 2, "updated": 2}
+        llm.generate_direct.assert_not_awaited()
+        l2.batch_update_contents.assert_awaited_once()
+        updates = l2.batch_update_contents.await_args.args[0]
+        assert "2026年5月24日" in updates[0][1]
+        assert "2026年5月22日" in updates[1][1]
 
 
 class TestFormatDate:

@@ -12,6 +12,7 @@ import pytest
 from unittest.mock import Mock, AsyncMock, patch
 
 from iris_memory.dream.pattern_discovery import PatternDiscoveryPhase
+from iris_memory.l2_memory.models import MemoryEntry
 
 
 def _mock_config():
@@ -63,6 +64,28 @@ class TestPatternDiscoveryPhase:
 
         assert result["patterns_found"] == 0
         assert result["patterns_written"] == 0
+
+    @pytest.mark.asyncio
+    async def test_unchanged_group_is_only_analyzed_once(self, phase):
+        entries = [
+            MemoryEntry(id=f"m{i}", content=f"user1 的稳定行为 {i}", metadata={"user_id": "user1"})
+            for i in range(3)
+        ]
+        l2 = Mock()
+        l2.update_metadata = AsyncMock(return_value=True)
+        llm = Mock()
+        llm.generate_direct = AsyncMock(return_value="NONE")
+
+        with patch(
+            "iris_memory.dream.pattern_discovery.get_config",
+            return_value=_mock_config(),
+        ):
+            first = await phase.execute(l2, None, llm, entries=entries)
+            second = await phase.execute(l2, None, llm, entries=entries)
+
+        assert first["groups_analyzed"] == 1
+        assert second["groups_analyzed"] == 0
+        llm.generate_direct.assert_awaited_once()
 
     def test_parse_patterns_valid(self, phase):
         response = """TYPE: Preference

@@ -13,6 +13,7 @@ Features:
 """
 
 from datetime import datetime
+import json
 from typing import List, Optional, cast
 
 from iris_memory.core import get_logger
@@ -49,6 +50,8 @@ class PruningPhase:
         llm: Optional["LLMManager"],
         entries: Optional[list] = None,
         persona_id: str = "default",
+        process_l2: bool = True,
+        process_l3: bool = True,
     ) -> dict:
         config = get_config()
         self._batch_size = cast(int, config.get("eviction_batch_size"))
@@ -68,12 +71,13 @@ class PruningPhase:
             "l3_orphaned_removed": 0,
         }
 
-        l2_marked = await self._mark_low_confidence_l2(l2, entries)
-        result["l2_low_confidence_marked"] = l2_marked
-        l2_evicted = await self._evict_l2_memories(l2, llm, entries)
-        result["l2_evicted"] = l2_evicted
+        if process_l2:
+            l2_marked = await self._mark_low_confidence_l2(l2, entries)
+            result["l2_low_confidence_marked"] = l2_marked
+            l2_evicted = await self._evict_l2_memories(l2, llm, entries)
+            result["l2_evicted"] = l2_evicted
 
-        if l3 and l3.is_available:
+        if process_l3 and l3 and l3.is_available:
             merged, deleted = await self._merge_l3_duplicates(l3)
             result["l3_merged"] = merged
             l3_marked = await self._mark_low_confidence_l3(l3)
@@ -351,34 +355,50 @@ class PruningPhase:
         provider = cast(Optional[str], config.get("forgetting_llm_confirm_provider"))
 
         confirmed = []
+        needs_review: list[tuple[str, str, float]] = []
         for entry_id, content, score in entries:
             if score >= confirm_threshold:
                 confirmed.append(entry_id)
                 continue
+            needs_review.append((entry_id, content, score))
 
+        # 批量确认；解析失败或未明确列入 forget 的条目一律保留。
+        for offset in range(0, len(needs_review), 20):
+            batch = needs_review[offset : offset + 20]
+            items = "\n".join(
+                f"[{index}] id={entry_id} score={score:.3f} content={content[:500]}"
+                for index, (entry_id, content, score) in enumerate(batch, 1)
+            )
+            prompt = f"""以下记忆已被本地算法判为低价值，请逐条复核。
+只有确实没有长期保留价值时才选择 FORGET；不确定时 KEEP。
+
+{items}
+
+严格输出 JSON：{{"forget": ["id1"], "keep": ["id2"]}}"""
             try:
-                prompt = (
-                    "以下是一条记忆内容，系统评估其重要性极低，建议遗忘。\n"
-                    "请判断该记忆是否确实没有保留价值。\n"
-                    '回复 "FORGET" 表示确认遗忘，回复 "KEEP" 表示应保留。\n\n'
-                    f"记忆内容：{content[:500]}\n\n"
-                    "请只回复 FORGET 或 KEEP："
-                )
-
                 response = await llm.generate_direct(
                     prompt=prompt,
                     module="dream_pruning_confirm",
                     provider_id=provider,
                 )
-
-                decision = response.strip().upper() if response else "KEEP"
-
-                if "KEEP" in decision:
-                    logger.info(f"LLM 兜底确认保留记忆：{entry_id}（评分 {score:.3f}）")
-                else:
-                    confirmed.append(entry_id)
-
+                text = response.strip() if response else ""
+                if text.startswith("```json"):
+                    text = text[7:]
+                elif text.startswith("```"):
+                    text = text[3:]
+                if text.endswith("```"):
+                    text = text[:-3]
+                data = json.loads(text.strip())
+                allowed_ids = {entry_id for entry_id, _, _ in batch}
+                forget_ids = {
+                    str(item)
+                    for item in data.get("forget", [])
+                    if str(item) in allowed_ids
+                }
+                confirmed.extend(forget_ids)
             except Exception as e:
-                logger.warning(f"LLM 兜底确认失败：{e}，默认保留 {entry_id}")
+                logger.warning(
+                    f"LLM 批量兜底确认失败：{e}，默认保留本批 {len(batch)} 条"
+                )
 
         return confirmed

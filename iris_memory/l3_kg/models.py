@@ -99,6 +99,7 @@ class GraphNode:
     source_memory_id: Optional[str] = None
     group_id: Optional[str] = None
     properties: dict[str, str] = field(default_factory=dict)
+    persona_id: str = "default"
 
     def generate_id(self) -> str:
         """基于实体名称生成唯一ID
@@ -110,7 +111,10 @@ class GraphNode:
         Returns:
             节点唯一ID
         """
-        content_hash = hashlib.md5(f"{self.label}:{self.name}".encode()).hexdigest()
+        namespace = "" if self.persona_id == "default" else f"{self.persona_id}:"
+        content_hash = hashlib.md5(
+            f"{namespace}{self.label}:{self.name}".encode()
+        ).hexdigest()
         return f"{self.label.lower()}_{content_hash[:12]}"
 
     def to_dict(self) -> dict:
@@ -131,6 +135,7 @@ class GraphNode:
             "source_memory_id": self.source_memory_id,
             "group_id": self.group_id,
             "properties": self.properties,
+            "persona_id": self.persona_id,
         }
 
 
@@ -161,6 +166,7 @@ class GraphEdge:
     created_time: datetime = field(default_factory=datetime.now)
     source_memory_id: Optional[str] = None
     properties: dict[str, str] = field(default_factory=dict)
+    persona_id: str = "default"
 
     def generate_id(self) -> str:
         """生成边唯一标识
@@ -189,6 +195,7 @@ class GraphEdge:
             "created_time": self.created_time,
             "source_memory_id": self.source_memory_id,
             "properties": self.properties,
+            "persona_id": self.persona_id,
         }
 
 

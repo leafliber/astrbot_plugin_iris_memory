@@ -33,8 +33,9 @@ class EntityExtractor:
     L3 定位：高度浓缩的结构化知识，场景弱相关，聚焦高层次内容和关联。
     """
 
-    def __init__(self, llm_manager):
+    def __init__(self, llm_manager, module: str = "l3_kg_extraction"):
         self.llm_manager = llm_manager
+        self.module = module
         self.config = get_config()
 
     async def extract_from_text(
@@ -56,7 +57,7 @@ class EntityExtractor:
 
         try:
             response = await self.llm_manager.generate_direct(
-                prompt=prompt, module="l3_kg_extraction"
+                prompt=prompt, module=self.module
             )
 
             result = self._parse_extraction_result(response, context)
@@ -270,6 +271,7 @@ class EntityExtractor:
                     ),
                     group_id=context.get("group_id"),
                     properties=properties,
+                    persona_id=context.get("persona_id", "default"),
                 )
                 node.id = node.generate_id()
                 nodes.append(node)
@@ -304,6 +306,7 @@ class EntityExtractor:
                             if context.get("source_memory_ids")
                             else context.get("source_memory_id")
                         ),
+                        persona_id=context.get("persona_id", "default"),
                     )
                     edges.append(edge)
 

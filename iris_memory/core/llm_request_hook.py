@@ -881,6 +881,9 @@ async def _collect_l3_knowledge_graph(
 
     adapter = get_adapter(event)
     group_id = adapter.get_group_id(event)
+    from iris_memory.core.persona import resolve_persona
+
+    persona_id = await resolve_persona(component_manager, event)
 
     # 与 L2 retriever 对齐：群记忆隔离关闭时不按 group_id 过滤，跨群共享图谱
     if not config.get("isolation_config.enable_group_memory_isolation"):
@@ -915,7 +918,7 @@ async def _collect_l3_knowledge_graph(
                     try:
                         memory_node_ids = (
                             await kg_adapter.get_node_ids_by_source_memory_ids(
-                                l2_memory_ids
+                                l2_memory_ids, persona_id=persona_id
                             )
                         )
                         if memory_node_ids:
@@ -927,7 +930,9 @@ async def _collect_l3_knowledge_graph(
 
         if memory_node_ids:
             nodes, edges = await retriever.retrieve_with_expansion(
-                memory_node_ids=memory_node_ids, group_id=group_id
+                memory_node_ids=memory_node_ids,
+                group_id=group_id,
+                persona_id=persona_id,
             )
             for n in nodes:
                 nid = n.get("id")
@@ -944,7 +949,9 @@ async def _collect_l3_knowledge_graph(
             if keywords:
                 keywords_used = keywords
                 nodes, edges = await retriever.retrieve_by_keywords(
-                    keywords=keywords, group_id=group_id
+                    keywords=keywords,
+                    group_id=group_id,
+                    persona_id=persona_id,
                 )
                 for n in nodes:
                     nid = n.get("id")

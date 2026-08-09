@@ -1,13 +1,12 @@
 """
 Iris Chat Memory - 梦境模块
 
-记忆的离线深度加工，包含 6 个阶段：
-1. ConsolidationPhase: 合并重复项
-2. TemporalAnchorPhase: 时间锚定
-3. ContradictionPhase: 矛盾消解
-4. PatternDiscoveryPhase: 模式挖掘
-5. KnowledgeExtractPhase: 知识提取
-6. PruningPhase: 遗忘清洗
+记忆的离线深度加工，提供 5 个执行阶段开关：
+1. TemporalAnchorPhase: 零 LLM 时间锚定
+2. ReconciliationPhase: 共享近邻扫描的重复合并与矛盾消解
+3. KnowledgeInductionPhase: 增量模式挖掘与知识提取
+4. PruningPhase: persona 级 L2 遗忘清洗
+5. Global L3 Maintenance: 每轮一次全局图谱维护
 """
 
 from iris_memory.core import get_logger

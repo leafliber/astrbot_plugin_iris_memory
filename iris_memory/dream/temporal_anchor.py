@@ -9,8 +9,8 @@ Iris Chat Memory - 梦境阶段2：时间锚定
 Features:
     - 正则扫描中文相对时间词
     - 以记忆 timestamp 为基准计算绝对日期
-    - LLM 润色确保语句自然
-    - 批量处理优化
+    - 纯确定性替换（零 LLM 调用）
+    - 批量重算向量（单次 embedding 请求）
 """
 
 import re
@@ -106,10 +106,6 @@ class TemporalAnchorPhase:
         config = get_config()
         self._batch_size = cast(int, config.get("dream_temporal_anchor_batch_size"))
 
-        if not llm:
-            logger.warning("LLMManager 不可用，跳过时间锚定")
-            return {"scanned": 0, "anchored": 0, "updated": 0}
-
         try:
             if entries is None:
                 entries = await l2.get_all_entries(persona_id=persona_id)
@@ -161,11 +157,11 @@ class TemporalAnchorPhase:
                 pending_updates.append((entry, new_content))
 
                 if len(pending_updates) >= self._batch_size:
-                    updated += await self._flush_updates(pending_updates, l2, llm)
+                    updated += await self._flush_updates(pending_updates, l2)
                     pending_updates = []
 
             if pending_updates:
-                updated += await self._flush_updates(pending_updates, l2, llm)
+                updated += await self._flush_updates(pending_updates, l2)
 
             logger.info(
                 f"时间锚定完成：扫描 {scanned}，发现相对时间 {anchored}，更新 {updated}"
@@ -177,20 +173,14 @@ class TemporalAnchorPhase:
             return {"scanned": 0, "anchored": 0, "updated": 0, "error": str(e)}
 
     async def _flush_updates(
-        self, pending: list, l2: "L2MemoryAdapter", llm: "LLMManager"
+        self, pending: list, l2: "L2MemoryAdapter"
     ) -> int:
-        updated = 0
+        updates = [(entry.id, new_content) for entry, new_content in pending]
+        updated = await l2.batch_update_contents(updates)
         for entry, new_content in pending:
-            polished = await self._polish_content(entry.content, new_content, llm)
-            if polished:
-                new_content = polished
-
-            success = await l2.update_content(entry.id, new_content)
-            if success:
-                updated += 1
-                logger.debug(
-                    f"时间锚定：{entry.content[:50]}... -> {new_content[:50]}..."
-                )
+            logger.debug(
+                f"时间锚定：{entry.content[:50]}... -> {new_content[:50]}..."
+            )
         return updated
 
     async def _polish_content(

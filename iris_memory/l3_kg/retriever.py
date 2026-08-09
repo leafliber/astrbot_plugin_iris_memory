@@ -88,7 +88,10 @@ class GraphRetriever:
         self.config = get_config()
 
     async def retrieve_with_expansion(
-        self, memory_node_ids: list[str], group_id: Optional[str] = None
+        self,
+        memory_node_ids: list[str],
+        group_id: Optional[str] = None,
+        persona_id: Optional[str] = None,
     ) -> tuple[list[dict], list[dict]]:
         if not self.adapter.is_available:
             return [], []
@@ -99,7 +102,10 @@ class GraphRetriever:
 
             nodes, edges = await asyncio.wait_for(
                 self.adapter.expand_from_nodes(
-                    node_ids=memory_node_ids, max_depth=max_depth, group_id=group_id
+                    node_ids=memory_node_ids,
+                    max_depth=max_depth,
+                    group_id=group_id,
+                    persona_id=persona_id,
                 ),
                 timeout=timeout_ms / 1000,
             )
@@ -118,7 +124,11 @@ class GraphRetriever:
             return [], []
 
     async def retrieve_by_keywords(
-        self, keywords: list[str], group_id: Optional[str] = None, limit: int = 10
+        self,
+        keywords: list[str],
+        group_id: Optional[str] = None,
+        persona_id: Optional[str] = None,
+        limit: int = 10,
     ) -> tuple[list[dict], list[dict]]:
         """基于关键词搜索图谱节点并扩展
 
@@ -137,9 +147,10 @@ class GraphRetriever:
 
         for keyword in keywords:
             try:
-                found = await self.adapter.search_nodes(
-                    keyword, limit=limit, group_id=group_id
-                )
+                search_kwargs = {"limit": limit, "group_id": group_id}
+                if persona_id is not None:
+                    search_kwargs["persona_id"] = persona_id
+                found = await self.adapter.search_nodes(keyword, **search_kwargs)
                 for node in found:
                     node_id = node.get("id")
                     if node_id:
@@ -157,7 +168,9 @@ class GraphRetriever:
             matched_node_ids = set(list(matched_node_ids)[:20])
 
         return await self.retrieve_with_expansion(
-            memory_node_ids=list(matched_node_ids), group_id=group_id
+            memory_node_ids=list(matched_node_ids),
+            group_id=group_id,
+            persona_id=persona_id,
         )
 
     async def update_access_count(self, node_ids: list[str]):

@@ -274,7 +274,7 @@
   "scheduled_tasks": {
     "type": "object",
     "description": "梦境任务",
-    "hint": "记忆的离线深度加工，包含6个阶段：合并重复、时间锚定、矛盾消解、模式挖掘、知识提取、遗忘清洗",
+    "hint": "记忆的离线增量加工：时间锚定、共享扫描的记忆协调、知识归纳、persona 级 L2 清洗与每轮一次的全局 L3 维护",
     "items": {
       "enable_dream": {
         "type": "bool",
@@ -289,41 +289,35 @@
         "hint": "选择用于执行梦境任务的模型，留空则使用默认 Provider",
         "_special": "select_provider"
       },
-      "dream_enable_consolidation": {
+      "dream_stage_temporal_anchor_enabled": {
         "type": "bool",
         "default": true,
-        "description": "阶段1：合并重复项",
-        "hint": "归拢同一话题的碎片记忆"
+        "description": "时间锚定",
+        "hint": "在合并前以确定性规则将相对时间表达（昨天、上周等）转换为绝对日期，不调用 LLM"
       },
-      "dream_enable_temporal_anchor": {
+      "dream_stage_reconciliation_enabled": {
         "type": "bool",
         "default": true,
-        "description": "阶段2：时间锚定",
-        "hint": "将相对时间表达（昨天、上周等）转换为绝对日期"
+        "description": "记忆协调",
+        "hint": "共享一次向量近邻扫描，批量完成重复合并与矛盾消解"
       },
-      "dream_enable_contradiction": {
+      "dream_stage_knowledge_induction_enabled": {
         "type": "bool",
         "default": true,
-        "description": "阶段3：矛盾消解",
-        "hint": "检测并解决记忆间的逻辑冲突"
+        "description": "知识归纳",
+        "hint": "增量发现行为模式，并从 L2 提取实体关系写入 persona 隔离的 L3 图谱"
       },
-      "dream_enable_pattern_discovery": {
+      "dream_stage_l2_pruning_enabled": {
         "type": "bool",
         "default": true,
-        "description": "阶段4：模式挖掘",
-        "hint": "发现隐含的行为规律和偏好模式"
+        "description": "L2 遗忘清洗",
+        "hint": "按 persona 淘汰低价值向量记忆"
       },
-      "dream_enable_knowledge_extract": {
+      "dream_stage_l3_maintenance_enabled": {
         "type": "bool",
         "default": true,
-        "description": "阶段5：知识提取",
-        "hint": "从L2记忆提取实体和关系写入L3知识图谱"
-      },
-      "dream_enable_pruning": {
-        "type": "bool",
-        "default": true,
-        "description": "阶段6：遗忘清洗",
-        "hint": "淘汰低价值记忆和图谱节点"
+        "description": "L3 全局维护",
+        "hint": "每轮执行一次图谱去重、无主节点清理和低价值节点淘汰"
       }
     }
   },

@@ -105,6 +105,9 @@ class L2MemoryAdapter(Component):
         self._init_mode = InitMode.BACKGROUND
         self._last_recovery_attempt: float = 0.0
         self._recovery_cooldown: float = 60.0
+        # 进程内调用统计，供梦境任务按执行前后快照计算本轮成本。
+        self._embedding_request_count: int = 0
+        self._embedded_text_count: int = 0
 
     @property
     def name(self) -> str:
@@ -625,6 +628,10 @@ class L2MemoryAdapter(Component):
 
     async def _embed(self, texts: list[str]) -> list[list[float]]:
         """计算文本嵌入向量并 L2 归一化"""
+        if not texts:
+            return []
+        self._embedding_request_count += 1
+        self._embedded_text_count += len(texts)
         if self._embedding_source == "provider" and self._embedding_provider:
             vectors = await self._embedding_provider.get_embeddings(texts)
         elif self._local_model:
@@ -646,22 +653,34 @@ class L2MemoryAdapter(Component):
 
         return normalized
 
+    def get_embedding_stats(self) -> Dict[str, int]:
+        """返回进程内 Embedding 请求/文本累计数。"""
+        return {
+            "requests": self._embedding_request_count,
+            "texts": self._embedded_text_count,
+        }
+
     # ========================================================================
     # 记忆存储
     # ========================================================================
 
-    async def add_memory(
+    async def add_memory_with_result(
         self,
         content: str,
         metadata: Optional[Dict[str, Any]] = None,
         skip_dedup: bool = False,
         persona_id: str = "default",
-    ) -> Optional[str]:
+    ) -> tuple[Optional[str], bool]:
+        """写入记忆并返回 ``(memory_id, created)``。
+
+        去重命中时复用本次计算的向量并返回既有 ID，``created`` 为 False。
+        调用方据此可避免在写入前额外执行一次向量检索。
+        """
         if not self._is_available:
             await self._try_recover()
         if not self._is_available:
             logger.warning("L2 记忆库不可用，跳过添加记忆")
-            return None
+            return None, False
 
         if metadata is None:
             metadata = {}
@@ -687,13 +706,13 @@ class L2MemoryAdapter(Component):
             # 的 TOCTOU 竞态；同时避免原先 _check_similarity 与写入各 embed 一次的重复计算。
             with self._lock:
                 if self._index is None or self._db is None:
-                    return None
+                    return None, False
 
                 if not skip_dedup:
                     existing_id = self._find_similar_unlocked(vector_np, persona_id)
                     if existing_id:
                         logger.debug(f"发现相似记忆，跳过存储：{content[:50]}...")
-                        return existing_id
+                        return existing_id, False
 
                 # 分配 FAISS 槽位
                 if self._free_list:
@@ -721,11 +740,27 @@ class L2MemoryAdapter(Component):
 
             self._mark_dirty()
             logger.debug(f"已添加记忆：{memory_id}")
-            return memory_id
+            return memory_id, True
 
         except Exception as e:
             logger.error(f"添加记忆失败：{e}", exc_info=True)
-            return None
+            return None, False
+
+    async def add_memory(
+        self,
+        content: str,
+        metadata: Optional[Dict[str, Any]] = None,
+        skip_dedup: bool = False,
+        persona_id: str = "default",
+    ) -> Optional[str]:
+        """兼容入口：写入记忆并仅返回 ID。"""
+        memory_id, _created = await self.add_memory_with_result(
+            content,
+            metadata=metadata,
+            skip_dedup=skip_dedup,
+            persona_id=persona_id,
+        )
+        return memory_id
 
     def _find_similar_unlocked(
         self, vector: np.ndarray, persona_id: str = "default"
@@ -1254,58 +1289,77 @@ class L2MemoryAdapter(Component):
             return False
 
     async def update_content(self, memory_id: str, new_content: str) -> bool:
-        if not self._is_available or self._index is None or not memory_id:
-            return False
+        return (await self.batch_update_contents([(memory_id, new_content)])) == 1
+
+    async def batch_update_contents(self, updates: List[tuple[str, str]]) -> int:
+        """批量更新内容，仅发起一次 Embedding 请求。
+
+        ``timestamp`` 表示原记忆/事件基准时间，不因文本规范化而覆盖；更新时写入
+        ``updated_at``，并把 ``kg_processed`` 重置为 False，使修改后的内容能够
+        重新同步到 L3。
+        """
+        if not self._is_available or self._index is None or not updates:
+            return 0
+
+        # 保留最后一次同 ID 更新并过滤空 ID，避免同一槽位在一批内重复替换。
+        update_map = {memory_id: content for memory_id, content in updates if memory_id}
+        if not update_map:
+            return 0
 
         try:
             with self._lock:
-                row = self._db.execute(
-                    "SELECT faiss_idx, metadata, persona_id FROM memories WHERE memory_id = ?",
-                    (memory_id,),
-                ).fetchone()
+                placeholders = ",".join("?" for _ in update_map)
+                rows = self._db.execute(
+                    f"SELECT memory_id, faiss_idx, metadata, persona_id "
+                    f"FROM memories WHERE memory_id IN ({placeholders})",
+                    tuple(update_map),
+                ).fetchall()
 
-                if not row:
-                    logger.warning(f"记忆不存在：{memory_id}")
-                    return False
+            if not rows:
+                return 0
 
-                faiss_idx, metadata_json, persona_id = row
-                metadata = json.loads(metadata_json)
-                metadata["timestamp"] = datetime.now().isoformat()
+            contents = [update_map[row[0]] for row in rows]
+            vectors = await self._embed(contents)
+            now = datetime.now().isoformat()
+            updated = 0
 
-            # 重新计算嵌入（在锁外，嵌入计算是无状态的）
-            vectors = await self._embed([new_content])
-            new_vector = np.array([vectors[0]], dtype=np.float32)
-
-            # FAISS + SQLite 操作在同一个锁内完成
             with self._lock:
-                # 重新校验 faiss_idx 归属：嵌入计算在锁外完成，期间该记忆可能被
-                # delete_entries 删除且其槽位被 add_memory 经 free-list 复用。
-                # 若直接写回旧 faiss_idx，会误删并覆盖复用方的新向量，导致
-                # FAISS 与 SQLite 错乱。校验不一致则放弃本次更新。
-                row_now = self._db.execute(
-                    "SELECT faiss_idx FROM memories WHERE memory_id = ?",
-                    (memory_id,),
-                ).fetchone()
-                if not row_now or row_now[0] != faiss_idx:
-                    logger.warning(
-                        f"记忆 {memory_id} 更新期间被并发删除或槽位变更，放弃更新"
+                for row, vector in zip(rows, vectors):
+                    memory_id, faiss_idx, metadata_json, persona_id = row
+                    row_now = self._db.execute(
+                        "SELECT faiss_idx FROM memories WHERE memory_id = ?",
+                        (memory_id,),
+                    ).fetchone()
+                    if not row_now or row_now[0] != faiss_idx:
+                        logger.warning(
+                            f"记忆 {memory_id} 批量更新期间被删除或槽位变更，跳过"
+                        )
+                        continue
+
+                    metadata = json.loads(metadata_json)
+                    metadata["updated_at"] = now
+                    metadata["kg_processed"] = False
+                    new_vector = np.array([vector], dtype=np.float32)
+                    self._index.remove_ids(np.array([faiss_idx], dtype=np.int64))
+                    self._index.add_with_ids(
+                        new_vector, np.array([faiss_idx], dtype=np.int64)
                     )
-                    return False
+                    self._upsert_db_unlocked(
+                        faiss_idx,
+                        memory_id,
+                        update_map[memory_id],
+                        metadata,
+                        persona_id,
+                    )
+                    updated += 1
 
-                self._index.remove_ids(np.array([faiss_idx], dtype=np.int64))
-                self._index.add_with_ids(
-                    new_vector, np.array([faiss_idx], dtype=np.int64)
-                )
-                self._upsert_db_unlocked(
-                    faiss_idx, memory_id, new_content, metadata, persona_id
-                )
-
-            self._mark_dirty()
-            logger.info(f"已更新记忆内容：{memory_id}")
-            return True
+            if updated:
+                self._mark_dirty()
+                logger.info(f"已批量更新记忆内容：{updated}/{len(update_map)}")
+            return updated
         except Exception as e:
-            logger.error(f"更新记忆内容失败：{e}", exc_info=True)
-            return False
+            logger.error(f"批量更新记忆内容失败：{e}", exc_info=True)
+            return 0
 
     # ========================================================================
     # 删除操作
@@ -1734,12 +1788,15 @@ class L2MemoryAdapter(Component):
         try:
             if persona_id is not None:
                 rows = self._db_execute(
-                    "SELECT memory_id, content, metadata, persona_id FROM memories WHERE kg_processed = 0 AND persona_id = ? LIMIT ?",
+                    "SELECT memory_id, content, metadata, persona_id FROM memories "
+                    "WHERE kg_processed = 0 AND persona_id = ? "
+                    "ORDER BY timestamp ASC, memory_id ASC LIMIT ?",
                     (persona_id, limit),
                 ).fetchall()
             else:
                 rows = self._db_execute(
-                    "SELECT memory_id, content, metadata, persona_id FROM memories WHERE kg_processed = 0 LIMIT ?",
+                    "SELECT memory_id, content, metadata, persona_id FROM memories "
+                    "WHERE kg_processed = 0 ORDER BY timestamp ASC, memory_id ASC LIMIT ?",
                     (limit,),
                 ).fetchall()
 

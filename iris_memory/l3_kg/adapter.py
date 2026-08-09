@@ -74,6 +74,7 @@ class L3KGAdapter(Component):
                 created_time TEXT,
                 source_memory_id TEXT,
                 group_id TEXT,
+                persona_id TEXT NOT NULL DEFAULT 'default',
                 properties TEXT DEFAULT '{}'
             );
 
@@ -87,6 +88,7 @@ class L3KGAdapter(Component):
                 last_access_time TEXT,
                 created_time TEXT,
                 source_memory_id TEXT,
+                persona_id TEXT NOT NULL DEFAULT 'default',
                 properties TEXT DEFAULT '{}',
                 PRIMARY KEY (source_id, target_id, relation_type),
                 FOREIGN KEY (source_id) REFERENCES nodes(id) ON DELETE CASCADE,
@@ -99,6 +101,28 @@ class L3KGAdapter(Component):
             CREATE INDEX IF NOT EXISTS idx_edges_source ON edges(source_id);
             CREATE INDEX IF NOT EXISTS idx_edges_target ON edges(target_id);
         """)
+        # 增量迁移：旧图谱无 persona_id 时归入 default 命名空间。
+        node_cols = {
+            row[1] for row in self._db.execute("PRAGMA table_info(nodes)").fetchall()
+        }
+        if "persona_id" not in node_cols:
+            self._db.execute(
+                "ALTER TABLE nodes ADD COLUMN persona_id TEXT NOT NULL DEFAULT 'default'"
+            )
+        edge_cols = {
+            row[1] for row in self._db.execute("PRAGMA table_info(edges)").fetchall()
+        }
+        if "persona_id" not in edge_cols:
+            self._db.execute(
+                "ALTER TABLE edges ADD COLUMN persona_id TEXT NOT NULL DEFAULT 'default'"
+            )
+        self._db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_nodes_persona ON nodes(persona_id)"
+        )
+        self._db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_edges_persona ON edges(persona_id)"
+        )
+        self._db.commit()
         logger.debug("SQLite schema 创建完成")
 
     async def add_node(self, node: GraphNode) -> bool:
@@ -174,7 +198,7 @@ class L3KGAdapter(Component):
                 self._db_write(
                     """UPDATE nodes SET
                         content = ?, confidence = ?, access_count = ?,
-                        last_access_time = ?, group_id = ?, properties = ?
+                        last_access_time = ?, group_id = ?, persona_id = ?, properties = ?
                     WHERE id = ?""",
                     (
                         merged_content,
@@ -182,6 +206,7 @@ class L3KGAdapter(Component):
                         existing_access_count,
                         datetime.now().isoformat(),
                         node.group_id or existing.get("group_id", ""),
+                        node.persona_id,
                         json.dumps(merged_properties, ensure_ascii=False),
                         node.id,
                     ),
@@ -198,8 +223,8 @@ class L3KGAdapter(Component):
                     """INSERT INTO nodes
                         (id, label, name, content, confidence, access_count,
                          last_access_time, created_time, source_memory_id,
-                         group_id, properties)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                         group_id, persona_id, properties)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (
                         node.id,
                         node.label,
@@ -213,6 +238,7 @@ class L3KGAdapter(Component):
                         else node.created_time,
                         node.source_memory_id,
                         node.group_id,
+                        node.persona_id,
                         json.dumps(properties, ensure_ascii=False),
                     ),
                 )
@@ -341,8 +367,8 @@ class L3KGAdapter(Component):
                     """INSERT OR IGNORE INTO edges
                         (source_id, target_id, relation_type, weight, confidence,
                          access_count, last_access_time, created_time,
-                         source_memory_id, properties)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                         source_memory_id, persona_id, properties)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (
                         edge.source_id,
                         edge.target_id,
@@ -355,6 +381,7 @@ class L3KGAdapter(Component):
                         if isinstance(edge.created_time, datetime)
                         else edge.created_time,
                         edge.source_memory_id,
+                        edge.persona_id,
                         json.dumps(properties, ensure_ascii=False),
                     ),
                 )
@@ -398,6 +425,7 @@ class L3KGAdapter(Component):
         node_ids: list[str],
         max_depth: int = 2,
         group_id: Optional[str] = None,
+        persona_id: Optional[str] = None,
         max_nodes: int = 100,
         max_edges: int = 200,
     ) -> tuple[list[dict], list[dict]]:
@@ -412,16 +440,18 @@ class L3KGAdapter(Component):
             edges_list: list[dict] = []
 
             # 种子节点也必须按 group_id 过滤，否则跨群节点作为种子泄漏
+            seed_conditions = [f"id IN ({','.join('?' * len(node_ids))})"]
+            seed_params: list = [*node_ids]
             if group_id:
-                seed_rows = self._db_fetchall(
-                    f"SELECT * FROM nodes WHERE id IN ({','.join('?' * len(node_ids))}) AND group_id = ?",
-                    (*node_ids, group_id),
-                )
-            else:
-                seed_rows = self._db_fetchall(
-                    f"SELECT * FROM nodes WHERE id IN ({','.join('?' * len(node_ids))})",
-                    tuple(node_ids),
-                )
+                seed_conditions.append("group_id = ?")
+                seed_params.append(group_id)
+            if persona_id is not None:
+                seed_conditions.append("persona_id = ?")
+                seed_params.append(persona_id)
+            seed_rows = self._db_fetchall(
+                f"SELECT * FROM nodes WHERE {' AND '.join(seed_conditions)}",
+                seed_params,
+            )
             for row in seed_rows:
                 nodes_map[row["id"]] = dict(row)
 
@@ -440,7 +470,7 @@ class L3KGAdapter(Component):
                         SELECT e.source_id, e.target_id, e.relation_type,
                                e.weight, e.confidence, e.access_count,
                                e.last_access_time, e.created_time,
-                               e.source_memory_id, e.properties
+                               e.source_memory_id, e.persona_id, e.properties
                         FROM edges e
                         WHERE (e.source_id IN ({placeholders})
                                OR e.target_id IN ({placeholders}))
@@ -449,20 +479,27 @@ class L3KGAdapter(Component):
                             AND e.target_id IN (SELECT id FROM nodes WHERE group_id = ?)
                         )
                     """
-                    rows = self._db_fetchall(
-                        query, (*frontier, *frontier, group_id, group_id)
-                    )
+                    query += " AND e.persona_id = ?" if persona_id is not None else ""
+                    params = [*frontier, *frontier, group_id, group_id]
+                    if persona_id is not None:
+                        params.append(persona_id)
+                    rows = self._db_fetchall(query, params)
                 else:
                     query = f"""
                         SELECT source_id, target_id, relation_type,
                                weight, confidence, access_count,
                                last_access_time, created_time,
-                               source_memory_id, properties
+                               source_memory_id, persona_id, properties
                         FROM edges
-                        WHERE source_id IN ({placeholders})
-                           OR target_id IN ({placeholders})
+                        WHERE (source_id IN ({placeholders})
+                           OR target_id IN ({placeholders}))
                     """
-                    rows = self._db_fetchall(query, (*frontier, *frontier))
+                    if persona_id is not None:
+                        query += " AND persona_id = ?"
+                    params = [*frontier, *frontier]
+                    if persona_id is not None:
+                        params.append(persona_id)
+                    rows = self._db_fetchall(query, params)
 
                 next_frontier = []
                 frontier_set = set(frontier)
@@ -502,6 +539,7 @@ class L3KGAdapter(Component):
                             "last_access_time": row["last_access_time"],
                             "created_time": row["created_time"],
                             "source_memory_id": row["source_memory_id"],
+                            "persona_id": row["persona_id"],
                             "properties": edge_props
                             if isinstance(edge_props, dict)
                             else {},
@@ -515,9 +553,13 @@ class L3KGAdapter(Component):
 
                 if next_frontier:
                     ph = ",".join("?" * len(next_frontier))
+                    neighbor_query = f"SELECT * FROM nodes WHERE id IN ({ph})"
+                    neighbor_params: list = [*next_frontier]
+                    if persona_id is not None:
+                        neighbor_query += " AND persona_id = ?"
+                        neighbor_params.append(persona_id)
                     neighbor_rows = self._db_fetchall(
-                        f"SELECT * FROM nodes WHERE id IN ({ph})",
-                        tuple(next_frontier),
+                        neighbor_query, neighbor_params
                     )
                     for node_row in neighbor_rows:
                         nodes_map[node_row["id"]] = dict(node_row)
@@ -608,7 +650,10 @@ class L3KGAdapter(Component):
             }
 
     async def get_all_nodes(
-        self, limit: int = 100, group_id: Optional[str] = None
+        self,
+        limit: int = 100,
+        group_id: Optional[str] = None,
+        persona_id: Optional[str] = None,
     ) -> list[dict]:
         """获取节点（用于前端展示）
 
@@ -620,22 +665,23 @@ class L3KGAdapter(Component):
             return []
 
         try:
+            conditions: list[str] = []
+            params: list = []
             if group_id:
-                rows = self._db_fetchall(
-                    """SELECT id, label, name, content, confidence,
-                              access_count, last_access_time, created_time,
-                              source_memory_id, group_id, properties
-                       FROM nodes WHERE group_id = ? LIMIT ?""",
-                    (group_id, limit),
-                )
-            else:
-                rows = self._db_fetchall(
-                    """SELECT id, label, name, content, confidence,
-                              access_count, last_access_time, created_time,
-                              source_memory_id, group_id, properties
-                       FROM nodes LIMIT ?""",
-                    (limit,),
-                )
+                conditions.append("group_id = ?")
+                params.append(group_id)
+            if persona_id is not None:
+                conditions.append("persona_id = ?")
+                params.append(persona_id)
+            where = f" WHERE {' AND '.join(conditions)}" if conditions else ""
+            params.append(limit)
+            rows = self._db_fetchall(
+                f"""SELECT id, label, name, content, confidence,
+                           access_count, last_access_time, created_time,
+                           source_memory_id, group_id, persona_id, properties
+                    FROM nodes{where} LIMIT ?""",
+                params,
+            )
 
             nodes = []
             for row in rows:
@@ -654,6 +700,7 @@ class L3KGAdapter(Component):
                         "created_time": row["created_time"],
                         "source_memory_id": row["source_memory_id"],
                         "group_id": row["group_id"],
+                        "persona_id": row["persona_id"],
                         "properties": props,
                     }
                 )
@@ -665,7 +712,11 @@ class L3KGAdapter(Component):
             return []
 
     async def search_nodes(
-        self, keyword: str, limit: int = 20, group_id: Optional[str] = None
+        self,
+        keyword: str,
+        limit: int = 20,
+        group_id: Optional[str] = None,
+        persona_id: Optional[str] = None,
     ) -> list[dict]:
         """搜索节点（匹配 name 或 content）
 
@@ -679,23 +730,20 @@ class L3KGAdapter(Component):
 
         try:
             pattern = f"%{keyword}%"
+            conditions = ["(name LIKE ? OR content LIKE ? OR properties LIKE ?)"]
+            params: list = [pattern, pattern, pattern]
             if group_id:
-                rows = self._db_fetchall(
-                    """SELECT id, label, name, content, confidence
-                       FROM nodes
-                       WHERE (name LIKE ? OR content LIKE ? OR properties LIKE ?)
-                             AND group_id = ?
-                       LIMIT ?""",
-                    (pattern, pattern, pattern, group_id, limit),
-                )
-            else:
-                rows = self._db_fetchall(
-                    """SELECT id, label, name, content, confidence
-                       FROM nodes
-                       WHERE name LIKE ? OR content LIKE ? OR properties LIKE ?
-                       LIMIT ?""",
-                    (pattern, pattern, pattern, limit),
-                )
+                conditions.append("group_id = ?")
+                params.append(group_id)
+            if persona_id is not None:
+                conditions.append("persona_id = ?")
+                params.append(persona_id)
+            params.append(limit)
+            rows = self._db_fetchall(
+                f"""SELECT id, label, name, content, confidence, persona_id
+                    FROM nodes WHERE {' AND '.join(conditions)} LIMIT ?""",
+                params,
+            )
 
             nodes = [
                 {
@@ -704,6 +752,7 @@ class L3KGAdapter(Component):
                     "name": row["name"],
                     "content": row["content"],
                     "confidence": row["confidence"],
+                    "persona_id": row["persona_id"],
                 }
                 for row in rows
             ]
@@ -719,6 +768,7 @@ class L3KGAdapter(Component):
         query: str,
         label: Optional[str] = None,
         group_id: Optional[str] = None,
+        persona_id: Optional[str] = None,
         limit: int = 20,
     ) -> list[dict]:
         """搜索节点（完整信息，支持 label 和 group_id 过滤）
@@ -741,11 +791,15 @@ class L3KGAdapter(Component):
                 conditions.append("group_id = ?")
                 params.append(group_id)
 
+            if persona_id is not None:
+                conditions.append("persona_id = ?")
+                params.append(persona_id)
+
             where = " AND ".join(conditions)
             params.append(limit)
 
             rows = self._db_fetchall(
-                f"""SELECT id, label, name, content, confidence, group_id
+                f"""SELECT id, label, name, content, confidence, group_id, persona_id
                     FROM nodes WHERE {where} LIMIT ?""",
                 params,
             )
@@ -758,6 +812,7 @@ class L3KGAdapter(Component):
                     "content": row["content"],
                     "confidence": row["confidence"],
                     "group_id": row["group_id"],
+                    "persona_id": row["persona_id"],
                 }
                 for row in rows
             ]
@@ -847,7 +902,7 @@ class L3KGAdapter(Component):
             return None
 
     async def get_node_ids_by_source_memory_ids(
-        self, memory_ids: list[str]
+        self, memory_ids: list[str], persona_id: Optional[str] = None
     ) -> list[str]:
         """根据来源记忆 ID 反向查找图谱节点 ID"""
         if not self._is_available or not memory_ids:
@@ -855,18 +910,27 @@ class L3KGAdapter(Component):
 
         try:
             placeholders = ",".join("?" * len(memory_ids))
+            persona_clause = " AND persona_id = ?" if persona_id is not None else ""
+            params = [*memory_ids]
+            if persona_id is not None:
+                params.append(persona_id)
             rows = self._db_fetchall(
-                f"SELECT id FROM nodes WHERE source_memory_id IN ({placeholders})",
-                memory_ids,
+                f"SELECT id FROM nodes WHERE source_memory_id IN ({placeholders})"
+                f"{persona_clause}",
+                params,
             )
 
             node_ids: set[str] = {row["id"] for row in rows}
 
             for mid in memory_ids:
                 pattern = f"%{mid}%"
+                extra_params: list = [pattern]
+                if persona_id is not None:
+                    extra_params.append(persona_id)
                 extra_rows = self._db_fetchall(
-                    "SELECT id, properties FROM nodes WHERE properties LIKE ?",
-                    (pattern,),
+                    "SELECT id, properties FROM nodes WHERE properties LIKE ?"
+                    + (" AND persona_id = ?" if persona_id is not None else ""),
+                    extra_params,
                 )
                 for row in extra_rows:
                     try:
@@ -1357,7 +1421,7 @@ class L3KGAdapter(Component):
             try:
                 rows = self._db.execute(
                     """SELECT id, label, name, content, confidence,
-                              access_count, created_time, group_id, properties
+                              access_count, created_time, group_id, persona_id, properties
                        FROM nodes"""
                 ).fetchall()
 
@@ -1381,9 +1445,10 @@ class L3KGAdapter(Component):
                         "access_count": row["access_count"],
                         "created_time": row["created_time"],
                         "group_id": row["group_id"],
+                        "persona_id": row["persona_id"],
                         "properties": props if isinstance(props, dict) else {},
                     }
-                    key = f"{row['label']}:{row['name']}"
+                    key = f"{row['persona_id']}:{row['label']}:{row['name']}"
                     name_groups.setdefault(key, []).append(node_data)
 
                 merged_count = 0
@@ -1544,7 +1609,7 @@ class L3KGAdapter(Component):
         dup_edges = self._db.execute(
             f"""SELECT source_id, target_id, relation_type, weight,
                        confidence, access_count, last_access_time,
-                       created_time, source_memory_id, properties
+                       created_time, source_memory_id, persona_id, properties
                 FROM edges
                 WHERE source_id IN ({dup_placeholders})
                    OR target_id IN ({dup_placeholders})""",
@@ -1624,8 +1689,8 @@ class L3KGAdapter(Component):
                     """INSERT INTO edges
                         (source_id, target_id, relation_type, weight,
                          confidence, access_count, last_access_time,
-                         created_time, source_memory_id, properties)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                         created_time, source_memory_id, persona_id, properties)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (
                         new_source,
                         new_target,
@@ -1636,6 +1701,7 @@ class L3KGAdapter(Component):
                         edge_row["last_access_time"],
                         edge_row["created_time"],
                         edge_row["source_memory_id"],
+                        edge_row["persona_id"],
                         json.dumps(edge_props, ensure_ascii=False),
                     ),
                 )
@@ -1667,12 +1733,12 @@ class L3KGAdapter(Component):
             try:
                 rows = self._db.execute(
                     """SELECT id, name, content, confidence, access_count,
-                              created_time, group_id, properties
+                              created_time, group_id, persona_id, properties
                        FROM nodes WHERE label = 'Person'"""
                 ).fetchall()
 
                 parsed: list[tuple[dict, str]] = []
-                user_groups: dict[tuple[str, str], list[dict]] = {}
+                user_groups: dict[tuple[str, str, str], list[dict]] = {}
                 for row in rows:
                     props = row["properties"]
                     if isinstance(props, str):
@@ -1692,20 +1758,25 @@ class L3KGAdapter(Component):
                         "access_count": row["access_count"],
                         "created_time": row["created_time"],
                         "group_id": row["group_id"] or "",
+                        "persona_id": row["persona_id"],
                         "properties": props,
                     }
                     user_id = str(props["user_id"]) if props.get("user_id") else ""
                     parsed.append((node_data, user_id))
                     if user_id:
-                        key = (node_data["group_id"], user_id)
+                        key = (
+                            node_data["persona_id"],
+                            node_data["group_id"],
+                            user_id,
+                        )
                         user_groups.setdefault(key, []).append(node_data)
 
                 # 由已标记节点构建别名索引：(group_id, 昵称或user_id) -> user_id。
                 # 归一化重命名会生成新 ID 的 user_id 节点，历史遗留的无标记昵称
                 # 节点（name 恰为某已知别名）若不吸收进同组合并，将形成自动合并
                 # 永远无法修复的持久分裂。此处按群隔离将其归并到对应 user_id 组。
-                alias_index: dict[tuple[str, str], str] = {}
-                for (group_id, user_id), group_nodes in user_groups.items():
+                alias_index: dict[tuple[str, str, str], str] = {}
+                for (persona_id, group_id, user_id), group_nodes in user_groups.items():
                     for node in group_nodes:
                         match_names = {user_id}
                         match_names.update(
@@ -1714,23 +1785,33 @@ class L3KGAdapter(Component):
                             if a.strip()
                         )
                         for match_name in match_names:
-                            alias_index.setdefault((group_id, match_name), user_id)
+                            alias_index.setdefault(
+                                (persona_id, group_id, match_name), user_id
+                            )
 
                 for node_data, user_id in parsed:
                     if user_id:
                         continue
                     target_uid = alias_index.get(
-                        (node_data["group_id"], node_data["name"])
+                        (
+                            node_data["persona_id"],
+                            node_data["group_id"],
+                            node_data["name"],
+                        )
                     )
                     if target_uid:
-                        user_groups[(node_data["group_id"], target_uid)].append(
-                            node_data
-                        )
+                        user_groups[
+                            (
+                                node_data["persona_id"],
+                                node_data["group_id"],
+                                target_uid,
+                            )
+                        ].append(node_data)
 
                 merged_count = 0
                 deleted_count = 0
 
-                for (_group_id, user_id), nodes in user_groups.items():
+                for (_persona_id, _group_id, user_id), nodes in user_groups.items():
                     if len(nodes) <= 1:
                         continue
 
@@ -1899,7 +1980,7 @@ class L3KGAdapter(Component):
             node_rows = self._db_fetchall(
                 """SELECT id, label, name, content, confidence,
                           access_count, last_access_time, created_time,
-                          source_memory_id, group_id, properties
+                          source_memory_id, group_id, persona_id, properties
                    FROM nodes"""
             )
 
@@ -1920,6 +2001,7 @@ class L3KGAdapter(Component):
                         "created_time": row["created_time"],
                         "source_memory_id": row["source_memory_id"],
                         "group_id": row["group_id"],
+                        "persona_id": row["persona_id"],
                         "properties": props if isinstance(props, dict) else {},
                     }
                 )
@@ -1927,7 +2009,7 @@ class L3KGAdapter(Component):
             edge_rows = self._db_fetchall(
                 """SELECT source_id, target_id, relation_type, weight, confidence,
                           access_count, last_access_time, created_time,
-                          source_memory_id, properties
+                          source_memory_id, persona_id, properties
                    FROM edges"""
             )
 
@@ -1947,6 +2029,7 @@ class L3KGAdapter(Component):
                         "last_access_time": row["last_access_time"],
                         "created_time": row["created_time"],
                         "source_memory_id": row["source_memory_id"],
+                        "persona_id": row["persona_id"],
                         "properties": props if isinstance(props, dict) else {},
                     }
                 )
@@ -2004,6 +2087,7 @@ class L3KGAdapter(Component):
                     group_id=node_data.get("group_id"),
                     source_memory_id=node_data.get("source_memory_id"),
                     properties=node_data.get("properties", {}),
+                    persona_id=node_data.get("persona_id", "default"),
                 )
 
                 if not node.id:
@@ -2030,6 +2114,7 @@ class L3KGAdapter(Component):
                     access_count=edge_data.get("access_count", 0),
                     source_memory_id=edge_data.get("source_memory_id"),
                     properties=edge_data.get("properties", {}),
+                    persona_id=edge_data.get("persona_id", "default"),
                 )
 
                 if not edge.source_id or not edge.target_id:

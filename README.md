@@ -1,265 +1,302 @@
-# Iris Memory —— 记忆 + 主动回复 二合一插件（v3）
+# Iris Memory
 
-![访问量](https://count.getloli.com/get/@astrbot_plugin_iris_memory?theme=moebooru)
+> 面向 AstrBot 的轻量化三合一智能陪伴插件：记忆、主动回复、人格自学习迭代。
 
-面向 AstrBot 的**轻量分层记忆 + 统一决策主动回复**整合插件：一个插件同时让机器人"记住你"，并知道"什么时候该说话"。
+[![AstrBot Plugin](https://img.shields.io/badge/AstrBot-Plugin-6f42c1)](https://github.com/AstrBotDevs/AstrBot)
+[![License](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](#许可证)
 
-v3.0.0 是 [Iris Chat Memory](https://github.com/Leafliber/astrbot_plugin_iris_chat_memory)（轻量记忆架构）与 Iris Reply（统一决策主动回复）的**自包含整合体**——代码已整体移植合并，**不依赖**另外两个插件。
+Iris Memory 用一个插件完成三件彼此关联的事：让机器人长期记住用户和群聊、在合适的时机自然参与对话，并从真实交流中安全地迭代指定 Persona。所有核心数据默认落在本地，昂贵模型调用前都有本地门控、增量判断或批处理。
 
----
+## 核心能力
 
-> ## ⚠️ 安装前必读
->
-> 1. **不可与 `astrbot_plugin_iris_chat_memory`、`astrbot_plugin_iris_reply` 同时启用**——功能完全重叠（启动时会有检测警告）。
-> 2. **必须禁用 AstrBot 内置群聊上下文**：管理面板 → 服务提供商 → `provider_ltm_settings` → 将 `group_message_max_cnt` 设为 `0`。否则会出现记忆重复注入与"第三人称"叙述问题。
-> 3. **建议 AstrBot ≥ 4.23.6**。低版本插件仍可正常加载，仅旧版对话清理路径（`on_agent_done` 钩子，≥4.23 才注册）不可用。
-> 4. v2 老用户请直接阅读 [docs/MIGRATION.md](./docs/MIGRATION.md)——旧数据会在首次启动时**自动迁移**。
+| 能力 | 作用 | 轻量化设计 |
+| --- | --- | --- |
+| 记忆 | L1 会话缓冲、L2 向量记忆、L3 知识图谱、用户/群画像 | FAISS + SQLite；分层注入预算；梦境任务增量加工 |
+| 主动回复 | 跟话、跟进、主动发起、被动观察 | SignalGate 本地零 LLM 门控；单次统一决策；冷却与退避 |
+| 人格自学习迭代 | 从指定群和用户的真实表达中迭代具名 Persona | 脱敏采样；分析/生成/审查分离；审批、冲突保护与非破坏性回滚 |
 
----
+辅助能力包括图片理解、表达模式学习、错误消息友好化、Markdown 清理、数据备份以及 AstrBot Dashboard 管理页面。
 
-## 功能特性
+## 为什么轻量
 
-| 模块 | 能力 |
-|------|------|
-| **L1 消息缓冲** | 三段式 FIFO 会话缓冲 + LLM 滚动总结，队列 token 上限 4000 |
-| **L2 记忆库** | FAISS + SQLite 向量记忆，语义检索，遗忘算法自动衰减（`S=w1·R+w2·F+w3·C+w4·(1-D)`） |
-| **L3 知识图谱** | SQLite nodes/edges 图谱，实体关系提取 + 路径扩展注入 |
-| **画像系统** | 用户/群画像，字段级置信度，好感度 0–100，短/中/长三级更新频率 |
-| **梦境加工** | 离线 6 阶段流水线（合并→时间锚定→矛盾消解→模式挖掘→知识提取→遗忘清洗），各阶段独立开关 |
-| **主动回复** | 统一决策模型：一次 LLM 调用同时输出 是否发言 + 内容 + 话题概括 + 关注对象 + 漂移 + 冷却建议 |
-| **图片解析** | 视觉模型解析对话图片：pHash 去重、日配额 200、缓存 7 天、被动触发自动跳过 |
-| **人格自迭代** | 从指定群/用户的真人发言归纳风格，按目标迭代具名 Persona；受控区块、审批、逐字 Diff、冲突保护与非破坏性回滚 |
-| **Web 管理** | 挂载 AstrBot Dashboard（鉴权复用）：记忆管理 SPA + 主动回复统计/设置 |
-| **辅助功能** | 错误友好化、Markdown 格式去除（自 v2 保留） |
+- 使用 `faiss-cpu`、SQLite 和 AstrBot KV，不依赖 ChromaDB、torch、transformers 等大型运行时。
+- L1、L2、L3 分别设置注入预算，避免把全部历史直接塞入上下文。
+- 主动回复先经过本地信号门控，只有候选事件才调用统一决策模型。
+- 梦境任务采用零 LLM 时间锚定、共享近邻扫描、批量矛盾判断、增量知识归纳和批量 Embedding。
+- 人格学习只把经过筛选、去重和脱敏的样本交给分析模型；生成和审查阶段不接触原始群聊语料。
 
-### 主动回复的四种动机（motive）
+## 安装前须知
 
-- **chime_in 跟话**：话题相关时自然插话
-- **follow_up 跟进**：对指定用户的持续跟进（LLM 可用工具添加/结束）
-- **initiate 发起**：群里长时间无人说话时主动开话题（直发通路 `context.send_message`，发起后接话闭环，消息回填 L1）
-- **watch 被动评估**：只观察不发言，更新话题锚点
+1. 建议使用 AstrBot `>= 4.23.6`。
+2. 不要与 `astrbot_plugin_iris_chat_memory` 或 `astrbot_plugin_iris_reply` 同时启用；功能存在重叠。
+3. 必须将 AstrBot 的 `provider_ltm_settings.group_message_max_cnt` 设置为 `0`，由本插件统一管理上下文。否则可能出现重复注入和第三人称复述。
+4. L2 默认需要一个 AstrBot Embedding Provider。使用本地 Embedding 时，需另行安装 `sentence-transformers`。
+5. 从 v2 升级的用户先阅读 [迁移指南](./docs/MIGRATION.md)。
 
-本地 **SignalGate** 零 LLM 成本门控先行过滤，通过后才进入统一决策；配合 ThreadAnchor 对话锚点记账、backoff 退避 + boost 自适应频率、静音时段（默认 01:00–07:00），避免刷屏。
+## 安装
 
----
+在 AstrBot 插件市场安装 Iris Memory，或将本仓库放入 AstrBot 插件目录，然后重启 AstrBot。
 
-## 架构与数据流
+插件会自动安装以下核心依赖：
 
-```
-群消息事件
-   │
-   ├─ on_message ────────────► SignalGate（本地门控，零 LLM 成本）
-   │                              │ 命中 → 设置 iris_mode extra
-   │                              ▼
-   │                        统一决策（单次 LLM 调用，直调不触发钩子）
-   │                              │ 决策发言 → 劫持主管线注入 SPEAK_HINTS
-   │                              ▼
-├─ on_all_message ──────► L1 缓冲（三段式 FIFO）＋ 图片入队
-   │                       └─（可选）人格迭代语料旁路采集
-   │
-   ▼
-on_llm_request：先主动回复决策（可 stop_event）
-                后记忆注入：清空 contexts，注入 L1 / L2 / L3 / 画像
-                （全部 mark_as_temp，不污染持久会话）
-   │
-   ▼
-LLM ──► on_llm_response：回复入 L1，按 iris_mode 记账（ThreadAnchor）
-   │
-   ▼
-after_message_sent：写锚点 ──► 定时任务：梦境加工 / L1 总结 / 画像更新
-
-离线：L1 总结 ─► L2 向量库（FAISS+SQLite）─► L3 知识图谱 ─► 画像系统
-                 ▲                                        │
-                 └────────── 梦境 6 阶段离线加工 ◄──────────┘
-```
-
-存储：L2/L3/画像用 SQLite + FAISS 落盘；主动回复侧为 KV-only（键前缀 `iris_reply:*`，30 秒脏保存）。
-
----
-
-## 安装要求
-
-- **AstrBot ≥ 4.23.6**（建议；≥4.23 起 `on_agent_done` 钩子才注册）
-- Python 依赖（随插件自动安装）：`faiss-cpu`、`numpy`、`tiktoken`、`quart`、`Pillow`、`httpx`
-- **Embedding Provider**：L2 记忆库默认使用 AstrBot 的 Embedding Provider（`l2_memory.embedding_source=provider`），装好后请先在插件配置里填写 `embedding_provider`
-  - 可选：改为 `local` 使用本地模型，需自行 `pip install sentence-transformers`
-- 相比 v2 已**移除** ChromaDB / torch / transformers 等硬依赖，安装体积减重约 489MB
-
----
+- `faiss-cpu`
+- `numpy`
+- `tiktoken`
+- `quart`
+- `Pillow`
+- `httpx`
 
 ## 快速开始
 
-### 1) 安装与基础配置
+### 1. 配置记忆
 
-1. 在 AstrBot 中安装本插件并重启。
-2. **禁用内置群聊上下文**：`provider_ltm_settings.group_message_max_cnt = 0`。
-3. 插件配置中设置 `l2_memory.embedding_provider`（你的 Embedding Provider ID）。
-4. （可选）为主动回复设置 `proactive.provider_id`（决策模型）。
+在插件配置页完成以下设置：
 
-### 2) 验证记忆链路
+1. 保持 `l1_buffer.enable`、`l2_memory.enable` 开启。
+2. 将 `l2_memory.embedding_source` 保持为 `provider`。
+3. 为 `l2_memory.embedding_provider` 选择 Embedding Provider。
+4. 将 `provider_ltm_settings.group_message_max_cnt` 设置为 `0` 后重启。
 
-让管理员在群里发送：
+使用管理员指令检查状态：
 
-```
+```text
 /iris_mem l1 stats
 /iris_mem l2 stats
 ```
 
-能看到 L1/L2 统计即正常。也可以直接和 Bot 对话，LLM 会自动调用 `save_memory` / `search_memory` 等工具存取记忆。
+### 2. 开启主动回复
 
-### 3) 开启主动回复
+在目标群聊中执行：
 
-在目标群里（管理员）：
-
-```
+```text
 /iris_reply enable
 /iris_reply status
 ```
 
-### 4) 打开 Web 面板
+如需指定决策模型，可设置 `proactive.provider_id`。
 
-AstrBot 管理面板 → 插件页签内进入本插件页面：
+### 3. 开启人格自学习迭代
 
-- **记忆管理页**（pages/iris）：Dashboard / L1 / L2 / L3 图谱 / 画像 / 导入导出备份 / 隐藏配置
-- **主动回复页**（pages/stats）：管理 / 统计 / 设置 三个 tab
+1. 开启 `persona_evolution.enable`，配置分析/生成 Provider 和审查 Provider。
+2. 在 AstrBot Dashboard 的 Iris Memory 页面创建人格迭代任务。
+3. 指定目标 Persona、学习群和学习用户；内置 `default` Persona 需要先克隆。
+4. 审阅生成的 Revision，批准后发布；需要时可从任意已应用版本非破坏性回滚。
 
-### 5) （可选）开启人格自迭代
+默认自动触发条件为累计 100 条新增有效消息且距离上次成功至少 24 小时。手动执行仍需至少 20 条有效样本。完整流程见 [人格自学习迭代指南](./docs/PERSONA_EVOLUTION.md)。
 
-1. 在插件配置中启用 `persona_evolution.enable`，并选择分析/生成 Provider。
-2. 打开 Web 面板的「人格自迭代」，为具名 Persona 创建任务；内置 `default` 需先在页面中克隆。
-3. 默认累计 100 条新增有效消息且距上次成功至少 24 小时后自动迭代，也可手动立即执行（仍需至少 20 条有效语料）。
+## 三合一工作流
 
-首次使用、审批/回滚、隐私与故障恢复详见 [人格自迭代管理员指南](./docs/PERSONA_EVOLUTION.md)。
+```mermaid
+flowchart LR
+    A[群聊与私聊消息] --> B[本地采集与门控]
+    B --> C[L1 会话缓冲]
+    C --> D[L2 向量记忆]
+    D --> E[L3 知识图谱]
+    D --> F[用户与群画像]
+    B --> G[主动回复统一决策]
+    G --> H[自然跟话、跟进或发起]
+    B --> I[脱敏人格学习样本]
+    I --> J[分析、生成与审查]
+    J --> K[Persona Revision]
+    D --> L[梦境增量加工]
+    E --> L
+    L --> D
+    L --> E
+```
 
----
+在线请求时，插件按预算注入 L1、L2、L3 和画像；离线任务负责总结、协调、知识归纳和清理。主动回复与人格学习复用同一消息入口，但各自拥有独立门控和存储边界。
 
-## 指令一览
+## 记忆系统
 
-### `/iris_mem` — 记忆管理（管理员）
+### L1：近期上下文
 
-格式：`/iris_mem <模块> <操作>`。模块 ∈ `l1 | l2 | l3 | profile | all`，各模块支持的操作：
+三段式 FIFO 缓冲保存近期消息，并通过滚动总结进入 L2。当前用户消息会在注入时排除，避免重复上下文。
 
-| 模块 | 操作 |
-|------|------|
-| `l1` / `l2` / `l3` | `stats`、`clear` |
+### L2：长期语义记忆
+
+SQLite 保存内容和元数据，FAISS 保存向量索引。支持语义检索、persona 隔离、群记忆隔离以及基于时间、访问频率和置信度的遗忘评分。
+
+### L3：知识图谱
+
+以节点和边保存实体关系，通过关键词和 L2 来源记忆进行路径扩展。节点、边、提取与检索链路均支持 `persona_id` 隔离。
+
+### 梦境增量加工
+
+梦境任务由 5 个实际执行阶段组成，每个阶段有独立的新配置开关：
+
+| 阶段 | 配置键 | 行为 |
+| --- | --- | --- |
+| 时间锚定 | `scheduled_tasks.dream_stage_temporal_anchor_enabled` | 用确定性规则把相对时间转为绝对日期，不调用 LLM |
+| 记忆协调 | `scheduled_tasks.dream_stage_reconciliation_enabled` | 共享一次近邻扫描，完成重复合并和批量矛盾消解 |
+| 知识归纳 | `scheduled_tasks.dream_stage_knowledge_induction_enabled` | 增量发现模式，并把 L2 实体关系提取到 L3 |
+| L2 清理 | `scheduled_tasks.dream_stage_l2_pruning_enabled` | 按 persona 清理低价值向量记忆 |
+| L3 维护 | `scheduled_tasks.dream_stage_l3_maintenance_enabled` | 每轮只执行一次全局图谱去重、孤儿清理和淘汰 |
+
+旧版 6 个梦境子功能开关已移除且不会自动映射。升级后请按需要重新设置以上 5 个阶段开关，具体变更见 [CHANGELOG](./CHANGELOG.md)。
+
+## 主动回复
+
+主动回复支持四种动机：
+
+- `chime_in`：话题相关时自然插话。
+- `follow_up`：持续关注指定用户或话题。
+- `initiate`：群聊长时间安静时主动发起话题。
+- `watch`：只观察并更新对话锚点，不发言。
+
+SignalGate 会先根据消息信号、冷却和静音时段进行本地判断。通过门控后，统一决策模型一次输出是否发言、内容、话题、关注对象、漂移和冷却建议。
+
+常用指令：
+
+```text
+/iris_reply enable
+/iris_reply disable
+/iris_reply status
+/iris_reply reset
+/iris_reply cooldown [分钟]
+/iris_reply willingness [低|中|高]
+/iris_reply initiate
+```
+
+## 人格自学习迭代
+
+人格迭代采用受控 Revision 工作流：
+
+1. 从管理员指定的群和用户采集真实表达。
+2. 在本地执行拒绝规则、PII 脱敏、去重、限长和均衡抽样。
+3. 分析表达特征，生成候选 Persona 变更。
+4. 使用独立审查模型和确定性校验检查候选。
+5. 根据配置自动发布或等待人工审批。
+6. 保存完整 Run、Revision 和逐字 Diff，支持冲突处理与回滚。
+
+默认仅维护 Persona 中的 `IRIS_EVOLUTION` 受控区块，避免覆盖管理员手写内容。任何外部编辑冲突都会停止自动发布。
+
+管理指令：
+
+```text
+/iris_mem evolve status [job_id]
+/iris_mem evolve run <job_id>
+/iris_mem evolve pause <job_id>
+/iris_mem evolve resume <job_id>
+/iris_mem evolve rollback <job_id> <revision_id>
+```
+
+## 管理指令
+
+`/iris_mem` 的基本格式为：
+
+```text
+/iris_mem <模块> <操作> [范围]
+```
+
+| 模块 | 常用操作 |
+| --- | --- |
+| `l1`、`l2`、`l3` | `stats`、`clear` |
 | `profile` | `show`、`reset`、`group` |
-| `all` | `clear`（清空所有层级记忆，含画像） |
+| `learning` | 表达学习管理 |
 | `evolve` | `status`、`run`、`pause`、`resume`、`rollback` |
+| `all` | `clear` |
 
-| 示例 | 说明 |
-|------|------|
-| `/iris_mem help` | 显示帮助 |
-| `/iris_mem l2 stats` | 查看 L2 记忆库统计 |
-| `/iris_mem l2 clear @张三` | 清除指定用户的 L2 记忆 |
-| `/iris_mem l3 clear --group` | 清除当前群的知识图谱 |
-| `/iris_mem profile show` | 查看用户画像 |
-| `/iris_mem profile reset --all` | 重置全部画像 |
-| `/iris_mem all clear` | 清空所有层级记忆（含画像） |
-| `/iris_mem evolve status [job_id]` | 查看人格迭代任务或指定任务详情 |
-| `/iris_mem evolve run <job_id>` | 手动立即执行一轮人格迭代 |
-| `/iris_mem evolve rollback <job_id> <revision_id>` | 创建新版本并回滚到指定已应用版本 |
+范围参数支持 `@用户`、`--group` 和 `--all`。执行 `/iris_mem help` 可查看当前版本的完整帮助。
 
-### `/iris_reply` — 主动回复管理（管理员 + 仅群消息）
+插件还提供以下 Function Calling 工具：
 
-| 指令 | 说明 |
-|------|------|
-| `/iris_reply enable` / `disable` | 开启 / 关闭当前群的主动回复 |
-| `/iris_reply status` | 查看当前群状态（含冷却） |
-| `/iris_reply reset` | 重置当前群状态 |
-| `/iris_reply cooldown [分钟]` | 设置冷却（默认 5 分钟） |
-| `/iris_reply willingness [低/中/高]` | 查看 / 设置回复意愿 |
-| `/iris_reply initiate` | 强制触发一次主动发起 |
+- 记忆：`save_memory`、`search_memory`、`correct_memory`、`save_knowledge`、`search_knowledge_graph`、`get_profile`
+- 主动回复：`add_follow_up`、`end_follow_up`、`set_cooldown`
 
-### LLM Function Calling 工具
+## 配置
 
-记忆侧 6 个：`save_memory`、`search_memory`、`correct_memory`、`save_knowledge`、`search_knowledge_graph`、`get_profile`。
-主动回复侧 3 个：`add_follow_up`、`end_follow_up`、`set_cooldown`。
+主要配置组如下：
 
----
+| 配置组 | 用途 |
+| --- | --- |
+| `l1_buffer` | 近期上下文、总结和图片解析 |
+| `l2_memory` | Embedding 来源、向量检索与注入 |
+| `l3_kg` | 知识图谱和提取 Provider |
+| `profile` | 用户/群画像和好感度 |
+| `scheduled_tasks` | 梦境任务 Provider 与 5 个阶段开关 |
+| `proactive` | 主动回复总开关、统计和决策 Provider |
+| `persona_evolution` | 人格学习、生成、审查、采样与发布 |
+| `learning` | 群聊表达模式学习 |
+| `isolation_config` | 群记忆、画像与 persona 隔离 |
+| `context_control` | AstrBot 上下文接管 |
+| `error_friendly` | 错误消息友好化 |
+| `markdown_stripper` | Markdown 输出清理 |
 
-## 配置概览
+高级记忆参数保存在插件数据目录的 `hidden_config.json`，也可从 Dashboard 的“隐藏配置”页面编辑。主动回复高级参数由 Dashboard 管理并存储为 KV overrides。
 
-`_conf_schema.json` 共 **12 组 46 项**，全部可在 AstrBot 插件配置页修改：
+默认上下文预算：L1 队列 4000 token、L2 注入 2000 token、L3 注入 600 token、单条记忆注入最多 300 字符。
 
-| 配置组 | 说明 | 关键项 |
-|--------|------|--------|
-| `l1_buffer` | L1 消息上下文缓冲 | `enable`、`summary_provider`、`inject_queue_length`、`image_parsing` |
-| `learning` | 群聊表达模式学习 | `enable`、`review_provider`、`review_batch_size` |
-| `persona_evolution` | 人格自迭代 | `enable`、`provider`、`review_provider`、`sample_retention_days`、`sample_max_count` |
-| `l2_memory` | L2 记忆库 | `enable`、`embedding_source`、`embedding_provider`、`embedding_model`、`top_k`、`relevance_threshold` |
-| `l3_kg` | L3 知识图谱 | `enable`、`extraction_provider` |
-| `profile` | 画像系统 | `enable`、`analysis_provider`、`enable_auto_injection`、`favorability_enable` |
-| `isolation_config` | 隔离配置 | `enable_group_memory_isolation`、`enable_group_isolation`、`enable_persona_isolation` |
-| `scheduled_tasks` | 梦境任务 | `enable_dream`、`provider`、6 个阶段独立开关 |
-| `context_control` | 上下文接管 | `enable_conversation_cleanup` |
-| `proactive` | 主动回复 | `enabled`、`stats_enabled`、`provider_id` |
-| `error_friendly` | 错误消息友好化 | `enable` |
-| `markdown_stripper` | Markdown 格式去除 | `enable` |
+## Dashboard
 
-**高级参数**（不在配置页显示，按需手改）：
+插件复用 AstrBot Dashboard 的鉴权与页面托管。在 Iris Memory 页面可以管理：
 
-- 记忆侧约 50 项：插件数据目录下的 `hidden_config.json`（也可在记忆管理页"隐藏配置"中编辑）
-- 主动回复侧 22 项：主动回复页"设置" tab 管理（KV overrides）
+- L1、L2、L3 和画像
+- 主动回复开关、统计和高级参数
+- 表达模式学习
+- 人格迭代任务、Run、Revision、审批与回滚
+- 数据导入导出、运行日志和隐藏配置
 
-**Token 控制内置上限**：L1 队列 4000 token、L2 注入预算 2000、L3 注入预算 600、单条消息 ≤500 token、注入单条截断 300 字符；主动回复单次决策仅一次 LLM 调用。
+## 数据与隐私
 
----
+- L2、L3、画像和人格迭代记录默认保存在本地 SQLite / FAISS 数据目录。
+- 主动回复状态和高级配置保存在 AstrBot KV。
+- 只有调用所配置的 LLM 或 Embedding Provider 时，必要文本才会发送到对应服务。
+- 人格学习原始样本仅进入风格分析阶段；生成和审查阶段只接收结构化结果。
+- 可通过 Dashboard 或管理指令按用户、群或全局删除数据。
 
-## v2 用户迁移
+请根据所使用 Provider 的隐私政策和所在地区法规决定是否启用相关云端能力。
 
-v3 首次启动时**自动一次性迁移**旧数据（ChromaDB 记忆 → L2 重算 embedding、旧知识图谱 → L3、旧画像 → 新画像、旧主动回复白名单、8 个旧配置键映射），迁移前自动备份到 `<数据目录>/legacy_backup/`。
+## 从 v2 迁移
 
-注意：迁移旧向量库需要先 `pip install chromadb`（软依赖，未安装则跳过 L2 迁移并记日志）。
+首次启动 v3 时，插件会尝试一次性迁移旧 ChromaDB 记忆、知识图谱、画像、主动回复白名单和部分旧配置，并在迁移前备份到 `<数据目录>/legacy_backup/`。
 
-完整迁移指南、验证清单与回滚方法见 **[docs/MIGRATION.md](./docs/MIGRATION.md)**。
+旧 ChromaDB 记忆迁移需要额外安装 `chromadb`；未安装时只跳过 L2 迁移，不阻塞插件启动。详细步骤、验证和回滚方式见 [v2 → v3 迁移指南](./docs/MIGRATION.md)。
 
----
+梦境阶段开关属于本轮重构后的新配置，不参与旧 6 开关迁移。
 
-## 常见问题（FAQ）
+## 常见问题
 
-### 1. 记忆没有注入 / 出现"第三人称"复述？
+### 记忆没有注入，或者机器人用第三人称复述自己
 
-几乎一定是 AstrBot 内置群聊上下文未关闭。把 `provider_ltm_settings.group_message_max_cnt` 设为 `0` 后重启。
+确认 `provider_ltm_settings.group_message_max_cnt = 0`，然后重启 AstrBot。内置上下文与 Iris Memory 同时注入会造成重复信息。
 
-### 2. 启动日志提示"功能重叠"警告？
+### L2 没有检索结果
 
-你同时安装了 `astrbot_plugin_iris_chat_memory` 或 `astrbot_plugin_iris_reply`。v3 已整合二者，停用旧插件即可。
+确认 `l2_memory.enable=true`、Embedding Provider 可用，并使用 `/iris_mem l2 stats` 检查是否已有记忆。之后再调整 `relevance_threshold` 或 `top_k`。
 
-### 3. L2 检索不到内容？
+### 主动回复没有发言
 
-- 确认 `l2_memory.enable=true` 且 `embedding_provider` 已正确配置。
-- 用 `/iris_mem l2 stats` 确认记忆确实写入。
-- 尝试降低 `l2_memory.relevance_threshold` 或提高 `top_k`。
+使用 `/iris_reply status` 检查群开关、冷却和静音时段。需要时调整 willingness，并在 Dashboard 查看决策统计。
 
-### 4. 主动回复不说话 / 话太多？
+### 主动回复过于频繁
 
-- 先 `/iris_reply status` 看是否在冷却或静音时段（默认 01:00–07:00）。
-- 用 `/iris_reply willingness 低/中/高` 调整意愿；高级参数（backoff/boost 等 22 项）在面板"设置" tab 调整。
-- `proactive.stats_enabled=true` 后可在面板"统计" tab 查看每次决策记录。
+降低 willingness，延长冷却，或在 Dashboard 调整 backoff、boost 和静音时段。
 
-### 5. 数据存哪？会上传云端吗？
+### 人格迭代任务显示 conflict
 
-插件数据默认存储在本地 SQLite / FAISS / KV。仅在调用你配置的 LLM / Embedding Provider 时发送必要文本。人格自迭代会在本地保存已脱敏、限长的群聊语料，并将均衡抽样后的内容发送给分析 Provider；候选生成和审查阶段不接触原始语料。可在 Web 面板查看分布或按群/用户删除。
+目标 Persona 在任务基线之外被人工或其他插件修改。为避免覆盖外部编辑，自动发布会停止。请在 Dashboard 审阅并采纳当前 Persona 为新基线，或人工处理冲突后恢复任务。
 
-### 6. 为什么人格自迭代任务进入 conflict？
+## 开发与测试
 
-AstrBot 侧的 Persona 在任务基线之外被人工或其他插件修改。为避免覆盖管理员编辑，自动发布会停止。请在 Web 面板审阅外部版本后选择「采纳当前 Persona 为新基线」，或人工处理后再恢复任务。
+```bash
+python -m pip install -r requirements.txt -r requirements-dev.txt
+python -m pytest -q
+```
 
----
+提交 Pull Request 前，请确保测试通过、没有提交本地数据文件，并在涉及配置或用户行为变更时同步更新 CHANGELOG。
 
-## 文档与链接
+## 文档
 
 - [更新日志](./CHANGELOG.md)
 - [v2 → v3 迁移指南](./docs/MIGRATION.md)
-- [人格自迭代管理员指南](./docs/PERSONA_EVOLUTION.md)
+- [人格自学习迭代指南](./docs/PERSONA_EVOLUTION.md)
+- [Web 前端开发说明](./iris_memory/web/README.md)
 - [AstrBot 插件开发文档](https://docs.astrbot.app/dev/star/plugin-new.html)
 
----
+## 贡献
 
-## License 与其他信息
+欢迎通过 Issue 报告问题或提出建议，也欢迎提交 Pull Request。请在问题描述中附上 AstrBot 版本、插件版本、关键配置和脱敏后的日志。
 
-AGPL-3.0 license
+## 许可证
 
-欢迎提交 Issue 和 Pull Request。
-
-感谢 AstrBot 提供的平台、以及其他开源项目提供的代码规范。
+本项目采用 AGPL-3.0 许可证。

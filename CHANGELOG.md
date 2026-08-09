@@ -22,10 +22,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - 全量备份格式由 1.0 扩展为 1.1，可选包含 `persona_evolution` 数据；导入旧版 1.0 仍兼容，导入 Revision 不会自动修改 AstrBot Persona。
 - 学习模块批审查补充持久去重与并发安全，Web 学习管理沿用统一响应契约。
+- **梦境任务降本与合并**：执行流收敛为确定性时间锚定、共享近邻扫描的记忆协调、增量知识归纳、persona 级 L2 清洗和每轮一次的全局 L3 维护；合并/矛盾/遗忘改为批量 LLM 请求，L2 内容更新改为批量 embedding，并为阶段报告增加 LLM、token 与 embedding 调用统计。
+- **梦境阶段开关为破坏性变更，不提供旧键兼容映射**：移除 `dream_enable_consolidation`、`dream_enable_temporal_anchor`、`dream_enable_contradiction`、`dream_enable_pattern_discovery`、`dream_enable_knowledge_extract`、`dream_enable_pruning`；新增 `dream_stage_temporal_anchor_enabled`、`dream_stage_reconciliation_enabled`、`dream_stage_knowledge_induction_enabled`、`dream_stage_l2_pruning_enabled`、`dream_stage_l3_maintenance_enabled`。旧配置不会被读取，升级后需重新确认 5 个阶段开关。
+- **产品定位升级为轻量化三合一**：README 围绕“记忆 + 主动回复 + 人格自学习迭代”重构，统一安装、快速开始、架构、配置、隐私、迁移与故障排查说明。
+- **知识图谱 persona 隔离**：L3 节点、边及提取/检索链路携带 `persona_id`，旧数据库启动时自动补列并保持默认人格 ID 兼容；模式输入哈希和空知识提取收敛机制避免无变化数据反复调用模型。
 
 ### Tests
 
 - 新增人格自迭代存储、采集、抽样、三阶段 LLM、发布闸门、调度、版本/回滚、命令、Web API、备份兼容及 grapheme Diff 测试。
+- 新增梦境共享扫描、批量矛盾/遗忘、零 LLM 时间锚定、增量模式、知识空结果收敛、批量 embedding 及 L3 persona 隔离回归测试。
 
 ## [v3.0.2] - 2026-08-02
 

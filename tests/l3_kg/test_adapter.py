@@ -1,5 +1,7 @@
 """L3 知识图谱适配器测试"""
 
+import sqlite3
+
 import pytest
 import pytest_asyncio
 from pathlib import Path
@@ -42,6 +44,45 @@ class TestL3KGAdapter:
         assert adapter._is_available
         assert adapter.name == "l3_kg"
 
+    def test_old_schema_migrates_persona_columns_to_default(self):
+        adapter = L3KGAdapter()
+        adapter._db = sqlite3.connect(":memory:")
+        adapter._db.row_factory = sqlite3.Row
+        adapter._db.executescript("""
+            CREATE TABLE nodes (
+                id TEXT PRIMARY KEY, label TEXT NOT NULL, name TEXT NOT NULL,
+                content TEXT DEFAULT '', confidence REAL DEFAULT 0.5,
+                access_count INTEGER DEFAULT 0, last_access_time TEXT,
+                created_time TEXT, source_memory_id TEXT, group_id TEXT,
+                properties TEXT DEFAULT '{}'
+            );
+            CREATE TABLE edges (
+                source_id TEXT NOT NULL, target_id TEXT NOT NULL,
+                relation_type TEXT NOT NULL, weight REAL DEFAULT 1.0,
+                confidence REAL DEFAULT 0.5, access_count INTEGER DEFAULT 0,
+                last_access_time TEXT, created_time TEXT, source_memory_id TEXT,
+                properties TEXT DEFAULT '{}',
+                PRIMARY KEY (source_id, target_id, relation_type)
+            );
+            INSERT INTO nodes (id, label, name) VALUES ('old', 'Person', 'Alice');
+        """)
+
+        adapter._create_schema_unlocked()
+
+        node_columns = {
+            row[1] for row in adapter._db.execute("PRAGMA table_info(nodes)")
+        }
+        edge_columns = {
+            row[1] for row in adapter._db.execute("PRAGMA table_info(edges)")
+        }
+        migrated = adapter._db.execute(
+            "SELECT persona_id FROM nodes WHERE id = 'old'"
+        ).fetchone()
+        assert "persona_id" in node_columns
+        assert "persona_id" in edge_columns
+        assert migrated["persona_id"] == "default"
+        adapter._db.close()
+
     @pytest.mark.asyncio
     async def test_add_node(self, adapter):
         """测试添加节点"""
@@ -56,6 +97,26 @@ class TestL3KGAdapter:
         # 验证节点已添加
         stats = await adapter.get_stats()
         assert stats["node_count"] == 1
+
+    @pytest.mark.asyncio
+    async def test_persona_namespaces_keep_same_entity_isolated(self, adapter):
+        default_node = GraphNode(
+            id="", label="Person", name="Alice", content="默认人格", persona_id="default"
+        )
+        alt_node = GraphNode(
+            id="", label="Person", name="Alice", content="替代人格", persona_id="alt"
+        )
+        default_node.id = default_node.generate_id()
+        alt_node.id = alt_node.generate_id()
+        assert default_node.id != alt_node.id
+
+        await adapter.add_node(default_node)
+        await adapter.add_node(alt_node)
+
+        default_results = await adapter.search_nodes("Alice", persona_id="default")
+        alt_results = await adapter.search_nodes("Alice", persona_id="alt")
+        assert [node["content"] for node in default_results] == ["默认人格"]
+        assert [node["content"] for node in alt_results] == ["替代人格"]
 
     @pytest.mark.asyncio
     async def test_add_edge(self, adapter):

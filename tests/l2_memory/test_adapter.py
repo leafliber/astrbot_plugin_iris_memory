@@ -471,6 +471,39 @@ class TestL2MemoryAdapter:
         assert entries[0].content == "新内容"
 
     @pytest.mark.asyncio
+    async def test_batch_update_contents_uses_one_embedding_and_reopens_kg(
+        self, mock_faiss_adapter
+    ):
+        adapter = mock_faiss_adapter
+        adapter._find_similar_unlocked = Mock(return_value=None)
+        adapter._embed = AsyncMock(return_value=[[0.1] * 8])
+        original_timestamp = "2026-01-02T03:04:05"
+        first = await adapter.add_memory(
+            "旧一",
+            metadata={
+                "timestamp": original_timestamp,
+                "kg_processed": True,
+            },
+        )
+        second = await adapter.add_memory(
+            "旧二", metadata={"timestamp": original_timestamp, "kg_processed": True}
+        )
+
+        adapter._embed = AsyncMock(return_value=[[0.2] * 8, [0.3] * 8])
+        updated = await adapter.batch_update_contents(
+            [(first, "新一"), (second, "新二")]
+        )
+
+        assert updated == 2
+        adapter._embed.assert_awaited_once()
+        assert set(adapter._embed.await_args.args[0]) == {"新一", "新二"}
+        entries = await adapter.get_all_entries()
+        assert {entry.content for entry in entries} == {"新一", "新二"}
+        assert all(entry.metadata["timestamp"] == original_timestamp for entry in entries)
+        assert all(entry.metadata["kg_processed"] is False for entry in entries)
+        assert all("updated_at" in entry.metadata for entry in entries)
+
+    @pytest.mark.asyncio
     async def test_update_metadata(self, mock_faiss_adapter):
         """测试更新元数据"""
         adapter = mock_faiss_adapter

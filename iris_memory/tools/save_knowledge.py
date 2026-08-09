@@ -131,6 +131,9 @@ class SaveKnowledgeTool(FunctionTool[AstrAgentContext]):
 
             adapter = get_adapter(event)
             group_id = adapter.get_group_id(event)
+            from iris_memory.core.persona import resolve_persona
+
+            persona_id = await resolve_persona(component_manager, event)
 
             # 构建 GraphNode 对象
             graph_nodes = []
@@ -146,6 +149,7 @@ class SaveKnowledgeTool(FunctionTool[AstrAgentContext]):
                     content=node_data["content"],
                     confidence=clamped_conf,
                     group_id=group_id,
+                    persona_id=persona_id,
                 )
                 node.id = node.generate_id()
                 graph_nodes.append(node)
@@ -163,6 +167,7 @@ class SaveKnowledgeTool(FunctionTool[AstrAgentContext]):
                         target_id=target_id,
                         relation_type=edge_data["relation_type"],
                         confidence=max(0.0, min(1.0, float(edge_data.get("confidence", 1.0)))),
+                        persona_id=persona_id,
                     )
                     graph_edges.append(edge)
 

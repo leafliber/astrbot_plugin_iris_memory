@@ -587,6 +587,7 @@ class LLMManager(Component):
             "dream_temporal_anchor": "scheduled_tasks.provider",
             "dream_contradiction": "scheduled_tasks.provider",
             "dream_pattern_discovery": "scheduled_tasks.provider",
+            "dream_knowledge_induction": "scheduled_tasks.provider",
             "dream_pruning_confirm": "scheduled_tasks.provider",
             "image_parsing": "l1_buffer.image_parsing.provider",
             "profile_analysis": "profile.analysis_provider",

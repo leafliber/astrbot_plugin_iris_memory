@@ -77,11 +77,16 @@ class SearchKnowledgeGraphTool(FunctionTool[AstrAgentContext]):
 
             manager = get_component_manager()
             l3_adapter = manager.get_component("l3_kg", L3KGAdapter)
+            from iris_memory.core.persona import resolve_persona
+
+            persona_id = await resolve_persona(manager, event)
 
             if not l3_adapter or not l3_adapter._is_available:
                 return "知识图谱当前不可用"
 
-            matched_nodes = await self._search_nodes(l3_adapter, query, label, group_id)
+            matched_nodes = await self._search_nodes(
+                l3_adapter, query, label, group_id, persona_id
+            )
 
             if not matched_nodes:
                 return f"未在知识图谱中找到与「{query}」相关的实体"
@@ -97,6 +102,7 @@ class SearchKnowledgeGraphTool(FunctionTool[AstrAgentContext]):
                             node_ids=node_ids,
                             max_depth=expand_depth,
                             group_id=group_id,
+                            persona_id=persona_id,
                         )
                         expanded_nodes = exp_nodes
                         expanded_edges = exp_edges
@@ -121,11 +127,15 @@ class SearchKnowledgeGraphTool(FunctionTool[AstrAgentContext]):
             return f"搜索知识图谱失败：{str(e)}"
 
     async def _search_nodes(
-        self, l3_adapter, query: str, label: str, group_id
+        self, l3_adapter, query: str, label: str, group_id, persona_id=None
     ) -> list[dict]:
         try:
             nodes = await l3_adapter.search_nodes_detailed(
-                query=query, label=label or None, group_id=group_id, limit=15
+                query=query,
+                label=label or None,
+                group_id=group_id,
+                persona_id=persona_id,
+                limit=15,
             )
             if len(nodes) > 15:
                 logger.debug(f"KG Tool 搜索节点截断：原始 {len(nodes)} 个 → 保留 15 个")

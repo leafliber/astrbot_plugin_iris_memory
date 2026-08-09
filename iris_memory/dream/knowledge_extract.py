@@ -5,11 +5,12 @@ Iris Chat Memory - 梦境阶段5：知识提取
 
 Features:
     - 按群聊/用户分组批量聚合提取
-    - 空提取结果不标记为已处理
+    - 相同内容连续两次空提取后终态处理，避免永久重试
     - 批量处理优化
 """
 
 from collections import defaultdict
+import hashlib
 from typing import List, Optional, cast
 
 from iris_memory.core import get_logger
@@ -92,15 +93,19 @@ class KnowledgeExtractPhase:
 
         from iris_memory.l3_kg import EntityExtractor
 
-        extractor = EntityExtractor(llm)
+        extractor = EntityExtractor(llm, module="dream_knowledge_induction")
 
         all_processed_ids: List[str] = []
         total_nodes = 0
         total_edges = 0
+        empty_finalized = 0
 
         for group_key, memories in groups.items():
             try:
-                context = {"group_id": memories[0].group_id}
+                context = {
+                    "group_id": memories[0].group_id,
+                    "persona_id": persona_id,
+                }
 
                 user_aliases = await self._build_user_aliases(
                     memories, persona_id, component_manager
@@ -143,7 +148,12 @@ class KnowledgeExtractPhase:
                             f"不标记为已处理以便重试"
                         )
                 else:
-                    logger.debug(f"群组 [{group_key}] 提取结果为空，不标记为已处理")
+                    finalized = await self._record_empty_result(memories, l2)
+                    empty_finalized += finalized
+                    logger.debug(
+                        f"群组 [{group_key}] 提取结果为空，"
+                        f"本轮终态标记 {finalized} 条"
+                    )
 
             except Exception as e:
                 logger.error(f"处理群组 [{group_key}] 失败：{e}", exc_info=True)
@@ -159,6 +169,7 @@ class KnowledgeExtractPhase:
             "memories_processed": len(all_processed_ids),
             "nodes_extracted": total_nodes,
             "edges_extracted": total_edges,
+            "empty_finalized": empty_finalized,
         }
 
     def _group_memories(self, memories: list) -> dict[str, list]:
@@ -169,6 +180,29 @@ class KnowledgeExtractPhase:
             groups[group_key].append(mem)
 
         return dict(groups)
+
+    async def _record_empty_result(
+        self, memories: list, l2: "L2MemoryAdapter"
+    ) -> int:
+        """记录空抽取；相同内容连续两次为空后终态处理，避免永久重试。"""
+        finalized = 0
+        for memory in memories:
+            content_hash = hashlib.sha256(memory.content.encode("utf-8")).hexdigest()
+            same_content = memory.metadata.get("kg_attempt_content_hash") == content_hash
+            attempts = (
+                int(memory.metadata.get("kg_empty_attempts", 0))
+                if same_content
+                else 0
+            )
+            attempts += 1
+            memory.metadata["kg_attempt_content_hash"] = content_hash
+            memory.metadata["kg_empty_attempts"] = attempts
+            memory.metadata["kg_last_result"] = "empty"
+            if attempts >= 2:
+                memory.metadata["kg_processed"] = True
+                finalized += 1
+            await l2.update_metadata(memory.id, memory.metadata)
+        return finalized
 
     async def _build_user_aliases(
         self,
