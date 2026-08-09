@@ -54,6 +54,38 @@ export async function importProfiles(data: unknown, skipDuplicates: boolean = tr
   return response.stats
 }
 
+export async function exportLearning(): Promise<void> {
+  const timestamp = new Date().toISOString().slice(0, 10)
+  await apiDownload('data/learning/export', {}, `iris_learning_${timestamp}.json`)
+}
+
+export async function importLearning(data: unknown, skipDuplicates: boolean = true): Promise<any> {
+  const response = await apiPost<any>('data/learning/import', {
+    data,
+    skip_duplicates: skipDuplicates
+  })
+  checkSuccess(response, '导入学习模块数据失败')
+  return response.stats
+}
+
+export async function exportPersonaEvolution(includeSamples: boolean = true): Promise<void> {
+  const timestamp = new Date().toISOString().slice(0, 10)
+  await apiDownload(
+    'data/persona-evolution/export',
+    { include_samples: String(includeSamples) },
+    `iris_persona_evolution_${timestamp}.json`
+  )
+}
+
+export async function importPersonaEvolution(data: unknown, skipDuplicates: boolean = true): Promise<any> {
+  const response = await apiPost<any>('data/persona-evolution/import', {
+    data,
+    skip_duplicates: skipDuplicates
+  })
+  checkSuccess(response, '导入人格自迭代数据失败')
+  return response.stats
+}
+
 export async function exportAll(): Promise<void> {
   const timestamp = new Date().toISOString().slice(0, 10)
   await apiDownload('data/all/export', {}, `iris_full_backup_${timestamp}.json`)

@@ -8,6 +8,7 @@ from quart import Quart
 
 from iris_memory.config import init_config
 from iris_memory.config.config import reset_config
+from iris_memory.learning.storage import LearningStorage
 from iris_memory.persona_evolution import PersonaEvolutionStorage
 from iris_memory.web.routes import data_routes
 from tests.persona_evolution.conftest import make_job, seed_samples
@@ -173,3 +174,41 @@ class TestFullBackupV11:
 
         assert data["success"] is True
         assert "error" in data["result"]["persona_evolution"]
+
+
+class TestModuleDataRoutes:
+    @pytest.mark.asyncio
+    async def test_learning_export_and_import(self, backup_env, tmp_path):
+        learning = LearningStorage(tmp_path / "learning.db")
+        learning.init_schema()
+        learning.insert_pair("g", "u", "问", "答", "m1")
+        backup_env.set_components({"learning": FakeComponent(learning)})
+        try:
+            resp = await backup_env.app.test_client().get(
+                f"{DATA_PREFIX}/learning/export"
+            )
+            assert resp.status_code == 200
+            exported = json.loads(await resp.get_data(as_text=True))
+            assert len(exported["tables"]["few_shot"]) == 1
+
+            learning.delete_all()
+            resp = await backup_env.app.test_client().post(
+                f"{DATA_PREFIX}/learning/import", json={"data": exported}
+            )
+            data = await resp.get_json()
+            assert data["success"] is True
+            assert data["stats"]["imported_count"] == 1
+            assert learning.count_rows("few_shot") == 1
+        finally:
+            learning.close()
+
+    @pytest.mark.asyncio
+    async def test_persona_evolution_export_can_include_samples(self, backup_env):
+        seed_samples(backup_env.storage, 2)
+        resp = await backup_env.app.test_client().get(
+            f"{DATA_PREFIX}/persona-evolution/export?include_samples=true"
+        )
+        data = json.loads(await resp.get_data(as_text=True))
+        assert resp.status_code == 200
+        assert data["include_samples"] is True
+        assert len(data["samples"]) == 2

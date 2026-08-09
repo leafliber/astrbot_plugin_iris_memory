@@ -475,6 +475,24 @@ class PersonaEvolutionStorage:
             self._db.commit()
             return cur.rowcount
 
+    def delete_all(self) -> Dict[str, int]:
+        """删除自迭代模块的全部任务、历史版本、审计记录和脱敏语料。"""
+        delete_order = (
+            "revision_samples",
+            "persona_revisions",
+            "evolution_runs",
+            "evolution_jobs",
+            "style_samples",
+        )
+        deleted: Dict[str, int] = {}
+        with self._lock:
+            for table in delete_order:
+                cur = self._db.execute(f"DELETE FROM {table}")
+                deleted[table] = max(0, int(cur.rowcount))
+            self._db.commit()
+        deleted["total"] = sum(deleted.values())
+        return deleted
+
     # ------------------------------------------------------------------
     # evolution_jobs CRUD
     # ------------------------------------------------------------------

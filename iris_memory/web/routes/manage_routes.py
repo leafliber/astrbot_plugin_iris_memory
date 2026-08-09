@@ -6,6 +6,8 @@
 - L2 记忆删除
 - L3 知识图谱删除/合并
 - 画像删除
+- 学习模块删除
+- 人格自迭代模块删除
 - 任务手动触发
 """
 
@@ -15,6 +17,8 @@ from iris_memory.l1_buffer.buffer import L1Buffer
 from iris_memory.l2_memory.adapter import L2MemoryAdapter
 from iris_memory.l3_kg.adapter import L3KGAdapter
 from iris_memory.profile.storage import ProfileStorage
+from iris_memory.learning import LearningComponent
+from iris_memory.persona_evolution import PersonaEvolutionComponent
 from iris_memory.tasks.scheduler import TaskScheduler
 
 logger = get_logger("web.manage")
@@ -212,6 +216,42 @@ async def delete_profile():
         return jsonify({"success": False, "error": "内部错误，详见服务日志"}), 500
 
 
+async def delete_learning():
+    try:
+        manager = get_component_manager()
+        component = manager.get_component("learning", LearningComponent)
+        if not component or not component.is_available or not component.storage:
+            return jsonify({"success": False, "error": "学习模块不可用或未启用"}), 503
+
+        deleted = component.storage.delete_all()
+        logger.info(f"已删除全部学习模块数据：{deleted}")
+        return jsonify(
+            {"success": True, "deleted_count": deleted["total"], "deleted": deleted}
+        )
+    except Exception as e:
+        logger.error(f"删除学习模块数据失败：{e}", exc_info=True)
+        return jsonify({"success": False, "error": "内部错误，详见服务日志"}), 500
+
+
+async def delete_persona_evolution():
+    try:
+        manager = get_component_manager()
+        component = manager.get_component(
+            "persona_evolution", PersonaEvolutionComponent
+        )
+        if not component or not component.is_available or not component.storage:
+            return jsonify({"success": False, "error": "人格自迭代模块不可用或未启用"}), 503
+
+        deleted = component.storage.delete_all()
+        logger.info(f"已删除全部人格自迭代数据：{deleted}")
+        return jsonify(
+            {"success": True, "deleted_count": deleted["total"], "deleted": deleted}
+        )
+    except Exception as e:
+        logger.error(f"删除人格自迭代数据失败：{e}", exc_info=True)
+        return jsonify({"success": False, "error": "内部错误，详见服务日志"}), 500
+
+
 async def trigger_task():
     try:
         manager = get_component_manager()
@@ -306,6 +346,13 @@ def register_manage_routes(context) -> None:
             "合并 L3 重复节点",
         ),
         (f"{prefix}/profile/delete", delete_profile, ["POST"], "删除画像"),
+        (f"{prefix}/learning/delete", delete_learning, ["POST"], "删除学习模块数据"),
+        (
+            f"{prefix}/persona-evolution/delete",
+            delete_persona_evolution,
+            ["POST"],
+            "删除人格自迭代数据",
+        ),
         (f"{prefix}/tasks/trigger", trigger_task, ["POST"], "手动触发任务"),
         (f"{prefix}/tasks/status", get_tasks_status, ["GET"], "获取任务状态"),
     ]

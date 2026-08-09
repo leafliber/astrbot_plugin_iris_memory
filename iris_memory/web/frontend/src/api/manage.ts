@@ -59,6 +59,18 @@ export async function deleteProfile(
   return response
 }
 
+export async function deleteLearningData(): Promise<{ deleted_count: number }> {
+  const response = await apiPost<any>('manage/learning/delete')
+  checkSuccess(response, '删除学习模块数据失败')
+  return { deleted_count: response.deleted_count || 0 }
+}
+
+export async function deletePersonaEvolutionData(): Promise<{ deleted_count: number }> {
+  const response = await apiPost<any>('manage/persona-evolution/delete')
+  checkSuccess(response, '删除人格自迭代数据失败')
+  return { deleted_count: response.deleted_count || 0 }
+}
+
 export type TaskName = 'dream' | 'cache_cleanup'
 
 export async function triggerTask(task: TaskName): Promise<{ message: string }> {

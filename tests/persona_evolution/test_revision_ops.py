@@ -554,6 +554,31 @@ class TestExportImport:
         assert stats["imported_jobs"] == 0
 
 
+class TestDeleteAll:
+    def test_deletes_jobs_revisions_refs_and_samples(self, storage):
+        job_id = make_job(storage, "p1")
+        seed_samples(storage, 2)
+        samples = storage.fetch_samples()
+        revision_id = storage.create_revision(
+            PersonaRevision(job_id=job_id, version=1, result_prompt="新版人格")
+        )
+        storage.insert_revision_samples(
+            revision_id,
+            [{"id": samples[0]["id"], "dedupe_hash": samples[0]["dedupe_hash"]}],
+        )
+
+        deleted = storage.delete_all()
+
+        assert deleted["total"] == 5
+        assert storage.list_jobs() == []
+        assert storage.export_all(include_samples=True)["stats"] == {
+            "job_count": 0,
+            "run_count": 0,
+            "revision_count": 0,
+            "sample_count": 0,
+        }
+
+
 class TestSchemaV2Migration:
     """schema v1 → v2 迁移（decision_reason 列）"""
 

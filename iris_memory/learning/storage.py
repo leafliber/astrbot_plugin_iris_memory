@@ -25,6 +25,39 @@ logger = get_logger("learning.storage")
 
 _SCHEMA_VERSION = 2
 
+# JSON 备份格式版本。导出使用原始数据库字段，便于完整保留自动暗语漏斗数据。
+LEARNING_EXPORT_VERSION = "1.0"
+
+_EXPORT_COLUMNS = {
+    "few_shot": (
+        "id", "group_id", "user_id", "user_text", "bot_text", "message_id",
+        "status", "created_at",
+    ),
+    "expression_pattern": (
+        "id", "group_id", "scene", "expression", "source_pair_id", "hit_count",
+        "status", "created_at", "last_hit_at",
+    ),
+    "jargon": (
+        "id", "group_id", "term", "aliases_json", "meaning", "confidence",
+        "status", "category", "evidence_count", "approved_at", "last_seen_at",
+        "dormant_at", "created_at", "updated_at",
+    ),
+    "jargon_candidate": (
+        "id", "group_id", "term", "state", "first_seen_at", "last_seen_at",
+        "local_score", "evidence_count_at_review", "llm_attempts", "last_llm_at",
+        "next_review_at", "review_token", "category", "canonical_term", "meaning",
+        "confidence", "verdict_reason", "created_at", "updated_at",
+    ),
+    "jargon_candidate_daily": (
+        "candidate_id", "day", "message_count", "user_stats_json",
+        "left_neighbors_json", "right_neighbors_json", "support_hashes_json",
+        "contexts_json",
+    ),
+    "jargon_group_daily": ("group_id", "day", "users_json"),
+    "jargon_llm_usage": ("day", "call_count", "candidate_count", "last_call_at"),
+    "jargon_reactivation": ("jargon_id", "user_id", "contribution_count", "last_at"),
+}
+
 # 表达模式 / few_shot 的统一状态
 STATUS_PENDING = "pending_review"
 STATUS_APPROVED = "approved"
@@ -935,14 +968,212 @@ class LearningStorage:
             return cur.rowcount
 
     def clear_all(self) -> None:
-        """清空全部三张表"""
+        """清空全部学习数据（保留兼容命令层的无返回值接口）。"""
+        self.delete_all()
+
+    def delete_all(self) -> Dict[str, int]:
+        """清空学习模块的全部主数据、候选证据和用量记录。"""
+        delete_order = (
+            "jargon_candidate_daily",
+            "jargon_reactivation",
+            "jargon_group_daily",
+            "jargon_llm_usage",
+            "expression_pattern",
+            "few_shot",
+            "jargon_candidate",
+            "jargon",
+        )
+        deleted: Dict[str, int] = {}
         with self._lock:
-            self._db.execute("DELETE FROM jargon_candidate")
-            self._db.execute("DELETE FROM jargon_group_daily")
-            self._db.execute("DELETE FROM jargon_llm_usage")
-            for table in _TABLES:
-                self._db.execute(f"DELETE FROM {table}")
+            for table in delete_order:
+                cur = self._db.execute(f"DELETE FROM {table}")
+                deleted[table] = max(0, int(cur.rowcount))
             self._db.commit()
+        deleted["total"] = sum(deleted.values())
+        return deleted
+
+    def export_all(self) -> Dict[str, Any]:
+        """导出学习模块完整 JSON 快照。"""
+        from datetime import datetime
+
+        tables: Dict[str, List[Dict[str, Any]]] = {}
+        with self._lock:
+            for table, columns in _EXPORT_COLUMNS.items():
+                order = "id" if "id" in columns else ", ".join(columns[:2])
+                rows = self._db.execute(
+                    f"SELECT {', '.join(columns)} FROM {table} ORDER BY {order}"
+                ).fetchall()
+                tables[table] = [dict(row) for row in rows]
+        return {
+            "version": LEARNING_EXPORT_VERSION,
+            "export_time": datetime.now().isoformat(),
+            "tables": tables,
+            "stats": {table: len(rows) for table, rows in tables.items()},
+        }
+
+    def import_from_data(
+        self, data: Dict[str, Any], skip_duplicates: bool = True
+    ) -> Dict[str, Any]:
+        """导入 :meth:`export_all` 快照，并重映射所有行 ID 与引用。"""
+        if not isinstance(data, dict):
+            raise ValueError("学习模块导入数据必须是字典")
+        tables = data.get("tables")
+        if not isinstance(tables, dict):
+            raise ValueError("学习模块导入数据缺少 tables 字段")
+        for table, rows in tables.items():
+            if table not in _EXPORT_COLUMNS:
+                raise ValueError(f"学习模块导入数据包含未知表：{table}")
+            if not isinstance(rows, list):
+                raise ValueError(f"表 {table} 的数据必须是列表")
+
+        per_table = {
+            table: {"imported": 0, "skipped": 0, "errors": 0}
+            for table in _EXPORT_COLUMNS
+        }
+        pair_ids: Dict[int, int] = {}
+        jargon_ids: Dict[int, int] = {}
+        candidate_ids: Dict[int, int] = {}
+
+        def rows_for(table: str) -> List[Dict[str, Any]]:
+            rows = tables.get(table) or []
+            return rows if isinstance(rows, list) else []
+
+        def insert_raw(
+            table: str,
+            row: Dict[str, Any],
+            overrides: Optional[Dict[str, Any]] = None,
+        ) -> int:
+            if not isinstance(row, dict):
+                raise ValueError("导入记录必须是字典")
+            values = dict(row)
+            values.pop("id", None)
+            if overrides:
+                values.update(overrides)
+            allowed = [c for c in _EXPORT_COLUMNS[table] if c != "id"]
+            columns = [c for c in allowed if c in values]
+            if not columns:
+                raise ValueError(f"表 {table} 的记录为空")
+            placeholders = ",".join("?" for _ in columns)
+            cur = self._db.execute(
+                f"INSERT INTO {table} ({', '.join(columns)}) VALUES ({placeholders})",
+                tuple(values[c] for c in columns),
+            )
+            return int(cur.lastrowid)
+
+        def mark(table: str, result: str) -> None:
+            per_table[table][result] += 1
+
+        with self._lock:
+            # 父表先导入，随后才能安全重映射 source/candidate/jargon 引用。
+            for row in rows_for("few_shot"):
+                try:
+                    old_id = int(row.get("id") or 0)
+                    existing = None
+                    if skip_duplicates:
+                        existing = self._db.execute(
+                            "SELECT id FROM few_shot WHERE group_id=? AND user_id=?"
+                            " AND user_text=? AND bot_text=? AND message_id IS ? LIMIT 1",
+                            (
+                                row.get("group_id", ""), row.get("user_id", ""),
+                                row.get("user_text", ""), row.get("bot_text", ""),
+                                row.get("message_id"),
+                            ),
+                        ).fetchone()
+                    if existing:
+                        new_id = int(existing["id"])
+                        mark("few_shot", "skipped")
+                    else:
+                        new_id = insert_raw("few_shot", row)
+                        mark("few_shot", "imported")
+                    if old_id:
+                        pair_ids[old_id] = new_id
+                except Exception as e:
+                    logger.warning(f"导入学习表 few_shot 失败：{e}")
+                    mark("few_shot", "errors")
+
+            for row in rows_for("expression_pattern"):
+                try:
+                    old_source = row.get("source_pair_id")
+                    source_id = pair_ids.get(int(old_source)) if old_source else None
+                    existing = None
+                    if skip_duplicates:
+                        existing = self._db.execute(
+                            "SELECT id FROM expression_pattern WHERE group_id=? AND scene=?"
+                            " AND expression=? AND source_pair_id IS ? LIMIT 1",
+                            (
+                                row.get("group_id", ""), row.get("scene", ""),
+                                row.get("expression", ""), source_id,
+                            ),
+                        ).fetchone()
+                    if existing:
+                        mark("expression_pattern", "skipped")
+                    else:
+                        insert_raw(
+                            "expression_pattern", row, {"source_pair_id": source_id}
+                        )
+                        mark("expression_pattern", "imported")
+                except Exception as e:
+                    logger.warning(f"导入学习表 expression_pattern 失败：{e}")
+                    mark("expression_pattern", "errors")
+
+            for table, id_map in (
+                ("jargon", jargon_ids),
+                ("jargon_candidate", candidate_ids),
+            ):
+                for row in rows_for(table):
+                    try:
+                        old_id = int(row.get("id") or 0)
+                        existing = self._db.execute(
+                            f"SELECT id FROM {table} WHERE group_id=? AND term=?",
+                            (row.get("group_id", ""), row.get("term", "")),
+                        ).fetchone()
+                        if existing:
+                            new_id = int(existing["id"])
+                            if skip_duplicates:
+                                mark(table, "skipped")
+                            else:
+                                mark(table, "errors")
+                        else:
+                            new_id = insert_raw(table, row)
+                            mark(table, "imported")
+                        if old_id:
+                            id_map[old_id] = new_id
+                    except Exception as e:
+                        logger.warning(f"导入学习表 {table} 失败：{e}")
+                        mark(table, "errors")
+
+            child_specs = (
+                ("jargon_candidate_daily", "candidate_id", candidate_ids),
+                ("jargon_group_daily", None, None),
+                ("jargon_llm_usage", None, None),
+                ("jargon_reactivation", "jargon_id", jargon_ids),
+            )
+            for table, fk_column, id_map in child_specs:
+                for row in rows_for(table):
+                    try:
+                        overrides = None
+                        if fk_column and id_map is not None:
+                            old_fk = int(row.get(fk_column) or 0)
+                            new_fk = id_map.get(old_fk)
+                            if not new_fk:
+                                raise ValueError(f"无法映射 {fk_column}={old_fk}")
+                            overrides = {fk_column: new_fk}
+                        try:
+                            insert_raw(table, row, overrides)
+                            mark(table, "imported")
+                        except sqlite3.IntegrityError:
+                            mark(table, "skipped" if skip_duplicates else "errors")
+                    except Exception as e:
+                        logger.warning(f"导入学习表 {table} 失败：{e}")
+                        mark(table, "errors")
+            self._db.commit()
+
+        return {
+            "tables": per_table,
+            "imported_count": sum(v["imported"] for v in per_table.values()),
+            "skipped_count": sum(v["skipped"] for v in per_table.values()),
+            "error_count": sum(v["errors"] for v in per_table.values()),
+        }
 
     def list_by_group(
         self, table: str, group_id: str, limit: int = 20

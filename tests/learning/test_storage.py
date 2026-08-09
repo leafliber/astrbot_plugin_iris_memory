@@ -161,3 +161,44 @@ class TestWebCrud:
         jid = storage.insert_jargon("g", "yyds", "永远的神", 0.9)
         with pytest.raises(ValueError):
             storage.update_row("jargon", jid, {"group_id": "other"})
+
+
+class TestBackupAndDelete:
+    def test_export_import_roundtrip_and_duplicate_skip(self, storage, tmp_path):
+        pair_id = storage.insert_pair("g", "u", "问", "答", "m1")
+        storage.insert_pattern("g", "问候", "你好呀", pair_id)
+        storage.insert_jargon("g", "yyds", "永远的神", 0.9)
+        storage.record_jargon_observations(
+            "g", "u", "hash-1", "这波绝绝子",
+            [{"term": "绝绝子", "left": ["波"], "right": []}],
+            time.time(), 0,
+        )
+
+        exported = storage.export_all()
+        restored = LearningStorage(tmp_path / "restored.db")
+        restored.init_schema()
+        try:
+            stats = restored.import_from_data(exported)
+            assert stats["error_count"] == 0
+            assert stats["imported_count"] >= 5
+            assert restored.count_rows("few_shot") == 1
+            assert restored.count_rows("expression_pattern") == 1
+            assert restored.count_rows("jargon") == 1
+            assert restored.count_jargon_candidates() == 1
+            pattern = restored.list_rows("expression_pattern")[0]
+            assert pattern["source_pair_id"] == restored.list_rows("few_shot")[0]["id"]
+
+            duplicate = restored.import_from_data(exported)
+            assert duplicate["error_count"] == 0
+            assert duplicate["skipped_count"] >= 5
+
+            deleted = restored.delete_all()
+            assert deleted["total"] >= 5
+            assert restored.get_stats()["few_shot"]["total"] == 0
+            assert restored.count_jargon_candidates() == 0
+        finally:
+            restored.close()
+
+    def test_import_rejects_unknown_tables(self, storage):
+        with pytest.raises(ValueError, match="未知表"):
+            storage.import_from_data({"tables": {"sqlite_master": []}})

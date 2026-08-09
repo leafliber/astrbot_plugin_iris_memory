@@ -11,7 +11,7 @@
           <v-card-text>
             <v-alert type="info" variant="tonal" density="compact" class="mb-4">
               <div class="text-body-2">
-                支持导出和导入 L2 记忆、L3 知识图谱、画像数据，以及全量备份与恢复。
+                支持导出和导入 L2 记忆、L3 知识图谱、画像、学习模块与人格自迭代数据，以及全量备份与恢复。
                 导出数据为 JSON 格式，导入时默认跳过已存在的记录。
               </div>
             </v-alert>
@@ -140,6 +140,87 @@
           </v-card-text>
         </v-card>
       </v-col>
+
+      <v-col cols="12" md="6" lg="4">
+        <v-card color="surface" variant="flat" class="iris-card iris-card-hover h-100">
+          <v-card-title class="d-flex align-center iris-section-title">
+            <v-avatar color="success" variant="tonal" size="32" class="mr-3">
+              <v-icon icon="mdi-school" size="18" />
+            </v-avatar>
+            学习模块
+          </v-card-title>
+          <v-card-text>
+            <div class="d-flex flex-column ga-2">
+              <v-btn
+                color="primary"
+                variant="tonal"
+                prepend-icon="mdi-download"
+                :loading="exportingLearning"
+                @click="handleExportLearning"
+              >
+                导出学习数据
+              </v-btn>
+              <v-btn
+                color="secondary"
+                variant="tonal"
+                prepend-icon="mdi-upload"
+                :loading="importingLearning"
+                @click="triggerImportLearning"
+              >
+                导入学习数据
+              </v-btn>
+              <input
+                ref="learningFileInput"
+                type="file"
+                accept=".json"
+                style="display: none"
+                @change="handleImportLearningFile"
+              />
+            </div>
+          </v-card-text>
+        </v-card>
+      </v-col>
+
+      <v-col cols="12" md="6" lg="4">
+        <v-card color="surface" variant="flat" class="iris-card iris-card-hover h-100">
+          <v-card-title class="d-flex align-center iris-section-title">
+            <v-avatar color="warning" variant="tonal" size="32" class="mr-3">
+              <v-icon icon="mdi-account-sync" size="18" />
+            </v-avatar>
+            人格自迭代
+          </v-card-title>
+          <v-card-text>
+            <div class="text-caption text-medium-emphasis mb-2">导出包含已脱敏的风格语料</div>
+            <div class="d-flex flex-column ga-2">
+              <v-btn
+                color="primary"
+                variant="tonal"
+                prepend-icon="mdi-download"
+                :loading="exportingEvolution"
+                @click="handleExportEvolution"
+              >
+                导出自迭代数据
+              </v-btn>
+              <v-btn
+                color="secondary"
+                variant="tonal"
+                prepend-icon="mdi-upload"
+                :loading="importingEvolution"
+                @click="triggerImportEvolution"
+              >
+                导入自迭代数据
+              </v-btn>
+              <input
+                ref="evolutionFileInput"
+                type="file"
+                accept=".json"
+                style="display: none"
+                @change="handleImportEvolutionFile"
+              />
+            </div>
+          </v-card-text>
+        </v-card>
+      </v-col>
     </v-row>
 
     <v-row class="mt-2">
@@ -152,7 +233,7 @@
           <v-card-text>
             <v-alert type="warning" variant="tonal" density="compact" class="mb-4">
               <div class="text-body-2">
-                全量备份将导出所有 L2 记忆、L3 知识图谱和画像数据。恢复时将尝试导入所有数据，已存在的记录默认跳过。
+                全量备份将导出 L2 记忆、L3 知识图谱、画像、学习模块与人格自迭代数据。为保护隐私，全量备份中的自迭代数据不含风格语料原文；独立导出会包含。恢复时已存在的记录默认跳过。
               </div>
             </v-alert>
             <div class="d-flex ga-3 flex-wrap">
@@ -325,6 +406,42 @@
                   </v-btn>
                 </v-card>
               </v-col>
+
+              <v-col cols="12" md="6" lg="3">
+                <v-card variant="outlined" class="iris-card pa-3">
+                  <div class="text-subtitle-2 mb-2 font-weight-medium">学习模块</div>
+                  <div class="text-caption text-medium-emphasis mb-3">删除表达模式、对话样例、暗语及候选数据</div>
+                  <v-btn
+                    color="error"
+                    variant="tonal"
+                    size="small"
+                    block
+                    prepend-icon="mdi-delete"
+                    :loading="deletingLearning"
+                    @click="handleDeleteLearning"
+                  >
+                    删除所有学习数据
+                  </v-btn>
+                </v-card>
+              </v-col>
+
+              <v-col cols="12" md="6" lg="3">
+                <v-card variant="outlined" class="iris-card pa-3">
+                  <div class="text-subtitle-2 mb-2 font-weight-medium">人格自迭代</div>
+                  <div class="text-caption text-medium-emphasis mb-3">删除任务、版本历史、审计记录和风格语料</div>
+                  <v-btn
+                    color="error"
+                    variant="tonal"
+                    size="small"
+                    block
+                    prepend-icon="mdi-delete"
+                    :loading="deletingEvolution"
+                    @click="handleDeleteEvolution"
+                  >
+                    删除所有自迭代数据
+                  </v-btn>
+                </v-card>
+              </v-col>
             </v-row>
           </v-card-text>
         </v-card>
@@ -407,8 +524,8 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { exportL2Memory, importL2Memory, exportL3KG, importL3KG, exportProfiles, importProfiles, exportAll, importAll } from '@/api/data'
-import { clearL1Buffer, deleteL2Memory, deleteL3KG, mergeL3Duplicates, deleteProfile, triggerTask, getTasksStatus } from '@/api/manage'
+import { exportL2Memory, importL2Memory, exportL3KG, importL3KG, exportProfiles, importProfiles, exportLearning, importLearning, exportPersonaEvolution, importPersonaEvolution, exportAll, importAll } from '@/api/data'
+import { clearL1Buffer, deleteL2Memory, deleteL3KG, mergeL3Duplicates, deleteProfile, deleteLearningData, deletePersonaEvolutionData, triggerTask, getTasksStatus } from '@/api/manage'
 import type { TaskName, TasksStatusMap } from '@/types'
 import { TASK_DISPLAY_NAMES } from '@/types'
 
@@ -418,6 +535,10 @@ const exportingL3 = ref(false)
 const importingL3 = ref(false)
 const exportingProfile = ref(false)
 const importingProfile = ref(false)
+const exportingLearning = ref(false)
+const importingLearning = ref(false)
+const exportingEvolution = ref(false)
+const importingEvolution = ref(false)
 const exportingAll = ref(false)
 const importingAll = ref(false)
 const importingChat = ref(false)
@@ -427,6 +548,8 @@ const deletingL2 = ref(false)
 const deletingL3 = ref(false)
 const mergingL3 = ref(false)
 const deletingProfile = ref(false)
+const deletingLearning = ref(false)
+const deletingEvolution = ref(false)
 
 const triggeringTask = ref<string | null>(null)
 const tasksStatus = ref<TasksStatusMap>({} as TasksStatusMap)
@@ -435,6 +558,8 @@ const taskDisplayNames = TASK_DISPLAY_NAMES
 const l2FileInput = ref<HTMLInputElement | null>(null)
 const l3FileInput = ref<HTMLInputElement | null>(null)
 const profileFileInput = ref<HTMLInputElement | null>(null)
+const learningFileInput = ref<HTMLInputElement | null>(null)
+const evolutionFileInput = ref<HTMLInputElement | null>(null)
 const allFileInput = ref<HTMLInputElement | null>(null)
 const chatFileInput = ref<HTMLInputElement | null>(null)
 
@@ -573,6 +698,74 @@ const handleImportProfileFile = async (event: Event) => {
   }
 }
 
+const handleExportLearning = async () => {
+  exportingLearning.value = true
+  try {
+    await exportLearning()
+    notify('学习模块数据导出成功')
+  } catch (e: unknown) {
+    notify((e as Error).message || '导出失败', 'error')
+  } finally {
+    exportingLearning.value = false
+  }
+}
+
+const triggerImportLearning = () => {
+  learningFileInput.value?.click()
+}
+
+const handleImportLearningFile = async (event: Event) => {
+  const target = event.target as HTMLInputElement
+  const file = target.files?.[0]
+  if (!file) return
+
+  importingLearning.value = true
+  try {
+    const data = JSON.parse(await file.text())
+    const stats = await importLearning(data)
+    notify(`学习数据导入完成：导入 ${stats.imported_count} 条，跳过 ${stats.skipped_count} 条`)
+  } catch (e: unknown) {
+    notify((e as Error).message || '导入失败', 'error')
+  } finally {
+    importingLearning.value = false
+    target.value = ''
+  }
+}
+
+const handleExportEvolution = async () => {
+  exportingEvolution.value = true
+  try {
+    await exportPersonaEvolution(true)
+    notify('人格自迭代数据导出成功')
+  } catch (e: unknown) {
+    notify((e as Error).message || '导出失败', 'error')
+  } finally {
+    exportingEvolution.value = false
+  }
+}
+
+const triggerImportEvolution = () => {
+  evolutionFileInput.value?.click()
+}
+
+const handleImportEvolutionFile = async (event: Event) => {
+  const target = event.target as HTMLInputElement
+  const file = target.files?.[0]
+  if (!file) return
+
+  importingEvolution.value = true
+  try {
+    const data = JSON.parse(await file.text())
+    const stats = await importPersonaEvolution(data)
+    notify(`自迭代数据导入完成：任务 ${stats.imported_jobs ?? 0} 个，版本 ${stats.imported_revisions ?? 0} 个，语料 ${stats.imported_samples ?? 0} 条`)
+  } catch (e: unknown) {
+    notify((e as Error).message || '导入失败', 'error')
+  } finally {
+    importingEvolution.value = false
+    target.value = ''
+  }
+}
+
 const handleExportAll = async () => {
   exportingAll.value = true
   try {
@@ -707,6 +900,34 @@ const handleDeleteProfile = () => {
       notify((e as Error).message || '删除失败', 'error')
     } finally {
       deletingProfile.value = false
+    }
+  })
+}
+
+const handleDeleteLearning = () => {
+  showConfirm('确认要删除所有学习模块数据吗？表达模式、对话样例、暗语及候选记录都会被永久删除。', async () => {
+    deletingLearning.value = true
+    try {
+      const result = await deleteLearningData()
+      notify(`学习模块数据已删除：${result.deleted_count} 条`)
+    } catch (e: unknown) {
+      notify((e as Error).message || '删除失败', 'error')
+    } finally {
+      deletingLearning.value = false
+    }
+  })
+}
+
+const handleDeleteEvolution = () => {
+  showConfirm('确认要删除所有人格自迭代数据吗？任务、版本历史、审计记录和风格语料都会被永久删除，但不会修改当前 AstrBot Persona。', async () => {
+    deletingEvolution.value = true
+    try {
+      const result = await deletePersonaEvolutionData()
+      notify(`人格自迭代数据已删除：${result.deleted_count} 条`)
+    } catch (e: unknown) {
+      notify((e as Error).message || '删除失败', 'error')
+    } finally {
+      deletingEvolution.value = false
     }
   })
 }
