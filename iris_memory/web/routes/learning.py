@@ -16,11 +16,8 @@ from quart import jsonify, request
 from iris_memory.core import get_component_manager, get_logger
 from iris_memory.learning import LearningComponent
 from iris_memory.learning.storage import (
-    STATUS_ACTIVE,
-    STATUS_APPROVED,
-    STATUS_DISABLED,
-    STATUS_PENDING,
     _TABLES,
+    _VALID_STATUSES,
 )
 
 logger = get_logger("web.learning")
@@ -28,9 +25,6 @@ logger = get_logger("web.learning")
 PLUGIN_NAME = "astrbot_plugin_iris_memory"
 
 DEBUG_MODE = os.environ.get("IRIS_DEBUG", "").lower() in ("true", "1", "yes")
-
-# /status 接口允许的目标状态
-_ALLOWED_STATUS = (STATUS_PENDING, STATUS_APPROVED, STATUS_DISABLED, STATUS_ACTIVE)
 
 # /add 接口各表的必填字段
 _REQUIRED_ADD_FIELDS = {
@@ -47,6 +41,14 @@ def validate_table(table: Optional[str]) -> str:
     if not table or table not in _TABLES:
         raise ValueError(f"非法的表名：{table}")
     return table
+
+
+def validate_table_status(table: str, status: Optional[str]) -> str:
+    """校验目标状态对该表合法（暗语仅 active/disabled），非法抛 ValueError"""
+    if not status or status not in _VALID_STATUSES[table]:
+        allowed = ", ".join(_VALID_STATUSES[table])
+        raise ValueError(f"表 {table} 非法的状态：{status}（允许：{allowed}）")
+    return status
 
 
 def parse_pagination(args: Any) -> Tuple[int, int]:
@@ -270,8 +272,10 @@ async def set_status():
             return _bad_request("缺少 ids 参数")
 
         status = data.get("status")
-        if status not in _ALLOWED_STATUS:
-            return _bad_request(f"非法的状态：{status}")
+        try:
+            validate_table_status(table, status)
+        except ValueError as e:
+            return _bad_request(str(e))
 
         component, error = get_learning_component()
         if error:

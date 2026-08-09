@@ -6,6 +6,7 @@ from iris_memory.web.routes.learning import (
     MAX_PAGE_SIZE,
     parse_pagination,
     validate_table,
+    validate_table_status,
 )
 
 
@@ -41,6 +42,42 @@ class TestParsePagination:
 
     def test_invalid_values_fall_back(self):
         assert parse_pagination({"page": "abc", "page_size": None}) == (1, 20)
+
+
+class TestValidateTableStatus:
+    """目标状态按表校验（暗语无审查语义）"""
+
+    @pytest.mark.parametrize(
+        "table,status",
+        [
+            ("jargon", "active"),
+            ("jargon", "disabled"),
+            ("expression_pattern", "pending_review"),
+            ("expression_pattern", "approved"),
+            ("expression_pattern", "disabled"),
+            ("few_shot", "pending_review"),
+            ("few_shot", "approved"),
+            ("few_shot", "disabled"),
+        ],
+    )
+    def test_accepts_valid_status(self, table, status):
+        assert validate_table_status(table, status) == status
+
+    @pytest.mark.parametrize(
+        "table,status",
+        [
+            ("jargon", "approved"),        # 暗语不可设为已通过
+            ("jargon", "pending_review"),  # 暗语不可设为待审查
+            ("few_shot", "active"),        # 样例不可设为生效中
+            ("expression_pattern", "active"),
+            ("jargon", None),
+            ("jargon", ""),
+            ("few_shot", "bogus"),
+        ],
+    )
+    def test_rejects_invalid_status(self, table, status):
+        with pytest.raises(ValueError):
+            validate_table_status(table, status)
 
 
 class TestAugmentDisabledComponents:

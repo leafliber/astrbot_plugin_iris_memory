@@ -20,6 +20,7 @@ from .storage import (
     LearningStorage,
     STATUS_APPROVED,
     STATUS_DISABLED,
+    STATUS_PENDING,
 )
 
 logger = get_logger("learning.reviewer")
@@ -209,6 +210,8 @@ class LearningReviewer:
         """按裁决结果批量回写状态
 
         未被 LLM 覆盖到的条目保持 pending 下轮再审。
+        回写带 expected_status=pending_review 比较条件：
+        LLM 审查期间被管理员改过的条目不再被迟到裁决覆盖。
         """
         pair_ids = {p["id"] for p in pairs}
         pattern_ids = {p["id"] for p in patterns}
@@ -230,17 +233,25 @@ class LearningReviewer:
             elif vtype == "pattern" and vid in pattern_ids:
                 (approved_patterns if passed else disabled_patterns).append(vid)
 
+        expected = len(
+            approved_pairs + disabled_pairs + approved_patterns + disabled_patterns
+        )
+        written = 0
         if approved_pairs:
-            self._storage.update_status("few_shot", approved_pairs, STATUS_APPROVED)
+            written += self._storage.update_status(
+                "few_shot", approved_pairs, STATUS_APPROVED, STATUS_PENDING
+            )
         if disabled_pairs:
-            self._storage.update_status("few_shot", disabled_pairs, STATUS_DISABLED)
+            written += self._storage.update_status(
+                "few_shot", disabled_pairs, STATUS_DISABLED, STATUS_PENDING
+            )
         if approved_patterns:
-            self._storage.update_status(
-                "expression_pattern", approved_patterns, STATUS_APPROVED
+            written += self._storage.update_status(
+                "expression_pattern", approved_patterns, STATUS_APPROVED, STATUS_PENDING
             )
         if disabled_patterns:
-            self._storage.update_status(
-                "expression_pattern", disabled_patterns, STATUS_DISABLED
+            written += self._storage.update_status(
+                "expression_pattern", disabled_patterns, STATUS_DISABLED, STATUS_PENDING
             )
 
         # 内存队列同步移除已裁决条目
@@ -253,7 +264,9 @@ class LearningReviewer:
             i for i in self._pending_pattern_ids if i not in judged_p
         ]
 
+        skipped = expected - written
         logger.info(
             f"学习审查完成：pair 通过 {len(approved_pairs)} 拒绝 {len(disabled_pairs)}，"
             f"pattern 通过 {len(approved_patterns)} 拒绝 {len(disabled_patterns)}"
+            + (f"，{skipped} 条因审查期间被修改而跳过回写" if skipped else "")
         )

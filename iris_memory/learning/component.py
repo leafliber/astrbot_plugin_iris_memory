@@ -234,14 +234,23 @@ class LearningComponent(Component):
                     if result and self._storage:
                         meaning, confidence = result
                         async with self._db_lock:
-                            self._storage.mark_jargon_inferred(
-                                int(term_info["id"]), meaning, confidence
+                            # 快照比较更新：推断期间被管理员改动
+                            # （状态/含义）的词条跳过回写
+                            written = self._storage.mark_jargon_inferred(
+                                int(term_info["id"]), meaning, confidence,
+                                snapshot=term_info,
                             )
-                        logger.info(
-                            f"暗语含义推断成功 "
-                            f"[{term_info.get('group_id')}:{term_info.get('term')}]"
-                            f" = {meaning} ({confidence:.2f})"
-                        )
+                        if written:
+                            logger.info(
+                                f"暗语含义推断成功 "
+                                f"[{term_info.get('group_id')}:{term_info.get('term')}]"
+                                f" = {meaning} ({confidence:.2f})"
+                            )
+                        else:
+                            logger.info(
+                                f"暗语推断结果跳过回写（词条已被修改）"
+                                f" [{term_info.get('group_id')}:{term_info.get('term')}]"
+                            )
                 except Exception as e:
                     logger.warning(
                         f"暗语推断失败 [{term_info.get('term')}]：{e}"

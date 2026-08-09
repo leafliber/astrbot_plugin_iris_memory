@@ -592,6 +592,9 @@ class LLMManager(Component):
             "profile_analysis": "profile.analysis_provider",
             "l2_query_rewrite": "l2_query_rewrite_provider",
             "learning_review": "learning.review_provider",
+            "persona_evolution_analysis": "persona_evolution.provider",
+            "persona_evolution_generate": "persona_evolution.provider",
+            "persona_evolution_review": "persona_evolution.review_provider",
         }
 
         config_key = module_config_map.get(module)

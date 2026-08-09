@@ -131,9 +131,9 @@ const vuetifyCssPrune = (): Plugin => {
     transform(code, id) {
       if (!id.includes('vuetify/lib/styles/main.css')) return null
       if (!used) {
-        used = collectSourceTokens(resolve(__dirname, 'src'))
-        for (const t of collectSourceTokens(resolve(__dirname, 'index.html'))) used.add(t)
-        for (const t of collectVuetifyTokens(resolve(__dirname, 'node_modules/vuetify/lib'))) {
+        used = collectSourceTokens(resolve(import.meta.dirname, 'src'))
+        for (const t of collectSourceTokens(resolve(import.meta.dirname, 'index.html'))) used.add(t)
+        for (const t of collectVuetifyTokens(resolve(import.meta.dirname, 'node_modules/vuetify/lib'))) {
           used.add(t)
         }
       }
@@ -150,7 +150,7 @@ export default defineConfig({
   ],
   resolve: {
     alias: {
-      '@': resolve(__dirname, 'src')
+      '@': resolve(import.meta.dirname, 'src')
     }
   },
   base: './',
@@ -160,7 +160,7 @@ export default defineConfig({
   },
   build: {
     target: 'es2020',
-    outDir: resolve(__dirname, '../../../pages/iris'),
+    outDir: resolve(import.meta.dirname, '../../../pages/iris'),
     emptyOutDir: true,
     sourcemap: false,
     chunkSizeWarningLimit: 2000,
@@ -186,7 +186,7 @@ export default defineConfig({
         entryFileNames: 'iris.js',
         chunkFileNames: 'iris.js',
         assetFileNames: 'iris.[ext]',
-        inlineDynamicImports: true
+        codeSplitting: false
       }
     }
   }

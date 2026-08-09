@@ -28,6 +28,7 @@ v3.0.0 是 [Iris Chat Memory](https://github.com/Leafliber/astrbot_plugin_iris_c
 | **梦境加工** | 离线 6 阶段流水线（合并→时间锚定→矛盾消解→模式挖掘→知识提取→遗忘清洗），各阶段独立开关 |
 | **主动回复** | 统一决策模型：一次 LLM 调用同时输出 是否发言 + 内容 + 话题概括 + 关注对象 + 漂移 + 冷却建议 |
 | **图片解析** | 视觉模型解析对话图片：pHash 去重、日配额 200、缓存 7 天、被动触发自动跳过 |
+| **人格自迭代** | 从指定群/用户的真人发言归纳风格，按目标迭代具名 Persona；受控区块、审批、逐字 Diff、冲突保护与非破坏性回滚 |
 | **Web 管理** | 挂载 AstrBot Dashboard（鉴权复用）：记忆管理 SPA + 主动回复统计/设置 |
 | **辅助功能** | 错误友好化、Markdown 格式去除（自 v2 保留） |
 
@@ -53,7 +54,8 @@ v3.0.0 是 [Iris Chat Memory](https://github.com/Leafliber/astrbot_plugin_iris_c
    │                        统一决策（单次 LLM 调用，直调不触发钩子）
    │                              │ 决策发言 → 劫持主管线注入 SPEAK_HINTS
    │                              ▼
-   ├─ on_all_message ──────► L1 缓冲（三段式 FIFO）＋ 图片入队
+├─ on_all_message ──────► L1 缓冲（三段式 FIFO）＋ 图片入队
+   │                       └─（可选）人格迭代语料旁路采集
    │
    ▼
 on_llm_request：先主动回复决策（可 stop_event）
@@ -121,6 +123,14 @@ AstrBot 管理面板 → 插件页签内进入本插件页面：
 - **记忆管理页**（pages/iris）：Dashboard / L1 / L2 / L3 图谱 / 画像 / 导入导出备份 / 隐藏配置
 - **主动回复页**（pages/stats）：管理 / 统计 / 设置 三个 tab
 
+### 5) （可选）开启人格自迭代
+
+1. 在插件配置中启用 `persona_evolution.enable`，并选择分析/生成 Provider。
+2. 打开 Web 面板的「人格自迭代」，为具名 Persona 创建任务；内置 `default` 需先在页面中克隆。
+3. 默认累计 100 条新增有效消息且距上次成功至少 24 小时后自动迭代，也可手动立即执行（仍需至少 20 条有效语料）。
+
+首次使用、审批/回滚、隐私与故障恢复详见 [人格自迭代管理员指南](./docs/PERSONA_EVOLUTION.md)。
+
 ---
 
 ## 指令一览
@@ -134,6 +144,7 @@ AstrBot 管理面板 → 插件页签内进入本插件页面：
 | `l1` / `l2` / `l3` | `stats`、`clear` |
 | `profile` | `show`、`reset`、`group` |
 | `all` | `clear`（清空所有层级记忆，含画像） |
+| `evolve` | `status`、`run`、`pause`、`resume`、`rollback` |
 
 | 示例 | 说明 |
 |------|------|
@@ -144,6 +155,9 @@ AstrBot 管理面板 → 插件页签内进入本插件页面：
 | `/iris_mem profile show` | 查看用户画像 |
 | `/iris_mem profile reset --all` | 重置全部画像 |
 | `/iris_mem all clear` | 清空所有层级记忆（含画像） |
+| `/iris_mem evolve status [job_id]` | 查看人格迭代任务或指定任务详情 |
+| `/iris_mem evolve run <job_id>` | 手动立即执行一轮人格迭代 |
+| `/iris_mem evolve rollback <job_id> <revision_id>` | 创建新版本并回滚到指定已应用版本 |
 
 ### `/iris_reply` — 主动回复管理（管理员 + 仅群消息）
 
@@ -165,11 +179,13 @@ AstrBot 管理面板 → 插件页签内进入本插件页面：
 
 ## 配置概览
 
-`_conf_schema.json` 共 **10 组 33 项**，全部可在 AstrBot 插件配置页修改：
+`_conf_schema.json` 共 **12 组 46 项**，全部可在 AstrBot 插件配置页修改：
 
 | 配置组 | 说明 | 关键项 |
 |--------|------|--------|
 | `l1_buffer` | L1 消息上下文缓冲 | `enable`、`summary_provider`、`inject_queue_length`、`image_parsing` |
+| `learning` | 群聊表达模式学习 | `enable`、`review_provider`、`review_batch_size` |
+| `persona_evolution` | 人格自迭代 | `enable`、`provider`、`review_provider`、`sample_retention_days`、`sample_max_count` |
 | `l2_memory` | L2 记忆库 | `enable`、`embedding_source`、`embedding_provider`、`embedding_model`、`top_k`、`relevance_threshold` |
 | `l3_kg` | L3 知识图谱 | `enable`、`extraction_provider` |
 | `profile` | 画像系统 | `enable`、`analysis_provider`、`enable_auto_injection`、`favorability_enable` |
@@ -223,7 +239,11 @@ v3 首次启动时**自动一次性迁移**旧数据（ChromaDB 记忆 → L2 �
 
 ### 5. 数据存哪？会上传云端吗？
 
-全部本地存储（插件数据目录下的 SQLite / FAISS / KV）。仅在调用你配置的 LLM / Embedding Provider 时发送必要文本。
+插件数据默认存储在本地 SQLite / FAISS / KV。仅在调用你配置的 LLM / Embedding Provider 时发送必要文本。人格自迭代会在本地保存已脱敏、限长的群聊语料，并将均衡抽样后的内容发送给分析 Provider；候选生成和审查阶段不接触原始语料。可在 Web 面板查看分布或按群/用户删除。
+
+### 6. 为什么人格自迭代任务进入 conflict？
+
+AstrBot 侧的 Persona 在任务基线之外被人工或其他插件修改。为避免覆盖管理员编辑，自动发布会停止。请在 Web 面板审阅外部版本后选择「采纳当前 Persona 为新基线」，或人工处理后再恢复任务。
 
 ---
 
@@ -231,6 +251,7 @@ v3 首次启动时**自动一次性迁移**旧数据（ChromaDB 记忆 → L2 �
 
 - [更新日志](./CHANGELOG.md)
 - [v2 → v3 迁移指南](./docs/MIGRATION.md)
+- [人格自迭代管理员指南](./docs/PERSONA_EVOLUTION.md)
 - [AstrBot 插件开发文档](https://docs.astrbot.app/dev/star/plugin-new.html)
 
 ---

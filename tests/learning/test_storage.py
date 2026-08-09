@@ -375,3 +375,101 @@ class TestWebCrud:
         storage.insert_pattern("g1", "scene", "表达")
         storage.upsert_jargon_count("", "无群词", 1)
         assert storage.list_groups() == ["g1", "g2"]
+
+    def test_update_row_validates_status_per_table(self, storage):
+        import pytest
+
+        storage.upsert_jargon_count("g1", "yyds", 5)
+        jid = storage.list_rows("jargon")[0]["id"]
+        pid = storage.insert_pair("g1", "u1", "问", "答")
+
+        # 暗语不可设为 approved / pending_review
+        with pytest.raises(ValueError):
+            storage.update_row("jargon", jid, {"status": "approved"})
+        with pytest.raises(ValueError):
+            storage.update_row("jargon", jid, {"status": "pending_review"})
+        # few_shot 不可设为 active
+        with pytest.raises(ValueError):
+            storage.update_row("few_shot", pid, {"status": "active"})
+
+        # 合法取值正常更新
+        assert storage.update_row("jargon", jid, {"status": "disabled"})
+        assert storage.update_row("few_shot", pid, {"status": "approved"})
+
+    def test_update_status_validates_status_per_table(self, storage):
+        import pytest
+
+        storage.upsert_jargon_count("g1", "yyds", 5)
+        jid = storage.list_rows("jargon")[0]["id"]
+
+        with pytest.raises(ValueError):
+            storage.update_status("jargon", [jid], "approved")
+        with pytest.raises(ValueError):
+            storage.update_status("jargon", [jid], "pending_review")
+        with pytest.raises(ValueError):
+            storage.update_status("few_shot", [1], "active")
+
+        assert storage.update_status("jargon", [jid], "disabled") == 1
+        assert storage.update_status("jargon", [jid], "active") == 1
+
+    def test_update_status_expected_status_cas(self, storage):
+        """带原状态条件的比较更新：状态已变化时不回写"""
+        pid = storage.insert_pair("g1", "u1", "问", "答")
+
+        # 当前是 pending_review，期望 disabled 不匹配 → 不更新
+        assert storage.update_status(
+            "few_shot", [pid], "approved", expected_status="disabled"
+        ) == 0
+        assert storage.list_rows("few_shot")[0]["status"] == "pending_review"
+
+        # 期望 pending_review 匹配 → 更新
+        assert storage.update_status(
+            "few_shot", [pid], "approved", expected_status="pending_review"
+        ) == 1
+        assert storage.list_rows("few_shot")[0]["status"] == "approved"
+
+    def test_mark_jargon_inferred_snapshot_cas(self, storage):
+        """快照比较更新：推断期间被管理员修改的词条不回写"""
+        storage.upsert_jargon_count("g1", "yyds", 5)
+        snapshot = storage.get_jargon_terms_for_inference([3])[0]
+
+        # 管理员在推断期间修改了含义
+        storage.update_row("jargon", snapshot["id"], {"meaning": "管理员含义"})
+
+        # 迟到的 LLM 结果基于旧快照 → 跳过，管理员修改保留
+        assert storage.mark_jargon_inferred(
+            snapshot["id"], "LLM含义", 0.9, snapshot=snapshot
+        ) is False
+        row = storage.list_rows("jargon")[0]
+        assert row["meaning"] == "管理员含义"
+
+        # 基于最新快照 → 正常回写
+        fresh = storage.list_rows("jargon")[0]
+        assert storage.mark_jargon_inferred(
+            fresh["id"], "LLM含义", 0.9, snapshot=fresh
+        ) is True
+        assert storage.list_rows("jargon")[0]["meaning"] == "LLM含义"
+
+    def test_mark_jargon_inferred_snapshot_status_change_cas(self, storage):
+        """快照比较更新：推断期间被禁用的词条不回写"""
+        storage.upsert_jargon_count("g1", "yyds", 5)
+        snapshot = storage.get_jargon_terms_for_inference([3])[0]
+        storage.set_jargon_status("g1", "yyds", "disabled")
+
+        assert storage.mark_jargon_inferred(
+            snapshot["id"], "LLM含义", 0.9, snapshot=snapshot
+        ) is False
+        row = storage.list_rows("jargon")[0]
+        assert row["meaning"] is None
+        assert row["status"] == "disabled"
+
+    def test_insert_jargon_reactivates_disabled(self, storage):
+        """重新手动新增已禁用暗语 → 恢复 active，计数保留"""
+        storage.upsert_jargon_count("g1", "绝绝子", 7)
+        storage.set_jargon_status("g1", "绝绝子", "disabled")
+
+        storage.insert_jargon("g1", "绝绝子", meaning="太棒了")
+        row = storage.list_rows("jargon")[0]
+        assert row["status"] == "active"
+        assert row["meaning"] == "太棒了"
+        assert row["count"] == 7

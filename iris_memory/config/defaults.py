@@ -732,6 +732,97 @@ class HiddenConfig:
         metadata={"description": "注入的表达模式 Top-N 条数", "group": "学习模块"},
     )
 
+    # 人格自迭代 Job 创建默认值（文档 §15.1）
+    persona_evolution_edit_mode: str = field(
+        default="managed_block",
+        metadata={
+            "description": "新建 Job 默认编辑模式（managed_block 受控区块 / full_prompt 完整人格）",
+            "group": "人格自迭代",
+        },
+    )
+    persona_evolution_approval_mode: str = field(
+        default="auto",
+        metadata={
+            "description": "新建 Job 默认审批模式（auto 自动发布 / manual 手动审批）",
+            "group": "人格自迭代",
+        },
+    )
+    persona_evolution_trigger_sample_count: int = field(
+        default=100,
+        metadata={
+            "description": "自动触发所需新增有效语料数",
+            "group": "人格自迭代",
+        },
+    )
+    persona_evolution_min_interval_hours: int = field(
+        default=24,
+        metadata={"description": "距上次成功迭代的最短间隔(小时)", "group": "人格自迭代"},
+    )
+    persona_evolution_manual_min_samples: int = field(
+        default=20,
+        metadata={"description": "手动立即执行所需最低有效语料数", "group": "人格自迭代"},
+    )
+    persona_evolution_analysis_sample_size: int = field(
+        default=60,
+        metadata={"description": "单次分析的均衡抽样最大条数", "group": "人格自迭代"},
+    )
+    persona_evolution_full_prompt_max_change_ratio: float = field(
+        default=0.20,
+        metadata={
+            "description": "完整人格模式单次字符改动率上限（不得超过 0.40）",
+            "group": "人格自迭代",
+        },
+    )
+
+    # 人格自迭代隐藏高级参数（文档 §15.2）
+    persona_evolution_sample_store_chars: int = field(
+        default=500,
+        metadata={"description": "单条语料最大存储字符数", "group": "人格自迭代"},
+    )
+    persona_evolution_sample_prompt_chars: int = field(
+        default=240,
+        metadata={"description": "送模时单条语料最大字符数", "group": "人格自迭代"},
+    )
+    persona_evolution_sample_group_max_ratio: float = field(
+        default=0.35,
+        metadata={"description": "均衡抽样多群场景单群占比上限", "group": "人格自迭代"},
+    )
+    persona_evolution_sample_user_max_ratio: float = field(
+        default=0.20,
+        metadata={"description": "均衡抽样多用户场景单用户占比上限", "group": "人格自迭代"},
+    )
+    persona_evolution_min_confidence: float = field(
+        default=0.65,
+        metadata={"description": "阶段 A 风格画像最低置信度（低于则停止本轮）", "group": "人格自迭代"},
+    )
+    persona_evolution_block_max_chars: int = field(
+        default=1500,
+        metadata={"description": "受控区块最大字符数", "group": "人格自迭代"},
+    )
+    persona_evolution_full_max_growth_ratio: float = field(
+        default=1.25,
+        metadata={"description": "完整人格模式新人格最大增长率（相对原长度）", "group": "人格自迭代"},
+    )
+    persona_evolution_full_max_length: int = field(
+        default=20000,
+        metadata={"description": "完整人格模式人格绝对长度上限(字符)", "group": "人格自迭代"},
+    )
+    persona_evolution_max_reuse_chars: int = field(
+        default=16,
+        metadata={"description": "候选与语料直接连续复用的最长允许字符数", "group": "人格自迭代"},
+    )
+    persona_evolution_retry_intervals_minutes: str = field(
+        default="30,120,360",
+        metadata={
+            "description": "Provider/网络失败重试间隔(分钟)，逗号分隔，次数即最大自动重试次数",
+            "group": "人格自迭代",
+        },
+    )
+    persona_evolution_circuit_breaker_threshold: int = field(
+        default=3,
+        metadata={"description": "连续解析/校验失败熔断次数（达到后 Job 转 paused_error）", "group": "人格自迭代"},
+    )
+
 
 @dataclass
 class LearningConfig:
@@ -751,6 +842,22 @@ class LearningConfig:
 
 
 @dataclass
+class PersonaEvolutionConfig:
+    """人格自迭代配置（用户可见选项）
+
+    根据群聊真人发言的表达风格迭代 AstrBot Persona，
+    采用"风格归纳 → 人格生成 → 确定性校验 → 发布"流水线，
+    全程保留版本快照，支持逐字差异与回滚。
+    """
+
+    enable: bool = False
+    provider: str = ""
+    review_provider: str = ""
+    sample_retention_days: int = 30
+    sample_max_count: int = 20000
+
+
+@dataclass
 class Defaults:
     """所有默认配置的统一入口
 
@@ -765,6 +872,9 @@ class Defaults:
     scheduled_tasks: ScheduledTasksConfig = field(default_factory=ScheduledTasksConfig)
     context_control: ContextControlConfig = field(default_factory=ContextControlConfig)
     learning: LearningConfig = field(default_factory=LearningConfig)
+    persona_evolution: PersonaEvolutionConfig = field(
+        default_factory=PersonaEvolutionConfig
+    )
     hidden: HiddenConfig = field(default_factory=HiddenConfig)
 
     def get_by_flat_key(self, flat_key: str) -> Optional[object]:

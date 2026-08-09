@@ -48,9 +48,10 @@ async def handle_user_message(
     执行所有用户消息的处理逻辑（按顺序执行）：
     1. 添加用户消息到 L1 Buffer
     2. 学习模块旁路采集（词频统计，故障隔离）
-    3. 用户画像更新
-    4. 图片入队到 L1 Buffer 图片队列
-    5. 图片解析（all 模式）
+    3. 人格自迭代旁路采集（风格语料，故障隔离）
+    4. 用户画像更新
+    5. 图片入队到 L1 Buffer 图片队列
+    6. 图片解析（all 模式）
 
     Args:
         event: AstrBot 消息事件对象
@@ -65,6 +66,16 @@ async def handle_user_message(
             await learning.on_message(event)
         except Exception as e:
             logger.error(f"learning on_message 失败，已隔离：{e}", exc_info=True)
+
+    # 人格自迭代旁路采集：组件不可用则跳过，异常不影响主流程
+    persona_evolution = component_manager.get_available_component("persona_evolution")
+    if persona_evolution:
+        try:
+            await persona_evolution.on_message(event)
+        except Exception as e:
+            logger.error(
+                f"persona_evolution on_message 失败，已隔离：{e}", exc_info=True
+            )
 
     await _queue_images_to_l1_buffer(event, component_manager)
     await _parse_images_if_enabled(event, component_manager)

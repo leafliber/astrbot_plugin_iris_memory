@@ -17,6 +17,7 @@ from iris_memory.l2_memory.io import MemoryExporter, MemoryImporter
 from iris_memory.l2_memory.adapter import L2MemoryAdapter
 from iris_memory.l3_kg.adapter import L3KGAdapter
 from iris_memory.profile.storage import ProfileStorage
+from iris_memory.persona_evolution import PersonaEvolutionComponent
 
 logger = get_logger("web.data")
 
@@ -276,11 +277,12 @@ async def export_all():
     try:
         manager = get_component_manager()
         result = {
-            "version": "1.0",
+            "version": "1.1",
             "export_time": datetime.now().isoformat(),
             "l2_memory": None,
             "l3_kg": None,
             "profiles": None,
+            "persona_evolution": None,
         }
 
         l2_adapter = manager.get_component("l2_memory", L2MemoryAdapter)
@@ -309,6 +311,14 @@ async def export_all():
             except Exception as e:
                 logger.warning(f"全量导出画像失败：{e}")
                 result["profiles"] = {"error": "内部错误，详见服务日志"}
+
+        pe_component = manager.get_component("persona_evolution", PersonaEvolutionComponent)
+        if pe_component and pe_component.is_available and pe_component.storage:
+            try:
+                result["persona_evolution"] = pe_component.storage.export_all()
+            except Exception as e:
+                logger.warning(f"全量导出人格自迭代失败：{e}")
+                result["persona_evolution"] = {"error": "内部错误，详见服务日志"}
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"iris_full_backup_{timestamp}.json"
@@ -342,6 +352,7 @@ async def import_all():
             "l2_memory": None,
             "l3_kg": None,
             "profiles": None,
+            "persona_evolution": None,
         }
 
         l2_data = import_data.get("l2_memory")
@@ -402,6 +413,24 @@ async def import_all():
                     result["profiles"] = {"error": "内部错误，详见服务日志"}
             else:
                 result["profiles"] = {"error": "画像系统不可用"}
+
+        # 旧版 1.0 备份无 persona_evolution 字段，.get() 天然跳过（§19）
+        pe_data = import_data.get("persona_evolution")
+        if pe_data:
+            pe_component = manager.get_component(
+                "persona_evolution", PersonaEvolutionComponent
+            )
+            if pe_component and pe_component.is_available and pe_component.storage:
+                try:
+                    stats = pe_component.storage.import_from_data(
+                        pe_data, skip_duplicates=skip_duplicates
+                    )
+                    result["persona_evolution"] = stats
+                except Exception as e:
+                    logger.warning(f"全量导入人格自迭代失败：{e}")
+                    result["persona_evolution"] = {"error": "内部错误，详见服务日志"}
+            else:
+                result["persona_evolution"] = {"error": "人格自迭代不可用"}
 
         logger.info(f"全量导入完成：{result}")
 

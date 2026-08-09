@@ -109,6 +109,45 @@
       }
     }
   },
+  "persona_evolution": {
+    "type": "object",
+    "description": "人格自迭代",
+    "hint": "根据群聊真人发言的表达风格迭代 AstrBot Persona，全程保留版本快照，支持逐字差异与回滚",
+    "items": {
+      "enable": {
+        "type": "bool",
+        "default": false,
+        "description": "启用人格自迭代",
+        "hint": "总开关：关闭时不采集语料、不调度迭代任务；迭代执行会消耗 LLM Token"
+      },
+      "provider": {
+        "type": "string",
+        "default": "",
+        "description": "分析与生成模型",
+        "hint": "用于风格归纳与人格候选生成的模型，留空则使用默认 Provider",
+        "_special": "select_provider"
+      },
+      "review_provider": {
+        "type": "string",
+        "default": "",
+        "description": "完整人格审查模型",
+        "hint": "完整人格模式的独立审查模型，留空则复用分析与生成模型",
+        "_special": "select_provider"
+      },
+      "sample_retention_days": {
+        "type": "int",
+        "default": 30,
+        "description": "语料保留天数",
+        "hint": "风格语料超过此天数自动删除"
+      },
+      "sample_max_count": {
+        "type": "int",
+        "default": 20000,
+        "description": "全局语料上限",
+        "hint": "风格语料最大条数，超量时按最旧优先删除"
+      }
+    }
+  },
   "l2_memory": {
     "type": "object",
     "description": "L2 记忆库",

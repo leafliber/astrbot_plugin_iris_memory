@@ -3,6 +3,30 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **人格自迭代**：支持按目标方向与指定群/用户学习来源迭代具名 AstrBot Persona；默认只维护 `IRIS_EVOLUTION` 受控区块，也可显式启用完整人格模式。
+- 自动（100 条新增有效消息 + 24 小时）与手动（至少 20 条）触发，自动/人工审批切换，Provider 重试与三次失败熔断。
+- 完整 Revision/Run 审计、外部修改冲突保护、发布回读验证、git-revert 式非破坏性回滚，以及独立/全量 1.1 导入导出。
+- Web 管理页：Job 编辑、语料分布、运行记录、Revision 时间线、审批/拒绝/回滚、冲突采纳与 `default` Persona 克隆。
+- extended grapheme cluster 级人格 Diff：优先 `Intl.Segmenter`，提供 Emoji/组合字符 fallback，并由 Vitest 覆盖中文、换行、ZWJ Emoji、旗帜与组合音标。
+
+### Security
+
+- 原始群聊语料仅进入风格分析阶段；候选生成与完整人格审查只接收结构化画像。采集前执行注入拒绝、PII 脱敏、去重、保留期和总量限制。
+- 发布前执行区块外零修改、marker、哈希、改动率、长度、保护片段、隐私复用和 Persona ID 等确定性校验；任何外部编辑均停止自动发布。
+
+### Changed
+
+- 全量备份格式由 1.0 扩展为 1.1，可选包含 `persona_evolution` 数据；导入旧版 1.0 仍兼容，导入 Revision 不会自动修改 AstrBot Persona。
+- 学习模块批审查补充持久去重与并发安全，Web 学习管理沿用统一响应契约。
+
+### Tests
+
+- 新增人格自迭代存储、采集、抽样、三阶段 LLM、发布闸门、调度、版本/回滚、命令、Web API、备份兼容及 grapheme Diff 测试。
+
 ## [v3.0.2] - 2026-08-02
 
 ### Fixed

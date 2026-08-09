@@ -39,6 +39,13 @@ _UPDATABLE_FIELDS = {
     "jargon": ("term", "meaning", "confidence", "status"),
 }
 
+# 各表合法的 status 取值（暗语无审查语义，仅 active/disabled）
+_VALID_STATUSES = {
+    "expression_pattern": (STATUS_PENDING, STATUS_APPROVED, STATUS_DISABLED),
+    "few_shot": (STATUS_PENDING, STATUS_APPROVED, STATUS_DISABLED),
+    "jargon": (STATUS_ACTIVE, STATUS_DISABLED),
+}
+
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS expression_pattern (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -343,16 +350,36 @@ class LearningStorage:
         return [dict(r) for r in rows]
 
     def mark_jargon_inferred(
-        self, jargon_id: int, meaning: str, confidence: float
-    ) -> None:
-        """记录词条含义推断结果"""
+        self,
+        jargon_id: int,
+        meaning: str,
+        confidence: float,
+        snapshot: Optional[Dict[str, Any]] = None,
+    ) -> bool:
+        """记录词条含义推断结果
+
+        Args:
+            snapshot: 推断所基于的词条快照（含 status/meaning）。
+                提供时执行比较更新——仅当库中 status 与 meaning
+                仍与快照一致才回写，防止迟到的 LLM 结果覆盖
+                管理员在推断期间的修改。
+
+        Returns:
+            是否实际写入
+        """
+        conds, params = "", []
+        if snapshot is not None:
+            # SQLite 的 IS 是 NULL 安全等值比较
+            conds = " AND status IS ? AND meaning IS ?"
+            params = [snapshot.get("status"), snapshot.get("meaning")]
         with self._lock:
-            self._db.execute(
+            cur = self._db.execute(
                 "UPDATE jargon SET meaning=?, confidence=?, last_inferred_at=?"
-                " WHERE id=?",
-                (meaning, confidence, time.time(), jargon_id),
+                f" WHERE id=?{conds}",
+                (meaning, confidence, time.time(), jargon_id, *params),
             )
             self._db.commit()
+            return cur.rowcount > 0
 
     def set_jargon_status(self, group_id: str, term: str, status: str) -> None:
         """手动设置词条状态（active/disabled）"""
@@ -367,25 +394,46 @@ class LearningStorage:
     # 通用
     # ------------------------------------------------------------------
 
-    def update_status(self, table: str, ids: List[int], status: str) -> None:
+    def update_status(
+        self,
+        table: str,
+        ids: List[int],
+        status: str,
+        expected_status: Optional[str] = None,
+    ) -> int:
         """批量更新行状态
 
         Args:
             table: 表名（expression_pattern/few_shot/jargon 白名单内）
             ids: 行 id 列表
-            status: 目标状态
+            status: 目标状态（须为该表合法取值）
+            expected_status: 比较更新条件——仅当行当前状态等于该值
+                才更新（后台审查回写用，防止覆盖期间的管理员修改）
+
+        Returns:
+            实际更新的行数
         """
         if table not in _TABLES:
             raise ValueError(f"不允许更新的表：{table}")
+        if status not in _VALID_STATUSES[table]:
+            raise ValueError(
+                f"表 {table} 非法的状态：{status}"
+                f"（允许：{', '.join(_VALID_STATUSES[table])}）"
+            )
         if not ids:
-            return
+            return 0
         placeholders = ",".join("?" for _ in ids)
+        conds, params = "", []
+        if expected_status is not None:
+            conds = " AND status=?"
+            params = [expected_status]
         with self._lock:
-            self._db.execute(
-                f"UPDATE {table} SET status=? WHERE id IN ({placeholders})",
-                (status, *ids),
+            cur = self._db.execute(
+                f"UPDATE {table} SET status=? WHERE id IN ({placeholders}){conds}",
+                (status, *ids, *params),
             )
             self._db.commit()
+            return cur.rowcount
 
     def clear_all(self) -> None:
         """清空全部三张表"""
@@ -548,6 +596,11 @@ class LearningStorage:
             raise ValueError(f"表 {table} 不允许更新的字段：{sorted(bad)}")
         if not fields:
             return False
+        if "status" in fields and fields["status"] not in _VALID_STATUSES[table]:
+            raise ValueError(
+                f"表 {table} 非法的状态：{fields['status']}"
+                f"（允许：{', '.join(_VALID_STATUSES[table])}）"
+            )
         sets = ", ".join(f"{k}=?" for k in fields)
         with self._lock:
             cur = self._db.execute(
@@ -566,7 +619,9 @@ class LearningStorage:
     ) -> int:
         """手动新增暗语词条（status=active，count 从 0 起）
 
-        同群同词已存在时更新其含义与置信度。
+        同群同词已存在时更新其含义与置信度；若词条此前被禁用，
+        手动重新新增视为恢复启用（status 重置为 active），
+        已有的 count 计数保留。
 
         Returns:
             词条行 id
@@ -579,8 +634,9 @@ class LearningStorage:
                 " VALUES (?,?,0,?,?,?,?)"
                 " ON CONFLICT(group_id, term) DO UPDATE SET"
                 " meaning=COALESCE(excluded.meaning, jargon.meaning),"
-                " confidence=COALESCE(excluded.confidence, jargon.confidence)",
-                (group_id, term, meaning, confidence, STATUS_ACTIVE, now),
+                " confidence=COALESCE(excluded.confidence, jargon.confidence),"
+                " status=?",
+                (group_id, term, meaning, confidence, STATUS_ACTIVE, now, STATUS_ACTIVE),
             )
             row = self._db.execute(
                 "SELECT id FROM jargon WHERE group_id=? AND term=?",

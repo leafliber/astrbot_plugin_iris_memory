@@ -135,3 +135,31 @@ class TestRunReview:
         llm.generate_direct.assert_not_called()
         # 队列滞后于库（重启场景），以库为准清空
         assert reviewer.queue_size == 0
+
+    @pytest.mark.asyncio
+    async def test_review_does_not_override_admin_change(self, config, storage):
+        """审查期间被管理员改过的条目不被迟到裁决覆盖"""
+        pair_ids, pattern_ids = _seed_pending(storage, pairs=1, patterns=1)
+        reviewer = LearningReviewer(storage)
+        pairs, patterns = reviewer.fetch_pending()
+
+        # 模拟 LLM 审查期间管理员操作：禁用 pair、通过 pattern
+        storage.update_status("few_shot", [pair_ids[0]], "disabled")
+        storage.update_status(
+            "expression_pattern", [pattern_ids[0]], "approved"
+        )
+
+        # 迟到的裁决与之相反：pair 通过、pattern 拒绝
+        reviewer.apply_verdicts(
+            [
+                {"id": pair_ids[0], "type": "pair", "pass": True, "reason": "ok"},
+                {"id": pattern_ids[0], "type": "pattern", "pass": False, "reason": "bad"},
+            ],
+            pairs,
+            patterns,
+        )
+
+        rows = storage.list_rows("few_shot")
+        assert rows[0]["status"] == "disabled"  # 管理员的禁用保留
+        rows = storage.list_rows("expression_pattern")
+        assert rows[0]["status"] == "approved"  # 管理员的通过保留

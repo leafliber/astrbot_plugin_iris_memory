@@ -105,6 +105,7 @@ const navItems = [
   { to: '/l3-graph', title: 'L3 图谱', icon: 'mdi-graph' },
   { to: '/profile', title: '画像管理', icon: 'mdi-account-group' },
   { to: '/learning', title: '学习管理', icon: 'mdi-school' },
+  { to: '/persona-evolution', title: '人格自迭代', icon: 'mdi-account-cog' },
   { to: '/data-manage', title: '数据管理', icon: 'mdi-swap-vertical' },
   { to: '/reply-control', title: '主动回复', icon: 'mdi-robot' },
   { to: '/run-log', title: '运行日志', icon: 'mdi-text-box-search-outline' },

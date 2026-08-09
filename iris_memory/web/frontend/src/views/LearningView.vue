@@ -166,16 +166,7 @@
               <template #item.actions="{ item }">
                 <div class="d-flex align-center flex-nowrap ga-1">
                   <v-btn
-                    v-if="item.status === 'pending_review'"
-                    size="x-small"
-                    variant="tonal"
-                    color="success"
-                    @click="quickStatus('jargon', item, 'approved')"
-                  >
-                    通过
-                  </v-btn>
-                  <v-btn
-                    v-if="item.status === 'pending_review'"
+                    v-if="item.status === 'active'"
                     size="x-small"
                     variant="tonal"
                     color="warning"
@@ -654,7 +645,11 @@ const commonStatusOptions = [
   { title: '已禁用', value: 'disabled' }
 ]
 
-const jargonStatusOptions = [...commonStatusOptions, { title: '生效中', value: 'active' }]
+const jargonStatusOptions = [
+  { title: '全部', value: '' },
+  { title: '生效中', value: 'active' },
+  { title: '已禁用', value: 'disabled' }
+]
 
 // ============================================
 // 表头
@@ -876,15 +871,18 @@ const editForm = reactive({
 })
 
 const editStatusOptions = computed(() => {
-  const opts = [
+  if (editingTable.value === 'jargon') {
+    // 暗语无审查语义，仅 生效中/已禁用
+    return [
+      { title: '生效中', value: 'active' },
+      { title: '已禁用', value: 'disabled' }
+    ]
+  }
+  return [
     { title: '待审查', value: 'pending_review' },
     { title: '已通过', value: 'approved' },
     { title: '已禁用', value: 'disabled' }
   ]
-  if (editingTable.value === 'jargon') {
-    opts.push({ title: '生效中', value: 'active' })
-  }
-  return opts
 })
 
 const openEdit = (table: LearningTable, item: LearningRow) => {

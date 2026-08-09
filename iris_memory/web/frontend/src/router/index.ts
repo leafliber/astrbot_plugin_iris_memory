@@ -42,6 +42,12 @@ const routes: RouteRecordRaw[] = [
     meta: { title: '学习管理', icon: 'mdi-school' }
   },
   {
+    path: '/persona-evolution',
+    name: 'PersonaEvolution',
+    component: () => import('@/views/PersonaEvolutionView.vue'),
+    meta: { title: '人格自迭代', icon: 'mdi-account-cog' }
+  },
+  {
     path: '/data-manage',
     name: 'DataManage',
     component: () => import('@/views/DataManageView.vue'),

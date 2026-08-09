@@ -10,6 +10,143 @@ export interface ApiResponse<T = unknown> {
 }
 
 // ============================================
+// 人格自迭代
+// ============================================
+
+export type EvolutionJobStatus = 'active' | 'paused' | 'conflict' | 'paused_error'
+export type EvolutionEditMode = 'managed_block' | 'full_prompt'
+export type EvolutionApprovalMode = 'auto' | 'manual'
+export type EvolutionRevisionStatus =
+  | 'candidate'
+  | 'publishing'
+  | 'applied'
+  | 'rejected'
+  | 'failed_validation'
+  | 'publish_failed'
+  | 'external_change'
+  | 'rollback'
+  | 'no_change'
+
+export interface EvolutionGoalPreset {
+  preset_id: string
+  display_name: string
+  text: string
+}
+
+export interface EvolutionPersona {
+  persona_id: string
+  prompt_length: number
+  is_default: boolean
+  iterable: boolean
+  has_job: boolean
+}
+
+export interface EvolutionJob {
+  id: number
+  persona_id: string
+  name: string
+  goal_preset_id: string
+  custom_goal: string
+  source_group_ids: string[]
+  source_user_ids: string[]
+  edit_mode: EvolutionEditMode
+  approval_mode: EvolutionApprovalMode
+  status: EvolutionJobStatus
+  trigger_sample_count: number
+  min_interval_hours: number
+  provider_id: string
+  reviewer_provider_id: string
+  protected_fragments: string[]
+  last_success_at: number | null
+  last_sample_cursor: number
+  last_applied_revision_id: number | null
+  consecutive_failures: number
+  created_at: number
+  updated_at: number
+  sample_total: number
+  sample_new: number
+}
+
+export interface EvolutionRun {
+  id: number
+  job_id: number
+  trigger_type: string
+  status: 'running' | 'success' | 'failed'
+  sample_cursor_from: number
+  sample_cursor_to: number
+  eligible_count: number
+  selected_count: number
+  started_at: number
+  finished_at: number | null
+  error_code: string | null
+  error_message: string | null
+  analysis_tokens: number
+  generation_tokens: number
+  review_tokens: number
+}
+
+export interface EvolutionRevision {
+  id: number
+  job_id: number
+  version: number
+  parent_revision_id: number | null
+  status: EvolutionRevisionStatus
+  trigger_type: string
+  edit_mode: EvolutionEditMode
+  approval_mode: EvolutionApprovalMode
+  base_prompt?: string | null
+  result_prompt?: string | null
+  base_prompt_length?: number
+  result_prompt_length?: number
+  base_hash: string | null
+  result_hash: string | null
+  goal_snapshot: Record<string, unknown>
+  style_profile: Record<string, unknown>
+  change_summary: string[]
+  rationale: string
+  decision_reason: string
+  confidence: number | null
+  validation: Record<string, unknown>
+  review: Record<string, unknown>
+  provider_snapshot: Record<string, unknown>
+  created_at: number
+  applied_at: number | null
+}
+
+export interface EvolutionSampleDimension {
+  group_id?: string
+  group_name?: string
+  user_id?: string
+  user_name?: string
+  count: number
+}
+
+export interface EvolutionSampleStats {
+  total: number
+  by_group: EvolutionSampleDimension[]
+  by_user: EvolutionSampleDimension[]
+  by_day: Array<{ day: string; count: number }>
+  latest_sample_id: number
+  days: number
+}
+
+export interface EvolutionJobInput {
+  persona_id?: string
+  name: string
+  goal_preset_id: string
+  custom_goal: string
+  source_group_ids: string[]
+  source_user_ids: string[]
+  edit_mode: EvolutionEditMode
+  approval_mode: EvolutionApprovalMode
+  trigger_sample_count: number
+  min_interval_hours: number
+  provider_id: string
+  reviewer_provider_id: string
+  protected_fragments: string[]
+}
+
+// ============================================
 // 组件状态类型
 // ============================================
 
