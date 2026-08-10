@@ -5,72 +5,25 @@ Iris Chat Memory - 图片解析器
 优先通过 message_recorder 插件获取本地图片，避免链接过期。
 """
 
-from pathlib import Path
-from typing import List, Optional, TYPE_CHECKING
 import asyncio
 import base64
-import ipaddress
-import socket
-from urllib.parse import urlparse
-
-import httpx
 import re
+from typing import List, Optional, TYPE_CHECKING
 
 from iris_memory.core import get_logger
 from .models import ImageInfo, ParseResult
 from iris_memory.llm_modules import IMAGE_PARSING
 from .recorder_bridge import MessageRecorderBridge
+from .security import (
+    fetch_safe_image_bytes,
+    is_safe_remote_url,
+    local_image_to_data_url,
+)
 
 if TYPE_CHECKING:
     from iris_memory.llm.manager import LLMManager
 
 logger = get_logger("image")
-
-
-def _host_all_global(host: str) -> bool:
-    """主机的全部解析地址是否均为全局可达地址。
-
-    IP 字面量直接判定；域名解析所有地址，任一非全局（私网/环回/链路本地/
-    云元数据/保留/组播/未指定）即返回 False。供 _is_safe_url 与下载 transport
-    共用，确保「校验」与「实际连接」采用一致的 SSRF 判据。
-    """
-    try:
-        return ipaddress.ip_address(host).is_global
-    except ValueError:
-        pass
-    try:
-        infos = socket.getaddrinfo(host, None)
-    except OSError:
-        return False
-    for info in infos:
-        try:
-            ip = ipaddress.ip_address(info[4][0])
-        except (ValueError, IndexError):
-            continue
-        if not ip.is_global:
-            return False
-    return True
-
-
-class _GlobalOnlyTransport(httpx.AsyncBaseTransport):
-    """包装另一个 transport，在每次请求前重新校验目标主机全部解析地址为全局。
-
-    防 DNS rebinding：_is_safe_url 的可达性校验与实际下载各自独立解析 DNS，
-    攻击者可能在校验通过后、下载连接前把解析切到内网。本 transport 在连接前
-    再次强制校验，任一解析结果非全局即拒绝，从根本上堵死向内网的 rebinding。
-    """
-
-    def __init__(self, wrapped: httpx.AsyncBaseTransport):
-        self._wrapped = wrapped
-
-    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
-        host = request.url.host
-        if host and not await asyncio.to_thread(_host_all_global, host):
-            raise httpx.ConnectError(f"目标主机解析含非全局地址，拒绝连接: {host}")
-        return await self._wrapped.handle_async_request(request)
-
-    async def aclose(self) -> None:
-        await self._wrapped.aclose()
 
 
 class ImageParser:
@@ -128,15 +81,27 @@ class ImageParser:
                 image_url=image_info.url,
             )
             if local_path:
-                data_url = MessageRecorderBridge.image_to_data_url(local_path)
+                # 路径由 MessageRecorder API 返回；仍强制图片魔数与大小上限。
+                data_url = local_image_to_data_url(local_path)
                 if data_url:
                     logger.debug(f"使用 MessageRecorder 本地图片：{local_path.name}")
                     return data_url
 
         if image_info.has_file_path and image_info.file_path:
+            from pathlib import Path
+
             file_path = Path(image_info.file_path)
             if file_path.is_absolute():
-                data_url = MessageRecorderBridge.image_to_data_url(file_path)
+                # 平台消息中的绝对路径不可信，只允许读取本插件生成的图片缓存。
+                from iris_memory.config import get_config
+
+                try:
+                    cache_root = get_config().data_dir / "image_cache"
+                    data_url = local_image_to_data_url(
+                        file_path, allowed_root=cache_root
+                    )
+                except RuntimeError:
+                    data_url = None
                 if data_url:
                     logger.debug(f"使用本地文件图片：{file_path.name}")
                     return data_url
@@ -146,7 +111,7 @@ class ImageParser:
                     image_info.file_path
                 )
                 if abs_path:
-                    data_url = MessageRecorderBridge.image_to_data_url(abs_path)
+                    data_url = local_image_to_data_url(abs_path)
                     if data_url:
                         logger.debug(
                             f"通过 MessageRecorder 解析本地图片：{abs_path.name}"
@@ -170,23 +135,14 @@ class ImageParser:
         仅允许 http/https；对主机的全部 DNS 解析地址要求为全局可达地址，
         拒绝任何私网、环回、链路本地、云元数据、保留、组播、未指定等地址。
         """
-        try:
-            parsed = urlparse(url)
-        except Exception:
-            return False
-        if parsed.scheme not in ("http", "https"):
-            return False
-        hostname = parsed.hostname
-        if not hostname:
-            return False
-        return await asyncio.to_thread(_host_all_global, hostname)
+        return await is_safe_remote_url(url)
 
     async def _check_url_accessible(self, url: str) -> bool:
         """检查网络图片 URL 是否可达且有内容
 
-        通过流式 GET 请求读取少量数据验证 URL 返回了有效内容，
-        避免 LLM 调用因图片不可下载而浪费 token。同时校验目标主机非
-        内网/保留地址以防 SSRF，并禁用自动重定向（防止重定向到内网）。
+        使用统一安全下载器验证 URL 返回了受支持且未超限的图片，避免 LLM
+        调用因图片不可下载而浪费 token；初始地址和每一跳重定向均执行 SSRF
+        校验。
 
         Args:
             url: 图片 URL
@@ -194,33 +150,14 @@ class ImageParser:
         Returns:
             URL 是否可访问且有内容
         """
-        if not await self._is_safe_url(url):
-            logger.warning(
-                f"图片 URL 主机不安全（内网/保留地址），拒绝访问：{url[:80]}"
-            )
-            return False
-        try:
-            async with httpx.AsyncClient(timeout=8, follow_redirects=False) as client:
-                async with client.stream("GET", url) as resp:
-                    if resp.status_code >= 400:
-                        logger.debug(f"图片 URL 返回 {resp.status_code}：{url[:80]}")
-                        return False
-                    chunk = await resp.aread(1024)
-                    if not chunk:
-                        logger.debug(f"图片 URL 返回空内容：{url[:80]}")
-                        return False
-                    return True
-        except Exception as e:
-            logger.debug(f"图片 URL 检查失败：{e}")
-            return False
+        return await fetch_safe_image_bytes(url) is not None
 
     async def _fetch_image_data_url(self, url: str) -> Optional[str]:
-        """下载网络图片并以 base64 data URL 返回（SSRF 根本防护）。
+        """下载网络图片并以 base64 data URL 返回。
 
-        可达性检查与实际下载各自独立解析 DNS，存在 DNS rebinding 窗口（检查时
-        解析到公网、下载时被切到内网）。本方法用 _GlobalOnlyTransport 在下载
-        连接前再次强制校验所有解析结果为全局地址，堵死向内网的 rebinding；同时
-        把图片字节转为 data URL，使 LLM provider 不再直连外网 URL。
+        统一下载器逐跳校验 SSRF、禁止自动重定向、限制跳数和流式响应大小，
+        并在请求交给网络栈前再次解析目标主机。图片转为 data URL 后，LLM
+        provider 不再直接访问用户提供的外链。
 
         Args:
             url: 图片 URL
@@ -228,39 +165,12 @@ class ImageParser:
         Returns:
             base64 data URL；主机不安全、不可达或超限时返回 None
         """
-        if not await self._is_safe_url(url):
-            logger.warning(
-                f"图片 URL 主机不安全（内网/保留地址），拒绝下载：{url[:80]}"
-            )
-            return None
-        try:
-            transport = _GlobalOnlyTransport(httpx.AsyncHTTPTransport(verify=True))
-            async with httpx.AsyncClient(
-                timeout=15, follow_redirects=False, transport=transport
-            ) as client:
-                resp = await client.get(url)
-                if resp.status_code >= 400:
-                    logger.debug(f"图片 URL 返回 {resp.status_code}：{url[:80]}")
-                    return None
-                content = resp.content
-                if not content:
-                    return None
-                # 限制 10MB，避免大图撑爆 LLM 上下文
-                if len(content) > 10 * 1024 * 1024:
-                    logger.warning(f"图片过大（{len(content)} 字节），跳过：{url[:80]}")
-                    return None
-                mime = (
-                    (resp.headers.get("content-type") or "image/jpeg")
-                    .split(";")[0]
-                    .strip()
-                )
-                if not mime.startswith("image/"):
-                    mime = "image/jpeg"
-                b64 = base64.b64encode(content).decode("ascii")
-                return f"data:{mime};base64,{b64}"
-        except Exception as e:
-            logger.debug(f"下载图片失败：{e}")
-            return None
+        downloaded = await fetch_safe_image_bytes(url)
+        if downloaded:
+            content, mime = downloaded
+            b64 = base64.b64encode(content).decode("ascii")
+            return f"data:{mime};base64,{b64}"
+        return None
 
     async def parse(self, image_info: ImageInfo) -> ParseResult:
         """解析单张图片

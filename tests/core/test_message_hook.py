@@ -991,10 +991,11 @@ class TestQueueImagesPersonaId:
                 "iris_memory.image.image_utils.compute_image_hash",
                 new=AsyncMock(return_value="testhash123456"),
             ),
-            patch("httpx.AsyncClient") as MockClient,
+            patch(
+                "iris_memory.image.security.fetch_safe_image_bytes",
+                new=AsyncMock(return_value=None),
+            ),
         ):
-            # 避免 httpx 真实下载
-            MockClient.side_effect = RuntimeError("mock: no network")
             await _queue_images_to_l1_buffer(MagicMock(), component_manager)
 
         # 核心断言：占位消息 add_message 携带 persona_id="yuki"
@@ -1056,9 +1057,11 @@ class TestQueueImagesPersonaId:
                 "iris_memory.image.image_utils.compute_image_hash",
                 new=AsyncMock(return_value="testhash123456"),
             ),
-            patch("httpx.AsyncClient") as MockClient,
+            patch(
+                "iris_memory.image.security.fetch_safe_image_bytes",
+                new=AsyncMock(return_value=None),
+            ),
         ):
-            MockClient.side_effect = RuntimeError("mock: no network")
             await _queue_images_to_l1_buffer(MagicMock(), component_manager)
 
         l1_buffer.add_message.assert_not_awaited()

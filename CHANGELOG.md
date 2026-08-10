@@ -3,6 +3,17 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.4] - 2026-08-10
+
+### Security
+
+- 图片网络请求统一使用安全下载器：初始 URL 与每一跳重定向均拒绝私网、环回、链路本地、云元数据及保留地址，禁用自动重定向并限制跳数；响应按流式实际字节限制为 10 MiB，并用图片魔数拒绝伪造内容。
+- 消息中的绝对本地路径仅允许读取插件 `image_cache` 真实目录内的文件；本地图片同时限制大小与类型。缓存删除改为真实路径包含校验，拒绝同名目录和符号链接越界。
+
+### Tests
+
+- 新增 SSRF、重定向到云元数据地址、合法重定向逐跳复检、大响应、本地路径越界和缓存删除越界（含符号链接）回归测试。
+
 ## [3.0.3] - 2026-08-09
 
 ### Added

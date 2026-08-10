@@ -1515,6 +1515,11 @@ class L1Buffer(Component):
         Args:
             items: 被移除的 ImageQueueItem 列表
         """
+        try:
+            cache_root = (get_config().data_dir / "image_cache").resolve(strict=True)
+        except (FileNotFoundError, OSError, RuntimeError):
+            return
+
         for item in items:
             try:
                 info = getattr(item, "image_info", None)
@@ -1526,11 +1531,13 @@ class L1Buffer(Component):
                 path = Path(fp)
                 if not path.is_absolute():
                     continue
-                # 仅清理 image_cache 目录下的文件，不删平台原始文件
-                if "image_cache" not in path.parts:
+                try:
+                    resolved = path.resolve(strict=True)
+                    resolved.relative_to(cache_root)
+                except (FileNotFoundError, OSError, ValueError):
                     continue
-                if path.exists():
-                    path.unlink()
-                    logger.debug(f"已删除图片缓存：{path.name}")
+                if resolved.is_file():
+                    resolved.unlink()
+                    logger.debug(f"已删除图片缓存：{resolved.name}")
             except Exception as e:
                 logger.debug(f"删除图片缓存文件失败：{e}")

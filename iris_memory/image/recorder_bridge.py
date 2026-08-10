@@ -5,12 +5,11 @@ Iris Chat Memory - Message Recorder 桥接模块
 避免图片链接过期导致无法解析。
 """
 
-import base64
-import mimetypes
 from pathlib import Path
 from typing import Any, Optional, TYPE_CHECKING
 
 from iris_memory.core import get_logger
+from .security import local_image_to_data_url
 
 if TYPE_CHECKING:
     from astrbot.api.star import Context
@@ -183,23 +182,7 @@ class MessageRecorderBridge:
             data URL 字符串（如 data:image/jpeg;base64,...），
             失败返回 None
         """
-        try:
-            if not file_path.exists() or not file_path.is_file():
-                return None
-
-            mime_type, _ = mimetypes.guess_type(str(file_path))
-            if not mime_type:
-                mime_type = "image/jpeg"
-
-            with open(file_path, "rb") as f:
-                image_data = f.read()
-
-            b64_data = base64.b64encode(image_data).decode("utf-8")
-            return f"data:{mime_type};base64,{b64_data}"
-
-        except Exception as e:
-            logger.debug(f"图片转 data URL 失败：{e}")
-            return None
+        return local_image_to_data_url(file_path)
 
 
 _recorder_bridge: Optional[MessageRecorderBridge] = None
