@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import math
 import random
 import time
 from dataclasses import dataclass, field
@@ -86,9 +87,15 @@ class GroupStateData:
     initiate_count_date: str = ""
     initiate_pending_since: float = 0.0
     initiate_no_reply_streak: int = 0
-    initiate_score: float = 0.0  # 积累的发起意愿值，达到 initiate_target 时点火
-    initiate_target: float = 0.0  # 随机采样的点火阈值，<=0 表示待采样
-    initiate_score_at: float = 0.0  # 上次意愿结算时刻
+    initiate_timestamps: list[float] = field(default_factory=list)  # 滚动 24h 发起记录
+    last_human_message_at: float = 0.0
+    initiate_next_check_at: float = 0.0  # 每群独立的下一次候选时刻
+    initiate_hazard_at: float = 0.0  # 上次风险率结算时刻
+    initiate_hazard_probability: float = 0.0  # 最近一次候选概率，仅用于观测
+    # 旧版积分字段仅用于状态迁移/降级兼容，新版调度不再读取它们。
+    initiate_score: float = 0.0
+    initiate_target: float = 0.0
+    initiate_score_at: float = 0.0
     dirty: bool = False
 
 
@@ -100,13 +107,9 @@ class StateManager:
     MAX_COOLDOWN_MINUTES = 120
     BACKOFF_DECAY_INTERVAL = 300.0
 
-    # 发起意愿值：点火阈值随机采样区间（相对积累基准时长的倍数）
-    INITIATE_TARGET_MIN = 0.8
-    INITIATE_TARGET_MAX = 1.5
-    # 话题刚结束时意愿积累加速倍数上限
-    INITIATE_DRIFT_BOOST_MAX = 8.0
-    # 对话活跃时意愿消退速率（相对基准积累速率的倍数）
-    INITIATE_DECAY_FACTOR = 2.0
+    INITIATE_ROLLING_WINDOW = 24 * 60 * 60
+    INITIATE_HAZARD_ELAPSED_MIN = 15 * 60
+    INITIATE_HAZARD_ELAPSED_MAX = 60 * 60
 
     _GROUP_IDS_KEY = "iris_reply:group_ids"
     _GROUP_KEY_PREFIX = "state:"
@@ -151,10 +154,21 @@ class StateManager:
             self._mark_dirty(group_id, data)
         if data.anchor.participants or data.anchor.keywords:
             self._cleanup_expired_anchor(group_id, data, now)
-        today = self._today()
-        if data.initiate_count_date != today:
-            data.initiate_count_date = today
-            data.initiate_daily_count = 0
+        cutoff = now - self.INITIATE_ROLLING_WINDOW
+        kept = [ts for ts in data.initiate_timestamps if ts >= cutoff]
+        if kept != data.initiate_timestamps:
+            data.initiate_timestamps = kept
+            self._mark_dirty(group_id, data)
+        rolling_count = len(data.initiate_timestamps)
+        if data.initiate_daily_count != rolling_count:
+            data.initiate_daily_count = rolling_count
+            self._mark_dirty(group_id, data)
+        # 无人接话改为滚动退避：满 24h 后自动恢复，而不是依赖零点清零。
+        if (
+            data.initiate_no_reply_streak > 0
+            and data.last_initiate_time > 0
+            and now - data.last_initiate_time >= self.INITIATE_ROLLING_WINDOW
+        ):
             data.initiate_no_reply_streak = 0
             self._mark_dirty(group_id, data)
         return data
@@ -168,6 +182,33 @@ class StateManager:
         if start_mins <= end_mins:
             return start_mins <= current_mins < end_mins
         return current_mins >= start_mins or current_mins < end_mins
+
+    def seconds_until_unmuted(self, now: float | None = None) -> float:
+        """若当前处于静音期，返回距静音结束的秒数，否则返回 0。"""
+        now = time.time() if now is None else now
+        current = time.localtime(now)
+        current_mins = current.tm_hour * 60 + current.tm_min
+        start_hour, start_minute, end_hour, end_minute = self._config.mute_period
+        start_mins = start_hour * 60 + start_minute
+        end_mins = end_hour * 60 + end_minute
+        if start_mins == end_mins or not self.is_muted():
+            return 0.0
+        if start_mins < end_mins:
+            days = 0
+        else:
+            days = 1 if current_mins >= start_mins else 0
+        end_tuple = (
+            current.tm_year,
+            current.tm_mon,
+            current.tm_mday + days,
+            end_hour,
+            end_minute,
+            0,
+            current.tm_wday,
+            current.tm_yday,
+            current.tm_isdst,
+        )
+        return max(0.0, time.mktime(end_tuple) - now)
 
     def set_cooldown(self, group_id: str, minutes: int) -> int:
         data = self._ensure_group(group_id)
@@ -366,11 +407,15 @@ class StateManager:
         """主动发起成功后记账：次数、时间、接话 pending，并写入发起锚点。"""
         data = self.get_state(group_id)  # get_state 处理跨天重置
         now = time.time()
-        data.initiate_daily_count += 1
+        data.initiate_timestamps.append(now)
+        data.initiate_timestamps = [
+            ts for ts in data.initiate_timestamps
+            if ts >= now - self.INITIATE_ROLLING_WINDOW
+        ]
+        data.initiate_daily_count = len(data.initiate_timestamps)
         data.last_initiate_time = now
         data.initiate_pending_since = now
-        data.initiate_score = 0.0
-        data.initiate_target = 0.0
+        self.reset_initiate_drive(group_id, now=now)
         self.write_anchor(
             group_id,
             kind="initiate",
@@ -391,7 +436,93 @@ class StateManager:
         data.initiate_no_reply_streak += 1
         self._mark_dirty(group_id, data)
 
-    # ---- 发起意愿值（概率门控）----
+    # ---- 主动发起风险率（概率门控）----
+
+    def record_human_message(self, group_id: str, timestamp: float | None = None) -> None:
+        """记录真实群消息，并令旧候选失效，由调度器为该群重新预约。"""
+        timestamp = time.time() if timestamp is None else timestamp
+        data = self._ensure_group(group_id)
+        data.last_human_message_at = max(data.last_human_message_at, timestamp)
+        data.initiate_next_check_at = 0.0
+        data.initiate_hazard_at = timestamp
+        data.initiate_hazard_probability = 0.0
+        data.initiate_score = 0.0
+        data.initiate_target = 0.0
+        data.initiate_score_at = timestamp
+        self._mark_dirty(group_id, data)
+
+    def set_next_initiate_check(self, group_id: str, when: float) -> None:
+        data = self._ensure_group(group_id)
+        data.initiate_next_check_at = max(0.0, float(when))
+        self._mark_dirty(group_id, data)
+
+    def get_next_initiate_check(self, group_id: str) -> float:
+        return self._ensure_group(group_id).initiate_next_check_at
+
+    def minimum_quiet_seconds(self) -> float:
+        """将 quiet_minutes 作为节奏基准，同时保留 30–90 分钟硬静默底线。"""
+        baseline = self._config.proactive_quiet_minutes * 60.0
+        return max(30 * 60.0, min(90 * 60.0, baseline * 0.35))
+
+    def evaluate_initiate_hazard(
+        self,
+        group_id: str,
+        *,
+        now: float,
+        quiet_seconds: float,
+        freeze: bool = False,
+        random_value: float | None = None,
+    ) -> bool:
+        """按当前风险率进行一次伯努利试验，不再累计到必然点火阈值。"""
+        data = self._ensure_group(group_id)
+        previous = data.initiate_hazard_at or now
+        data.initiate_hazard_at = now
+        data.initiate_score_at = now  # 兼容旧版可观测字段
+        if freeze or quiet_seconds < self.minimum_quiet_seconds():
+            data.initiate_hazard_probability = 0.0
+            self._mark_dirty(group_id, data)
+            return False
+
+        elapsed_cap = max(
+            self.INITIATE_HAZARD_ELAPSED_MIN,
+            min(
+                self.INITIATE_HAZARD_ELAPSED_MAX,
+                self._config.proactive_check_interval * 180.0,
+            ),
+        )
+        elapsed = min(max(0.0, now - previous), elapsed_cap)
+        if elapsed <= 0:
+            data.initiate_hazard_probability = 0.0
+            self._mark_dirty(group_id, data)
+            return False
+
+        baseline = self._config.proactive_quiet_minutes * 60.0
+        level = data.willingness if data.willingness in VALID_LEVELS else DEFAULT_LEVEL
+        willingness_factor = 1.0 / WILLINGNESS_THRESHOLD_ADJUST[level]["t_factor"]
+        quiet_ratio = quiet_seconds / baseline
+        quiet_factor = max(0.35, min(2.5, 0.35 + quiet_ratio))
+        context_factor = 1.12 if data.anchor.has_context else 1.0
+        drift_factor = 1.0
+        drift_window = max(5, self._config.proactive_drift_delay) * 60.0
+        if 0 < data.last_drift_time and now - data.last_drift_time < drift_window * 3:
+            drift_factor = 1.0 + 1.5 * (
+                1.0 - (now - data.last_drift_time) / (drift_window * 3)
+            )
+        fatigue_factor = 0.4 ** max(0, data.initiate_no_reply_streak)
+        hazard_per_second = (
+            (1.0 / baseline)
+            * willingness_factor
+            * quiet_factor
+            * context_factor
+            * drift_factor
+            * fatigue_factor
+        )
+        probability = 1.0 - math.exp(-hazard_per_second * elapsed)
+        probability = max(0.0, min(0.85, probability))
+        data.initiate_hazard_probability = probability
+        self._mark_dirty(group_id, data)
+        draw = random.random() if random_value is None else random_value
+        return draw < probability
 
     def update_initiate_drive(
         self,
@@ -401,61 +532,23 @@ class StateManager:
         quiet_seconds: float,
         freeze: bool = False,
     ) -> bool:
-        """结算一次发起意愿值，返回是否达到点火阈值。
+        """旧 API 兼容入口；内部已切换为概率风险率。"""
+        return self.evaluate_initiate_hazard(
+            group_id,
+            now=now,
+            quiet_seconds=quiet_seconds,
+            freeze=freeze,
+        )
 
-        意愿在群静默时积累、对话活跃时消退：
-        - 基准速率为在 proactive_quiet_minutes 内积累到 1.0，按回复意愿等级缩放；
-        - 话题刚结束（drift）不久时按 proactive_drift_delay 的比例加速（封顶
-          INITIATE_DRIFT_BOOST_MAX 倍）；仍有对话锚点时小幅加速；
-        - 点火阈值在 [INITIATE_TARGET_MIN, INITIATE_TARGET_MAX] 内随机采样，
-          使每次点火时刻自然分散；
-        - freeze（禁言期）只推进结算时钟，不积累也不消退，避免开闸瞬间点火。
-        """
+    def reset_initiate_drive(self, group_id: str, *, now: float | None = None) -> None:
+        """重置概率时钟和旧版积分字段，避免解禁或重启后积压点火。"""
         data = self._ensure_group(group_id)
-        prev = data.initiate_score_at
-        data.initiate_score_at = now
-        if data.initiate_target <= 0:
-            data.initiate_target = random.uniform(
-                self.INITIATE_TARGET_MIN, self.INITIATE_TARGET_MAX
-            )
-        target = data.initiate_target
-        if prev > 0:
-            # 重启/长时间未结算时不做跳跃式积累，防止启动风暴
-            elapsed = min(
-                max(0.0, now - prev),
-                max(1, self._config.proactive_check_interval) * 120.0,
-            )
-        else:
-            elapsed = 0.0
-        if elapsed > 0 and not freeze:
-            base_rate = 1.0 / (self._config.proactive_quiet_minutes * 60.0)
-            accum = min(elapsed, max(0.0, quiet_seconds))
-            decay = elapsed - accum
-            if accum > 0:
-                level = data.willingness if data.willingness in VALID_LEVELS else DEFAULT_LEVEL
-                t_factor = WILLINGNESS_THRESHOLD_ADJUST[level]["t_factor"]
-                rate = base_rate / t_factor
-                quiet_window = self._config.proactive_quiet_minutes * 60.0
-                if 0 < data.last_drift_time and now - data.last_drift_time < quiet_window:
-                    boost = self._config.proactive_quiet_minutes / max(
-                        5, self._config.proactive_drift_delay
-                    )
-                    rate *= min(boost, self.INITIATE_DRIFT_BOOST_MAX)
-                elif data.anchor.has_context:
-                    rate *= 1.25
-                data.initiate_score = min(target, data.initiate_score + accum * rate)
-            if decay > 0:
-                data.initiate_score = max(
-                    0.0, data.initiate_score - decay * base_rate * self.INITIATE_DECAY_FACTOR
-                )
-        self._mark_dirty(group_id, data)
-        return data.initiate_score >= target
-
-    def reset_initiate_drive(self, group_id: str) -> None:
-        """清零意愿值并使阈值待重新采样（点火成功 / LLM 否决 / 触达上限时调用）。"""
-        data = self._ensure_group(group_id)
+        now = time.time() if now is None else now
         data.initiate_score = 0.0
         data.initiate_target = 0.0
+        data.initiate_score_at = now
+        data.initiate_hazard_at = now
+        data.initiate_hazard_probability = 0.0
         self._mark_dirty(group_id, data)
 
     # ---- 采样与自适应阈值 ----
@@ -589,6 +682,11 @@ class StateManager:
         data.initiate_count_date = self._today()
         data.initiate_pending_since = 0.0
         data.initiate_no_reply_streak = 0
+        data.initiate_timestamps.clear()
+        data.last_human_message_at = 0.0
+        data.initiate_next_check_at = 0.0
+        data.initiate_hazard_at = 0.0
+        data.initiate_hazard_probability = 0.0
         data.initiate_score = 0.0
         data.initiate_target = 0.0
         data.initiate_score_at = 0.0
@@ -738,6 +836,11 @@ class StateManager:
             "initiate_count_date": data.initiate_count_date,
             "initiate_pending_since": data.initiate_pending_since,
             "initiate_no_reply_streak": data.initiate_no_reply_streak,
+            "initiate_timestamps": data.initiate_timestamps,
+            "last_human_message_at": data.last_human_message_at,
+            "initiate_next_check_at": data.initiate_next_check_at,
+            "initiate_hazard_at": data.initiate_hazard_at,
+            "initiate_hazard_probability": data.initiate_hazard_probability,
             "initiate_score": data.initiate_score,
             "initiate_target": data.initiate_target,
             "initiate_score_at": data.initiate_score_at,
@@ -766,6 +869,23 @@ class StateManager:
         state = GroupState.IDLE
         if d.get("state") == GroupState.COOLDOWN.value:
             state = GroupState.COOLDOWN
+        timestamps = [
+            float(ts)
+            for ts in d.get("initiate_timestamps", [])
+            if isinstance(ts, (int, float)) and not isinstance(ts, bool)
+        ]
+        # 旧状态没有滚动记录时，按旧计数保守迁移额度。
+        last_initiate_time = d.get("last_initiate_time", 0.0)
+        try:
+            legacy_count = max(0, min(100, int(d.get("initiate_daily_count", 0))))
+        except (TypeError, ValueError):
+            legacy_count = 0
+        if (
+            not timestamps
+            and legacy_count > 0
+            and last_initiate_time > time.time() - self.INITIATE_ROLLING_WINDOW
+        ):
+            timestamps = [last_initiate_time] * legacy_count
         return GroupStateData(
             state=state,
             cooldown_until=d.get("cooldown_until", 0.0),
@@ -782,11 +902,18 @@ class StateManager:
             anchor=anchor,
             last_observation=d.get("last_observation", ""),
             last_drift_time=d.get("last_drift_time", 0.0),
-            last_initiate_time=d.get("last_initiate_time", 0.0),
-            initiate_daily_count=d.get("initiate_daily_count", 0),
+            last_initiate_time=last_initiate_time,
+            initiate_daily_count=len(timestamps),
             initiate_count_date=d.get("initiate_count_date", ""),
             initiate_pending_since=d.get("initiate_pending_since", 0.0),
             initiate_no_reply_streak=d.get("initiate_no_reply_streak", 0),
+            initiate_timestamps=timestamps,
+            last_human_message_at=d.get("last_human_message_at", 0.0),
+            initiate_next_check_at=d.get("initiate_next_check_at", 0.0),
+            initiate_hazard_at=d.get(
+                "initiate_hazard_at", d.get("initiate_score_at", 0.0)
+            ),
+            initiate_hazard_probability=d.get("initiate_hazard_probability", 0.0),
             initiate_score=d.get("initiate_score", 0.0),
             initiate_target=d.get("initiate_target", 0.0),
             initiate_score_at=d.get("initiate_score_at", 0.0),
@@ -825,9 +952,11 @@ class StateManager:
             lines.append(f"  锚点关键词: {', '.join(sorted(anchor.keywords))}")
         if anchor.reason:
             lines.append(f"  锚点原因: {anchor.reason}")
-        lines.append(f"  今日发起: {data.initiate_daily_count} 次")
-        if data.initiate_target > 0:
-            lines.append(f"  发起意愿: {data.initiate_score:.2f}/{data.initiate_target:.2f}")
+        lines.append(f"  滚动24小时发起: {data.initiate_daily_count} 次")
+        lines.append(f"  最近候选概率: {data.initiate_hazard_probability:.1%}")
+        if data.initiate_next_check_at > 0:
+            wait = max(0.0, data.initiate_next_check_at - time.time()) / 60
+            lines.append(f"  下次候选检查: {wait:.1f} 分钟后")
         if data.initiate_pending_since > 0:
             waiting = (time.time() - data.initiate_pending_since) / 60
             lines.append(f"  发起接话等待中: {waiting:.1f} 分钟")

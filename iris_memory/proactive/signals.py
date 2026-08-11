@@ -51,9 +51,8 @@ class SignalGate:
     def evaluate_timer(self, group_id: str, messages: list[WindowMessage]) -> str | None:
         """定时器唤醒门控，返回 "initiate" | None。
 
-        不再使用硬静默阈值，改为回复意愿值概率门控：意愿随静默时间积累、
-        随对话活跃消退，积累速率由回复意愿等级与话题状态（drift / 锚点）
-        共同调节，达到随机采样的阈值时点火。
+        达到最小静默底线后按风险率进行一次独立概率试验；风险率综合静默
+        时长、回复意愿、话题状态和无人接话疲劳，不存在必然点火阈值。
         """
         if not self._config.enabled or not self._config.proactive_enabled:
             return None
@@ -70,14 +69,15 @@ class SignalGate:
             data.initiate_daily_count >= self._config.proactive_max_per_day
             or data.initiate_no_reply_streak >= self._config.proactive_max_streak
         ):
-            # 触达上限期间清零意愿，防止次日/解禁瞬间点火
+            # 滚动额度/无人接话退避期间推进概率时钟，防止解禁瞬间点火。
             self._state.reset_initiate_drive(group_id)
             return None
         if now - data.last_initiate_time < self._config.proactive_min_interval * 60:
             return None
 
-        quiet = now - messages[-1].timestamp
-        fired = self._state.update_initiate_drive(
+        last_activity = max(messages[-1].timestamp, data.last_human_message_at)
+        quiet = max(0.0, now - last_activity)
+        fired = self._state.evaluate_initiate_hazard(
             group_id,
             now=now,
             quiet_seconds=quiet,

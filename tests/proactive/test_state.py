@@ -229,6 +229,7 @@ class TestInitiateAccounting:
         state.record_initiate(GID, topic="新话题", bot_message="大家好", users=["u1"])
         data = state.get_state(GID)
         assert data.initiate_daily_count == 1
+        assert len(data.initiate_timestamps) == 1
         assert data.last_initiate_time > 0
         assert data.initiate_pending_since > 0
         assert state.is_initiate_pending(GID) is True
@@ -238,11 +239,10 @@ class TestInitiateAccounting:
 
     def test_record_initiate_resets_drive(self, state):
         data = state.get_state(GID)
-        data.initiate_score = 0.9
-        data.initiate_target = 1.2
+        data.initiate_hazard_probability = 0.9
         state.record_initiate(GID)
-        assert data.initiate_score == 0.0
-        assert data.initiate_target == 0.0
+        assert data.initiate_hazard_probability == 0.0
+        assert data.initiate_hazard_at > 0
 
     def test_consume_pending_resets_streak(self, state):
         state.record_initiate(GID)
@@ -263,113 +263,97 @@ class TestInitiateAccounting:
         state.record_initiate_unanswered(GID)
         assert data.initiate_no_reply_streak == 1
 
-    def test_cross_day_reset(self, state):
+    def test_rolling_window_prunes_without_midnight_reset(self, state):
         data = state.get_state(GID)
-        data.initiate_count_date = "2000-01-01"
-        data.initiate_daily_count = 5
+        now = time.time()
+        data.initiate_timestamps = [now - 25 * 3600, now - 60]
+        data.last_initiate_time = now - 60
         data.initiate_no_reply_streak = 3
         refreshed = state.get_state(GID)
-        assert refreshed.initiate_daily_count == 0
-        assert refreshed.initiate_no_reply_streak == 0
-        assert refreshed.initiate_count_date == time.strftime("%Y-%m-%d", time.localtime())
+        assert refreshed.initiate_daily_count == 1
+        assert refreshed.initiate_timestamps == [data.initiate_timestamps[0]]
+        assert refreshed.initiate_no_reply_streak == 3
 
 
-class TestInitiateDrive:
-    """发起意愿值：积累 / 消退 / 冻结 / 采样 / 重置"""
+class TestInitiateHazard:
+    """主动发起风险率：硬静默底线、概率、因子、冻结和持久化。"""
 
-    def test_target_sampled_lazily(self, state):
+    def _evaluate(self, state, *, quiet=7200, draw=1.0, elapsed=900):
         now = time.time()
-        state.update_initiate_drive(GID, now=now, quiet_seconds=100)
-        target = state.get_state(GID).initiate_target
-        assert StateManager.INITIATE_TARGET_MIN <= target <= StateManager.INITIATE_TARGET_MAX
+        state.get_state(GID).initiate_hazard_at = now - elapsed
+        fired = state.evaluate_initiate_hazard(
+            GID, now=now, quiet_seconds=quiet, random_value=draw
+        )
+        return fired, state.get_state(GID).initiate_hazard_probability
 
-    def test_first_tick_no_elapsed(self, state):
-        # 首次结算（score_at=0）不积累
-        now = time.time()
-        fired = state.update_initiate_drive(GID, now=now, quiet_seconds=9999)
+    def test_hard_quiet_floor_blocks(self, state):
+        fired, probability = self._evaluate(state, quiet=60, draw=0.0)
         assert fired is False
-        assert state.get_state(GID).initiate_score == 0.0
+        assert probability == 0.0
 
-    def test_accumulate_scales_with_willingness(self, state):
-        now = time.time()
-        data = state.get_state(GID)
-        data.initiate_target = 1.5
-        data.initiate_score_at = now - 600
-        state.update_initiate_drive(GID, now=now, quiet_seconds=9999)
-        medium_score = data.initiate_score
-        assert medium_score > 0
+    def test_probability_trial_can_fire_or_skip(self, state):
+        fired, probability = self._evaluate(state, draw=0.0)
+        assert probability > 0
+        assert fired is True
+        fired, _ = self._evaluate(state, draw=1.0)
+        assert fired is False
 
+    def test_willingness_changes_probability(self, state):
+        _, medium = self._evaluate(state)
         state.set_willingness(GID, "high")
-        data.initiate_score = 0.0
-        data.initiate_score_at = now - 600
-        state.update_initiate_drive(GID, now=now, quiet_seconds=9999)
-        assert data.initiate_score > medium_score
-
+        _, high = self._evaluate(state)
         state.set_willingness(GID, "low")
-        data.initiate_score = 0.0
-        data.initiate_score_at = now - 600
-        state.update_initiate_drive(GID, now=now, quiet_seconds=9999)
-        assert data.initiate_score < medium_score
+        _, low = self._evaluate(state)
+        assert high > medium > low
 
-    def test_score_capped_at_target(self, state):
+    def test_context_and_drift_raise_probability(self, state):
+        _, base = self._evaluate(state)
+        state.write_anchor(GID, kind="passive", bot_message="旧话题")
+        _, anchored = self._evaluate(state)
+        state.get_state(GID).last_drift_time = time.time() - 60
+        _, drifted = self._evaluate(state)
+        assert anchored > base
+        assert drifted > anchored
+
+    def test_freeze_advances_clock_without_probability(self, state):
         now = time.time()
         data = state.get_state(GID)
-        data.initiate_score = 1.45  # 距阈值 0.05，一拍（≈0.098）即可越线
-        data.initiate_target = 1.5
-        data.initiate_score_at = now - 600
-        assert state.update_initiate_drive(GID, now=now, quiet_seconds=9999) is True
-        assert data.initiate_score == 1.5
+        data.initiate_hazard_at = now - 900
+        assert state.evaluate_initiate_hazard(
+            GID, now=now, quiet_seconds=9999, freeze=True, random_value=0.0
+        ) is False
+        assert data.initiate_hazard_probability == 0.0
+        assert data.initiate_hazard_at == now
 
-    def test_decay_when_active(self, state):
+    def test_elapsed_is_capped_after_downtime(self, state):
+        _, long_gap = self._evaluate(state, elapsed=86400)
+        _, capped_gap = self._evaluate(
+            state, elapsed=StateManager.INITIATE_HAZARD_ELAPSED_MIN
+        )
+        assert long_gap == capped_gap
+
+    def test_human_message_invalidates_schedule(self, state):
+        state.set_next_initiate_check(GID, time.time() + 1000)
         now = time.time()
+        state.record_human_message(GID, now)
         data = state.get_state(GID)
-        data.initiate_score = 0.5
-        data.initiate_target = 1.5
-        data.initiate_score_at = now - 600
-        fired = state.update_initiate_drive(GID, now=now, quiet_seconds=0)
-        assert fired is False
-        assert data.initiate_score < 0.5
+        assert data.last_human_message_at == now
+        assert data.initiate_next_check_at == 0.0
+        assert data.initiate_hazard_at == now
 
-    def test_freeze_keeps_score(self, state):
-        now = time.time()
+    def test_hazard_fields_serialize_round_trip(self, state):
         data = state.get_state(GID)
-        data.initiate_score = 0.5
-        data.initiate_target = 1.5
-        data.initiate_score_at = now - 600
-        fired = state.update_initiate_drive(GID, now=now, quiet_seconds=9999, freeze=True)
-        assert fired is False
-        assert data.initiate_score == 0.5
-        assert data.initiate_score_at == now
-
-    def test_elapsed_capped_after_downtime(self, state):
-        now = time.time()
-        data = state.get_state(GID)
-        data.initiate_target = 1.5
-        data.initiate_score_at = now - 86400  # 一天未结算
-        state.update_initiate_drive(GID, now=now, quiet_seconds=99999)
-        cap = state._config.proactive_check_interval * 120.0
-        base = 1.0 / (state._config.proactive_quiet_minutes * 60.0)
-        # 最多按结算步长上限积累（medium t_factor=0.85），而非整天
-        assert data.initiate_score <= cap * base / 0.85 + 1e-9
-
-    def test_reset_initiate_drive(self, state):
-        data = state.get_state(GID)
-        data.initiate_score = 0.9
-        data.initiate_target = 1.2
-        state.reset_initiate_drive(GID)
-        assert data.initiate_score == 0.0
-        assert data.initiate_target == 0.0
-
-    def test_drive_fields_serialize_round_trip(self, state):
-        data = state.get_state(GID)
-        data.initiate_score = 0.42
-        data.initiate_target = 1.1
-        data.initiate_score_at = 12345.0
+        data.last_human_message_at = 12000.0
+        data.initiate_next_check_at = 13000.0
+        data.initiate_hazard_at = 12345.0
+        data.initiate_hazard_probability = 0.23
+        data.initiate_timestamps = [11000.0]
         snapshot = state._serialize_group(data)
         restored = state._deserialize_group(snapshot)
-        assert restored.initiate_score == 0.42
-        assert restored.initiate_target == 1.1
-        assert restored.initiate_score_at == 12345.0
+        assert restored.last_human_message_at == 12000.0
+        assert restored.initiate_next_check_at == 13000.0
+        assert restored.initiate_hazard_at == 12345.0
+        assert restored.initiate_hazard_probability == 0.23
 
 
 class TestDetectRateLimit:

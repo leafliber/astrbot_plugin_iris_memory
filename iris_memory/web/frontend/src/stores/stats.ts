@@ -33,10 +33,10 @@ export const useStatsStore = defineStore('stats', () => {
 
   const isSystemReady = computed(() => globalStatus.value === 'available')
 
-  const fetchAllStats = async () => {
+  const fetchAllStats = async (days = 7) => {
     loading.value = true
     try {
-      const data = await getAllStats()
+      const data = await getAllStats(days)
       memoryStats.value = data.memory
       tokenStats.value = data.token
       kgStats.value = data.kg
@@ -56,9 +56,9 @@ export const useStatsStore = defineStore('stats', () => {
     }
   }
 
-  const fetchTokenStats = async () => {
+  const fetchTokenStats = async (days = 7) => {
     try {
-      tokenStats.value = await getTokenStats()
+      tokenStats.value = await getTokenStats(days)
     } catch (error) {
       console.error('获取Token统计失败:', error)
     }

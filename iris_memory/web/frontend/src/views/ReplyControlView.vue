@@ -83,7 +83,7 @@
                     <th>退避</th>
                     <th>连续</th>
                     <th>锚点</th>
-                    <th>今日发起</th>
+                    <th>滚动24h发起</th>
                     <th>操作</th>
                   </tr>
                 </thead>

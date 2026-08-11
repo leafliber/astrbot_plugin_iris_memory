@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import random
 import time
 from collections.abc import Awaitable, Callable
 
@@ -18,7 +19,7 @@ from .parser import Decision
 from .perception import ContextPackager, SlidingWindow, WindowMessage
 from .prompts import SPEAK_HINTS
 from .signals import SignalGate
-from .state import StateManager
+from .state import GroupState, StateManager
 from .stats import StatsCollector
 from .time_hint import resolve_datetime_reminder, wrap_system_reminder
 from iris_memory.llm_modules import PROACTIVE_REPLY_INITIATE
@@ -48,7 +49,7 @@ def _record_initiate_send(group_id: str, text: str, success: bool, error: str = 
 
 
 class ProactiveEngine:
-    """主动发起引擎：定时扫描白名单群，在冷场或话题结束时评估并直发新话题。
+    """主动发起引擎：按群独立预约，在自然空档中概率评估并直发新话题。
 
     直发通路不经过 AstrBot 事件管线（after_message_sent 等钩子不会触发），
     因此所有记账（入窗 / 锚点 / pending / 统计）都在此手动完成。
@@ -89,6 +90,7 @@ class ProactiveEngine:
         self._on_initiate_sent = on_initiate_sent
         self._text_transform = text_transform
         self._task: asyncio.Task | None = None
+        self._wake_event = asyncio.Event()
         self._initiating: set[str] = set()
         self._skip_retry_after: dict[str, float] = {}
 
@@ -114,28 +116,108 @@ class ProactiveEngine:
                 pass
         self._task = None
 
+    def notify_human_message(self, group_id: str, timestamp: float | None = None) -> None:
+        """让旧候选失效，并从这条真实消息之后为单群独立预约。"""
+        timestamp = time.time() if timestamp is None else timestamp
+        self._state.record_human_message(group_id, timestamp)
+        self._schedule_group(group_id, now=timestamp, after_activity=True)
+        self._wake_event.set()
+
+    def _schedule_group(
+        self,
+        group_id: str,
+        *,
+        now: float | None = None,
+        after_activity: bool = False,
+        not_before: float = 0.0,
+    ) -> float:
+        """生成带秒级抖动的每群独立候选时间。"""
+        now = time.time() if now is None else now
+        if self._state.is_muted():
+            # 静音结束后重新抽 30–90 分钟，避免所有群在开闸时集中发言。
+            when = now + self._state.seconds_until_unmuted(now)
+            when += random.uniform(30 * 60.0, 90 * 60.0)
+        elif after_activity:
+            earliest = now + self._state.minimum_quiet_seconds()
+            jitter = random.uniform(
+                0.0,
+                max(60.0, self._config.proactive_check_interval * 120.0),
+            )
+            when = earliest + jitter
+        else:
+            base = max(60.0, self._config.proactive_check_interval * 60.0)
+            when = now + random.uniform(base * 0.6, base * 2.8)
+        when = max(when, not_before)
+        self._state.set_next_initiate_check(group_id, when)
+        return when
+
     async def _loop(self) -> None:
         while True:
-            await asyncio.sleep(self._config.proactive_check_interval * 60)
             if not self._config.proactive_enabled:
+                await asyncio.sleep(60)
                 continue
             try:
-                await self._scan()
+                await self._ensure_schedules()
+                deadline = self._next_deadline()
+                timeout = 60.0 if deadline <= 0 else max(
+                    0.05, min(60.0, deadline - time.time())
+                )
+                try:
+                    await asyncio.wait_for(self._wake_event.wait(), timeout=timeout)
+                    self._wake_event.clear()
+                except asyncio.TimeoutError:
+                    pass
+                await self._scan_due()
             except Exception as e:
                 logger.warning("Iris Reply: proactive scan error: %s", e)
 
-    async def _scan(self) -> None:
+    async def _ensure_schedules(self) -> None:
+        now = time.time()
         for group_id in self._state.get_whitelist():
             await self._check_pending_timeout(group_id)
-            if self._is_busy(group_id) or group_id in self._initiating:
+            if not self._window.get_messages(group_id):
                 continue
-            if self._skip_retry_after.get(group_id, 0) > time.time():
+            if self._state.get_next_initiate_check(group_id) <= 0:
+                self._schedule_group(group_id, now=now)
+
+    def _next_deadline(self) -> float:
+        deadlines = [
+            self._state.get_next_initiate_check(gid)
+            for gid in self._state.get_whitelist()
+            if self._window.get_messages(gid)
+            and self._state.get_next_initiate_check(gid) > 0
+        ]
+        return min(deadlines) if deadlines else 0.0
+
+    async def _scan_due(self) -> None:
+        now = time.time()
+        due = [
+            gid
+            for gid in self._state.get_whitelist()
+            if self._window.get_messages(gid)
+            and 0 < self._state.get_next_initiate_check(gid) <= now
+        ]
+        random.shuffle(due)
+        for group_id in due:
+            await self._check_pending_timeout(group_id)
+            if self._is_busy(group_id) or group_id in self._initiating:
+                self._schedule_group(group_id, now=now)
+                continue
+            retry_after = self._skip_retry_after.get(group_id, 0)
+            if retry_after > now:
+                self._schedule_group(
+                    group_id,
+                    now=now,
+                    not_before=retry_after + random.uniform(30.0, 180.0),
+                )
                 continue
             if not self._state.can_detect(group_id):
+                self._schedule_group(group_id, now=now)
                 continue
             messages = self._window.get_messages(group_id)
             async with self._state.get_lock(group_id):
                 motive = self._signals.evaluate_timer(group_id, messages)
+            self._schedule_group(group_id, now=now)
             if motive:
                 result = await self.attempt_initiate(group_id)
                 logger.info("Iris Reply: proactive attempt for group %s: %s", group_id, result)
@@ -175,6 +257,10 @@ class ProactiveEngine:
 
         messages = self._window.get_messages(group_id)
         quiet_minutes = int((time.time() - messages[-1].timestamp) / 60) if messages else 0
+        context_cutoff = max(
+            [m.timestamp for m in messages]
+            + [self._state.get_state(group_id).last_human_message_at]
+        )
 
         self._initiating.add(group_id)
         try:
@@ -225,9 +311,11 @@ class ProactiveEngine:
                 duration_ms=outcome.duration_ms,
             )
             logger.info(
-                "Iris Reply: initiate decision for group %s: speak=%s, drifted=%s, cooldown=%d, topic=%.100s",
+                "Iris Reply: initiate decision for group %s: speak=%s, drifted=%s, "
+                "cooldown=%d, source=%s, why_now=%.100s, topic=%.100s",
                 group_id, decision.should_speak, decision.drifted,
-                decision.cooldown_minutes, decision.topic,
+                decision.cooldown_minutes, decision.topic_source,
+                decision.why_now, decision.topic,
             )
 
             async with self._state.get_lock(group_id):
@@ -245,12 +333,19 @@ class ProactiveEngine:
                 return "决策结果解析失败"
 
             if not decision.should_speak:
-                # LLM 否决：清零意愿值并重新采样阈值，下一轮从零积累
+                # LLM 否决：重置概率时钟，避免短时间连续询问模型。
                 async with self._state.get_lock(group_id):
                     self._state.reset_initiate_drive(group_id)
                 self._skip_retry_after[group_id] = time.time() + _SKIP_RETRY_SECONDS
                 await self._save_fn()
                 return "LLM 决定暂不发起"
+
+            guard = self._initiate_guard_reason(
+                group_id, context_cutoff, require_quiet=not force
+            )
+            if guard:
+                await self._save_fn()
+                return f"已取消发起：{guard}"
 
             # 发言文本走主管线人格生成（决策只给切入角度，不直出消息）
             text = await self._generate_speech(group_id, umo, provider_id, decision)
@@ -273,6 +368,13 @@ class ProactiveEngine:
                         group_id, e,
                     )
             chain = MessageChain().message(text)
+            # 紧贴发送动作做最后一次 TOCTOU 校验，尽量缩小竞态窗口。
+            guard = self._initiate_guard_reason(
+                group_id, context_cutoff, require_quiet=not force
+            )
+            if guard:
+                await self._save_fn()
+                return f"已取消发起：{guard}"
             ok = await self._context.send_message(umo, chain)
             if not ok:
                 _record_initiate_send(group_id, text, False, "未找到匹配的消息平台")
@@ -293,8 +395,14 @@ class ProactiveEngine:
                     bot_message=text,
                     users=decision.watch or None,
                     keywords=decision.watch_keywords or None,
-                    reason=decision.why,
+                    reason=decision.why_now or decision.why,
                 )
+            now = time.time()
+            self._schedule_group(
+                group_id,
+                now=now,
+                not_before=now + self._config.proactive_min_interval * 60.0,
+            )
             await self._save_fn()
             if self._on_initiate_sent is not None:
                 try:
@@ -310,6 +418,36 @@ class ProactiveEngine:
             return f"发起异常: {e}"
         finally:
             self._initiating.discard(group_id)
+
+    def _initiate_guard_reason(
+        self,
+        group_id: str,
+        context_cutoff: float,
+        *,
+        require_quiet: bool,
+    ) -> str:
+        """发送前二次确认现场，防止生成期间群聊已经恢复。"""
+        if self._is_busy(group_id):
+            return "群内已有回复进行中"
+        data = self._state.get_state(group_id)
+        messages = self._window.get_messages(group_id)
+        latest = max(
+            [m.timestamp for m in messages] + [data.last_human_message_at]
+        )
+        if latest > context_cutoff + 1e-6:
+            return "决策期间出现了新消息"
+        if not require_quiet:
+            return ""
+        if self._state.is_muted():
+            return "当前进入静音时段"
+        if data.state == GroupState.COOLDOWN:
+            return "当前处于冷却状态"
+        if not messages:
+            return "缺少可用群聊上下文"
+        quiet = time.time() - max(data.last_human_message_at, messages[-1].timestamp)
+        if quiet < self._state.minimum_quiet_seconds():
+            return "群聊尚未达到最小静默时间"
+        return ""
 
     async def _generate_speech(
         self,
@@ -337,7 +475,11 @@ class ProactiveEngine:
         messages = self._window.get_messages(group_id)
         context_block = self._packager.package(group_id, messages, "initiate")
         topic = decision.topic.strip() or "自由选择一个轻松、大家能接上话的角度"
-        hint = SPEAK_HINTS["initiate"].format(topic=topic)
+        hint = SPEAK_HINTS["initiate"].format(
+            topic=topic,
+            why_now=decision.why_now or "当前群聊出现了自然的交流空档",
+            topic_source=decision.topic_source or "recent_context",
+        )
         prompt = f"{context_block}\n\n{hint}"
 
         # 直连 llm_generate 不经过主管线，需自行注入当前时间，

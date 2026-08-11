@@ -2,8 +2,10 @@
 Token 统计管理器测试
 """
 
-import pytest
+from datetime import date
 from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 from iris_memory.llm.token_stats import TokenUsage, TokenStatsManager
 
@@ -154,6 +156,66 @@ class TestTokenStatsManager:
         assert "l1_summarizer" in all_stats
         assert "l3_kg_extraction" in all_stats
         assert "global" in all_stats
+
+    @pytest.mark.asyncio
+    async def test_get_stats_for_days_uses_selected_calendar_range(self):
+        store: dict = {}
+        storage = MagicMock()
+
+        async def _get_kv_data(key, default=None):
+            return store.get(key, default if default is not None else {})
+
+        async def _put_kv_data(key, value):
+            store[key] = value
+
+        storage.get_kv_data = _get_kv_data
+        storage.put_kv_data = _put_kv_data
+        manager = TokenStatsManager(storage)
+        current_day = [date(2026, 8, 11)]
+        manager._today = lambda: current_day[0]
+
+        await manager.record_usage("l1_summarizer", 100, 50)
+        current_day[0] = date(2026, 8, 5)
+        await manager.record_usage("l1_summarizer", 200, 100)
+        current_day[0] = date(2026, 8, 4)
+        await manager.record_usage("l1_summarizer", 400, 200)
+
+        current_day[0] = date(2026, 8, 11)
+        one_day = await manager.get_stats_for_days(1)
+        seven_days = await manager.get_stats_for_days(7)
+        thirty_days = await manager.get_stats_for_days(30)
+
+        assert one_day["l1_summarizer"].total_tokens == 150
+        assert one_day["l1_summarizer"].total_calls == 1
+        assert seven_days["l1_summarizer"].total_tokens == 450
+        assert seven_days["global"].total_calls == 2
+        assert thirty_days["l1_summarizer"].total_tokens == 1050
+
+    @pytest.mark.asyncio
+    async def test_daily_stats_survive_restart(self):
+        store: dict = {}
+        storage = MagicMock()
+
+        async def _get_kv_data(key, default=None):
+            return store.get(key, default if default is not None else {})
+
+        async def _put_kv_data(key, value):
+            store[key] = value
+
+        storage.get_kv_data = _get_kv_data
+        storage.put_kv_data = _put_kv_data
+
+        manager1 = TokenStatsManager(storage)
+        manager1._today = lambda: date(2026, 8, 11)
+        await manager1.record_usage("test_module", 120, 30)
+
+        manager2 = TokenStatsManager(storage)
+        manager2._today = lambda: date(2026, 8, 11)
+        stats = await manager2.get_stats_for_days(7)
+
+        assert stats["test_module"].total_input_tokens == 120
+        assert stats["global"].total_tokens == 150
+        assert "token_stats:daily:2026-08-11" in store
 
     @pytest.mark.asyncio
     async def test_kv_storage_persistence(self, manager, mock_storage):

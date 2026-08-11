@@ -168,6 +168,20 @@ class TestLLMManager:
         assert "global" in all_stats
 
     @pytest.mark.asyncio
+    async def test_get_token_stats_for_days(
+        self, mock_context, mock_storage, mock_config
+    ):
+        manager = LLMManager(mock_context, mock_storage)
+        await manager.initialize()
+
+        await manager.generate("Hello", module="l1_summarizer")
+        stats = await manager.get_token_stats_for_days(7)
+
+        assert stats["l1_summarizer"]["total_input_tokens"] == 100
+        assert stats["l1_summarizer"]["total_output_tokens"] == 50
+        assert stats["global"]["total_calls"] == 1
+
+    @pytest.mark.asyncio
     async def test_reset_token_stats(self, mock_context, mock_storage, mock_config):
         manager = LLMManager(mock_context, mock_storage)
         await manager.initialize()

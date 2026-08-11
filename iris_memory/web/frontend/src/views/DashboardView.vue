@@ -166,6 +166,22 @@
               <v-icon icon="mdi-counter" color="info" />
             </template>
             <v-card-title class="text-body-1 iris-section-title">Token 消耗</v-card-title>
+            <template #append>
+              <v-btn-toggle
+                v-model="tokenRangeDays"
+                color="primary"
+                variant="outlined"
+                density="compact"
+                mandatory
+                divided
+                aria-label="Token 用量显示时间"
+                @update:model-value="handleTokenRangeChange"
+              >
+                <v-btn v-for="option in tokenRangeOptions" :key="option.value" :value="option.value">
+                  {{ option.label }}
+                </v-btn>
+              </v-btn-toggle>
+            </template>
           </v-card-item>
           <v-card-text class="pt-0">
             <v-table density="compact" class="bg-transparent iris-table token-table">
@@ -310,6 +326,13 @@ import {
 const statsStore = useStatsStore()
 
 const refreshInterval = ref<number | null>(null)
+type TokenRangeDays = 1 | 7 | 30
+const tokenRangeDays = ref<TokenRangeDays>(7)
+const tokenRangeOptions: { label: string; value: TokenRangeDays }[] = [
+  { label: '1 日', value: 1 },
+  { label: '7 日', value: 7 },
+  { label: '30 日', value: 30 }
+]
 
 const componentStates = computed(() => statsStore.componentStates)
 const systemStats = computed(() => statsStore.systemStats)
@@ -554,7 +577,11 @@ const formatNumber = (num: number): string => {
 }
 
 const loadData = async () => {
-  await statsStore.fetchAllStats()
+  await statsStore.fetchAllStats(tokenRangeDays.value)
+}
+
+const handleTokenRangeChange = async (days: TokenRangeDays | null) => {
+  if (days) await statsStore.fetchTokenStats(days)
 }
 
 const handleRefresh = () => {

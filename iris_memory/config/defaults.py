@@ -653,21 +653,21 @@ class HiddenConfig:
     proactive_check_interval: int = field(
         default=5,
         metadata={
-            "description": "发起检查周期(分钟)，每隔此时间扫描白名单群评估是否满足发起条件",
+            "description": "候选检查基准(分钟)，各群据此独立随机安排下一次概率评估",
             "group": "主动回复·主动发起",
         },
     )
     proactive_quiet_minutes: int = field(
         default=120,
         metadata={
-            "description": "冷场静默阈值(分钟)，群内最后一条消息超过此时间无人说话才考虑发起",
+            "description": "冷场节奏基准(分钟)，用于风险率计算；实际另有30–90分钟自适应硬静默底线",
             "group": "主动回复·主动发起",
         },
     )
     proactive_max_per_day: int = field(
         default=2,
         metadata={
-            "description": "每日最大发起次数，每个群每天最多主动发起的次数",
+            "description": "滚动24小时最大发起次数，避免零点统一重置形成固定时间槽",
             "group": "主动回复·主动发起",
         },
     )

@@ -929,6 +929,26 @@ class LLMManager(Component):
             for module, usage in all_stats.items()
         }
 
+    async def get_token_stats_for_days(
+        self, days: int = 7
+    ) -> Dict[str, Dict[str, Any]]:
+        """获取包含今天在内的最近若干自然日 Token 统计。"""
+        if not self._token_stats:
+            return {}
+
+        all_stats = await self._token_stats.get_stats_for_days(days)
+        return {
+            module: {
+                "total_input_tokens": usage.total_input_tokens,
+                "total_output_tokens": usage.total_output_tokens,
+                "total_calls": usage.total_calls,
+                "successful_calls": usage.successful_calls,
+                "failed_calls": usage.failed_calls,
+                "pending_calls": usage.pending_calls,
+            }
+            for module, usage in all_stats.items()
+        }
+
     async def reset_token_stats(self, module: str = "global") -> None:
         """重置 Token 统计
 

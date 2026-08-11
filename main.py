@@ -633,15 +633,18 @@ class IrisMemoryPlugin(Star):
         if score < self._reply_config.quality_threshold and not is_followed and not pending_reply:
             return
 
+        message_timestamp = time.time()
         self._sliding_window.append(
             group_id,
             WindowMessage(
                 sender_id=sender_id,
                 sender_name=sender_name,
                 content=message_str,
-                timestamp=time.time(),
+                timestamp=message_timestamp,
             ),
         )
+        # 每条真实群消息都会使旧主动候选失效，并为该群独立重新预约。
+        self._proactive.notify_human_message(group_id, message_timestamp)
 
         if event.is_at_or_wake_command:
             self._triggering.pop(group_id, None)

@@ -27,6 +27,9 @@ def group_state_summary(state: StateManager, group_id: str) -> dict:
         "backoff_level": data.backoff_level,
         "consecutive_replies": data.consecutive_replies,
         "initiate_daily_count": data.initiate_daily_count,
+        "initiate_rolling_24h_count": data.initiate_daily_count,
+        "initiate_hazard_probability": data.initiate_hazard_probability,
+        "initiate_next_check_at": data.initiate_next_check_at,
     }
 
 

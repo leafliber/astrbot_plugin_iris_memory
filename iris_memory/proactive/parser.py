@@ -7,6 +7,8 @@ from typing import Any
 
 from astrbot.api import logger
 
+_INITIATE_TOPIC_SOURCES = {"recent_context", "time_context", "shared_interest"}
+
 
 @dataclass
 class Decision:
@@ -16,6 +18,8 @@ class Decision:
     mode: str = ""  # 确认后的发言模式（跟随请求动机）
     message: str = ""  # 指令要求直出时的发言内容
     topic: str = ""  # initiate 模式下 LLM 自选的切入角度
+    why_now: str = ""  # 为什么此刻说，比话题本身更重要
+    topic_source: str = ""  # recent_context / time_context / shared_interest
     observation: str = ""
     watch: list[str] = field(default_factory=list)
     watch_keywords: list[str] = field(default_factory=list)
@@ -128,6 +132,8 @@ def parse_decision(text: str, mode: str = "") -> Decision:
     action = _parse_action(obj.get("action"), obj.get("reply"))
     message = str(obj.get("message", "") or "").strip()
     topic = str(obj.get("topic", "") or "").strip()
+    why_now = str(obj.get("why_now", "") or "").strip()
+    topic_source = str(obj.get("topic_source", "") or "").strip()
     observation = str(obj.get("obs", obj.get("observation", "")))
     watch = parse_string_list(obj.get("watch", obj.get("follow_up_users", [])))
     watch_keywords = parse_string_list(
@@ -142,16 +148,31 @@ def parse_decision(text: str, mode: str = "") -> Decision:
     if action != "speak":
         message = ""
         topic = ""
+        why_now = ""
+        topic_source = ""
     if drifted and action == "speak":
         action = "none"
         message = ""
         topic = ""
+        why_now = ""
+        topic_source = ""
+    # 主动开题必须说明“为什么是现在”以及依据来源；缺少现场理由时宁可不说。
+    if mode == "initiate" and action == "speak" and not (
+        topic and why_now and topic_source in _INITIATE_TOPIC_SOURCES
+    ):
+        action = "none"
+        message = ""
+        topic = ""
+        why_now = ""
+        topic_source = ""
 
     return Decision(
         action=action,
         mode=mode,
         message=message,
         topic=topic,
+        why_now=why_now,
+        topic_source=topic_source,
         observation=observation,
         watch=watch,
         watch_keywords=watch_keywords,

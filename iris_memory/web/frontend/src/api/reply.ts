@@ -10,6 +10,9 @@ export interface ReplyWhitelistGroup {
   backoff_level: number
   consecutive_replies: number
   initiate_daily_count: number
+  initiate_rolling_24h_count?: number
+  initiate_hazard_probability?: number
+  initiate_next_check_at?: number
   anchor_kind?: string
   anchor_users?: string[]
   anchor_keywords?: string[]
@@ -49,6 +52,9 @@ export interface ReplyLlmLog {
   response_text: string
   action: string
   message: string
+  topic?: string
+  why_now?: string
+  topic_source?: string
   observation: string
   watch_users: string[]
   watch_keywords: string[]

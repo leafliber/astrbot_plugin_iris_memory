@@ -8,7 +8,7 @@
 - 组件状态追踪
 """
 
-from quart import jsonify
+from quart import jsonify, request
 from iris_memory.core import get_component_manager, get_logger, get_uptime
 from iris_memory.llm.manager import LLMManager
 from iris_memory.l1_buffer.buffer import L1Buffer
@@ -19,6 +19,17 @@ from typing import Dict, Any
 logger = get_logger("web.stats")
 
 PLUGIN_NAME = "astrbot_plugin_iris_memory"
+TOKEN_STATS_DAYS = {1, 7, 30}
+
+
+def _get_token_stats_days() -> int:
+    """读取 Token 统计范围；后台页面默认展示最近 7 日。"""
+    raw_days = request.args.get("days", "7")
+    try:
+        days = int(raw_days)
+    except (TypeError, ValueError):
+        days = 7
+    return days if days in TOKEN_STATS_DAYS else 7
 
 
 def _get_uptime() -> int:
@@ -71,7 +82,8 @@ async def get_token_stats():
         if not llm_manager or not llm_manager.is_available:
             return jsonify({"success": False, "error": "LLM 管理器不可用"}), 503
 
-        all_stats = await llm_manager.get_all_token_stats()
+        days = _get_token_stats_days()
+        all_stats = await llm_manager.get_token_stats_for_days(days)
 
         formatted_stats = {}
         for module, stat in all_stats.items():
@@ -98,7 +110,7 @@ async def get_token_stats():
 
         logger.info("获取Token统计成功")
 
-        return jsonify({"success": True, "stats": formatted_stats})
+        return jsonify({"success": True, "days": days, "stats": formatted_stats})
 
     except Exception as e:
         logger.error(f"获取 Token 统计失败：{e}", exc_info=True)
@@ -213,6 +225,7 @@ async def get_isolation_status():
 async def get_all_stats():
     try:
         manager = get_component_manager()
+        token_days = _get_token_stats_days()
 
         memory_stats: Dict[str, Any] = {"l1": {}, "l2": {}, "l3": {}}
 
@@ -250,7 +263,7 @@ async def get_all_stats():
         llm_manager = manager.get_component("llm_manager", LLMManager)
         if llm_manager and llm_manager.is_available:
             try:
-                all_stats = await llm_manager.get_all_token_stats()
+                all_stats = await llm_manager.get_token_stats_for_days(token_days)
                 for module, stat in all_stats.items():
                     token_stats[module] = {
                         "total_input_tokens": stat.total_input_tokens
@@ -303,6 +316,7 @@ async def get_all_stats():
                 "success": True,
                 "memory": memory_stats,
                 "token": token_stats,
+                "token_days": token_days,
                 "kg": kg_stats,
                 "system": system_stats,
             }

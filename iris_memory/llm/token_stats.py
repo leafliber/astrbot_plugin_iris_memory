@@ -5,6 +5,7 @@ Iris Chat Memory - Token 统计管理
 """
 
 from dataclasses import dataclass, asdict
+from datetime import date, timedelta
 from typing import Dict, TYPE_CHECKING
 from collections import defaultdict
 import asyncio
@@ -87,6 +88,7 @@ class TokenStatsManager:
 
     KEY_PREFIX = "token_stats"
     MODULES_KEY = f"{KEY_PREFIX}:modules"
+    DAILY_PREFIX = f"{KEY_PREFIX}:daily"
 
     def __init__(self, storage: KVStorage):
         """初始化统计管理器
@@ -96,6 +98,8 @@ class TokenStatsManager:
         """
         self._storage = storage
         self._cache: Dict[str, TokenUsage] = defaultdict(TokenUsage)
+        self._daily_cache: Dict[str, Dict[str, TokenUsage]] = defaultdict(dict)
+        self._daily_loaded: set[str] = set()
         # 已知模块集合：record_usage 时登记，get_all_stats 时遍历加载。
         # 解决 KV 存储无 list_keys 接口的问题。
         self._known_modules: set[str] = {"global"}
@@ -140,6 +144,64 @@ class TokenStatsManager:
             return f"{self.KEY_PREFIX}:global"
         else:
             return f"{self.KEY_PREFIX}:module:{module}"
+
+    @staticmethod
+    def _today() -> date:
+        """返回本地日期；独立成方法便于测试跨日聚合。"""
+        return date.today()
+
+    def _get_daily_kv_key(self, day: str) -> str:
+        return f"{self.DAILY_PREFIX}:{day}"
+
+    async def _load_daily_day(self, day: str) -> None:
+        if day in self._daily_loaded:
+            return
+
+        key = self._get_daily_kv_key(day)
+        try:
+            data = await self._storage.get_kv_data(key, {})
+            if isinstance(data, dict):
+                self._daily_cache[day] = {
+                    module: TokenUsage.from_dict(raw_usage)
+                    for module, raw_usage in data.items()
+                    if isinstance(module, str) and isinstance(raw_usage, dict)
+                }
+        except Exception as e:
+            logger.warning(f"从 KV 存储加载每日 Token 统计失败：day={day}, error={e}")
+        self._daily_loaded.add(day)
+
+    async def _load_daily_from_kv(self, day: str, module: str) -> TokenUsage:
+        await self._load_daily_day(day)
+        if module not in self._daily_cache[day]:
+            self._daily_cache[day][module] = TokenUsage()
+        return self._daily_cache[day][module]
+
+    async def _save_daily_to_kv(self, day: str) -> None:
+        key = self._get_daily_kv_key(day)
+        try:
+            await self._storage.put_kv_data(
+                key,
+                {
+                    module: usage.to_dict()
+                    for module, usage in self._daily_cache[day].items()
+                },
+            )
+        except Exception as e:
+            logger.warning(f"保存每日 Token 统计失败：day={day}, error={e}")
+
+    async def _get_daily_targets(
+        self, day: str, module: str
+    ) -> list[tuple[str, TokenUsage]]:
+        module_usage = await self._load_daily_from_kv(day, module)
+        targets = [(module, module_usage)]
+        if module != "global":
+            global_usage = await self._load_daily_from_kv(day, "global")
+            targets.append(("global", global_usage))
+        return targets
+
+    async def _save_daily_day(self, day: str) -> None:
+        """每日统计目标已原地更新，以单个 KV 对象整体保存。"""
+        await self._save_daily_to_kv(day)
 
     async def _load_from_kv(self, module: str) -> TokenUsage:
         """从 KV 存储加载统计数据
@@ -210,9 +272,14 @@ class TokenStatsManager:
             self._cache[module].total_calls += 1
             if module != "global":
                 self._cache["global"].total_calls += 1
+            day = self._today().isoformat()
+            daily_targets = await self._get_daily_targets(day, module)
+            for _target_module, usage in daily_targets:
+                usage.total_calls += 1
             await self._save_to_kv(module)
             if module != "global":
                 await self._save_to_kv("global")
+            await self._save_daily_day(day)
             await self._save_module_index()
 
     async def record_completion(
@@ -233,7 +300,9 @@ class TokenStatsManager:
             targets = [self._cache[module]]
             if module != "global":
                 targets.append(self._cache["global"])
-            for usage in targets:
+            day = self._today().isoformat()
+            daily_targets = await self._get_daily_targets(day, module)
+            for usage in [*targets, *(usage for _module, usage in daily_targets)]:
                 usage.total_input_tokens += max(0, int(input_tokens))
                 usage.total_output_tokens += max(0, int(output_tokens))
                 if success:
@@ -243,6 +312,7 @@ class TokenStatsManager:
             await self._save_to_kv(module)
             if module != "global":
                 await self._save_to_kv("global")
+            await self._save_daily_day(day)
 
     async def record_result(
         self,
@@ -267,7 +337,9 @@ class TokenStatsManager:
             targets = [self._cache[module]]
             if module != "global":
                 targets.append(self._cache["global"])
-            for usage in targets:
+            day = self._today().isoformat()
+            daily_targets = await self._get_daily_targets(day, module)
+            for usage in [*targets, *(usage for _module, usage in daily_targets)]:
                 usage.total_input_tokens += max(0, int(input_tokens))
                 usage.total_output_tokens += max(0, int(output_tokens))
                 usage.total_calls += 1
@@ -279,6 +351,7 @@ class TokenStatsManager:
             await self._save_to_kv(module)
             if module != "global":
                 await self._save_to_kv("global")
+            await self._save_daily_day(day)
             await self._save_module_index()
 
         logger.debug(
@@ -339,5 +412,34 @@ class TokenStatsManager:
             return {
                 module: usage
                 for module, usage in self._cache.items()
+                if module == "global" or usage.total_calls > 0
+            }
+
+    async def get_stats_for_days(self, days: int) -> Dict[str, TokenUsage]:
+        """聚合包含今天在内的最近 ``days`` 个自然日统计。"""
+        if days <= 0:
+            raise ValueError("days 必须大于 0")
+
+        async with self._lock:
+            await self._load_module_index()
+            result = {"global": TokenUsage()}
+
+            today = self._today()
+            for offset in range(days):
+                day = (today - timedelta(days=offset)).isoformat()
+                await self._load_daily_day(day)
+                for module, usage in self._daily_cache[day].items():
+                    if module not in result:
+                        result[module] = TokenUsage()
+                    aggregate = result[module]
+                    aggregate.total_input_tokens += usage.total_input_tokens
+                    aggregate.total_output_tokens += usage.total_output_tokens
+                    aggregate.total_calls += usage.total_calls
+                    aggregate.successful_calls += usage.successful_calls
+                    aggregate.failed_calls += usage.failed_calls
+
+            return {
+                module: usage
+                for module, usage in result.items()
                 if module == "global" or usage.total_calls > 0
             }

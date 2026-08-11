@@ -11,8 +11,8 @@ function checkSuccess(response: ApiBaseResponse, errorMsg: string): void {
   }
 }
 
-export async function getAllStats(): Promise<any> {
-  const response = await apiGet<any>('stats/all')
+export async function getAllStats(days = 7): Promise<any> {
+  const response = await apiGet<any>('stats/all', { days })
   checkSuccess(response, '获取统计失败')
   return {
     memory: response.memory || { l1: {}, l2: {}, l3: {} },
@@ -22,8 +22,8 @@ export async function getAllStats(): Promise<any> {
   }
 }
 
-export async function getTokenStats(): Promise<any> {
-  const response = await apiGet<any>('stats/token')
+export async function getTokenStats(days = 7): Promise<any> {
+  const response = await apiGet<any>('stats/token', { days })
   checkSuccess(response, '获取Token统计失败')
   return response.stats || {}
 }

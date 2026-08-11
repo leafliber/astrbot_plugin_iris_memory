@@ -17,6 +17,9 @@ class LLMCallLog:
     response_text: str
     action: str
     message: str
+    topic: str
+    why_now: str
+    topic_source: str
     observation: str
     watch_users: list[str]
     watch_keywords: list[str]
@@ -92,6 +95,9 @@ class StatsCollector:
             response_text=response_text,
             action=decision.action,
             message=decision.message,
+            topic=decision.topic,
+            why_now=decision.why_now,
+            topic_source=decision.topic_source,
             observation=decision.observation,
             watch_users=decision.watch,
             watch_keywords=decision.watch_keywords,
@@ -206,6 +212,9 @@ class StatsCollector:
                 "response_text": log.response_text,
                 "action": log.action,
                 "message": log.message,
+                "topic": log.topic,
+                "why_now": log.why_now,
+                "topic_source": log.topic_source,
                 "observation": log.observation,
                 "watch_users": log.watch_users,
                 "watch_keywords": log.watch_keywords,

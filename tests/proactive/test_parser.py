@@ -108,11 +108,28 @@ class TestParseDecision:
 
     def test_topic_parsed_on_speak(self):
         d = parse_decision(
-            '{"action": "speak", "topic": "向最近发言的人请教他们聊的事"}',
+            '{"action": "speak", "topic": "向最近发言的人请教他们聊的事", '
+            '"why_now": "刚好到了约定的时间", "topic_source": "time_context"}',
             mode="initiate",
         )
         assert d.should_speak is True
         assert d.topic == "向最近发言的人请教他们聊的事"
+        assert d.why_now == "刚好到了约定的时间"
+        assert d.topic_source == "time_context"
+
+    def test_initiate_without_why_now_is_rejected(self):
+        d = parse_decision(
+            '{"action": "speak", "topic": "随便聊聊"}', mode="initiate"
+        )
+        assert d.should_speak is False
+
+    def test_initiate_with_unknown_topic_source_is_rejected(self):
+        d = parse_decision(
+            '{"action":"speak","topic":"随便聊聊","why_now":"现在合适",'
+            '"topic_source":"open_topic"}',
+            mode="initiate",
+        )
+        assert d.should_speak is False
 
     def test_topic_cleared_when_not_speak(self):
         d = parse_decision('{"action": "none", "topic": "不该出现"}')
