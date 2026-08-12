@@ -12,6 +12,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - 将纯 `@` 回复、错误消息友好化和 Markdown 输出清理统一归入 `extras` 辅助功能配置组。
+- LLM Tool 统一注册重构：9 个工具（记忆侧 6 个 + 主动回复侧 3 个）全部为显式 `FunctionTool.call()` 实现，由 `iris_memory/tools/registry.py` 的 `build_llm_tools()` 构建、`register_llm_tools()` 经 `Context.add_llm_tools()` 注册并在其后统一写入插件归属；移除 `main.py` 中 3 个 `@filter.llm_tool` 装饰器方法与 6 个临时归属修复薄子类。工具名称、描述、Schema 与返回文案保持不变。
+
+### Tests
+
+- 新增 LLM Tool registry 完整性、精确 Schema 回归、主动回复工具行为、插件归属与 Dashboard 序列化、重复注册（热重载模拟）测试。
 
 ## [3.0.4] - 2026-08-10
 

@@ -60,14 +60,7 @@ from iris_memory.core import (
     set_component_manager,
     get_run_log_manager,
 )
-from iris_memory.tools import (
-    SaveKnowledgeTool,
-    SaveMemoryTool,
-    SearchMemoryTool,
-    CorrectMemoryTool,
-    SearchKnowledgeGraphTool,
-    GetProfileTool,
-)
+from iris_memory.tools import register_llm_tools
 from iris_memory.web import register_all_routes
 from iris_memory.llm import LLMManager
 from iris_memory.llm_modules import proactive_reply_module
@@ -118,30 +111,6 @@ LEGACY_MIGRATION_ENABLED = True
 
 _IRIS_ACTIVE_TIMEOUT = 120
 _UMO_KV_KEY = "iris_reply:group_umo"
-
-
-class _IrisSaveKnowledgeTool(SaveKnowledgeTool):
-    """Bind the tool to this plugin module for AstrBot ownership tracking."""
-
-
-class _IrisSaveMemoryTool(SaveMemoryTool):
-    """Bind the tool to this plugin module for AstrBot ownership tracking."""
-
-
-class _IrisSearchMemoryTool(SearchMemoryTool):
-    """Bind the tool to this plugin module for AstrBot ownership tracking."""
-
-
-class _IrisCorrectMemoryTool(CorrectMemoryTool):
-    """Bind the tool to this plugin module for AstrBot ownership tracking."""
-
-
-class _IrisSearchKnowledgeGraphTool(SearchKnowledgeGraphTool):
-    """Bind the tool to this plugin module for AstrBot ownership tracking."""
-
-
-class _IrisGetProfileTool(GetProfileTool):
-    """Bind the tool to this plugin module for AstrBot ownership tracking."""
 
 
 def _detect_passive_trigger(event: AstrMessageEvent, req, context: Context) -> None:
@@ -205,10 +174,6 @@ class IrisMemoryPlugin(Star):
 
             init_recorder_bridge(context)
 
-            self._register_llm_tools()
-            self._register_command_handlers()
-            self._register_web_api()
-
             # ── extras（自 v2 保留的低成本功能） ──
             self._error_processor = ErrorFriendlyProcessor(self.config)
             self._markdown_stripper = MarkdownStripper(
@@ -222,6 +187,7 @@ class IrisMemoryPlugin(Star):
                 hidden_get=self.config.get,
             )
             self._state = StateManager(self._reply_config)
+            self._tool_ctx = ToolContext()
             self._gatekeeper = Gatekeeper(self._reply_config, self._state)
             self._sliding_window = SlidingWindow(self._reply_config)
             self._context_packager = ContextPackager(
@@ -234,7 +200,6 @@ class IrisMemoryPlugin(Star):
                     self.context, self._group_umo.get(gid),
                 ),
             )
-            self._tool_ctx = ToolContext()
             self._admin = AdminCommands(self._state)
             self._stats = StatsCollector()
             self._reply_in_progress: dict[str, float] = {}
@@ -263,6 +228,11 @@ class IrisMemoryPlugin(Star):
                 on_initiate_sent=self._on_initiate_sent,
                 text_transform=self._strip_initiate_text,
             )
+
+            # ── 外部注册动作（依赖就绪后在构造函数末尾统一执行） ──
+            self._register_llm_tools()
+            self._register_command_handlers()
+            self._register_web_api()
 
             self._warn_empty_mention_conflict()
 
@@ -353,20 +323,17 @@ class IrisMemoryPlugin(Star):
     # ========================================================================
 
     def _register_llm_tools(self) -> None:
-        """注册记忆侧 LLM Tool"""
+        """统一注册全部 LLM Tool"""
         try:
-            tools = [
-                _IrisSaveKnowledgeTool(),
-                _IrisSaveMemoryTool(),
-                _IrisSearchMemoryTool(),
-                _IrisCorrectMemoryTool(),
-                _IrisSearchKnowledgeGraphTool(),
-                _IrisGetProfileTool(),
-            ]
-            self.context.add_llm_tools(*tools)
-            logger.info(f"已注册 {len(tools)} 个记忆 LLM Tool")
+            self._registered_llm_tools = register_llm_tools(
+                context=self.context,
+                owner_module=self.__class__.__module__,
+                state=self._state,
+                tool_context=self._tool_ctx,
+            )
+            logger.info(f"已注册 {len(self._registered_llm_tools)} 个 Iris LLM Tool")
         except Exception as e:
-            logger.error(f"注册记忆 LLM Tool 失败：{e}", exc_info=True)
+            logger.error(f"注册 Iris LLM Tool 失败：{e}", exc_info=True)
 
     def _register_command_handlers(self) -> None:
         """注册记忆侧指令处理器"""
@@ -570,66 +537,9 @@ class IrisMemoryPlugin(Star):
             logger.warning(f"initiate 消息回填 L1 失败：{e}")
 
     # ========================================================================
-    # 主动回复侧：LLM 工具
+    # 主动回复侧：LLM 工具（已迁移至 iris_memory/tools/proactive.py，
+    # 由 _register_llm_tools() 统一注册）
     # ========================================================================
-
-    @filter.llm_tool(name="add_follow_up")
-    async def tool_add_follow_up(self, event, user_ids: str = "") -> str:
-        """当你希望持续关注某些用户的发言时调用此工具。将在后续消息中匹配指定用户时自动触发回复。
-
-        Args:
-            user_ids(string): 逗号分隔的用户ID列表，如 "user1,user2"
-        """
-        group_id = self._tool_ctx.current_group_id or event.get_group_id()
-        if not group_id:
-            return "error: no group context"
-
-        uid_list = [u.strip() for u in user_ids.split(",") if u.strip()] if user_ids else None
-
-        if not uid_list:
-            return "error: must provide at least one user_id"
-
-        if len(uid_list) > 10:
-            return "error: too many user_ids (max 10 per call)"
-
-        async with self._state.get_lock(group_id):
-            self._state.add_anchor_watch(group_id, users=uid_list)
-        logger.debug(f"Iris Reply: add_follow_up for group {group_id}, users={uid_list}")
-        return f"ok: following users={uid_list}"
-
-    @filter.llm_tool(name="end_follow_up")
-    async def tool_end_follow_up(self, event, user_ids: str = "") -> str:
-        """当你不再需要关注某些用户时调用此工具，移除对应的跟进记录。不提供参数则移除所有跟进记录。
-
-        Args:
-            user_ids(string): 逗号分隔的用户ID列表，如 "user1,user2"
-        """
-        group_id = self._tool_ctx.current_group_id or event.get_group_id()
-        if not group_id:
-            return "error: no group context"
-
-        uid_list = [u.strip() for u in user_ids.split(",") if u.strip()] if user_ids else None
-
-        async with self._state.get_lock(group_id):
-            self._state.remove_anchor_watch(group_id, user_ids=uid_list)
-        logger.debug(f"Iris Reply: end_follow_up for group {group_id}, users={uid_list}")
-        return f"ok: removed follow-up users={uid_list}"
-
-    @filter.llm_tool(name="set_cooldown")
-    async def tool_set_cooldown(self, event, minutes: int = 5) -> str:
-        """当你认为应该暂时停止主动回复时调用此工具。设置冷却时间，冷却期间不会主动触发任何回复。
-
-        Args:
-            minutes(number): 冷却时间（分钟），范围 1-120，默认 5
-        """
-        group_id = self._tool_ctx.current_group_id or event.get_group_id()
-        if not group_id:
-            return "error: no group context"
-
-        async with self._state.get_lock(group_id):
-            actual = self._state.set_cooldown(group_id, minutes)
-        logger.debug(f"Iris Reply: set_cooldown for group {group_id}, {actual} min")
-        return f"ok: cooldown set for {actual} minutes"
 
     # ========================================================================
     # 主动回复侧：管理指令
