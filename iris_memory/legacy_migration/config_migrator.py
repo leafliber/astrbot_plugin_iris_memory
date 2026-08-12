@@ -3,9 +3,7 @@
 
 将旧版配置键保守映射到新版配置键。规则：
 - 仅映射语义明确对应的键（见 LEGACY_CONFIG_MAPPING）。
-  同名键（如 error_friendly.enable、markdown_stripper.enable，
-  新旧 schema 段名一致）不列入：AstrBotConfig 加载新 schema 时
-  这些键天然保留，值自动沿用，无需迁移
+  原独立的 error_friendly / markdown_stripper 段会迁入 extras 辅助功能组。
 - 仅当新键当前值仍为默认值时才写入（用户已自定义的不覆盖）
 - 逐项记日志
 - 优先直写 AstrBot 用户配置（AstrBotConfig 是 dict 子类，
@@ -70,6 +68,8 @@ LEGACY_CONFIG_MAPPING: Dict[str, Tuple[str, Callable[[Any], Any]]] = {
     "knowledge_graph.enabled": ("l3_kg.enable", _bool),
     "persona.enabled": ("profile.enable", _bool),
     "proactive_reply.enable": ("proactive.enabled", _bool),
+    "error_friendly.enable": ("extras.error_friendly.enable", _bool),
+    "markdown_stripper.enable": ("extras.markdown_stripper.enable", _bool),
     # LLM Provider 指定
     "llm_providers.knowledge_graph_provider_id": ("l3_kg.extraction_provider", _str),
     "llm_providers.persona_provider_id": ("profile.analysis_provider", _str),
@@ -81,13 +81,38 @@ LEGACY_CONFIG_MAPPING: Dict[str, Tuple[str, Callable[[Any], Any]]] = {
 # ============================================================================
 
 _new_defaults_cache: Optional[Dict[str, Any]] = None
+_MISSING = object()
+
+
+def _get_nested(mapping: dict, flat_key: str) -> Any:
+    current: Any = mapping
+    for part in flat_key.split("."):
+        if not isinstance(current, dict) or part not in current:
+            return _MISSING
+        current = current[part]
+    return current
+
+
+def _set_nested(mapping: dict, flat_key: str, value: Any) -> bool:
+    parts = flat_key.split(".")
+    current = mapping
+    for part in parts[:-1]:
+        child = current.get(part)
+        if child is None:
+            child = {}
+            current[part] = child
+        if not isinstance(child, dict):
+            return False
+        current = child
+    current[parts[-1]] = value
+    return True
 
 
 def _load_new_schema_defaults() -> Dict[str, Any]:
     """从新版 _conf_schema.json 读取各配置键默认值
 
-    新版 Defaults dataclass 不覆盖 proactive/error_friendly 等段，
-    而 _conf_schema.json 是用户可见配置的权威来源，故直接解析 schema。
+    _conf_schema.json 是用户可见配置的权威来源，故直接递归解析 schema，
+    同时支持 extras.*.* 这类嵌套配置默认值。
 
     Returns:
         扁平键名 → 默认值
@@ -101,15 +126,18 @@ def _load_new_schema_defaults() -> Dict[str, Any]:
     try:
         with open(schema_path, "r", encoding="utf-8") as f:
             schema = json.load(f)
-        for section, body in schema.items():
-            if not isinstance(body, dict):
-                continue
-            items = body.get("items")
-            if not isinstance(items, dict):
-                continue
+        def collect(items: dict, prefix: str = "") -> None:
             for key, item in items.items():
-                if isinstance(item, dict) and "default" in item:
-                    defaults[f"{section}.{key}"] = item["default"]
+                if not isinstance(item, dict):
+                    continue
+                flat_key = f"{prefix}.{key}" if prefix else key
+                children = item.get("items")
+                if item.get("type") == "object" and isinstance(children, dict):
+                    collect(children, flat_key)
+                elif "default" in item:
+                    defaults[flat_key] = item["default"]
+
+        collect(schema)
     except Exception as e:
         logger.warning(f"读取新版配置 schema 失败（{schema_path}）：{e}")
 
@@ -173,14 +201,10 @@ def migrate_config(raw_config: Optional[dict]) -> Dict[str, Any]:
             continue
 
         default_value = schema_defaults.get(new_key)
-        new_section, _, new_name = new_key.partition(".")
-        current_section = raw_config.get(new_section)
-        current_value = (
-            current_section.get(new_name) if isinstance(current_section, dict) else None
-        )
+        current_value = _get_nested(raw_config, new_key)
 
         # 用户已自定义新键（当前值与默认值不同）时不覆盖
-        if current_value is not None and current_value != default_value:
+        if current_value is not _MISSING and current_value != default_value:
             logger.info(
                 f"配置迁移：新键 {new_key} 已被用户设置为 {current_value!r}，"
                 f"不覆盖（旧值 {old_key}={old_value!r}）"
@@ -188,16 +212,10 @@ def migrate_config(raw_config: Optional[dict]) -> Dict[str, Any]:
             stats["skipped_non_default"].append(new_key)
             continue
 
-        target_section = raw_config.get(new_section)
-        if target_section is None:
-            target_section = {}
-            raw_config[new_section] = target_section
-        if not isinstance(target_section, dict):
-            logger.warning(f"配置迁移：新配置段 {new_section} 类型异常，跳过 {new_key}")
+        if not _set_nested(raw_config, new_key, new_value):
+            logger.warning(f"配置迁移：新配置路径 {new_key} 类型异常，跳过")
             stats["errors"].append(old_key)
             continue
-
-        target_section[new_name] = new_value
         writes.append((old_key, new_key, new_value))
         logger.info(f"配置迁移：{old_key}={old_value!r} → {new_key}={new_value!r}")
 

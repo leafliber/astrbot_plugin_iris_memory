@@ -13,6 +13,7 @@ from collections import OrderedDict
 from typing import TYPE_CHECKING, Any, cast
 
 from iris_memory.core import get_logger
+from iris_memory.core.event_extras import L1_CURRENT_EVENT_RECORD_COUNT
 
 if TYPE_CHECKING:
     from astrbot.api.event import AstrMessageEvent
@@ -25,6 +26,16 @@ _name_cache: OrderedDict = OrderedDict()
 _NAME_CACHE_MAX_SIZE = 1000
 _IMAGE_QUEUE_TASK_EXTRA = "_iris_image_background_task"
 _IMAGE_BACKGROUND_TASKS: set[asyncio.Task] = set()
+
+
+def _mark_current_event_recorded(event: "AstrMessageEvent") -> None:
+    """Record how many trailing L1 entries were produced by this event."""
+    try:
+        current = event.get_extra(L1_CURRENT_EVENT_RECORD_COUNT)
+        count = current if type(current) is int and current > 0 else 0
+        event.set_extra(L1_CURRENT_EVENT_RECORD_COUNT, count + 1)
+    except Exception:
+        pass
 
 
 async def _wait_for_image_background_tasks() -> None:
@@ -358,6 +369,7 @@ async def _add_to_l1_buffer(
         metadata=metadata,
         persona_id=persona_id,
     )
+    _mark_current_event_recorded(event)
 
     logger.debug(f"已添加用户消息到会话 {session_id} 的 L1 Buffer")
 
@@ -425,6 +437,7 @@ async def _add_to_l1_buffer(
                 metadata=fwd_metadata,
                 persona_id=persona_id,
             )
+            _mark_current_event_recorded(event)
             logger.debug(
                 f"合并转发消息已入队：会话 {session_id}，"
                 f"包含 {included_count}/{len(forward_messages)} 条子消息，"

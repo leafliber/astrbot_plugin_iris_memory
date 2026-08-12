@@ -8,7 +8,7 @@ Iris Chat Memory - 学习采集与配对
 """
 
 import re
-from typing import Any, Optional, TYPE_CHECKING
+from typing import Optional, TYPE_CHECKING
 
 from iris_memory.core import get_logger
 from iris_memory.platform import get_adapter

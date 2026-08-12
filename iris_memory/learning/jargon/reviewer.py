@@ -3,7 +3,7 @@
 import json
 from iris_memory.llm_modules import LEARNING_JARGON_REVIEW
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any, List, Optional
 
 from iris_memory.core import get_logger
 from .models import CandidateCluster, ReviewVerdict

@@ -1,5 +1,6 @@
 """配置系统测试"""
 
+import json
 from pathlib import Path
 from iris_memory.config import Config, init_config, get_config
 from iris_memory.config.hidden_config import HiddenConfigManager
@@ -20,6 +21,28 @@ class TestConfig:
         config = Config(astrbot_config, hidden_manager, defaults, tmp_path)
 
         assert config.get("l1_buffer.enable")
+
+    def test_extras_group_defaults(self, tmp_path: Path):
+        hidden_manager = HiddenConfigManager(
+            tmp_path / "hidden_config.json", HiddenConfig()
+        )
+        config = Config({}, hidden_manager, Defaults(), tmp_path)
+
+        assert config.get("extras.pure_at_reply.enable") is True
+        assert config.get("extras.error_friendly.enable") is True
+        assert config.get("extras.markdown_stripper.enable") is True
+
+    def test_schema_groups_auxiliary_features(self):
+        schema_path = Path(__file__).resolve().parents[2] / "_conf_schema.json"
+        schema = json.loads(schema_path.read_text(encoding="utf-8"))
+
+        assert "error_friendly" not in schema
+        assert "markdown_stripper" not in schema
+        assert set(schema["extras"]["items"]) == {
+            "pure_at_reply",
+            "error_friendly",
+            "markdown_stripper",
+        }
 
     def test_legacy_dream_switches_do_not_map_to_new_stages(self, tmp_path: Path):
         astrbot_config = {

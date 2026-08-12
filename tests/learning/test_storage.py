@@ -54,6 +54,44 @@ class TestSchemaAndCommonTables:
         assert storage.decay_patterns(15, 300) == 1
 
 
+class TestStalePendingCleanup:
+    """pending 超龄清理（审查长期失败时的无界增长兜底）"""
+
+    def test_stale_pending_removed(self, storage):
+        old = time.time() - 40 * 86400
+        pair = storage.insert_pair("g", "u", "问", "答")
+        pattern = storage.insert_pattern("g", "chat", "表达", pair)
+        storage._db.execute(
+            "UPDATE few_shot SET created_at=? WHERE id=?", (old, pair)
+        )
+        storage._db.execute(
+            "UPDATE expression_pattern SET created_at=? WHERE id=?", (old, pattern)
+        )
+        storage._db.commit()
+        removed = storage.cleanup_stale_pending(30)
+        assert removed == 2
+        assert storage.get_pending_pairs(10) == []
+        assert storage.get_pending_patterns(10) == []
+
+    def test_fresh_pending_kept(self, storage):
+        storage.insert_pair("g", "u", "问", "答")
+        storage.insert_pattern("g", "chat", "表达")
+        assert storage.cleanup_stale_pending(30) == 0
+        assert len(storage.get_pending_pairs(10)) == 1
+        assert len(storage.get_pending_patterns(10)) == 1
+
+    def test_approved_not_touched(self, storage):
+        old = time.time() - 40 * 86400
+        pair = storage.insert_pair("g", "u", "问", "答")
+        storage.update_status("few_shot", [pair], "approved")
+        storage._db.execute(
+            "UPDATE few_shot SET created_at=? WHERE id=?", (old, pair)
+        )
+        storage._db.commit()
+        assert storage.cleanup_stale_pending(30) == 0
+        assert storage.get_approved_few_shots("g", 10)
+
+
 class TestCandidateStorage:
     def _record(self, storage, user="u1", now=None, term="绝绝子", message_hash="h1"):
         return storage.record_jargon_observations(

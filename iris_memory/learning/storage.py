@@ -449,6 +449,32 @@ class LearningStorage:
             self._db.commit()
         return removed
 
+    def cleanup_stale_pending(self, max_age_days: int) -> int:
+        """删除超龄仍 pending 的 few_shot / expression_pattern
+
+        审查长期失败（如未配 Provider、LLM 持续返回不可解析结果）时，
+        pending 行只进不出会无界增长；本方法在衰减周期中兜底清理，
+        删除创建时间早于 max_age_days 的 pending 行（已 approved/disabled 不受影响）。
+
+        Returns:
+            删除的条数
+        """
+        cutoff = time.time() - max_age_days * 86400
+        removed = 0
+        with self._lock:
+            cur = self._db.execute(
+                "DELETE FROM few_shot WHERE status=? AND created_at<?",
+                (STATUS_PENDING, cutoff),
+            )
+            removed += cur.rowcount
+            cur = self._db.execute(
+                "DELETE FROM expression_pattern WHERE status=? AND created_at<?",
+                (STATUS_PENDING, cutoff),
+            )
+            removed += cur.rowcount
+            self._db.commit()
+        return removed
+
     # ------------------------------------------------------------------
     # Persona 变更检测与学习内容复审
     # ------------------------------------------------------------------

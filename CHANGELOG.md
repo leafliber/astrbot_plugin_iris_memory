@@ -3,6 +3,16 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- 新增默认启用的纯 `@` 回复接管：关闭 AstrBot 内置空提及等待后，纯 `@` 可进入标准 LLM 管道并仅使用 Iris L1 上下文。
+
+### Changed
+
+- 将纯 `@` 回复、错误消息友好化和 Markdown 输出清理统一归入 `extras` 辅助功能配置组。
+
 ## [3.0.4] - 2026-08-10
 
 ### Security

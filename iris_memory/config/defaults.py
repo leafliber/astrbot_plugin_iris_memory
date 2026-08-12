@@ -92,6 +92,29 @@ class ContextControlConfig:
 
 
 @dataclass
+class FeatureToggleConfig:
+    """通用辅助功能开关。"""
+
+    enable: bool = True
+
+
+@dataclass
+class PureAtReplyConfig:
+    """纯 @ 回复接管配置。"""
+
+    enable: bool = True
+
+
+@dataclass
+class ExtrasConfig:
+    """用户可见的低成本辅助功能。"""
+
+    pure_at_reply: PureAtReplyConfig = field(default_factory=PureAtReplyConfig)
+    error_friendly: FeatureToggleConfig = field(default_factory=FeatureToggleConfig)
+    markdown_stripper: FeatureToggleConfig = field(default_factory=FeatureToggleConfig)
+
+
+@dataclass
 class HiddenConfig:
     """隐藏配置(内部参数)
 
@@ -989,6 +1012,7 @@ class Defaults:
     isolation_config: IsolationConfig = field(default_factory=IsolationConfig)
     scheduled_tasks: ScheduledTasksConfig = field(default_factory=ScheduledTasksConfig)
     context_control: ContextControlConfig = field(default_factory=ContextControlConfig)
+    extras: ExtrasConfig = field(default_factory=ExtrasConfig)
     learning: LearningConfig = field(default_factory=LearningConfig)
     persona_evolution: PersonaEvolutionConfig = field(
         default_factory=PersonaEvolutionConfig

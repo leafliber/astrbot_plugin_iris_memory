@@ -10,11 +10,13 @@ from datetime import datetime
 from iris_memory.l1_buffer.models import ContextMessage
 from iris_memory.core.llm_request_hook import (
     _build_image_map,
+    _collect_l1_context,
     _get_inline_image_desc,
     _has_memory_retrieval_intent,
     _inject_to_extra_user_content_parts,
     preprocess_llm_request,
 )
+from iris_memory.core.event_extras import L1_CURRENT_EVENT_RECORD_COUNT
 
 
 def _make_msg(role, content, source="user1", metadata=None, token_count=1):
@@ -767,6 +769,69 @@ class TestPreprocessLLMRequest:
         text = _get_extra_parts_text(req)
         assert "<iris:l1_context>" in text
         assert "李四(user456): ↩️回复了某条消息" in text
+
+
+class TestCurrentEventExclusion:
+    """Only L1 records confirmed to belong to this event may be excluded."""
+
+    @pytest.mark.asyncio
+    async def test_pure_at_keeps_previous_message_from_same_user(self):
+        event = MagicMock(message_str="")
+        event.get_extra.return_value = None
+        req = MagicMock()
+
+        buffer = MagicMock()
+        buffer.get_context.return_value = [
+            _make_msg(
+                "user",
+                "推荐旧世界",
+                source="user-fox",
+                metadata={"user_name": "荧惑狐", "message_id": "1"},
+            )
+        ]
+        component_manager = _make_component_manager(buffer)
+
+        adapter = MagicMock()
+        adapter.get_group_id.return_value = "group-1"
+        adapter.get_session_id.return_value = "group-1"
+        adapter.get_user_id.return_value = "user-fox"
+
+        with (
+            patch(_ADAPTER_PATCH, return_value=adapter),
+            patch(_GET_CONFIG_PATCH, return_value=_default_config()),
+        ):
+            text = await _collect_l1_context(event, req, component_manager)
+
+        assert "推荐旧世界" in text
+
+    @pytest.mark.asyncio
+    async def test_recorded_current_message_is_excluded(self):
+        event = MagicMock(message_str="当前消息")
+        event.get_extra.side_effect = lambda key: (
+            1 if key == L1_CURRENT_EVENT_RECORD_COUNT else None
+        )
+        req = MagicMock()
+
+        buffer = MagicMock()
+        buffer.get_context.return_value = [
+            _make_msg("user", "上一句", source="user-fox"),
+            _make_msg("user", "当前消息", source="user-fox"),
+        ]
+        component_manager = _make_component_manager(buffer)
+
+        adapter = MagicMock()
+        adapter.get_group_id.return_value = "group-1"
+        adapter.get_session_id.return_value = "group-1"
+        adapter.get_user_id.return_value = "user-fox"
+
+        with (
+            patch(_ADAPTER_PATCH, return_value=adapter),
+            patch(_GET_CONFIG_PATCH, return_value=_default_config()),
+        ):
+            text = await _collect_l1_context(event, req, component_manager)
+
+        assert "上一句" in text
+        assert ": 当前消息" not in text
 
 
 class TestExtraUserContentPartsInjection:

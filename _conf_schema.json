@@ -29,7 +29,7 @@
         "items": {
           "enable": {
             "type": "bool",
-            "default": false,
+            "default": true,
             "description": "启用图片解析"
           },
           "provider": {
@@ -366,27 +366,47 @@
       }
     }
   },
-  "error_friendly": {
+  "extras": {
     "type": "object",
-    "description": "错误消息友好化",
+    "description": "辅助功能",
+    "hint": "低成本的消息触发与输出优化功能",
     "items": {
-      "enable": {
-        "type": "bool",
-        "default": true,
-        "description": "启用错误消息友好化",
-        "hint": "将框架发送的技术性错误消息替换为友好的提示语"
-      }
-    }
-  },
-  "markdown_stripper": {
-    "type": "object",
-    "description": "Markdown 格式去除器",
-    "items": {
-      "enable": {
-        "type": "bool",
-        "default": true,
-        "description": "启用 Markdown 去除功能",
-        "hint": "当文本以纯文本形式发送时，自动去除 Markdown 格式标记（如 **粗体**、*斜体* 等），提升可读性"
+      "pure_at_reply": {
+        "type": "object",
+        "description": "纯 @ 回复",
+        "hint": "让单独 @ 机器人的消息进入标准 LLM 管道，并仅使用已有 L1 上下文",
+        "items": {
+          "enable": {
+            "type": "bool",
+            "default": false,
+            "description": "启用纯 @ 回复接管",
+            "hint": "启用前需在 AstrBot 平台设置中关闭「只 @ 机器人是否触发等待」（platform_settings.empty_mention_waiting），否则纯 @ 会先被 AstrBot 内置处理器拦截"
+          }
+        }
+      },
+      "error_friendly": {
+        "type": "object",
+        "description": "错误消息友好化",
+        "items": {
+          "enable": {
+            "type": "bool",
+            "default": true,
+            "description": "启用错误消息友好化",
+            "hint": "将框架发送的技术性错误消息替换为友好的提示语"
+          }
+        }
+      },
+      "markdown_stripper": {
+        "type": "object",
+        "description": "Markdown 格式去除器",
+        "items": {
+          "enable": {
+            "type": "bool",
+            "default": true,
+            "description": "启用 Markdown 去除功能",
+            "hint": "当文本以纯文本形式发送时，自动去除 Markdown 格式标记（如 **粗体**、*斜体* 等），提升可读性"
+          }
+        }
       }
     }
   }

@@ -16,6 +16,9 @@ from .storage import LearningStorage
 
 logger = get_logger("learning.expression")
 
+# pending 学习条目超龄清理阈值（天）：审查长期失败时兜底，防止无界增长
+_STALE_PENDING_DAYS = 30
+
 # 语气词结尾（判定口语化句式）
 _TONE_SUFFIXES = ("呀", "啊", "呢", "吧", "嘛", "哦", "哈", "啦", "哩")
 
@@ -125,6 +128,9 @@ def decay(storage: LearningStorage, decay_days: int, max_count: int) -> int:
         删除的条数
     """
     removed = storage.decay_patterns(decay_days, max_count)
+    stale = storage.cleanup_stale_pending(_STALE_PENDING_DAYS)
     if removed:
         logger.info(f"表达模式衰减淘汰 {removed} 条")
+    if stale:
+        logger.info(f"清理超龄待审学习条目 {stale} 条")
     return removed

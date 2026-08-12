@@ -33,6 +33,7 @@ def _old_config(extra=None, save_raises=False):
                 "persona_provider_id": "persona_llm",
             },
             "error_friendly": {"enable": False},
+            "markdown_stripper": {"enable": False},
         },
         save_raises=save_raises,
     )
@@ -58,19 +59,24 @@ class TestDirectWrite:
         assert raw["l3_kg"]["extraction_provider"] == "kg_llm"
         assert raw["profile"]["analysis_provider"] == "persona_llm"
         assert raw["proactive"]["enabled"] is True
+        assert raw["extras"]["error_friendly"]["enable"] is False
+        assert raw["extras"]["markdown_stripper"]["enable"] is False
 
         migrated_keys = {new_key for _, new_key, _ in stats["migrated"]}
         assert "l3_kg.enable" in migrated_keys
         assert "profile.enable" in migrated_keys
-        # 同名键（新旧 schema 段名一致）无需迁移，不列入映射
-        assert "error_friendly.enable" not in migrated_keys
+        assert "extras.error_friendly.enable" in migrated_keys
+        assert "extras.markdown_stripper.enable" in migrated_keys
 
-    def test_same_name_sections_not_detected(self):
-        """新旧同名的配置段不视为旧配置键（加载时自动沿用）"""
+    def test_auxiliary_sections_are_detected_for_regrouping(self):
+        """原独立辅助配置段会被识别并迁入 extras。"""
         from iris_memory.legacy_migration.detector import detect_legacy_config_keys
 
         raw = {"error_friendly": {"enable": False}, "markdown_stripper": {"enable": False}}
-        assert detect_legacy_config_keys(raw) == []
+        assert detect_legacy_config_keys(raw) == [
+            "error_friendly.enable",
+            "markdown_stripper.enable",
+        ]
 
     def test_embedding_source_transform(self):
         raw = FakeUserConfig({"embedding": {"source": "auto"}})

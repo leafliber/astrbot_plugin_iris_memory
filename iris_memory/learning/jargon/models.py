@@ -1,7 +1,7 @@
 """暗语学习内部模型。"""
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List
+from typing import Dict, List
 
 
 @dataclass

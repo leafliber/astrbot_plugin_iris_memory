@@ -29,8 +29,9 @@ Iris Memory 用一个插件完成三件彼此关联的事：让机器人长期�
 1. 建议使用 AstrBot `>= 4.23.6`。
 2. 不要与 `astrbot_plugin_iris_chat_memory` 或 `astrbot_plugin_iris_reply` 同时启用；功能存在重叠。
 3. 必须将 AstrBot 的 `provider_ltm_settings.group_message_max_cnt` 设置为 `0`，由本插件统一管理上下文。否则可能出现重复注入和第三人称复述。
-4. L2 默认需要一个 AstrBot Embedding Provider。使用本地 Embedding 时，需另行安装 `sentence-transformers`。
-5. 从 v2 升级的用户先阅读 [迁移指南](./docs/MIGRATION.md)。
+4. 若希望“先发内容、再单独 @ 机器人”时由本插件结合 L1 回复，请启用 `extras.pure_at_reply.enable`，并关闭 AstrBot 的 `platform_settings.empty_mention_waiting`（“只 @ 机器人是否触发等待”）。
+5. L2 默认需要一个 AstrBot Embedding Provider。使用本地 Embedding 时，需另行安装 `sentence-transformers`。
+6. 从 v2 升级的用户先阅读 [迁移指南](./docs/MIGRATION.md)。
 
 ## 安装
 
@@ -220,8 +221,7 @@ SignalGate 会先根据消息信号、冷却和静音时段进行本地判断。
 | `learning` | 群聊表达模式学习 |
 | `isolation_config` | 群记忆、画像与 persona 隔离 |
 | `context_control` | AstrBot 上下文接管 |
-| `error_friendly` | 错误消息友好化 |
-| `markdown_stripper` | Markdown 输出清理 |
+| `extras` | 纯 @ 回复、错误消息友好化与 Markdown 输出清理 |
 
 高级记忆参数保存在插件数据目录的 `hidden_config.json`，也可从 Dashboard 的“隐藏配置”页面编辑。主动回复高级参数由 Dashboard 管理并存储为 KV overrides。
 

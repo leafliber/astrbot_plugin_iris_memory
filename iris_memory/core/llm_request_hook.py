@@ -32,6 +32,7 @@ from collections.abc import Awaitable
 from typing import TYPE_CHECKING, Any, List, Optional, cast
 
 from iris_memory.core import get_logger
+from iris_memory.core.event_extras import L1_CURRENT_EVENT_RECORD_COUNT
 from iris_memory.llm_modules import L2_QUERY_REWRITE
 
 _KG_STOPWORDS = frozenset(
@@ -616,14 +617,25 @@ async def _collect_l1_context(
 
     current_user_id = adapter.get_user_id(event)
     excluded_current = False
-    if (
-        current_user_id
+    try:
+        recorded_count = event.get_extra(L1_CURRENT_EVENT_RECORD_COUNT)
+    except Exception:
+        recorded_count = 0
+    if type(recorded_count) is not int or recorded_count <= 0:
+        recorded_count = 0
+
+    # 只排除已确认由当前事件写入的尾部记录。纯 @ 不会写入 L1，不能仅凭
+    # “最后一条来自同一用户”就删除，否则会误删用户紧邻 @ 之前的发言。
+    removed = 0
+    while (
+        removed < recorded_count
         and messages
         and messages[-1].role == "user"
         and messages[-1].source == current_user_id
     ):
         messages = messages[:-1]
-        excluded_current = True
+        removed += 1
+    excluded_current = removed > 0
 
     if not messages:
         logger.debug(f"群聊 {group_id} 排除当前消息后 L1 上下文为空，跳过注入")

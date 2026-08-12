@@ -10,7 +10,7 @@ Markdown 格式去除器
 - 当 t2i 全局禁用时，所有文本均以纯文本发送，同样执行去除。
 
 配置说明：
-- 用户可见配置：markdown_stripper.enable 开关（通过 AstrBot 管理界面）
+- 用户可见配置：extras.markdown_stripper.enable 开关（通过 AstrBot 管理界面）
 - 内部默认配置：_PRESERVE_CODE_BLOCKS、_PRESERVE_LINKS、_THRESHOLD_OFFSET、
   _STRIP_HEADERS、_STRIP_LISTS（模块常量，沿用 v2 默认值）
 
@@ -159,9 +159,9 @@ class MarkdownStripper:
         self._strip_rules = self._build_strip_rules()
 
     def _is_enabled(self) -> bool:
-        """功能总开关（markdown_stripper.enable，默认 True）"""
+        """功能总开关（extras.markdown_stripper.enable，默认 True）"""
         try:
-            return bool(self._config.get("markdown_stripper.enable", True))
+            return bool(self._config.get("extras.markdown_stripper.enable", True))
         except Exception:
             return True
 

@@ -62,6 +62,8 @@ class LearningComponent(Component):
         # 通用质量审查与 Persona 一致性复审共用，避免对同一条目并发裁决。
         self._content_review_lock = asyncio.Lock()
         self._persona_review_tasks: Dict[str, asyncio.Task] = {}
+        # 满批即时触发的审查任务引用，防止被 GC 回收（CPython 事件循环仅持弱引用）
+        self._content_review_tasks: set[asyncio.Task] = set()
 
     @property
     def name(self) -> str:
@@ -114,6 +116,14 @@ class LearningComponent(Component):
                 *self._persona_review_tasks.values(), return_exceptions=True
             )
         self._persona_review_tasks.clear()
+        for task in list(self._content_review_tasks):
+            if not task.done():
+                task.cancel()
+        if self._content_review_tasks:
+            await asyncio.gather(
+                *self._content_review_tasks, return_exceptions=True
+            )
+        self._content_review_tasks.clear()
         if self._storage:
             try:
                 self._storage.close()
@@ -165,7 +175,7 @@ class LearningComponent(Component):
             async with self._db_lock:
                 self._collector.on_response(event, resp, str(persona_id))
             if self._reviewer and self._reviewer.is_batch_full():
-                asyncio.create_task(self.run_review())
+                self._spawn_review()
         except Exception as e:
             logger.warning(f"学习模块响应采集失败：{e}")
 
@@ -260,6 +270,16 @@ class LearningComponent(Component):
                 self._reviewer.apply_verdicts(verdicts, pairs, patterns)
         except Exception as e:
             logger.warning(f"学习审查执行失败：{e}")
+
+    def _spawn_review(self) -> None:
+        """满批即时触发一轮审查（持有 task 引用避免被 GC 回收）
+
+        run_review 经 _content_review_lock 串行，并发触发只会排队领取下一批，
+        不会重复审查同一批 pending。
+        """
+        task = asyncio.create_task(self.run_review(), name="iris-learning-review")
+        self._content_review_tasks.add(task)
+        task.add_done_callback(self._content_review_tasks.discard)
 
     async def _ensure_persona_review(
         self,

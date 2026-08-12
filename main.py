@@ -40,6 +40,7 @@ from iris_memory.config import init_config, Config
 
 from astrbot.api import AstrBotConfig
 from astrbot.api.event import filter, AstrMessageEvent
+from astrbot.api.message_components import At
 from astrbot.api.star import Context, Star, StarTools
 from astrbot.core.agent.message import TextPart
 from astrbot.core.provider.entities import LLMResponse, ProviderRequest
@@ -119,6 +120,30 @@ _IRIS_ACTIVE_TIMEOUT = 120
 _UMO_KV_KEY = "iris_reply:group_umo"
 
 
+class _IrisSaveKnowledgeTool(SaveKnowledgeTool):
+    """Bind the tool to this plugin module for AstrBot ownership tracking."""
+
+
+class _IrisSaveMemoryTool(SaveMemoryTool):
+    """Bind the tool to this plugin module for AstrBot ownership tracking."""
+
+
+class _IrisSearchMemoryTool(SearchMemoryTool):
+    """Bind the tool to this plugin module for AstrBot ownership tracking."""
+
+
+class _IrisCorrectMemoryTool(CorrectMemoryTool):
+    """Bind the tool to this plugin module for AstrBot ownership tracking."""
+
+
+class _IrisSearchKnowledgeGraphTool(SearchKnowledgeGraphTool):
+    """Bind the tool to this plugin module for AstrBot ownership tracking."""
+
+
+class _IrisGetProfileTool(GetProfileTool):
+    """Bind the tool to this plugin module for AstrBot ownership tracking."""
+
+
 def _detect_passive_trigger(event: AstrMessageEvent, req, context: Context) -> None:
     """检测 LLM 请求是否为被动触发（sampling/主动回复）
 
@@ -138,6 +163,19 @@ def _detect_passive_trigger(event: AstrMessageEvent, req, context: Context) -> N
             )
     except Exception as e:
         logger.debug(f"被动触发检测异常（不影响正常流程）：{e}")
+
+
+def _is_pure_at_self(event: AstrMessageEvent) -> bool:
+    """Return whether the message consists only of an @ mention to the bot."""
+    try:
+        messages = event.get_messages()
+        return (
+            len(messages) == 1
+            and isinstance(messages[0], At)
+            and str(messages[0].qq) == str(event.get_self_id())
+        )
+    except Exception:
+        return False
 
 
 class IrisMemoryPlugin(Star):
@@ -226,6 +264,8 @@ class IrisMemoryPlugin(Star):
                 text_transform=self._strip_initiate_text,
             )
 
+            self._warn_empty_mention_conflict()
+
             logger.info("Iris Memory 整合插件已加载（等待异步初始化）")
         except Exception:
             logger.error(
@@ -235,6 +275,79 @@ class IrisMemoryPlugin(Star):
             )
             raise
 
+    def _warn_empty_mention_conflict(self) -> None:
+        """Guide users to disable AstrBot's built-in pure-mention waiter."""
+        try:
+            if not self.config.get("extras.pure_at_reply.enable", False):
+                return
+            platform_settings = self.context.get_config().get("platform_settings", {})
+            if platform_settings.get("empty_mention_waiting", True):
+                logger.warning(
+                    "检测到 AstrBot「只 @ 机器人触发等待」已开启：纯 @ 会先被 "
+                    "AstrBot 内置处理器拦截，Iris 无法接管。若要让纯 @ 直接使用 "
+                    "L1 上下文，请关闭 platform_settings.empty_mention_waiting。"
+                )
+        except Exception as exc:
+            logger.debug(f"检查 AstrBot 纯 @ 配置失败（已忽略）：{exc}")
+
+    async def _prepare_pure_at_request(self, event: AstrMessageEvent) -> bool:
+        """Route a pure @ through the standard agent pipeline using existing L1.
+
+        AstrBot rejects a truly empty ProviderRequest before on_llm_request hooks
+        run. A whitespace-only transport prompt keeps the request alive through
+        that guard; ProviderRequest.assemble_context() drops it before provider
+        dispatch, so the model receives no synthetic user content and relies on
+        the normal Iris L1 injection.
+        """
+        if not _is_pure_at_self(event) or not self.component_manager:
+            return False
+
+        try:
+            if not self.config.get("extras.pure_at_reply.enable", False):
+                return False
+            cfg = self.context.get_config(umo=event.unified_msg_origin)
+            if cfg.get("platform_settings", {}).get("empty_mention_waiting", True):
+                return False
+
+            from iris_memory.platform import get_adapter
+
+            adapter = get_adapter(event)
+            buffer = self.component_manager.get_available_component("l1_buffer")
+            if not buffer or not buffer.get_context(adapter.get_session_id(event), 1):
+                logger.debug("纯 @ 前没有可注入的 L1 上下文，保持 AstrBot 默认空请求行为")
+                return False
+
+            conv_mgr = getattr(self.context, "conversation_manager", None)
+            if conv_mgr is None:
+                logger.warning("纯 @ 接管失败：AstrBot conversation_manager 不可用")
+                return False
+
+            umo = event.unified_msg_origin
+            conversation_id = await conv_mgr.get_curr_conversation_id(umo)
+            if not conversation_id:
+                conversation_id = await conv_mgr.new_conversation(
+                    umo, platform_id=event.get_platform_id()
+                )
+            conversation = await conv_mgr.get_conversation(umo, conversation_id)
+            if conversation is None:
+                logger.warning("纯 @ 接管失败：无法取得标准会话")
+                return False
+
+            request = event.request_llm(
+                prompt=" ",
+                session_id=conversation_id,
+                contexts=[],
+                system_prompt="",
+                conversation=conversation,
+            )
+            event.set_extra("provider_request", request)
+            event.set_extra("iris_pure_at", True)
+            logger.info("已接管纯 @ 消息，将通过标准管道使用现有 L1 上下文")
+            return True
+        except Exception as exc:
+            logger.error(f"纯 @ 消息接管失败，已回退 AstrBot 默认流程：{exc}", exc_info=True)
+            return False
+
     # ========================================================================
     # 记忆侧注册
     # ========================================================================
@@ -243,12 +356,12 @@ class IrisMemoryPlugin(Star):
         """注册记忆侧 LLM Tool"""
         try:
             tools = [
-                SaveKnowledgeTool(),
-                SaveMemoryTool(),
-                SearchMemoryTool(),
-                CorrectMemoryTool(),
-                SearchKnowledgeGraphTool(),
-                GetProfileTool(),
+                _IrisSaveKnowledgeTool(),
+                _IrisSaveMemoryTool(),
+                _IrisSearchMemoryTool(),
+                _IrisCorrectMemoryTool(),
+                _IrisSearchKnowledgeGraphTool(),
+                _IrisGetProfileTool(),
             ]
             self.context.add_llm_tools(*tools)
             logger.info(f"已注册 {len(tools)} 个记忆 LLM Tool")
@@ -603,6 +716,9 @@ class IrisMemoryPlugin(Star):
     @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)
     async def on_message(self, event) -> None:
         """主动回复消息唤醒：门控 → 标记 → 交由 on_llm_request 决策"""
+        if await self._prepare_pure_at_request(event):
+            return
+
         if not self._reply_config.enabled:
             return
 

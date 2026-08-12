@@ -59,7 +59,7 @@ class ErrorFriendlyProcessor:
         """检查错误消息友好化功能是否启用"""
         try:
             if hasattr(self._config, "get"):
-                return bool(self._config.get("error_friendly.enable", True))
+                return bool(self._config.get("extras.error_friendly.enable", True))
             return True
         except Exception:
             return True
