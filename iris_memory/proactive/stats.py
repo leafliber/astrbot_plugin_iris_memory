@@ -50,6 +50,9 @@ class GroupStats:
     backoff_level: int = 0
     consecutive_replies: int = 0
     initiate_daily_count: int = 0
+    initiate_rolling_24h_count: int = 0
+    initiate_hazard_probability: float = 0.0
+    initiate_next_check_at: float = 0.0
 
 
 MAX_LOG_ENTRIES = 500
@@ -149,6 +152,9 @@ class StatsCollector:
         backoff_level: int,
         consecutive_replies: int,
         initiate_daily_count: int,
+        initiate_rolling_24h_count: int,
+        initiate_hazard_probability: float,
+        initiate_next_check_at: float,
     ) -> None:
         if not self._enabled:
             return
@@ -161,6 +167,9 @@ class StatsCollector:
         gs.backoff_level = backoff_level
         gs.consecutive_replies = consecutive_replies
         gs.initiate_daily_count = initiate_daily_count
+        gs.initiate_rolling_24h_count = initiate_rolling_24h_count
+        gs.initiate_hazard_probability = initiate_hazard_probability
+        gs.initiate_next_check_at = initiate_next_check_at
 
     @staticmethod
     def _summary(gs: GroupStats) -> dict[str, Any]:
@@ -184,6 +193,9 @@ class StatsCollector:
             "backoff_level": gs.backoff_level,
             "consecutive_replies": gs.consecutive_replies,
             "initiate_daily_count": gs.initiate_daily_count,
+            "initiate_rolling_24h_count": gs.initiate_rolling_24h_count,
+            "initiate_hazard_probability": gs.initiate_hazard_probability,
+            "initiate_next_check_at": gs.initiate_next_check_at,
         }
 
     def get_group_summaries(self) -> list[dict[str, Any]]:
