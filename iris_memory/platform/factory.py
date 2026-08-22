@@ -4,10 +4,12 @@ Iris Chat Memory - 平台适配器工厂
 根据消息事件的平台类型，返回对应的平台适配器实例。
 
 支持的平台：
-- qq/aiocqhttp: QQ 个人号（OneBot11 协议）
+- aiocqhttp: QQ 个人号（OneBot11 协议）
 - cron: AstrBot 内置定时任务（CronMessageEvent）
-- qqofficial: QQ 官方机器人（待实现）
-- gewechat: 个微（待实现）
+- qq_official: QQ 官方机器人（待实现，降级到通用适配器）
+
+其余平台（telegram、webchat、wecom、qq_official_webhook 等未注册专用
+适配器的协议）统一经通用适配器 GenericAdapter 降级。
 
 设计要点：
 - 单例模式：每种平台适配器只创建一个实例
@@ -35,13 +37,11 @@ logger = get_logger("platform.factory")
 # 平台适配器注册表
 # ============================================================================
 
-# 平台类型枚举值 -> 适配器类的映射（None 表示待实现）
+# 平台类型枚举值 -> 适配器类的映射（None 表示待实现，降级到 GenericAdapter）
 _ADAPTER_REGISTRY: dict[str, type[PlatformAdapter] | None] = {
     "aiocqhttp": OneBot11Adapter,  # QQ 个人号（OneBot11）
-    "qq": OneBot11Adapter,  # QQ（AstrBot v4.x 统一命名）
+    "qq_official": None,  # QQ 官方机器人（待实现，AstrBot 4.x 协议名）
     "cron": CronAdapter,  # AstrBot 内置定时任务（CronMessageEvent）
-    "qqofficial": None,  # QQ 官方机器人（待实现）
-    "gewechat": None,  # 个微（待实现）
 }
 
 # 适配器实例缓存（单例）
@@ -106,7 +106,7 @@ def get_adapter(event: "AstrMessageEvent") -> PlatformAdapter:
 
     adapter_class = _ADAPTER_REGISTRY[platform_key]
     if adapter_class is None:
-        # 平台已注册但适配器尚未实现（如 qqofficial/gewechat），降级到通用适配器
+        # 平台已注册但适配器尚未实现（如 qq_official），降级到通用适配器
         # 而非抛异常——否则钩子链无 try/except 兜底，每条消息都会崩溃。
         logger.warning(f"平台 {platform_type} 的适配器尚未实现，使用通用适配器降级。")
         with _ADAPTER_LOCK:
@@ -208,6 +208,6 @@ def get_supported_platforms() -> list[str]:
 
     Examples:
         >>> platforms = get_supported_platforms()
-        >>> print(platforms)  # ['aiocqhttp', 'qqofficial', 'gewechat']
+        >>> print(platforms)  # ['aiocqhttp', 'qq_official', 'cron']
     """
     return list(_ADAPTER_REGISTRY.keys())

@@ -39,8 +39,9 @@ Iris Chat Memory - 平台接口统一管理模块
 支持的平台：
 - aiocqhttp: QQ 个人号（OneBot11 协议）
 - cron: AstrBot 内置定时任务（CronMessageEvent）
-- qqofficial: QQ 官方机器人（待实现）
-- gewechat: 个微（待实现）
+- qq_official: QQ 官方机器人（待实现，降级到通用适配器）
+
+其余平台统一经通用适配器 GenericAdapter 降级。
 """
 
 # 导出公共 API

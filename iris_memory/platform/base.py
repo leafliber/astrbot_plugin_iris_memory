@@ -158,10 +158,12 @@ class PlatformAdapter(ABC):
     def get_user_nickname(self, event: "AstrMessageEvent") -> str:
         """获取用户原始昵称
 
-        不考虑群名片，始终返回用户的原始昵称。
+        返回不受群名片影响的原始昵称。实现应从平台原始载荷读取
+        （AstrBot 的 message_obj.sender.nickname 是"群名片或昵称"的合并值，
+        群聊下可能等于群名片）；原始载荷不可用时允许回退到该合并值。
 
         Args:
-            event: AstrBot 消息事件对象 (AstrMessageEvent)
+            event: AstrBot 消息事件对象
 
         Returns:
             用户昵称字符串
@@ -196,10 +198,11 @@ class PlatformAdapter(ABC):
     def get_group_name(self, event: "AstrMessageEvent") -> str:
         """获取群聊名称
 
-        从原始消息中提取群名称信息（如果可用）。
+        优先读取 AstrBot 结构化字段 message_obj.group.group_name
+        （各平台适配器在转换消息时填充），回退到平台原始载荷。
 
         Args:
-            event: AstrBot 消息事件对象 (AstrMessageEvent)
+            event: AstrBot 消息事件对象
 
         Returns:
             群聊名称字符串，无法获取时返回空字符串 ""
@@ -308,11 +311,12 @@ class PlatformAdapter(ABC):
     def get_reply_info(self, event: "AstrMessageEvent") -> ReplyInfo:
         """获取回复/引用消息的关联信息
 
-        从消息事件中提取回复消息的元数据，包括被回复消息的ID、
-        发送者ID、发送者名称和内容等。
+        提取回复消息的元数据：被回复消息的ID、发送者ID、发送者名称和内容。
+        实现应优先读取 AstrBot 消息链上的 Reply 组件（AstrBot 转换消息时
+        已解析好完整信息），回退到平台原始载荷解析。
 
         Args:
-            event: AstrBot 消息事件对象 (AstrMessageEvent)
+            event: AstrBot 消息事件对象
 
         Returns:
             ReplyInfo 实例，非回复消息时返回空 ReplyInfo（has_reply 为 False）
@@ -325,8 +329,8 @@ class PlatformAdapter(ABC):
 
         Notes:
             - 不同平台的回复消息格式不同
-            - OneBot11：从消息段中提取 [CQ:reply,id=xxx]
-            - go-cqhttp 等实现可能包含 content 字段（被回复消息的完整内容）
+            - OneBot11：消息链 Reply 组件 / raw reply 段（id）
+            - go-cqhttp 扩展可能在 raw reply 段附带 content/sender
         """
         pass
 
@@ -362,7 +366,9 @@ class PlatformAdapter(ABC):
         """获取消息中 @提及的用户列表
 
         从消息事件中提取所有被 @提及的用户，返回 (user_id, user_name) 列表。
-        用于 @用户 定向查询功能。子类应覆盖此方法以支持具体平台的 @ 语法。
+        实现应优先读取 AstrBot 消息链上的 At 组件（其 name 由 AstrBot 调
+        平台 API 解析，原始载荷中的名称字段多数协议端不提供），
+        回退到平台原始载荷解析。子类应覆盖此方法以支持具体平台的 @ 语法。
 
         Args:
             event: AstrBot 消息事件对象
@@ -377,10 +383,34 @@ class PlatformAdapter(ABC):
 
         Notes:
             - 默认实现返回空列表（不解析 @）
-            - OneBot11：从消息段中提取 [CQ:at,qq=xxx]
+            - OneBot11：消息链 At 组件 / raw at 段
             - 其他平台需子类覆盖
         """
         return []
+
+    def _structured_group_name(self, event: "AstrMessageEvent") -> str:
+        """读取 AstrBot 结构化群名称 message_obj.group.group_name
+
+        各平台适配器在转换消息时填充该字段；aiocqhttp 以 "N/A" 作为
+        缺省哨兵，视为无群名。群对象不存在或字段非法时返回空字符串，
+        供各适配器的 get_group_name 实现作为首选数据源复用。
+
+        Args:
+            event: AstrBot 消息事件对象
+
+        Returns:
+            群名称字符串，不可获取时返回空字符串 ""
+        """
+        try:
+            group = getattr(event.message_obj, "group", None)
+            if group is None:
+                return ""
+            group_name = getattr(group, "group_name", None)
+            if isinstance(group_name, str) and group_name and group_name != "N/A":
+                return group_name
+            return ""
+        except Exception:
+            return ""
 
     async def get_msg_by_id(
         self, event: "AstrMessageEvent", message_id: str

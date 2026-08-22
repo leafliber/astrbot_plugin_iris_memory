@@ -48,7 +48,7 @@ class CronAdapter(PlatformAdapter):
 
     降级行为：
         - get_user_name/get_user_nickname: 退化为 sender.nickname 或 "定时任务"
-        - get_group_name: 返回空字符串
+        - get_group_name: 尝试读取结构化 group.group_name，失败返回空字符串
         - get_user_role: 群聊默认 "member"，私聊返回 "private"
         - get_raw_message: 尝试获取 raw_message 属性，失败返回空字典
         - get_images/get_reply_info/get_msg_by_id: 返回空值
@@ -186,7 +186,12 @@ class CronAdapter(PlatformAdapter):
             raise
 
     def get_group_name(self, event: Any) -> str:
-        return ""
+        """获取群聊名称
+
+        读取 AstrBot 结构化字段 message_obj.group.group_name
+        （缺省哨兵 "N/A" 视为无群名），不可获取时返回空字符串。
+        """
+        return self._structured_group_name(event)
 
     def get_user_role(self, event: Any) -> str:
         try:

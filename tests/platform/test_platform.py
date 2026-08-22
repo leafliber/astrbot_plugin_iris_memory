@@ -2,6 +2,10 @@
 
 import pytest
 from unittest.mock import Mock, AsyncMock
+
+from astrbot.api.message_components import At, AtAll, Plain, Reply
+
+from tests.platform.fakes import make_qq_event
 from iris_memory.platform.base import (
     PlatformAdapter,
     ReplyInfo,
@@ -217,8 +221,12 @@ class TestOneBot11Adapter:
 
         assert reply_info.has_reply is False
 
-    def test_get_reply_info_cq_code_format(self):
-        """测试从 CQ 码格式提取回复信息"""
+    def test_get_reply_info_string_message_returns_empty(self):
+        """string/CQ 码格式消息段返回空
+
+        AstrBot 4.x 上游对非 array 格式消息直接丢弃，该格式不应到达适配器；
+        若意外到达，安全返回空 ReplyInfo。
+        """
         adapter = OneBot11Adapter()
 
         event = Mock()
@@ -231,8 +239,7 @@ class TestOneBot11Adapter:
 
         reply_info = adapter.get_reply_info(event)
 
-        assert reply_info.has_reply is True
-        assert reply_info.message_id == "6283"
+        assert reply_info.has_reply is False
 
     def test_get_reply_info_empty_raw_message(self):
         """测试原始消息为空时返回空 ReplyInfo"""
@@ -254,7 +261,7 @@ class TestGetAdapter:
     def test_get_onebot11_adapter_via_get_platform_name(self):
         """测试获取 OneBot11 适配器 - 通过 event.get_platform_name()"""
         event = Mock()
-        event.get_platform_name = Mock(return_value="qq")
+        event.get_platform_name = Mock(return_value="aiocqhttp")
 
         adapter = get_adapter(event)
 
@@ -282,10 +289,10 @@ class TestGetAdapter:
     def test_adapter_is_singleton(self):
         """测试适配器是单例"""
         event1 = Mock()
-        event1.get_platform_name = Mock(return_value="qq")
+        event1.get_platform_name = Mock(return_value="aiocqhttp")
 
         event2 = Mock()
-        event2.get_platform_name = Mock(return_value="qq")
+        event2.get_platform_name = Mock(return_value="aiocqhttp")
 
         adapter1 = get_adapter(event1)
         adapter2 = get_adapter(event2)
@@ -500,13 +507,12 @@ class TestGetMentionedUsers:
     def test_factory_degrades_unimplemented_platform(self):
         """回归：已注册未实现的平台降级到 GenericAdapter，不抛异常
 
-        历史 bug：qqofficial/gewechat 已注册但 adapter_class=None，
-        get_adapter 抛 UnsupportedPlatformError，钩子链无 try/except 兜底，
-        每条消息崩溃。
+        历史 bug：待实现平台 adapter_class=None，get_adapter 抛
+        UnsupportedPlatformError，钩子链无 try/except 兜底，每条消息崩溃。
         """
         event = Mock()
         event.platform_meta = Mock()
-        event.platform_meta.name = "qqofficial"
+        event.platform_meta.name = "qq_official"
         event.platform_meta.id = "test_bot"
 
         adapter = get_adapter(event)
@@ -571,8 +577,8 @@ class TestGetMentionedUsers:
         assert result[0] == ("123456", "张三")
         assert result[1] == ("789", "李四")
 
-    def test_onebot11_cq_code_format(self):
-        """OneBot11 CQ 码字符串格式提取 @用户"""
+    def test_onebot11_string_message_returns_empty(self):
+        """string/CQ 码格式消息返回空列表（AstrBot 上游仅放行 array 格式）"""
         adapter = OneBot11Adapter()
 
         event = Mock()
@@ -582,9 +588,7 @@ class TestGetMentionedUsers:
         }
 
         result = adapter.get_mentioned_users(event)
-        assert len(result) == 2
-        assert result[0] == ("123456", "张三")
-        assert result[1] == ("789", "李四")
+        assert result == []
 
     def test_onebot11_skip_at_all(self):
         """@全体成员应被跳过"""
@@ -659,3 +663,229 @@ class TestGetSessionId:
         event = Mock(spec=[])
 
         assert adapter.get_session_id(event) == ""
+
+
+class TestOneBot11DataSources:
+    """raw sender / 结构化群名字段数据源测试
+
+    夹具按 AstrBot 4.27.2 真实形状构造（MessageMember 仅 user_id/nickname），
+    防止适配器重新依赖 AstrBot 上不存在的 sender.card/sender.role 字段。
+    """
+
+    def test_group_card_preferred_over_nickname(self):
+        """群聊显示名优先群名片（读取 raw sender.card）"""
+        event = make_qq_event(card="三哥", nickname="张三", group_id="987654321")
+        assert OneBot11Adapter().get_user_name(event) == "三哥"
+
+    def test_group_name_without_card_falls_to_nickname(self):
+        """无群名片时显示名退化为昵称"""
+        event = make_qq_event(nickname="张三", group_id="987654321")
+        assert OneBot11Adapter().get_user_name(event) == "张三"
+
+    def test_nickname_is_raw_not_card(self):
+        """原始昵称不受群名片影响（读取 raw sender.nickname）"""
+        event = make_qq_event(card="三哥", nickname="张三", group_id="987654321")
+        assert OneBot11Adapter().get_user_nickname(event) == "张三"
+
+    def test_role_read_from_raw_sender(self):
+        """群角色读取 raw sender.role（MessageMember 上不存在该字段）"""
+        event = make_qq_event(role="admin", group_id="987654321")
+        assert OneBot11Adapter().get_user_role(event) == "admin"
+
+    def test_role_owner(self):
+        event = make_qq_event(role="owner", group_id="987654321")
+        assert OneBot11Adapter().get_user_role(event) == "owner"
+
+    def test_role_private_chat(self):
+        event = make_qq_event()
+        assert OneBot11Adapter().get_user_role(event) == "private"
+
+    def test_role_defaults_member_without_raw(self):
+        """raw 载荷缺失时角色回退 member 而非报错"""
+        event = make_qq_event(group_id="987654321")
+        event.message_obj.raw_message = {}
+        assert OneBot11Adapter().get_user_role(event) == "member"
+
+    def test_group_name_from_structured_field(self):
+        """群名优先读取结构化 message_obj.group.group_name"""
+        event = make_qq_event(group_id="987654321", group_name="技术交流群")
+        assert OneBot11Adapter().get_group_name(event) == "技术交流群"
+
+    def test_group_name_maps_na_sentinel_to_empty(self):
+        """aiocqhttp 以 "N/A" 作为缺省哨兵，应映射为空字符串"""
+        event = make_qq_event(group_id="987654321", group_name="N/A")
+        assert OneBot11Adapter().get_group_name(event) == ""
+
+    def test_group_name_falls_back_to_raw_payload(self):
+        """结构化字段缺失时回退 raw 载荷的 group_name"""
+        event = make_qq_event(group_id="987654321", group_name=None)
+        event.message_obj.raw_message["group_name"] = "后备群名"
+        assert OneBot11Adapter().get_group_name(event) == "后备群名"
+
+
+class TestChainFirstReply:
+    """回复信息消息链优先策略测试
+
+    AstrBot 转换消息时已为 reply 段调过 get_msg 并把结果放进消息链的
+    Reply 组件，适配器直接读取、不再重复调用平台 API。
+    """
+
+    def test_reply_from_chain_component(self):
+        """链上完整 Reply 组件一次性提供全部回复元数据"""
+        event = make_qq_event(
+            chain=[
+                Reply(
+                    id=6283,
+                    sender_id=1234567,
+                    sender_nickname="张三",
+                    message_str="你好啊",
+                ),
+                Plain(text="我也觉得"),
+            ]
+        )
+
+        info = OneBot11Adapter().get_reply_info(event)
+
+        assert info.has_reply is True
+        assert info.message_id == "6283"
+        assert info.user_id == "1234567"
+        assert info.user_name == "张三"
+        assert info.content == "你好啊"
+
+    def test_chain_reply_content_from_nested_chain(self):
+        """message_str 为空时从 Reply.chain 的 Plain 组件提取文本"""
+        event = make_qq_event(
+            chain=[
+                Reply(
+                    id="6283",
+                    sender_id=1234567,
+                    sender_nickname="张三",
+                    chain=[Plain(text="你好啊")],
+                ),
+                Plain(text="嗯"),
+            ]
+        )
+
+        info = OneBot11Adapter().get_reply_info(event)
+
+        assert info.content == "你好啊"
+
+    def test_raw_fallback_when_chain_has_no_reply(self):
+        """链上无 Reply 组件时回退 raw reply 段解析"""
+        event = make_qq_event(
+            chain=[Plain(text="嗯")],
+            raw_segments=[{"type": "reply", "data": {"id": "6283"}}],
+        )
+
+        info = OneBot11Adapter().get_reply_info(event)
+
+        assert info.has_reply is True
+        assert info.message_id == "6283"
+
+    def test_bare_chain_reply_without_sender(self):
+        """AstrBot 转换时 get_msg 失败的场景：链上只有裸 Reply(id=...)"""
+        event = make_qq_event(chain=[Reply(id="6283"), Plain(text="嗯")])
+
+        info = OneBot11Adapter().get_reply_info(event)
+
+        assert info.has_reply is True
+        assert info.message_id == "6283"
+        assert info.user_id == ""  # sender_id 默认值 0 应清洗为空
+
+
+class TestChainFirstMentions:
+    """@提及消息链优先策略测试
+
+    At 组件的 name 由 AstrBot 调 get_group_member_info 解析，raw at 段的
+    data.name 在多数协议端实现中不存在。
+    """
+
+    def test_mentions_from_chain_components(self):
+        """链上 At 组件提供已解析的名称，raw 段无 name 也不再丢失"""
+        event = make_qq_event(
+            group_id="987654321",
+            chain=[
+                Plain(text="hi"),
+                At(qq="123456", name="张三"),
+                At(qq="789", name="李四"),
+            ],
+            raw_segments=[{"type": "at", "data": {"qq": "123456"}}],
+        )
+
+        result = OneBot11Adapter().get_mentioned_users(event)
+
+        assert result == [("123456", "张三"), ("789", "李四")]
+
+    def test_at_all_in_chain_skipped(self):
+        """@全体成员（AtAll 是 At 子类）应被跳过"""
+        event = make_qq_event(
+            group_id="987654321",
+            chain=[AtAll(), At(qq="123456", name="张三")],
+        )
+
+        result = OneBot11Adapter().get_mentioned_users(event)
+
+        assert result == [("123456", "张三")]
+
+    def test_raw_fallback_when_chain_empty(self):
+        """链为空时回退 raw at 段解析"""
+        event = make_qq_event(
+            chain=[],
+            raw_segments=[{"type": "at", "data": {"qq": "123456", "name": "张三"}}],
+        )
+
+        result = OneBot11Adapter().get_mentioned_users(event)
+
+        assert result == [("123456", "张三")]
+
+
+class TestSelfIdRouting:
+    """bot API 多账号路由测试
+
+    aiocqhttp 多反向 WS 连接下，call_action 只有携带 self_id 才能路由到
+    事件所属协议端（对齐 AstrBot 核心的 routing_params 写法）。
+    """
+
+    @pytest.mark.asyncio
+    async def test_get_msg_by_id_passes_self_id(self):
+        bot = Mock()
+        bot.call_action = AsyncMock(return_value=None)
+
+        event = make_qq_event(self_id="10000", bot=bot)
+
+        await OneBot11Adapter().get_msg_by_id(event, "6283")
+
+        bot.call_action.assert_called_once_with(
+            "get_msg", message_id=6283, self_id="10000"
+        )
+
+    @pytest.mark.asyncio
+    async def test_get_forward_msg_passes_self_id(self):
+        bot = Mock()
+        bot.call_action = AsyncMock(return_value=None)
+
+        event = make_qq_event(
+            self_id="10000",
+            bot=bot,
+            chain=[],
+            raw_segments=[{"type": "forward", "data": {"id": "resid123"}}],
+        )
+
+        await OneBot11Adapter().get_forward_messages(event)
+
+        bot.call_action.assert_called_once_with(
+            "get_forward_msg", message_id="resid123", self_id="10000"
+        )
+
+    @pytest.mark.asyncio
+    async def test_no_self_id_when_missing(self):
+        """self_id 缺失时不传路由参数（单连接部署仍可工作）"""
+        bot = Mock()
+        bot.call_action = AsyncMock(return_value=None)
+
+        event = make_qq_event(bot=bot)
+        event.message_obj.self_id = ""
+
+        await OneBot11Adapter().get_msg_by_id(event, "6283")
+
+        bot.call_action.assert_called_once_with("get_msg", message_id=6283)

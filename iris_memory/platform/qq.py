@@ -6,15 +6,21 @@ Iris Chat Memory - OneBot11 平台适配器
 OneBot11 协议参考：
 - https://github.com/botuniverse/onebot-11
 
-实现要点（AstrBot v4.x）：
-- 用户ID：event.message_obj.sender.user_id
-- 用户昵称：event.message_obj.sender.nickname（群聊时优先使用 sender.card）
-- 群ID：event.message_obj.group_id（私聊为空字符串）
-- 群名称：从 raw_message 提取（如果可用）
-- 用户角色：event.message_obj.sender.role（owner/admin/member）
+数据源策略（对齐 AstrBot 4.x 实现）：
+- 消息链优先：AstrBot 转换消息时已调 API 解析好 Reply（被回复消息的发送者
+  与纯文本）和 At（被@用户的名称），优先从 event.get_messages() 的组件读取，
+  避免对同一条消息重复调用平台 API
+- raw OneBot 载荷补充：群角色（sender.role）、原始昵称等 AstrBot 不透出到
+  message_obj.sender 的字段，从 raw_message 的 sender 字典读取
+- AstrBot 的 MessageMember 仅含 user_id/nickname（nickname 为 card or
+  昵称的合并值），不得依赖其不存在的 card/role 字段
+- bot API 调用统一携带 self_id 路由参数（多账号反向 WS 部署下必需）
+- 消息段仅支持 array 格式：AstrBot 上游会直接丢弃 string/CQ 码格式的消息
 """
 
 from typing import Any, List, TYPE_CHECKING
+
+from astrbot.api.message_components import At, Plain, Reply
 
 from iris_memory.core import get_logger
 from iris_memory.platform.base import (
@@ -48,6 +54,72 @@ class OneBot11Adapter(PlatformAdapter):
         >>> is_group = adapter.is_group_message(event)
     """
 
+    # ------------------------------------------------------------------
+    # 内部助手：数据源访问
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _clean_id(value: Any) -> str:
+        """清洗 OneBot ID 字段（message_id/user_id 等可能为 int、0 或 None）"""
+        if value is None or value == "" or value == 0:
+            return ""
+        return str(value)
+
+    def _raw_sender(self, event: Any) -> dict[str, Any]:
+        """读取 raw OneBot 载荷的 sender 字典（card/nickname/role 的真实来源）"""
+        try:
+            raw_msg = self.get_raw_message(event)
+        except Exception:
+            return {}
+        if not raw_msg:
+            return {}
+        sender = raw_msg.get("sender")
+        return sender if isinstance(sender, dict) else {}
+
+    def _routing_params(self, event: Any) -> dict[str, Any]:
+        """构造多账号路由参数（对齐 AstrBot 核心的 self_id 传递方式）
+
+        aiocqhttp 在多个反向 WS 连接并存时，只有携带 self_id 才能路由到
+        事件所属的协议端；单连接部署下可省略。
+        """
+        try:
+            self_id = getattr(event.message_obj, "self_id", "")
+        except AttributeError:
+            return {}
+        if isinstance(self_id, (str, int)) and str(self_id).strip():
+            return {"self_id": self_id}
+        return {}
+
+    def _get_chain(self, event: Any) -> list[Any]:
+        """读取 AstrBot 消息链（event.get_messages()），失败时返回空列表"""
+        getter = getattr(event, "get_messages", None)
+        if not callable(getter):
+            return []
+        try:
+            chain = getter()
+        except Exception as e:
+            logger.debug(f"读取消息链失败: {e}")
+            return []
+        return chain if isinstance(chain, list) else []
+
+    def _find_chain_component(self, event: Any, component_type: type) -> Any | None:
+        """在消息链中查找首个指定类型的组件"""
+        for component in self._get_chain(event):
+            if isinstance(component, component_type):
+                return component
+        return None
+
+    @staticmethod
+    def _extract_text_from_chain(chain: list[Any]) -> str:
+        """从消息链组件中提取 Plain 文本"""
+        parts = []
+        for component in chain:
+            if isinstance(component, Plain):
+                text = getattr(component, "text", None)
+                if text:
+                    parts.append(str(text))
+        return "".join(parts)
+
     def get_user_id(self, event: Any) -> str:
         """获取用户ID（QQ号）
 
@@ -66,7 +138,9 @@ class OneBot11Adapter(PlatformAdapter):
     def get_user_name(self, event: Any) -> str:
         """获取用户显示名称
 
-        群聊时优先返回群名片（如果有），否则返回昵称。
+        群聊时优先返回群名片（如果有），否则返回昵称。群名片与原始昵称
+        从 raw OneBot 载荷的 sender 字典读取；载荷不可用时回退到
+        message_obj.sender.nickname（AstrBot 已将其合并为 card or 昵称）。
 
         Args:
             event: AstrBot 消息事件对象
@@ -74,15 +148,16 @@ class OneBot11Adapter(PlatformAdapter):
         Returns:
             用户显示名称
         """
+        raw_sender = self._raw_sender(event)
+        if raw_sender:
+            card = raw_sender.get("card") or ""
+            if card:
+                return str(card)
+            nickname = raw_sender.get("nickname") or ""
+            if nickname:
+                return str(nickname)
         try:
-            sender = event.message_obj.sender
-
-            if self.is_group_message(event):
-                card = getattr(sender, "card", "")
-                if card:
-                    return str(card)
-
-            return str(sender.nickname)
+            return str(event.message_obj.sender.nickname)
         except AttributeError:
             logger.error("无法获取用户名称：event.message_obj.sender 结构异常")
             raise
@@ -90,7 +165,9 @@ class OneBot11Adapter(PlatformAdapter):
     def get_user_nickname(self, event: Any) -> str:
         """获取用户原始昵称
 
-        不考虑群名片，始终返回原始昵称。
+        从 raw OneBot 载荷的 sender.nickname 读取，不受群名片影响。
+        载荷不可用时回退到 message_obj.sender.nickname——注意该值是
+        AstrBot 合并的 card or 昵称，群聊下可能等于群名片。
 
         Args:
             event: AstrBot 消息事件对象
@@ -98,6 +175,11 @@ class OneBot11Adapter(PlatformAdapter):
         Returns:
             用户昵称
         """
+        raw_sender = self._raw_sender(event)
+        if raw_sender:
+            nickname = raw_sender.get("nickname") or ""
+            if nickname:
+                return str(nickname)
         try:
             return str(event.message_obj.sender.nickname)
         except AttributeError:
@@ -123,33 +205,33 @@ class OneBot11Adapter(PlatformAdapter):
     def get_group_name(self, event: Any) -> str:
         """获取群聊名称
 
-        尝试从原始消息中提取群名称信息。
-        OneBot11 协议中，群名称通常不在消息事件中提供，
-        需要通过专门的 API 调用获取。
+        优先读取 AstrBot 结构化字段 message_obj.group.group_name
+        （aiocqhttp 适配器在转换消息时填充，缺省哨兵 "N/A" 视为无群名），
+        回退到 raw OneBot 载荷的 group_name 字段。
 
         Args:
             event: AstrBot 消息事件对象
 
         Returns:
-            群名称字符串，无法获取时返回空字符串
+            群名称字符串，无法获取时返回空字符串 ""
         """
-        try:
-            raw_msg = self.get_raw_message(event)
+        structured = self._structured_group_name(event)
+        if structured:
+            return structured
 
-            if "group_name" in raw_msg:
-                return str(raw_msg["group_name"])
+        raw_msg = self.get_raw_message(event)
+        if raw_msg:
+            raw_name = raw_msg.get("group_name")
+            if isinstance(raw_name, str) and raw_name and raw_name != "N/A":
+                return raw_name
 
-            sender = event.message_obj.sender
-            if hasattr(sender, "group_name"):
-                return str(sender.group_name)
-
-            return ""
-        except Exception as e:
-            logger.debug(f"无法获取群名称: {e}")
-            return ""
+        return ""
 
     def get_user_role(self, event: Any) -> str:
         """获取用户在群聊中的角色
+
+        从 raw OneBot 载荷的 sender.role 读取（AstrBot 的 MessageMember
+        不包含该字段，群主/管理员信息仅在原始载荷中）。
 
         Args:
             event: AstrBot 消息事件对象
@@ -157,15 +239,14 @@ class OneBot11Adapter(PlatformAdapter):
         Returns:
             角色字符串：owner、admin、member、private
         """
-        try:
-            if not self.is_group_message(event):
-                return "private"
+        if not self.is_group_message(event):
+            return "private"
 
-            role = getattr(event.message_obj.sender, "role", "member")
-            return str(role)
-        except AttributeError:
-            logger.error("无法获取用户角色：event.message_obj.sender.role 不存在")
-            raise
+        raw_sender = self._raw_sender(event)
+        role = raw_sender.get("role") if raw_sender else None
+        if isinstance(role, str) and role:
+            return role
+        return "member"
 
     def get_raw_message(self, event: Any) -> dict[str, Any]:
         """获取平台原始消息对象
@@ -247,12 +328,12 @@ class OneBot11Adapter(PlatformAdapter):
     def get_reply_info(self, event: Any) -> ReplyInfo:
         """获取回复/引用消息的关联信息
 
-        从 OneBot11 消息段中提取 reply 类型的消息段信息。
-        OneBot11 协议中 reply 消息段包含：
-        - id: 被回复消息的ID
-        - user_id: 被回复消息的发送者ID（go-cqhttp 扩展）
-        - content: 被回复消息的内容（go-cqhttp 扩展）
-        - sender.nickname: 被回复消息的发送者昵称（go-cqhttp 扩展）
+        优先读取消息链上的 Reply 组件：AstrBot 转换消息时已为每个 reply 段
+        调用过 get_msg，组件携带被回复消息的 ID、发送者与纯文本，直接读取
+        可避免对同一条消息再次调用平台 API。
+
+        回退：解析 raw OneBot 载荷的 reply 段（仅 id 可靠；user_id/content
+        为 go-cqhttp 扩展，多数协议端实现不提供，由上层决定是否再查 API）。
 
         Args:
             event: AstrBot 消息事件对象
@@ -260,6 +341,23 @@ class OneBot11Adapter(PlatformAdapter):
         Returns:
             ReplyInfo 实例，非回复消息时返回空 ReplyInfo
         """
+        # 主路：消息链 Reply 组件（sender_id 默认 0、message_str 默认 "" 需清洗）
+        chain_reply = self._find_chain_component(event, Reply)
+        if chain_reply is not None:
+            message_id = self._clean_id(chain_reply.id)
+            if message_id:
+                content = getattr(chain_reply, "message_str", None) or ""
+                if not content and chain_reply.chain:
+                    content = self._extract_text_from_chain(chain_reply.chain)
+                return ReplyInfo(
+                    message_id=message_id,
+                    user_id=self._clean_id(chain_reply.sender_id),
+                    user_name=str(
+                        getattr(chain_reply, "sender_nickname", "") or ""
+                    ),
+                    content=str(content),
+                )
+
         try:
             raw_msg = self.get_raw_message(event)
             if not raw_msg:
@@ -267,9 +365,7 @@ class OneBot11Adapter(PlatformAdapter):
 
             message_segments = raw_msg.get("message", [])
 
-            if isinstance(message_segments, str):
-                return self._parse_reply_from_cq(message_segments)
-
+            # AstrBot 上游仅放行 array 格式消息段，string/CQ 码格式不会到达这里
             if not isinstance(message_segments, list):
                 return ReplyInfo()
 
@@ -316,9 +412,11 @@ class OneBot11Adapter(PlatformAdapter):
     def get_mentioned_users(self, event: Any) -> list[tuple[str, str]]:
         """获取消息中 @提及的用户列表
 
-        从 OneBot11 消息段中提取 [CQ:at,qq=xxx] 类型的提及用户。
-        OneBot11 的 at 段结构：{"type": "at", "data": {"qq": "123456", "name": "张三"}}
-        其中 name 字段为可选（go-cqhttp 等实现会提供）。
+        优先读取消息链上的 At 组件：其 name 字段由 AstrBot 调
+        get_group_member_info/get_stranger_info 解析（raw at 段的 data.name
+        在多数 OneBot 实现中不存在）。
+
+        回退：解析 raw OneBot 载荷的 at 段（array 格式）。
 
         Args:
             event: AstrBot 消息事件对象
@@ -326,7 +424,17 @@ class OneBot11Adapter(PlatformAdapter):
         Returns:
             (user_id, user_name) 元组列表
         """
-        import re
+        # 主路：消息链 At 组件（名称已由 AstrBot 解析；AtAll 是 At 子类，跳过）
+        chain_mentions: list[tuple[str, str]] = []
+        for component in self._get_chain(event):
+            if not isinstance(component, At):
+                continue
+            qq = self._clean_id(component.qq)
+            if not qq or qq == "all":
+                continue
+            chain_mentions.append((qq, str(component.name or "")))
+        if chain_mentions:
+            return chain_mentions
 
         mentioned: list[tuple[str, str]] = []
 
@@ -337,21 +445,10 @@ class OneBot11Adapter(PlatformAdapter):
 
             message_segments = raw_msg.get("message", [])
 
-            # 字符串格式：解析 CQ 码 [CQ:at,qq=123456,name=张三]
-            if isinstance(message_segments, str):
-                for match in re.finditer(
-                    r"\[CQ:at,qq=(\d+)(?:,name=([^,\]]+))?\]",
-                    message_segments,
-                ):
-                    uid = match.group(1)
-                    name = match.group(2) or ""
-                    mentioned.append((uid, name))
-                return mentioned
-
+            # AstrBot 上游仅放行 array 格式消息段
             if not isinstance(message_segments, list):
                 return mentioned
 
-            # 段列表格式
             for segment in message_segments:
                 if not isinstance(segment, dict):
                     continue
@@ -373,25 +470,6 @@ class OneBot11Adapter(PlatformAdapter):
         except Exception as e:
             logger.error(f"提取被@用户失败: {e}")
             return mentioned
-
-    def _parse_reply_from_cq(self, message_str: str) -> ReplyInfo:
-        """从 CQ 码字符串格式中提取回复信息
-
-        Args:
-            message_str: CQ 码格式的消息字符串
-
-        Returns:
-            ReplyInfo 实例
-        """
-        import re
-
-        reply_match = re.search(r"\[CQ:reply,id=(\d+)\]", message_str)
-        if reply_match:
-            message_id = reply_match.group(1)
-            logger.debug(f"从 CQ 码提取回复信息：message_id={message_id}")
-            return ReplyInfo(message_id=message_id)
-
-        return ReplyInfo()
 
     def _extract_text_from_segments(self, segments: list[Any]) -> str:
         """从消息段列表中提取纯文本内容
@@ -426,10 +504,7 @@ class OneBot11Adapter(PlatformAdapter):
 
         message_segments = raw_msg.get("message", [])
 
-        if isinstance(message_segments, str):
-            logger.debug("消息为 CQ 码格式，暂不支持图片提取")
-            return images
-
+        # AstrBot 上游仅放行 array 格式消息段
         if not isinstance(message_segments, list):
             return images
 
@@ -446,7 +521,7 @@ class OneBot11Adapter(PlatformAdapter):
                     format=self._detect_image_format(data.get("url", "")),
                     size_kb=0,
                     source=source,
-                    message_id=raw_msg.get("message_id", ""),
+                    message_id=str(raw_msg.get("message_id", "") or ""),
                 )
 
                 images.append(image_info)
@@ -550,7 +625,11 @@ class OneBot11Adapter(PlatformAdapter):
 
         try:
             result = await asyncio.wait_for(
-                bot.call_action("get_msg", message_id=int(message_id)),
+                bot.call_action(
+                    "get_msg",
+                    message_id=int(message_id),
+                    **self._routing_params(event),
+                ),
                 timeout=5.0,
             )
         except asyncio.TimeoutError:
@@ -650,7 +729,9 @@ class OneBot11Adapter(PlatformAdapter):
                 return forward_messages
 
             for forward_id in forward_ids:
-                sub_messages = await self._fetch_forward_sub_messages(bot, forward_id)
+                sub_messages = await self._fetch_forward_sub_messages(
+                    bot, forward_id, self._routing_params(event)
+                )
                 forward_messages.extend(sub_messages)
 
             logger.debug(f"提取到 {len(forward_messages)} 条合并转发子消息")
@@ -662,13 +743,14 @@ class OneBot11Adapter(PlatformAdapter):
         return forward_messages
 
     async def _fetch_forward_sub_messages(
-        self, bot: Any, forward_id: str
+        self, bot: Any, forward_id: str, routing_params: dict[str, Any] | None = None
     ) -> List[ForwardMessage]:
         """调用 get_forward_msg API 拉取单个合并转发的子消息列表
 
         Args:
             bot: aiocqhttp Bot 实例
             forward_id: 合并转发消息的 resId
+            routing_params: 多账号路由参数（self_id），可选
 
         Returns:
             子消息列表，失败时返回空列表
@@ -677,7 +759,11 @@ class OneBot11Adapter(PlatformAdapter):
 
         try:
             result = await asyncio.wait_for(
-                bot.call_action("get_forward_msg", message_id=forward_id),
+                bot.call_action(
+                    "get_forward_msg",
+                    message_id=forward_id,
+                    **(routing_params or {}),
+                ),
                 timeout=10.0,
             )
         except asyncio.TimeoutError:

@@ -33,7 +33,7 @@ class GenericAdapter(PlatformAdapter):
     降级行为：
     - get_user_id/get_group_id/get_user_nickname: 使用 AstrBot 标准 API，正常工作
     - get_user_name: 退化为 nickname（无群名片概念）
-    - get_group_name: 返回空字符串
+    - get_group_name: 尝试读取结构化 message_obj.group.group_name，失败返回空字符串
     - get_user_role: 无法获取实际角色，群聊默认 "member"
     - get_raw_message: 尝试获取 raw_message 属性，失败返回空字典
     - get_images/get_reply_info/get_msg_by_id: 返回空值
@@ -69,7 +69,12 @@ class GenericAdapter(PlatformAdapter):
             raise
 
     def get_group_name(self, event: Any) -> str:
-        return ""
+        """获取群聊名称
+
+        读取 AstrBot 结构化字段 message_obj.group.group_name
+        （缺省哨兵 "N/A" 视为无群名），不可获取时返回空字符串。
+        """
+        return self._structured_group_name(event)
 
     def get_user_role(self, event: Any) -> str:
         try:

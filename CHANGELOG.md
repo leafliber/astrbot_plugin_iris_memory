@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **平台适配器与 AstrBot 4.x 对齐（群角色/原始昵称/群名片读取失效）**：AstrBot 的 `MessageMember` 仅含 `user_id`/`nickname`，适配器此前读取其不存在的 `card`/`role` 字段——`get_user_role` 群聊恒返回 `member`（owner/admin 识别失效），`get_user_nickname` 实际返回的是 AstrBot 合并的"群名片或昵称"。现群名片/原始昵称/群角色改从 raw OneBot 载荷的 `sender` 字典读取，载荷缺失时回退 AstrBot 合并值。
+- **@用户定向指令失效**：`executor` 以 `get_message_outline()` 解析指令，真实 @ 在其中渲染为 `[At:123456]` 而非 `@名字`，parser 无法识别；且 `get_mentioned_users` 读取 raw at 段的 `data.name`（多数协议端不提供该字段），名称匹配必然落空。现 parser 支持 `[At:123456]`（outline 形式，直接得 ID）、`@名字(123456)`（message_str 形式）与纯文本 `@名字` 三种形式，@提及名称改读消息链上 AstrBot 已调 API 解析好的 `At` 组件。
+- **多账号部署下引用回填与合并转发静默失败**：`get_msg`/`get_forward_msg` 调用未携带 `self_id` 路由参数，aiocqhttp 多反向 WS 连接下无法路由到事件所属协议端（`ApiNotAvailable` 被兜底吞掉，单连接不受影响）。现对齐 AstrBot 核心的 `routing_params` 写法统一携带 `self_id`。
+- **引用消息重复调用 get_msg**：AstrBot 转换消息时已为每个 reply 段调过 `get_msg` 并把完整结果放进消息链 `Reply` 组件，适配器现优先直接读取（发送者与纯文本一次拿全，消除双倍 API 调用），链上无 `Reply` 或仅剩裸 id 时才回退 raw 解析与 API 查询。
+- **群名称读取**：优先读取 AstrBot 结构化字段 `message_obj.group.group_name`（aiocqhttp 的 `"N/A"` 缺省哨兵映射为空），`GenericAdapter`/`CronAdapter` 同步接入（此前恒返回空字符串）。
 - **用户级 clear/delete 漏删**（`iris_mem l2/l3/all clear` 默认与 `@用户` 范围）：L2 `delete_by_user` 此前仅匹配 `active_users`，漏删 `save_memory` 工具写入的仅有 `user_id` 的记忆（清后仍被检索注入、Web 手删才可清除）；现命中条件为 `metadata.user_id == user` 或 `active_users` CSV 精确包含，`save_memory` 写入同步补齐 `active_users` 对齐 L1 总结形态。
 - **L3 按用户/按群删除漏删**：`delete_by_user` 此前仅按 `name == user_id` 精确匹配，现增加 `properties.user_id` 精确命中；跨群共享节点（`group_id` 列被其他群覆盖）通过 `properties.group_ids` CSV 命中（彻底删除语义，用户已确认）；两方法均支持 `persona_id` 过滤，`json_valid` 守卫容忍存量损坏 JSON。
 - **命令清除的 persona 归属**：`l2/l3/all clear` 群级与用户级路径现经 `resolve_persona` 解析当前人格并传入删除调用，非 default persona 命名空间的记忆不再清空落空（`--all` 保持跨 persona 全清）。
@@ -16,11 +21,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- 平台注册表对齐 AstrBot 4.x 实际协议名：`qqofficial` 更名 `qq_official`（仍待实现、降级 GenericAdapter），删除 `qq`/`gewechat` 死条目；telegram、webchat、wecom、`qq_official_webhook` 等未注册平台行为不变，统一经 GenericAdapter 降级。
+- 移除 string/CQ 码消息段解析死代码（AstrBot 上游直接丢弃非 array 格式消息，相关分支永不可达）。
 - 知识图谱「节点」列表标签的本地过滤框升级为服务端搜索（enter/按钮触发，走既有 `keyword` 检索链路，支持用户 ID/名称/内容关键词）。
 - Web「合并重复节点」端点与命令入口对齐：补调 `merge_person_nodes_by_user_id`（此前 Web 侧漏调）。
 
 ### Tests
 
+- 新增按 AstrBot 4.27.2 真实形状构造的事件夹具（`tests/platform/fakes.py`：MessageMember 仅 user_id/nickname、消息链使用真实 astrbot 组件）与 AstrBot 兼容性契约测试（`test_astrbot_compat.py`，直接断言真实 AstrBot 的字段/组件/会话形状），Mock 自动伪造属性导致的适配器形状漂移今后会立即暴露；新增指令解析器测试覆盖三种 @ 形式与 scope 校验（此前 `CommandParser.parse`/`execute_command` 零覆盖）。
 - 新增 L2 用户级删除作用域（工具记忆/多用户场景/global 保护/CSV 精确匹配）、L3 按用户与按群删除（标记命中/跨群 CSV/损坏 JSON/persona 隔离/边级联）、命令层 persona 透传、提取器空别名用户打标、`save_knowledge` Person 归一化、画像别名映射合并与构建、前端 `apiDownload` 降级链路（vitest）回归测试；修正 `save_memory` schema 快照漂移。
 
 ### Added
