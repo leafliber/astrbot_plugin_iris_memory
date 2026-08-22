@@ -33,6 +33,12 @@ Iris Memory 用一个插件完成三件彼此关联的事：让机器人长期�
 5. L2 默认需要一个 AstrBot Embedding Provider。使用本地 Embedding 时，需另行安装 `sentence-transformers`。
 6. 从 v2 升级的用户先阅读 [迁移指南](./docs/MIGRATION.md)。
 
+### 平台支持说明
+
+- **aiocqhttp（QQ 个人号 / OneBot11）**：全功能支持。
+- **qq_official / qq_official_webhook（QQ 官方机器人）**：支持 L1 缓冲、引用消息、图片记忆与频道 @ 提取。受 QQ 开放平台隐私设计限制：群聊/单聊不提供用户昵称与群名称（说话人以 openid 派生的稳定标签如 `成员_a3f2` 标识）；群聊中被 @ 的其他用户不透出；不支持合并转发解析；同一用户在群、单聊、频道是三个互不关联的身份，记忆与画像按场景自然隔离。主动回复受平台频控约束（被动回复有效期 5 分钟，主动消息额度约 4 条/用户/月）。
+- **其他平台（telegram、webchat、wecom 等）**：经通用适配器降级，基础记忆（用户/会话识别）可用，引用、图片、@ 等平台特性不可用。
+
 ## 安装
 
 在 AstrBot 插件市场安装 Iris Memory，或将本仓库放入 AstrBot 插件目录，然后重启 AstrBot。

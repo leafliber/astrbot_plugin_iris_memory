@@ -5,11 +5,11 @@ Iris Chat Memory - 平台适配器工厂
 
 支持的平台：
 - aiocqhttp: QQ 个人号（OneBot11 协议）
+- qq_official / qq_official_webhook: QQ 官方机器人（QQ 开放平台 API）
 - cron: AstrBot 内置定时任务（CronMessageEvent）
-- qq_official: QQ 官方机器人（待实现，降级到通用适配器）
 
-其余平台（telegram、webchat、wecom、qq_official_webhook 等未注册专用
-适配器的协议）统一经通用适配器 GenericAdapter 降级。
+其余平台（telegram、webchat、wecom 等未注册专用适配器的协议）
+统一经通用适配器 GenericAdapter 降级。
 
 设计要点：
 - 单例模式：每种平台适配器只创建一个实例
@@ -25,6 +25,7 @@ from iris_memory.platform.base import PlatformAdapter
 from iris_memory.platform.cron import CronAdapter
 from iris_memory.platform.generic import GenericAdapter
 from iris_memory.platform.qq import OneBot11Adapter
+from iris_memory.platform.qq_official import QQOfficialAdapter
 
 if TYPE_CHECKING:
     from astrbot.api.event import AstrMessageEvent
@@ -40,7 +41,9 @@ logger = get_logger("platform.factory")
 # 平台类型枚举值 -> 适配器类的映射（None 表示待实现，降级到 GenericAdapter）
 _ADAPTER_REGISTRY: dict[str, type[PlatformAdapter] | None] = {
     "aiocqhttp": OneBot11Adapter,  # QQ 个人号（OneBot11）
-    "qq_official": None,  # QQ 官方机器人（待实现，AstrBot 4.x 协议名）
+    "qq_official": QQOfficialAdapter,  # QQ 官方机器人（AstrBot 4.x 协议名）
+    # webhook 版复用同一消息解析（AstrBot _parse_from_qqofficial），数据形状一致
+    "qq_official_webhook": QQOfficialAdapter,
     "cron": CronAdapter,  # AstrBot 内置定时任务（CronMessageEvent）
 }
 

@@ -28,11 +28,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Tests
 
+- 新增 qq_official 适配器测试（四场景基础字段与 openid 稳定标签、raw_data 读取与 message_id 键归一化、链优先引用/图片/提及提取、机器人标记 At 排除、频道角色映射、`get_msg_by_id` 场景守卫与异常降级、工厂双平台键注册）；`fakes.py` 新增 `FakeBotpyRawMessage`（`__slots__` 形状探针，刻意无 `__dict__`，对齐 AstrBot Patched botpy 消息对象）与 `make_qq_official_event` 四场景事件工厂。
 - 新增按 AstrBot 4.27.2 真实形状构造的事件夹具（`tests/platform/fakes.py`：MessageMember 仅 user_id/nickname、消息链使用真实 astrbot 组件）与 AstrBot 兼容性契约测试（`test_astrbot_compat.py`，直接断言真实 AstrBot 的字段/组件/会话形状），Mock 自动伪造属性导致的适配器形状漂移今后会立即暴露；新增指令解析器测试覆盖三种 @ 形式与 scope 校验（此前 `CommandParser.parse`/`execute_command` 零覆盖）。
 - 新增 L2 用户级删除作用域（工具记忆/多用户场景/global 保护/CSV 精确匹配）、L3 按用户与按群删除（标记命中/跨群 CSV/损坏 JSON/persona 隔离/边级联）、命令层 persona 透传、提取器空别名用户打标、`save_knowledge` Person 归一化、画像别名映射合并与构建、前端 `apiDownload` 降级链路（vitest）回归测试；修正 `save_memory` schema 快照漂移。
 
 ### Added
 
+- **qq_official（QQ 官方机器人）平台适配器**：新增 `QQOfficialAdapter` 并注册 `qq_official`/`qq_official_webhook` 两个平台键（此前降级 GenericAdapter，引用消息、图片提取、被@用户、message_id 元数据全部丢失）。四种消息场景（群/单聊/频道/频道私信）统一适配，通过 raw 载荷特征字段探测场景、不依赖 botpy 包；引用消息与附件图片从消息链提取（AstrBot 已解析好群引用内容与归一化 https URL，图片含被引用消息内图片）；频道场景支持 mentions 真实用户提取、`member.roles` 角色映射与 `get_message` 按 ID 兜底；raw 载荷读取 Patched botpy 对象的 `raw_data`（botpy 消息类全部 `__slots__` 无 `__dict__`，通用 `__dict__` 回退必然失败）并把 `id` 键归一化为 `message_id`。平台隐私限制下的降级：群/单聊无昵称与群名（说话人以 openid 前缀派生稳定标签 `成员_xxxx`/`用户_xxxx`，跨消息恒定，群聊记忆可区分说话人）；群聊被@用户不透出（mentions 只含机器人自身，并排除 AstrBot 塞入的机器人标记 At）；无合并转发拉取。同一用户群/单聊/频道为三个互不关联的 ID 空间，画像与 Person 节点天然按场景隔离。
 - 新增默认启用的纯 `@` 回复接管：关闭 AstrBot 内置空提及等待后，纯 `@` 可进入标准 LLM 管道并仅使用 Iris L1 上下文。
 - **L2 混合检索**：向量语义路与 SQLite FTS5（trigram 分词）关键词路双路召回，RRF 倒数排名融合排序，提升专名、术语、数字等关键词的召回率。`enable_hybrid_retrieval` 可见开关默认开启，RRF k、关键词候选池倍数等调优参数为隐藏配置；关键词索引随记忆增删改双写维护并在启动时全量重建，SQLite 无 FTS5/trigram 支持时自动降级为纯向量检索。
 - **L2 召回调试页**：L2 管理页新增「召回调试」标签，可分别查看向量路/关键词路命中明细（ID、分数、内容）与 RRF 融合排序，并支持查看 FTS 索引状态与手动重建。

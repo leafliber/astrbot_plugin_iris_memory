@@ -15,7 +15,7 @@
 from dataclasses import dataclass
 from typing import Any, Optional
 
-from astrbot.api.message_components import Plain
+from astrbot.api.message_components import At, Image, Plain, Reply
 
 
 @dataclass
@@ -123,6 +123,158 @@ def make_qq_event(
         group=FakeGroup(group_id=group_id, group_name=group_name) if group_id else None,
         raw_message=raw_message,
         message=chain if chain is not None else [Plain(text="你好")],
+        self_id=self_id,
+        message_id=message_id,
+    )
+    return FakeEvent(message_obj=message_obj, platform=platform, bot=bot)
+
+
+class FakeBotpyRawMessage:
+    """对齐 AstrBot Patched botpy 消息对象形状的探针。
+
+    botpy 消息类全部使用 __slots__（实例无 __dict__），AstrBot 的
+    Patched*Message 在其上挂载 raw_data/message_type/msg_elements。
+    本类刻意同样只用 __slots__——若适配器错误依赖 __dict__ 回退，
+    使用本夹具的测试会立即失败。
+    """
+
+    __slots__ = ("raw_data", "message_type", "msg_elements")
+
+    def __init__(
+        self,
+        raw_data: dict[str, Any],
+        message_type: Any = None,
+        msg_elements: Optional[list] = None,
+    ) -> None:
+        self.raw_data = raw_data
+        self.message_type = message_type
+        self.msg_elements = msg_elements if msg_elements is not None else []
+
+
+# qq_official 四种消息场景标识
+QQ_OFFICIAL_SCENE_GROUP = "group"
+QQ_OFFICIAL_SCENE_C2C = "c2c"
+QQ_OFFICIAL_SCENE_GUILD_CHANNEL = "guild_channel"
+QQ_OFFICIAL_SCENE_GUILD_DM = "guild_dm"
+
+
+def make_qq_official_event(
+    scene: str = QQ_OFFICIAL_SCENE_GROUP,
+    message_id: str = "QQOFFMSG0001",
+    member_openid: str = "m3a1f2c3d4e5f6a7b8c9d0e1f2a3b4c5",
+    user_openid: str = "u5b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6",
+    author_id: str = "U789GUILD",
+    username: str = "频道用户",
+    roles: Optional[list] = None,
+    group_openid: str = "g7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2",
+    channel_id: str = "C1234567890",
+    guild_id: str = "G4567890123",
+    self_id: str = "B999OFFICIAL",
+    quote_id: str = "",
+    quote_content: str = "",
+    quote_image_url: str = "",
+    extra_mentions: Optional[list] = None,
+    attachments: Optional[list] = None,
+    chain: Optional[list] = None,
+    bot: Any = None,
+    platform: str = "qq_official",
+) -> FakeEvent:
+    """构造一个 qq_official 形状的消息事件（群/单聊/频道/频道私信）。
+
+    对齐 AstrBot qqofficial 解析产物的形状：
+    - raw_message 为 FakeBotpyRawMessage（__slots__ 探针，无 __dict__）
+    - 群/单聊场景 sender.nickname 为空（平台不提供昵称）
+    - 消息链按 AstrBot 的组装顺序：Reply（引用）→ 标记 At → Plain →
+      附件 Image（标记 At 的 qq 为群场景 self_id 或字面量 "qq_official"）
+    - 附件 URL 已按 AstrBot 的方式归一化为 https 前缀（raw 载荷中为 // 前缀）
+    """
+    raw_data: dict[str, Any] = {
+        "id": message_id,
+        "content": "你好",
+        "attachments": [],
+    }
+    marker_at: At
+    sender: FakeMessageMember
+    group: Optional[FakeGroup]
+
+    if scene == QQ_OFFICIAL_SCENE_GROUP:
+        raw_data["group_openid"] = group_openid
+        raw_data["author"] = {"member_openid": member_openid}
+        # 平台隐私设计：mentions 只下发机器人自身
+        raw_data["mentions"] = [
+            {
+                "id": self_id,
+                "username": "IrisBot",
+                "bot": True,
+                "is_you": True,
+            }
+        ]
+        sender = FakeMessageMember(user_id=member_openid, nickname="")
+        group = FakeGroup(group_id=group_openid, group_name=None)
+        marker_at = At(qq=self_id, name="IrisBot")
+    elif scene == QQ_OFFICIAL_SCENE_C2C:
+        raw_data["author"] = {"user_openid": user_openid}
+        sender = FakeMessageMember(user_id=user_openid, nickname="")
+        group = None
+        marker_at = At(qq="qq_official")
+    elif scene == QQ_OFFICIAL_SCENE_GUILD_CHANNEL:
+        raw_data["channel_id"] = channel_id
+        raw_data["guild_id"] = guild_id
+        raw_data["author"] = {"id": author_id, "username": username, "bot": False}
+        raw_data["member"] = {"roles": roles if roles is not None else ["5"]}
+        raw_data["mentions"] = [
+            {"id": self_id, "username": "IrisBot", "bot": True, "is_you": True}
+        ] + (extra_mentions or [])
+        sender = FakeMessageMember(user_id=author_id, nickname=username)
+        group = FakeGroup(group_id=channel_id, group_name=None)
+        marker_at = At(qq="qq_official")
+    elif scene == QQ_OFFICIAL_SCENE_GUILD_DM:
+        raw_data["channel_id"] = channel_id
+        raw_data["guild_id"] = guild_id
+        raw_data["direct_message"] = True
+        raw_data["author"] = {"id": author_id, "username": username, "bot": False}
+        sender = FakeMessageMember(user_id=author_id, nickname=username)
+        group = None
+        marker_at = At(qq="qq_official")
+    else:
+        raise ValueError(f"未知 qq_official 场景: {scene}")
+
+    if attachments is not None:
+        raw_data["attachments"] = attachments
+
+    # 默认消息链按 AstrBot 组装顺序构造；引用消息在最前
+    if chain is None:
+        chain = []
+        if quote_id:
+            quote_chain: list = [Plain(text=quote_content)]
+            if quote_image_url:
+                quote_chain.append(Image.fromURL(quote_image_url))
+            chain.append(
+                Reply(
+                    id=quote_id,
+                    chain=quote_chain if quote_content or quote_image_url else [],
+                    message_str=quote_content,
+                )
+            )
+        chain.append(marker_at)
+        chain.append(Plain(text="你好"))
+        if attachments:
+            for attachment in attachments:
+                url = str(attachment.get("url") or "")
+                if attachment.get("content_type", "").startswith("image") and url:
+                    normalized = (
+                        "https://" + url[2:] if url.startswith("//") else url
+                    )
+                    chain.append(Image.fromURL(normalized))
+
+    message_obj = FakeAstrBotMessage(
+        sender=sender,
+        group=group,
+        raw_message=FakeBotpyRawMessage(
+            raw_data=raw_data,
+            message_type=103 if quote_id else 0,
+        ),
+        message=chain,
         self_id=self_id,
         message_id=message_id,
     )
