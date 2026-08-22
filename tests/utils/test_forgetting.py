@@ -194,6 +194,46 @@ class TestCalculateForgettingScore:
 
             assert 0 < score <= 1.0
 
+    def test_importance_raises_score(self, mock_config):
+        """同条件下高重要度记忆评分更高"""
+
+        def make_entry(importance: float) -> MemoryEntry:
+            return MemoryEntry(
+                id="mem_i",
+                content="重要度对照记忆",
+                metadata={
+                    "last_access_time": datetime.now().isoformat(),
+                    "access_count": 3,
+                    "confidence": 0.6,
+                    "importance": importance,
+                },
+            )
+
+        with patch("iris_memory.utils.forgetting.get_config", return_value=mock_config):
+            high = calculate_forgetting_score(make_entry(0.8))
+            low = calculate_forgetting_score(make_entry(0.2))
+
+        assert high > low
+
+    def test_missing_importance_defaults_medium(self, mock_config):
+        """旧数据无 importance 字段时回退 medium(0.5)"""
+        entry = MemoryEntry(
+            id="mem_default",
+            content="无重要度字段的旧记忆",
+            metadata={
+                "last_access_time": datetime.now().isoformat(),
+                "access_count": 3,
+                "confidence": 0.6,
+            },
+        )
+
+        assert entry.importance == 0.5
+
+        with patch("iris_memory.utils.forgetting.get_config", return_value=mock_config):
+            score = calculate_forgetting_score(entry)
+
+        assert 0 < score <= 1.0
+
 
 class TestShouldEvict:
     """should_evict 测试"""

@@ -177,19 +177,24 @@ class Summarizer:
 - **medium**：合理推断但未直接确认（如张三讨论多个编程问题→可能对编程感兴趣）
 - **low**：模糊或可能变化（如"张三最近在忙"）
 
+## 重要度（importance）
+- **high**：长期稳定的核心信息——身份、职业、亲密关系、重大事件、持久偏好（如"张三是Python程序员"）
+- **medium**：一般性事实与阶段性信息（如"李四下周三去北京出差"）
+- **low**：边缘信息，价值存疑但不至于丢弃
+
 ## 输出格式
 直接输出 JSON（禁止 ```json 包裹、禁止解释文字），第一个字符必须是 {{：
 
 {{
   "memories": [
-    {{"content": "张三是Python程序员，正在学习装饰器", "confidence": "high"}},
-    {{"content": "李四下周三要去北京出差", "confidence": "high"}}
+    {{"content": "张三是Python程序员，正在学习装饰器", "confidence": "high", "importance": "high"}},
+    {{"content": "李四下周三要去北京出差", "confidence": "high", "importance": "medium"}}
   ]
 }}
 
 无值得记录的信息时输出：{{"memories": []}}
 
-confidence 只能是 high/medium/low。仅提取"需要总结的对话片段"中的记忆。"""
+confidence 与 importance 只能是 high/medium/low。仅提取"需要总结的对话片段"中的记忆。"""
 
         return prompt
 
@@ -286,14 +291,27 @@ def parse_summary_response(response: str) -> dict:
                     confidence = item.get("confidence", "medium")
                     if confidence not in ("high", "medium", "low"):
                         confidence = "medium"
+                    importance = item.get("importance", "medium")
+                    if importance not in ("high", "medium", "low"):
+                        importance = "medium"
                     if content:
                         normalized.append(
-                            {"content": content, "confidence": confidence}
+                            {
+                                "content": content,
+                                "confidence": confidence,
+                                "importance": importance,
+                            }
                         )
                 elif isinstance(item, str):
                     content = item.lstrip("- ").strip()
                     if content:
-                        normalized.append({"content": content, "confidence": "medium"})
+                        normalized.append(
+                            {
+                                "content": content,
+                                "confidence": "medium",
+                                "importance": "medium",
+                            }
+                        )
 
             result["memories"] = normalized
 
@@ -319,7 +337,13 @@ def parse_summary_response(response: str) -> dict:
         if line.startswith("- "):
             content = line[2:].strip()
             if content:
-                memories.append({"content": content, "confidence": "medium"})
+                memories.append(
+                    {
+                        "content": content,
+                        "confidence": "medium",
+                        "importance": "medium",
+                    }
+                )
 
     if memories:
         result["memories"] = memories
@@ -338,6 +362,19 @@ def confidence_to_float(confidence: str) -> float:
     """
     mapping = {"high": 0.85, "medium": 0.6, "low": 0.35}
     return mapping.get(confidence, 0.5)
+
+
+def importance_to_float(importance: str) -> float:
+    """将重要度档位转换为浮点数（三档映射，与 confidence 同构）
+
+    Args:
+        importance: 重要度级别（high/medium/low）
+
+    Returns:
+        重要度浮点数，未知值回退 medium
+    """
+    mapping = {"high": 0.8, "medium": 0.5, "low": 0.2}
+    return mapping.get(importance, 0.5)
 
 
 def format_memories_for_l2(memories: list[str]) -> str:

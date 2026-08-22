@@ -30,6 +30,7 @@ class MemoryEntry:
             - access_count: 访问次数
             - last_access_time: 最近访问时间
             - confidence: 置信度
+            - importance: 重要度（可选，默认 0.5）
             - source: 来源（summary/tool）
         persona_id: 人格ID，用于人格命名空间隔离（SQLite 独立列，
             不属于 metadata）。导出/导入必须透传此字段，否则模型迁移
@@ -136,6 +137,18 @@ class MemoryEntry:
             置信度分数，默认为 0.5
         """
         return self.metadata.get("confidence", 0.5)
+
+    @property
+    def importance(self) -> float:
+        """获取重要度
+
+        三档映射（high=0.8/medium=0.5/low=0.2），写入时由总结提示词、
+        save_memory 工具参数评定；旧数据无此字段时回退 medium。
+
+        Returns:
+            重要度分数 [0, 1]，默认为 0.5
+        """
+        return self.metadata.get("importance", 0.5)
 
     @property
     def kg_processed(self) -> bool:

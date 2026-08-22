@@ -325,12 +325,17 @@ export const useMemoryStore = defineStore('memory', () => {
     return count
   }
 
-  const updateL2Entry = async (id: string, content: string) => {
-    await memoryApi.updateL2Entry(id, content)
+  const updateL2Entry = async (id: string, content: string, scope?: string) => {
+    await memoryApi.updateL2Entry(id, content, scope)
     const updateInList = (list: L2Memory[]) => {
       const item = list.find(r => r.id === id)
       if (item) {
         item.content = content
+        if (scope === 'global') {
+          item.metadata.scope = 'global'
+        } else if (scope === 'group') {
+          delete item.metadata.scope
+        }
       }
     }
     updateInList(l2LatestResults.value)

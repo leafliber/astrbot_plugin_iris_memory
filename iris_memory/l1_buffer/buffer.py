@@ -909,7 +909,11 @@ class L1Buffer(Component):
 
         try:
             from iris_memory.l2_memory import MemoryRetriever
-            from .summarizer import parse_summary_response, confidence_to_float
+            from .summarizer import (
+                parse_summary_response,
+                confidence_to_float,
+                importance_to_float,
+            )
 
             retriever = MemoryRetriever(self._component_manager)
 
@@ -939,7 +943,7 @@ class L1Buffer(Component):
                 fallback_items = self._parse_summary_items(summary)
                 if fallback_items:
                     summary_items = [
-                        {"content": item, "confidence": "medium"}
+                        {"content": item, "confidence": "medium", "importance": "medium"}
                         for item in fallback_items
                     ]
                     logger.warning(
@@ -986,6 +990,8 @@ class L1Buffer(Component):
 
                 confidence_str = item.get("confidence", "medium")
                 confidence_value = confidence_to_float(confidence_str)
+                importance_str = item.get("importance", "medium")
+                importance_value = importance_to_float(importance_str)
 
                 user_id, user_name = self._extract_user_and_name_from_item(
                     content, name_to_id
@@ -1005,6 +1011,8 @@ class L1Buffer(Component):
                     "timestamp": datetime.now().isoformat(),
                     "confidence": confidence_value,
                     "confidence_level": confidence_str,
+                    "importance": importance_value,
+                    "importance_level": importance_str,
                     "kg_processed": False,
                 }
 

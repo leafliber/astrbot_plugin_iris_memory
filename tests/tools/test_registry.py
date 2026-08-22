@@ -81,6 +81,32 @@ EXPECTED_SCHEMAS = {
                 "description": "置信度（0.0-1.0，表示记忆的可靠性）",
                 "default": 1.0,
             },
+            "importance": {
+                "type": "string",
+                "enum": ["high", "medium", "low"],
+                "description": (
+                    "重要度：high=长期稳定的核心信息（身份/职业/亲密关系/重大事件/持久偏好），"
+                    "medium=一般性事实与阶段性信息，low=边缘信息"
+                ),
+                "default": "medium",
+            },
+            "ttl_hours": {
+                "type": "number",
+                "description": (
+                    "存活时长（小时，可选）。仅对确实会过期的临时事实设置，"
+                    "如「明天考试」「这周末搬家」；长期信息不要设置"
+                ),
+            },
+            "scope": {
+                "type": "string",
+                "enum": ["group", "global"],
+                "description": (
+                    "作用域：group=仅当前群可见可检索（默认）；"
+                    "global=全局共享，所有群与私聊均可检索。"
+                    "仅当信息属于 bot 自身/主人等跨群通用事实时才用 global"
+                ),
+                "default": "group",
+            },
             "tags": {
                 "type": "array",
                 "items": {"type": "string"},

@@ -1,6 +1,6 @@
 """保存记忆 LLM Tool"""
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from pydantic import Field
 from pydantic.dataclasses import dataclass
 from astrbot.core.agent.tool import FunctionTool, ToolExecResult
@@ -36,6 +36,32 @@ class SaveMemoryTool(FunctionTool[AstrAgentContext]):
                     "description": "置信度（0.0-1.0，表示记忆的可靠性）",
                     "default": 1.0,
                 },
+                "importance": {
+                    "type": "string",
+                    "enum": ["high", "medium", "low"],
+                    "description": (
+                        "重要度：high=长期稳定的核心信息（身份/职业/亲密关系/重大事件/持久偏好），"
+                        "medium=一般性事实与阶段性信息，low=边缘信息"
+                    ),
+                    "default": "medium",
+                },
+                "ttl_hours": {
+                    "type": "number",
+                    "description": (
+                        "存活时长（小时，可选）。仅对确实会过期的临时事实设置，"
+                        "如「明天考试」「这周末搬家」；长期信息不要设置"
+                    ),
+                },
+                "scope": {
+                    "type": "string",
+                    "enum": ["group", "global"],
+                    "description": (
+                        "作用域：group=仅当前群可见可检索（默认）；"
+                        "global=全局共享，所有群与私聊均可检索。"
+                        "仅 AstrBot 机器人管理员可创建 global；其他用户会自动降级为 group"
+                    ),
+                    "default": "group",
+                },
                 "tags": {
                     "type": "array",
                     "items": {"type": "string"},
@@ -56,6 +82,7 @@ class SaveMemoryTool(FunctionTool[AstrAgentContext]):
             **kwargs: Tool参数
                 - content: 记忆内容
                 - confidence: 置信度（可选）
+                - importance: 重要度high/medium/low（可选）
                 - tags: 标签列表（可选）
 
         Returns:
@@ -65,10 +92,18 @@ class SaveMemoryTool(FunctionTool[AstrAgentContext]):
             # 获取参数
             content = kwargs.get("content", "").strip()
             confidence = kwargs.get("confidence", 1.0)
+            importance = kwargs.get("importance", "medium")
+            ttl_hours = kwargs.get("ttl_hours")
+            scope = kwargs.get("scope", "group")
             tags = kwargs.get("tags", [])
 
             if not content:
                 return "记忆内容不能为空"
+
+            if importance not in ("high", "medium", "low"):
+                importance = "medium"
+            if scope not in ("group", "global"):
+                scope = "group"
 
             from iris_memory.utils import sanitize_input
 
@@ -85,6 +120,23 @@ class SaveMemoryTool(FunctionTool[AstrAgentContext]):
             group_id = adapter.get_group_id(event)
             user_name = adapter.get_user_name(event) or "未知用户"
 
+            # global 会跨群/私聊共享，不能把 LLM 的参数选择当作权限边界。
+            # 只接受 AstrBot 配置的机器人管理员；群主/群管理员并不自动获得
+            # 跨群写权限。无法证明管理员身份时一律保守降级为 group。
+            scope_downgraded = False
+            if scope == "global":
+                try:
+                    global_allowed = event.is_admin() is True
+                except Exception:
+                    global_allowed = False
+                if not global_allowed:
+                    scope = "group"
+                    scope_downgraded = True
+                    logger.warning(
+                        "拒绝未授权的全局记忆写入，已降级为群作用域: "
+                        f"user={user_id}, group={group_id}"
+                    )
+
             # 始终保留真实 group_id：检索侧根据 enable_group_memory_isolation
             # 决定是否过滤，写入侧无需剥离，以便用户后续开启隔离时历史记忆可按群过滤
             # 获取L2记忆适配器
@@ -100,6 +152,8 @@ class SaveMemoryTool(FunctionTool[AstrAgentContext]):
 
             now = datetime.now().isoformat()
 
+            from iris_memory.l1_buffer.summarizer import importance_to_float
+
             metadata = {
                 "user_id": user_id,
                 "user_name": user_name,
@@ -108,9 +162,28 @@ class SaveMemoryTool(FunctionTool[AstrAgentContext]):
                 "access_count": 1,
                 "last_access_time": now,
                 "confidence": confidence,
+                "importance": importance_to_float(importance),
+                "importance_level": importance,
                 "source": "tool",
                 "tags": tags,
             }
+
+            # 全局共享记忆显式标记，供检索隔离豁免与清理保护
+            if scope == "global":
+                metadata["scope"] = "global"
+
+            # TTL：仅当提供合法正数 ttl_hours 时写入 expires_at
+            expires_at = None
+            if ttl_hours is not None:
+                try:
+                    ttl_hours = float(ttl_hours)
+                except (TypeError, ValueError):
+                    ttl_hours = None
+                if ttl_hours is not None and ttl_hours > 0:
+                    expires_at = (
+                        datetime.now() + timedelta(hours=ttl_hours)
+                    ).isoformat()
+                    metadata["expires_at"] = expires_at
 
             memory_id = await l2_adapter.add_memory(
                 content, metadata, persona_id=persona_id
@@ -122,13 +195,20 @@ class SaveMemoryTool(FunctionTool[AstrAgentContext]):
             logger.info(
                 f"LLM保存记忆: user={user_id}, group={group_id}, "
                 f"content={content[:50]}..., confidence={confidence}"
+                f"{f', expires_at={expires_at}' if expires_at else ''}"
             )
 
+            ttl_line = f"\n过期时间: {expires_at}" if expires_at else ""
+            scope_line = (
+                "\n作用域: group（未授权创建全局记忆，已自动降级）"
+                if scope_downgraded
+                else f"\n作用域: {scope}"
+            )
             return (
                 f"✓ 已保存记忆到长期记忆库\n"
                 f"ID: {memory_id}\n"
                 f"内容: {content[:100]}{'...' if len(content) > 100 else ''}\n"
-                f"置信度: {confidence:.2f}"
+                f"置信度: {confidence:.2f}{ttl_line}{scope_line}"
             )
 
         except Exception as e:

@@ -31,13 +31,14 @@ class TestMemoryRetriever:
 
     @pytest.fixture
     def mock_config(self):
-        """模拟配置"""
+        """模拟配置（关闭混合检索，保持纯向量路径语义）"""
         config = Mock()
         config.get = Mock(
             side_effect=lambda key, default=None: {
                 "l2_memory.top_k": 10,
                 "isolation_config.enable_group_memory_isolation": False,
                 "l2_memory.relevance_threshold": 0.3,
+                "l2_memory.enable_hybrid_retrieval": False,
                 "token_budget_max_tokens": 2000,
             }.get(key, default)
         )
@@ -86,6 +87,7 @@ class TestMemoryRetriever:
                 "l2_memory.top_k": 10,
                 "isolation_config.enable_group_memory_isolation": True,
                 "l2_memory.relevance_threshold": 0.3,
+                "l2_memory.enable_hybrid_retrieval": False,
             }.get(key, default)
         )
 
@@ -109,6 +111,7 @@ class TestMemoryRetriever:
                 "l2_memory.top_k": 10,
                 "isolation_config.enable_group_memory_isolation": False,
                 "l2_memory.relevance_threshold": 0.3,
+                "l2_memory.enable_hybrid_retrieval": False,
             }.get(key, default)
         )
 
@@ -196,3 +199,71 @@ class TestMemoryRetriever:
             context = await retriever.retrieve_for_context("测试查询")
 
             assert context == ""
+
+
+class TestHybridRouting:
+    """混合检索路由：启用走 retrieve_hybrid，关闭走向量路 + 阈值过滤"""
+
+    @pytest.fixture
+    def adapter_with_mocks(self):
+        adapter = Mock(spec=L2MemoryAdapter)
+        adapter.is_available = True
+        adapter.batch_update_access = AsyncMock(return_value=0)
+        manager = Mock(spec=ComponentManager)
+        manager.get_component = Mock(return_value=adapter)
+        return manager, adapter
+
+    def _config(self, hybrid: bool):
+        config = Mock()
+        config.get = Mock(
+            side_effect=lambda key, default=None: {
+                "l2_memory.top_k": 10,
+                "isolation_config.enable_group_memory_isolation": False,
+                "l2_memory.relevance_threshold": 0.3,
+                "l2_memory.enable_hybrid_retrieval": hybrid,
+            }.get(key, default)
+        )
+        return config
+
+    @pytest.mark.asyncio
+    async def test_hybrid_enabled_routes_to_hybrid(self, adapter_with_mocks):
+        manager, adapter = adapter_with_mocks
+        entry = MemoryEntry(id="mem_h1", content="混合记忆", metadata={})
+        fused = MemorySearchResult(entry=entry, score=0.03, distance=0.97)
+        adapter.retrieve_hybrid = AsyncMock(return_value=[fused])
+        adapter.retrieve = AsyncMock(return_value=[])
+
+        with patch(
+            "iris_memory.l2_memory.retriever.get_config",
+            return_value=self._config(True),
+        ):
+            retriever = MemoryRetriever(manager)
+            results = await retriever.retrieve("混合记忆", group_id="g")
+
+        adapter.retrieve_hybrid.assert_called_once()
+        # 阈值作为参数传入向量路，融合结果不再被阈值二次过滤
+        assert 0.3 in adapter.retrieve_hybrid.call_args[0]
+        adapter.retrieve.assert_not_called()
+        assert len(results) == 1 and results[0].entry.id == "mem_h1"
+
+    @pytest.mark.asyncio
+    async def test_hybrid_disabled_filters_by_threshold(self, adapter_with_mocks):
+        manager, adapter = adapter_with_mocks
+        low = MemorySearchResult(
+            entry=MemoryEntry(id="mem_low", content="低分", metadata={}),
+            score=0.1,
+            distance=0.9,
+        )
+        adapter.retrieve = AsyncMock(return_value=[low])
+        adapter.retrieve_hybrid = AsyncMock(return_value=[])
+
+        with patch(
+            "iris_memory.l2_memory.retriever.get_config",
+            return_value=self._config(False),
+        ):
+            retriever = MemoryRetriever(manager)
+            results = await retriever.retrieve("低分", group_id="g")
+
+        adapter.retrieve.assert_called_once()
+        adapter.retrieve_hybrid.assert_not_called()
+        assert results == []

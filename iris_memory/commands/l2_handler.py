@@ -23,6 +23,7 @@ class L2CommandHandler(CommandHandler):
     支持的子指令：
     - clear: 清空记忆库
     - stats: 查看统计信息
+    - restore: 恢复归档记忆
     """
 
     @property
@@ -38,6 +39,7 @@ class L2CommandHandler(CommandHandler):
         return {
             "clear": "清空记忆库",
             "stats": "查看统计信息",
+            "restore": "恢复归档记忆（梦境淘汰的记忆 30 天内可恢复）",
         }
 
     async def handle(
@@ -52,6 +54,8 @@ class L2CommandHandler(CommandHandler):
             return await self._handle_stats(event, args)
         elif sub_command == "clear":
             return await self._handle_clear(event, args)
+        elif sub_command == "restore":
+            return await self._handle_restore(event, args)
         elif sub_command == "help":
             return CommandResult(success=True, message=self.get_help_text())
         else:
@@ -127,4 +131,39 @@ class L2CommandHandler(CommandHandler):
             success=True,
             message=message,
             details={"removed_count": removed_count, "scope": scope.value},
+        )
+
+    async def _handle_restore(
+        self, event: "AstrMessageEvent", args: ParsedArgs
+    ) -> CommandResult:
+        """恢复指定 ID 的归档记忆"""
+        memory_id = args.raw_args[1] if len(args.raw_args) > 1 else None
+        if not memory_id:
+            return CommandResult(
+                success=False,
+                message="请提供要恢复的记忆 ID，例如：iris_mem l2 restore mem_xxxx",
+            )
+
+        manager = get_component_manager()
+        if not manager:
+            return CommandResult(success=False, message="组件管理器不可用")
+
+        l2_adapter = manager.get_component("l2_memory", L2MemoryAdapter)
+        if not l2_adapter or not l2_adapter.is_available:
+            return CommandResult(success=False, message="L2 记忆库组件不可用")
+
+        restored = await l2_adapter.restore_archived_memory(memory_id)
+        if restored:
+            logger.info(f"L2 restore 操作: memory_id={memory_id}")
+            return CommandResult(
+                success=True,
+                message=f"✅ 已恢复归档记忆 {memory_id}",
+                details={"memory_id": memory_id},
+            )
+        return CommandResult(
+            success=False,
+            message=(
+                f"❌ 恢复失败：归档中不存在 {memory_id}，"
+                "或该 ID 已存在于正式记忆库"
+            ),
         )

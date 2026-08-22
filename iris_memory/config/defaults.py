@@ -42,6 +42,7 @@ class L2MemoryConfig:
     embedding_model: str = "BAAI/bge-small-zh-v1.5"
     top_k: int = 10
     relevance_threshold: float = 0.3
+    enable_hybrid_retrieval: bool = True
 
 
 @dataclass
@@ -183,7 +184,7 @@ class HiddenConfig:
         metadata={"description": "极端低分直接淘汰阈值", "group": "遗忘算法"},
     )
 
-    # L2 记忆遗忘评分权重 S = w_recency·R + w_frequency·F + w_confidence·C + w_isolation·(1-D)
+    # L2 记忆遗忘评分权重 S = w_recency·R + w_frequency·F + w_confidence·C + w_isolation·(1-D) + w_importance·I
     forgetting_l2_weight_recency: float = field(
         default=0.4,
         metadata={"description": "L2 遗忘评分: 近因性权重", "group": "遗忘算法"},
@@ -195,6 +196,10 @@ class HiddenConfig:
     forgetting_l2_weight_confidence: float = field(
         default=0.25,
         metadata={"description": "L2 遗忘评分: 置信度权重", "group": "遗忘算法"},
+    )
+    forgetting_l2_weight_importance: float = field(
+        default=0.3,
+        metadata={"description": "L2 遗忘评分: 重要度权重", "group": "遗忘算法"},
     )
     forgetting_l2_weight_isolation: float = field(
         default=0.0,
@@ -255,6 +260,55 @@ class HiddenConfig:
     l2_timeout_ms: int = field(
         default=4000,
         metadata={"description": "L2 检索超时(ms)", "group": "L2 记忆"},
+    )
+    l2_hybrid_rrf_k: int = field(
+        default=60,
+        metadata={
+            "description": "混合检索 RRF 融合常数 k，越大则两路排名差距越平滑",
+            "group": "L2 记忆",
+        },
+    )
+    l2_hybrid_keyword_pool_factor: int = field(
+        default=3,
+        metadata={
+            "description": "混合检索关键词路候选池倍数（候选数 = top_k × 倍数）",
+            "group": "L2 记忆",
+        },
+    )
+    l2_hybrid_enable_fts_debug: bool = field(
+        default=False,
+        metadata={
+            "description": "混合检索时输出两路命中明细到日志",
+            "group": "L2 记忆",
+        },
+    )
+    l2_hybrid_global_scope_factor: float = field(
+        default=0.8,
+        metadata={
+            "description": "全局共享记忆（scope=global）的 RRF 融合分降权系数，1 表示不降权",
+            "group": "L2 记忆",
+        },
+    )
+    l2_enable_hit_reinforcement: bool = field(
+        default=True,
+        metadata={
+            "description": "对话检索命中时渐近提升记忆重要度（梦境扫描不触发）",
+            "group": "L2 记忆",
+        },
+    )
+    l2_hit_reinforcement_step: float = field(
+        default=0.1,
+        metadata={
+            "description": "命中强化步长：I' = I + step·(1-I)，渐近自限",
+            "group": "L2 记忆",
+        },
+    )
+    l2_archive_retention_days: int = field(
+        default=30,
+        metadata={
+            "description": "归档记忆保留天数，超期由梦境自动清除",
+            "group": "L2 记忆",
+        },
     )
 
     # L3 知识图谱参数

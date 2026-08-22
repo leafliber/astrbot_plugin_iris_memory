@@ -193,6 +193,12 @@
         "default": 0.3,
         "description": "相关性阈值",
         "hint": "低于此分数的检索结果将被过滤，0 表示不过滤，推荐 0.2-0.5"
+      },
+      "enable_hybrid_retrieval": {
+        "type": "bool",
+        "default": true,
+        "description": "启用混合检索",
+        "hint": "同时使用向量语义与关键词（BM25/FTS5）双路召回并以 RRF 融合排序，提升专名、术语、数字等关键词的召回率"
       }
     }
   },

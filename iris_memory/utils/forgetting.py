@@ -3,13 +3,14 @@ Iris Chat Memory - 遗忘权重算法
 
 实现记忆遗忘评分算法，用于评估记忆的重要性和淘汰优先级。
 
-算法公式：S = w1·R + w2·F + w3·C + w4·(1 - D)
+算法公式：S = w1·R + w2·F + w3·C + w4·(1 - D) + w5·I
 
 其中：
 - R (Recency): 近因性 - 最近访问时间的影响
 - F (Frequency): 频率性 - 访问次数的影响
 - C (Confidence): 置信度 - 记忆质量的影响
 - D (Degree): 孤立度 - 缺乏关联的影响（图谱中使用）
+- I (Importance): 重要度 - 写入时评定的长期价值（三档映射）
 
 得分越高，记忆越重要，越不容易被淘汰。
 """
@@ -153,14 +154,14 @@ def calculate_forgetting_score(
 ) -> float:
     """计算综合遗忘评分
 
-    综合考虑近因性、频率性、置信度和孤立度，计算记忆的重要性得分。
+    综合考虑近因性、频率性、置信度、孤立度和重要度，计算记忆的重要性得分。
     得分越高，记忆越重要，越不容易被淘汰。
 
-    公式：S = w1·R + w2·F + w3·C + w4·(1 - D)
+    公式：S = w1·R + w2·F + w3·C + w4·(1 - D) + w5·I
 
     Args:
         entry: 记忆条目
-        weights: 权重字典，包含 w1, w2, w3, w4
+        weights: 权重字典，包含 w1, w2, w3, w4, w5
 
     Returns:
         综合评分 [0, 1]，越接近 1 表示越重要
@@ -191,6 +192,7 @@ def calculate_forgetting_score(
             "w2": cast(float, config.get("forgetting_l2_weight_frequency", 0.35)),
             "w3": cast(float, config.get("forgetting_l2_weight_confidence", 0.25)),
             "w4": cast(float, config.get("forgetting_l2_weight_isolation", 0.0)),
+            "w5": cast(float, config.get("forgetting_l2_weight_importance", 0.3)),
         }
 
     lambda_decay = float(config.get("forgetting_lambda", 0.1))  # type: ignore[arg-type]
@@ -199,12 +201,15 @@ def calculate_forgetting_score(
     F = calculate_frequency(entry.access_count)
     C = calculate_confidence(entry.confidence)
     D = calculate_isolation_degree(entry.metadata)
+    I = calculate_confidence(entry.importance)
 
+    # 显式自定义权重字典可省略 w5（缺省 0，等价旧四项公式）
     score = (
         weights["w1"] * R
         + weights["w2"] * F
         + weights["w3"] * C
         + weights["w4"] * (1 - D)
+        + weights.get("w5", 0.0) * I
     )
 
     weight_sum = sum(weights.values())

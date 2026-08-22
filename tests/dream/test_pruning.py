@@ -42,6 +42,8 @@ class TestPruningPhase:
     async def test_execute_l2_unavailable(self, phase):
         l2 = Mock()
         l2.is_available = False
+        l2.purge_expired_archives = AsyncMock(return_value=0)
+        l2.purge_expired_memories = AsyncMock(return_value=0)
         l3 = None
         llm = None
 
@@ -56,6 +58,8 @@ class TestPruningPhase:
         l2 = Mock()
         l2.is_available = True
         l2.get_all_entries = AsyncMock(return_value=[])
+        l2.purge_expired_archives = AsyncMock(return_value=0)
+        l2.purge_expired_memories = AsyncMock(return_value=0)
         l3 = Mock()
         l3.is_available = False
         llm = None
@@ -170,6 +174,8 @@ class TestPruningPhase:
     async def test_execute_with_entries_parameter(self, phase):
         l2 = Mock()
         l2.is_available = True
+        l2.purge_expired_archives = AsyncMock(return_value=0)
+        l2.purge_expired_memories = AsyncMock(return_value=0)
         l3 = Mock()
         l3.is_available = False
         llm = None

@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - 新增默认启用的纯 `@` 回复接管：关闭 AstrBot 内置空提及等待后，纯 `@` 可进入标准 LLM 管道并仅使用 Iris L1 上下文。
+- **L2 混合检索**：向量语义路与 SQLite FTS5（trigram 分词）关键词路双路召回，RRF 倒数排名融合排序，提升专名、术语、数字等关键词的召回率。`enable_hybrid_retrieval` 可见开关默认开启，RRF k、关键词候选池倍数等调优参数为隐藏配置；关键词索引随记忆增删改双写维护并在启动时全量重建，SQLite 无 FTS5/trigram 支持时自动降级为纯向量检索。
+- **L2 召回调试页**：L2 管理页新增「召回调试」标签，可分别查看向量路/关键词路命中明细（ID、分数、内容）与 RRF 融合排序，并支持查看 FTS 索引状态与手动重建。
+- **记忆重要度（importance）**：总结提示词同批输出（high/medium/low 三档映射 0.8/0.5/0.2）、`save_memory` 工具参数传入；接入遗忘评分新增 w5·I 项（`forgetting_l2_weight_importance` 默认 0.3，不参与检索排序）。
+- **命中强化**：对话检索命中时渐近提升重要度（I' = I + step·(1−I)，`l2_hit_reinforcement_step` 默认 0.1，隐藏开关默认开），跨 0.65/0.35 阈值时同步 importance_level；梦境扫描不触发。
+- **归档与恢复**：梦境遗忘淘汰改为移入归档表（保留原向量，恢复免重嵌入），30 天保留期（`l2_archive_retention_days`）由梦境自动清除超期项；支持 `iris_mem l2 restore <id>` 指令与 L2 管理页「归档」标签（浏览/恢复/彻底删除）。用户显式 clear/删除仍为硬删。
+- **TTL 过期**：`save_memory` 工具新增 `ttl_hours` 可选参数，为临时事实写入 `expires_at`；向量路、关键词路检索均过滤过期记忆，梦境每轮硬删过期条目。
+- **`/remember` 学习手令**：`iris_mem learning remember <上下文> => <表达示例>` 将对话对与表达模式双写进风格学习链（scene 取上下文前 20 字），人工手令直接 approved 生效，无需等待审查。
+- **全局共享作用域**：`save_memory` 工具新增 `scope` 参数（group/global）、L2 编辑对话框可切换作用域；`scope=global` 的记忆不受群隔离限制（向量路、关键词路、计数守卫均豁免），RRF 融合分按 `l2_hybrid_global_scope_factor`（默认 0.8）降权；群级/用户级 clear 跳过全局记忆，`clear --all` 仍全删。
 
 ### Changed
 

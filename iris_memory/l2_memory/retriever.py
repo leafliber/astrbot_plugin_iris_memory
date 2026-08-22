@@ -102,19 +102,25 @@ class MemoryRetriever:
         if not enable_group_isolation:
             group_id = None
 
-        results = await adapter.retrieve(query, group_id, top_k, persona_id)
-
         relevance_threshold = config.get("l2_memory.relevance_threshold", 0.3)
-        if relevance_threshold > 0:
-            filtered = [r for r in results if r.score >= relevance_threshold]
-            if len(filtered) < len(results):
-                logger.debug(
-                    f"相似度阈值过滤：{len(results)} -> {len(filtered)} 条 "
-                    f"(阈值={relevance_threshold}, "
-                    f"最高分={max(r.score for r in results):.4f}, "
-                    f"最低分={min(r.score for r in results):.4f})"
-                )
-            results = filtered
+
+        if config.get("l2_memory.enable_hybrid_retrieval", True):
+            # 混合模式：阈值只过滤向量路原始分，RRF 融合分不套阈值（量纲不同）
+            results = await adapter.retrieve_hybrid(
+                query, group_id, top_k, persona_id, relevance_threshold
+            )
+        else:
+            results = await adapter.retrieve(query, group_id, top_k, persona_id)
+            if relevance_threshold > 0:
+                filtered = [r for r in results if r.score >= relevance_threshold]
+                if len(filtered) < len(results):
+                    logger.debug(
+                        f"相似度阈值过滤：{len(results)} -> {len(filtered)} 条 "
+                        f"(阈值={relevance_threshold}, "
+                        f"最高分={max(r.score for r in results):.4f}, "
+                        f"最低分={min(r.score for r in results):.4f})"
+                    )
+                results = filtered
 
         if results:
             memory_ids = [r.entry.id for r in results]

@@ -9,6 +9,7 @@ from iris_memory.l1_buffer import Summarizer, SegmentedMessageQueue, ContextMess
 from iris_memory.l1_buffer.summarizer import (
     parse_summary_response,
     confidence_to_float,
+    importance_to_float,
 )
 
 
@@ -401,7 +402,11 @@ class TestParseSummaryResponse:
         response = json.dumps(
             {
                 "memories": [
-                    {"content": "张三是程序员", "confidence": "high"},
+                    {
+                        "content": "张三是程序员",
+                        "confidence": "high",
+                        "importance": "high",
+                    },
                     {"content": "李四可能喜欢摄影", "confidence": "medium"},
                     {"content": "王五好像在忙", "confidence": "low"},
                 ]
@@ -414,14 +419,17 @@ class TestParseSummaryResponse:
         assert result["memories"][0] == {
             "content": "张三是程序员",
             "confidence": "high",
+            "importance": "high",
         }
         assert result["memories"][1] == {
             "content": "李四可能喜欢摄影",
             "confidence": "medium",
+            "importance": "medium",
         }
         assert result["memories"][2] == {
             "content": "王五好像在忙",
             "confidence": "low",
+            "importance": "medium",
         }
 
     def test_parse_old_format_string_array(self):
@@ -440,10 +448,12 @@ class TestParseSummaryResponse:
         assert result["memories"][0] == {
             "content": "张三是程序员",
             "confidence": "medium",
+            "importance": "medium",
         }
         assert result["memories"][1] == {
             "content": "李四喜欢摄影",
             "confidence": "medium",
+            "importance": "medium",
         }
 
     def test_parse_empty_memories(self):
@@ -583,3 +593,20 @@ class TestConfidenceToFloat:
 
     def test_empty_confidence(self):
         assert confidence_to_float("") == 0.5
+
+
+class TestImportanceToFloat:
+    def test_high_importance(self):
+        assert importance_to_float("high") == 0.8
+
+    def test_medium_importance(self):
+        assert importance_to_float("medium") == 0.5
+
+    def test_low_importance(self):
+        assert importance_to_float("low") == 0.2
+
+    def test_unknown_importance(self):
+        assert importance_to_float("unknown") == 0.5
+
+    def test_empty_importance(self):
+        assert importance_to_float("") == 0.5

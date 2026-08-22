@@ -36,6 +36,88 @@ export async function searchL2Memory(params: any): Promise<any> {
   return { results: response.results || [] }
 }
 
+export interface RetrievalDebugHit {
+  id: string
+  content: string
+  score: number
+  group_id?: string
+}
+
+export interface RetrievalDebugResult {
+  query: string
+  group_id?: string
+  top_k: number
+  persona_id: string
+  relevance_threshold: number
+  rrf_k: number
+  vector_total?: number
+  vector_filtered?: number
+  vector_error?: string
+  keyword_error?: string
+  vector: RetrievalDebugHit[]
+  keyword: RetrievalDebugHit[]
+  fused: RetrievalDebugHit[]
+  fts: { available: boolean; memory_rows?: number; error?: string; note?: string }
+}
+
+export async function debugL2Retrieval(params: {
+  query: string
+  group_id?: string
+  top_k?: number
+  persona?: string
+}): Promise<RetrievalDebugResult> {
+  const response = await apiPost<any>('memory/l2/retrieval-debug', params)
+  checkSuccess(response, '召回调试失败')
+  return response as RetrievalDebugResult
+}
+
+export async function getL2FtsStatus(): Promise<any> {
+  const response = await apiGet<any>('memory/l2/fts/status')
+  checkSuccess(response, '获取FTS状态失败')
+  return response
+}
+
+export async function rebuildL2Fts(): Promise<any> {
+  const response = await apiPost<any>('memory/l2/fts/rebuild', {})
+  checkSuccess(response, '重建FTS索引失败')
+  return response
+}
+
+export interface ArchivedMemoryItem {
+  id: string
+  content: string
+  metadata: Record<string, any>
+  group_id?: string
+  user_id?: string
+  timestamp?: string
+  persona_id: string
+  archived_at: string
+  archive_reason?: string
+  has_vector: boolean
+}
+
+export async function listArchivedL2Memories(
+  limit: number = 50,
+  offset: number = 0
+): Promise<{ results: ArchivedMemoryItem[]; total_count: number }> {
+  const response = await apiGet<any>('memory/l2/archive/list', { limit, offset })
+  checkSuccess(response, '获取归档记忆失败')
+  return {
+    results: response.results || [],
+    total_count: response.total_count ?? 0
+  }
+}
+
+export async function restoreArchivedMemory(memoryId: string): Promise<void> {
+  const response = await apiPost<any>('memory/l2/archive/restore', { memory_id: memoryId })
+  checkSuccess(response, '恢复归档记忆失败')
+}
+
+export async function deleteArchivedMemory(memoryId: string): Promise<void> {
+  const response = await apiPost<any>('memory/l2/archive/delete', { memory_id: memoryId })
+  checkSuccess(response, '删除归档记忆失败')
+}
+
 export async function getL2Stats(): Promise<{ total_count: number; group_count: number }> {
   const response = await apiGet<any>('memory/l2/stats')
   checkSuccess(response, '获取L2统计失败')
@@ -69,8 +151,14 @@ export async function deleteL2Entries(ids: string[]): Promise<number> {
   return response.deleted_count
 }
 
-export async function updateL2Entry(id: string, content: string): Promise<void> {
-  const response = await apiPost<any>('memory/l2/update', { id, content })
+export async function updateL2Entry(
+  id: string,
+  content: string,
+  scope?: string
+): Promise<void> {
+  const payload: Record<string, any> = { id, content }
+  if (scope) payload.scope = scope
+  const response = await apiPost<any>('memory/l2/update', payload)
   checkSuccess(response, '更新L2记忆失败')
 }
 

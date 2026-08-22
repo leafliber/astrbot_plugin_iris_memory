@@ -70,9 +70,15 @@ class PruningPhase:
             "l2_low_confidence_marked": 0,
             "l3_low_confidence_marked": 0,
             "l3_orphaned_removed": 0,
+            "l2_archive_purged": 0,
+            "l2_ttl_purged": 0,
         }
 
         if process_l2:
+            # 清除超期归档与过 TTL 记忆，控制库体积
+            # （归档保留期见 l2_archive_retention_days；TTL 由写入方声明）
+            result["l2_archive_purged"] = await l2.purge_expired_archives()
+            result["l2_ttl_purged"] = await l2.purge_expired_memories()
             l2_marked = await self._mark_low_confidence_l2(l2, entries)
             result["l2_low_confidence_marked"] = l2_marked
             l2_evicted = await self._evict_l2_memories(l2, llm, entries)

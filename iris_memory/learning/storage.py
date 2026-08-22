@@ -297,12 +297,18 @@ class LearningStorage:
         bot_text: str,
         message_id: Optional[str] = None,
         persona_id: str = DEFAULT_PERSONA_ID,
+        approved: bool = False,
     ) -> int:
-        """插入一条 user→bot 对话对（status=pending_review）
+        """插入一条 user→bot 对话对。
+
+        Args:
+            approved: True 时直接以 approved 落库（人工手令 remember 场景，
+                等价已完成审查）；默认 False 进入 pending_review 待审。
 
         Returns:
             新行 id
         """
+        status = STATUS_APPROVED if approved else STATUS_PENDING
         with self._lock:
             cur = self._db.execute(
                 "INSERT INTO few_shot (group_id, persona_id, user_id, user_text, bot_text,"
@@ -314,7 +320,7 @@ class LearningStorage:
                     user_text,
                     bot_text,
                     message_id,
-                    STATUS_PENDING,
+                    status,
                     time.time(),
                 ),
             )
@@ -353,12 +359,18 @@ class LearningStorage:
         expression: str,
         source_pair_id: Optional[int] = None,
         persona_id: str = DEFAULT_PERSONA_ID,
+        approved: bool = False,
     ) -> int:
-        """插入一条表达模式候选（status=pending_review）
+        """插入一条表达模式候选。
+
+        Args:
+            approved: True 时直接以 approved 落库（人工手令 remember 场景）；
+                默认 False 进入 pending_review 待审。
 
         Returns:
             新行 id
         """
+        status = STATUS_APPROVED if approved else STATUS_PENDING
         with self._lock:
             cur = self._db.execute(
                 "INSERT INTO expression_pattern"
@@ -366,7 +378,7 @@ class LearningStorage:
                 " status, created_at, last_hit_at) VALUES (?,?,?,?,?,0,?,?,NULL)",
                 (
                     group_id, persona_id or DEFAULT_PERSONA_ID, scene, expression,
-                    source_pair_id, STATUS_PENDING, time.time(),
+                    source_pair_id, status, time.time(),
                 ),
             )
             self._db.commit()

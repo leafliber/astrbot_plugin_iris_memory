@@ -89,6 +89,131 @@ async def search_l2_memory():
     return jsonify({"success": True, "results": formatted_results})
 
 
+async def debug_l2_retrieval():
+    """召回调试：返回向量路/关键词路命中明细与 RRF 融合结果"""
+    data = await request.get_json()
+    if not data:
+        return jsonify({"success": False, "error": "请求正文为空或格式错误"}), 400
+    query = data.get("query", "")
+    group_id = data.get("group_id")
+    top_k = data.get("top_k", 10)
+    persona_id = data.get("persona", request.args.get("persona", "default"))
+
+    if not query:
+        return jsonify({"success": False, "error": "查询内容不能为空"}), 400
+
+    if not isinstance(top_k, int) or top_k < 1:
+        top_k = 10
+    top_k = min(top_k, 100)
+
+    manager = get_component_manager()
+    l2_adapter = manager.get_component("l2_memory", L2MemoryAdapter)
+
+    if not l2_adapter or not l2_adapter.is_available:
+        return jsonify({"success": False, "error": "L2 记忆库不可用"}), 503
+
+    payload = await l2_adapter.retrieve_debug(
+        query, group_id, top_k, persona_id
+    )
+    return jsonify({"success": True, **payload})
+
+
+async def get_l2_fts_status():
+    """FTS5 关键词索引状态"""
+    manager = get_component_manager()
+    l2_adapter = manager.get_component("l2_memory", L2MemoryAdapter)
+    if not l2_adapter or not l2_adapter.is_available:
+        return jsonify({"success": False, "error": "L2 记忆库不可用"}), 503
+    return jsonify({"success": True, **l2_adapter.get_fts_status()})
+
+
+async def rebuild_l2_fts():
+    """手动重建 FTS5 关键词索引"""
+    manager = get_component_manager()
+    l2_adapter = manager.get_component("l2_memory", L2MemoryAdapter)
+    if not l2_adapter or not l2_adapter.is_available:
+        return jsonify({"success": False, "error": "L2 记忆库不可用"}), 503
+    ok = await l2_adapter.rebuild_fts_index()
+    if not ok:
+        return jsonify({"success": False, "error": "FTS5 虚表不可用，重建失败"}), 500
+    return jsonify({"success": True, **l2_adapter.get_fts_status()})
+
+
+async def list_l2_archived():
+    """归档记忆列表"""
+    limit = request.args.get("limit", default=50, type=int)
+    offset = request.args.get("offset", default=0, type=int)
+    persona_id = request.args.get("persona")
+
+    limit = max(1, min(limit, 200))
+    offset = max(0, offset)
+
+    manager = get_component_manager()
+    l2_adapter = manager.get_component("l2_memory", L2MemoryAdapter)
+    if not l2_adapter or not l2_adapter.is_available:
+        return jsonify({"success": False, "error": "L2 记忆库不可用"}), 503
+
+    results = await l2_adapter.list_archived_memories(limit, offset, persona_id)
+    total = await l2_adapter.get_archived_count(persona_id)
+    return jsonify(
+        {
+            "success": True,
+            "results": results,
+            "total_count": total,
+            "limit": limit,
+            "offset": offset,
+        }
+    )
+
+
+async def restore_l2_archived():
+    """恢复指定归档记忆"""
+    data = await request.get_json()
+    if not data:
+        return jsonify({"success": False, "error": "请求正文为空或格式错误"}), 400
+    memory_id = data.get("memory_id", "")
+    if not memory_id:
+        return jsonify({"success": False, "error": "memory_id 不能为空"}), 400
+
+    manager = get_component_manager()
+    l2_adapter = manager.get_component("l2_memory", L2MemoryAdapter)
+    if not l2_adapter or not l2_adapter.is_available:
+        return jsonify({"success": False, "error": "L2 记忆库不可用"}), 503
+
+    restored = await l2_adapter.restore_archived_memory(memory_id)
+    if not restored:
+        return (
+            jsonify(
+                {
+                    "success": False,
+                    "error": f"恢复失败：归档中不存在 {memory_id}，或该 ID 已存在于正式记忆库",
+                }
+            ),
+            409,
+        )
+    return jsonify({"success": True, "memory_id": memory_id})
+
+
+async def delete_l2_archived():
+    """彻底删除归档记忆（不可恢复）"""
+    data = await request.get_json()
+    if not data:
+        return jsonify({"success": False, "error": "请求正文为空或格式错误"}), 400
+    memory_id = data.get("memory_id", "")
+    if not memory_id:
+        return jsonify({"success": False, "error": "memory_id 不能为空"}), 400
+
+    manager = get_component_manager()
+    l2_adapter = manager.get_component("l2_memory", L2MemoryAdapter)
+    if not l2_adapter or not l2_adapter.is_available:
+        return jsonify({"success": False, "error": "L2 记忆库不可用"}), 503
+
+    deleted = await l2_adapter.delete_archived_memory(memory_id)
+    if not deleted:
+        return jsonify({"success": False, "error": f"归档中不存在 {memory_id}"}), 404
+    return jsonify({"success": True, "memory_id": memory_id})
+
+
 async def get_latest_l2_memories():
     limit = request.args.get("limit", default=20, type=int)
     offset = request.args.get("offset", default=0, type=int)
@@ -465,11 +590,26 @@ async def update_l2_entry():
 
     success = await l2_adapter.update_content(memory_id, new_content)
 
-    if success:
-        logger.info(f"已更新 L2 记忆：{memory_id}")
-        return jsonify({"success": True})
-    else:
+    if not success:
         return jsonify({"success": False, "error": "更新失败，记忆可能不存在"}), 500
+
+    # 可选：同步更新作用域（global=全局共享 / group=仅本群）
+    scope = data.get("scope")
+    if scope in ("global", "group"):
+        scope_ok = await l2_adapter.set_memory_scope(memory_id, scope)
+        if not scope_ok:
+            return (
+                jsonify(
+                    {
+                        "success": False,
+                        "error": "内容已更新，但作用域设置失败",
+                    }
+                ),
+                500,
+            )
+
+    logger.info(f"已更新 L2 记忆：{memory_id}" + (f"（scope={scope}）" if scope else ""))
+    return jsonify({"success": True})
 
 
 async def list_l3_nodes():
@@ -576,6 +716,17 @@ def register_memory_routes(context) -> None:
 
     routes = [
         (f"{prefix}/l2/search", search_l2_memory, ["POST"], "搜索 L2 记忆"),
+        (
+            f"{prefix}/l2/retrieval-debug",
+            debug_l2_retrieval,
+            ["POST"],
+            "L2 召回调试（两路命中与融合明细）",
+        ),
+        (f"{prefix}/l2/fts/status", get_l2_fts_status, ["GET"], "FTS 关键词索引状态"),
+        (f"{prefix}/l2/fts/rebuild", rebuild_l2_fts, ["POST"], "重建 FTS 关键词索引"),
+        (f"{prefix}/l2/archive/list", list_l2_archived, ["GET"], "获取归档记忆列表"),
+        (f"{prefix}/l2/archive/restore", restore_l2_archived, ["POST"], "恢复归档记忆"),
+        (f"{prefix}/l2/archive/delete", delete_l2_archived, ["POST"], "彻底删除归档记忆"),
         (f"{prefix}/l2/latest", get_latest_l2_memories, ["GET"], "获取最新 L2 记忆"),
         (f"{prefix}/l2/stats", get_l2_stats, ["GET"], "获取 L2 统计"),
         (f"{prefix}/l2/delete", delete_l2_entries, ["POST"], "删除 L2 记忆条目"),

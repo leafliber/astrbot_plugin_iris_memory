@@ -282,11 +282,16 @@ class TestL2MemoryAdapter:
         adapter._find_similar_unlocked = Mock(return_value=None)
         adapter._embed = AsyncMock(return_value=[[0.1] * 8])
 
-        # 预置 3 条旧模型记忆
+        # 预置 3 条旧模型记忆，其中 1 条进入归档
         for i in range(3):
             await adapter.add_memory(f"旧记忆 {i}", metadata={"group_id": "g1"})
+        archived_id = adapter._db.execute(
+            "SELECT memory_id FROM memories ORDER BY faiss_idx LIMIT 1"
+        ).fetchone()[0]
+        assert await adapter.evict_memories([archived_id]) == 1
         old_count = adapter._count_db()
-        assert old_count == 3
+        assert old_count == 2
+        assert await adapter.get_archived_count() == 1
 
         # 模拟 initialize() 检测到模型变更后的迁移入口状态：
         # _load_existing 尚未执行，_is_available 仍为 False，_db/_index 均未就绪
@@ -320,6 +325,9 @@ class TestL2MemoryAdapter:
         assert ok is True
         # 记忆经 导出 -> 重新嵌入 -> 导入 后保留
         assert adapter._count_db() == old_count
+        # 软删除归档也随迁移保留，仍可在保留期内恢复
+        assert await adapter.get_archived_count() == 1
+        assert (await adapter.list_archived_memories())[0]["id"] == archived_id
         # 元数据已更新为新模型/维度
         meta = adapter._load_meta()
         assert meta["embedding_model"] == new_model
@@ -328,7 +336,7 @@ class TestL2MemoryAdapter:
         assert adapter._is_available is True
 
     @pytest.mark.asyncio
-    async def test_update_access(self, mock_faiss_adapter):
+    async def test_update_access(self, mock_faiss_adapter, mock_config):
         """测试更新访问信息"""
         adapter = mock_faiss_adapter
         adapter._embed = AsyncMock(return_value=[[0.1] * 8])
@@ -337,14 +345,20 @@ class TestL2MemoryAdapter:
         memory_id = await adapter.add_memory("测试", metadata={"group_id": "g1"})
         assert memory_id is not None
 
-        result = await adapter.update_access(memory_id)
+        with patch(
+            "iris_memory.l2_memory.adapter.get_config", return_value=mock_config
+        ):
+            result = await adapter.update_access(memory_id)
         assert result
 
     @pytest.mark.asyncio
-    async def test_update_access_nonexistent(self, mock_faiss_adapter):
+    async def test_update_access_nonexistent(self, mock_faiss_adapter, mock_config):
         """测试更新不存在的记忆"""
         adapter = mock_faiss_adapter
-        result = await adapter.update_access("mem_nonexistent")
+        with patch(
+            "iris_memory.l2_memory.adapter.get_config", return_value=mock_config
+        ):
+            result = await adapter.update_access("mem_nonexistent")
         assert not result
 
     @pytest.mark.asyncio

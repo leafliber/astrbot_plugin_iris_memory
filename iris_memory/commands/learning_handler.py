@@ -78,6 +78,7 @@ class LearningCommandHandler(CommandHandler):
         return {
             "stats": "查看统计信息（默认）",
             "show <jargon|pattern|shot>": "列出当前群条目",
+            "remember <上下文> => <表达示例>": "手动记入风格学习（直接生效）",
             "clear": "清空学习数据",
             "jargon disable <词>": "禁用词条注入",
             "jargon enable <词>": "恢复词条注入",
@@ -94,6 +95,8 @@ class LearningCommandHandler(CommandHandler):
             return await self._handle_stats(event, args)
         elif sub_command == "show":
             return await self._handle_show(event, args)
+        elif sub_command == "remember":
+            return await self._handle_remember(event, args)
         elif sub_command == "clear":
             return await self._handle_clear(event, args)
         elif sub_command == "jargon":
@@ -198,6 +201,86 @@ class LearningCommandHandler(CommandHandler):
 
         message = f"📖 当前群 {category} 条目（前 {len(rows)} 条）\n" + "\n".join(lines)
         return CommandResult(success=True, message=message)
+
+    async def _handle_remember(
+        self, event: "AstrMessageEvent", args: ParsedArgs
+    ) -> CommandResult:
+        """手动记住对话上下文并链入表达方式与对话样例。
+
+        格式：``iris_mem learning remember <上下文> => <表达示例>``。
+        人工手令代表明确意图，few_shot 对话对与表达模式均以 approved
+        直接落库（跳过 LLM 审查），立即参与回复注入。
+        """
+        component = self._get_component()
+        if not component:
+            return CommandResult(success=False, message=_UNAVAILABLE_MSG)
+
+        # raw_args[0] 是 "remember" 本身；其余拼回后按 => 拆分
+        text = " ".join(args.raw_args[1:]).strip()
+        if "=>" not in text:
+            return CommandResult(
+                success=False,
+                message=(
+                    "格式错误，正确用法：\n"
+                    "iris_mem learning remember <上下文> => <表达示例>"
+                ),
+            )
+        context_part, expression_part = text.split("=>", 1)
+        context_part = context_part.strip()
+        expression_part = expression_part.strip()
+        if not context_part or not expression_part:
+            return CommandResult(
+                success=False, message="上下文与表达示例均不能为空"
+            )
+
+        storage = component.storage
+        adapter = get_adapter(event)
+        group_id = adapter.get_group_id(event) or ""
+        user_id = adapter.get_user_id(event) or ""
+
+        from iris_memory.core.persona import resolve_persona
+
+        manager = get_component_manager()
+        persona_id = await resolve_persona(manager, event)
+
+        # 表达模式的 scene：无 LLM 参与，用上下文前 20 字作场景标签
+        scene = context_part.replace("\n", " ")[:20]
+
+        try:
+            pair_id = storage.insert_pair(
+                group_id,
+                user_id,
+                context_part,
+                expression_part,
+                persona_id=persona_id,
+                approved=True,
+            )
+            pattern_id = storage.insert_pattern(
+                group_id,
+                scene,
+                expression_part,
+                source_pair_id=pair_id,
+                persona_id=persona_id,
+                approved=True,
+            )
+        except Exception as e:
+            logger.error(f"learning remember 写入失败：{e}", exc_info=True)
+            return CommandResult(success=False, message=f"写入失败：{e}")
+
+        logger.info(
+            f"learning remember 操作: pair_id={pair_id}, pattern_id={pattern_id}, "
+            f"persona={persona_id}"
+        )
+        return CommandResult(
+            success=True,
+            message=(
+                "✅ 已记入风格学习（直接生效）\n"
+                f"上下文: {_truncate(context_part)}\n"
+                f"表达示例: {_truncate(expression_part)}\n"
+                f"对话样例 #{pair_id} · 表达模式 #{pattern_id}"
+            ),
+            details={"pair_id": pair_id, "pattern_id": pattern_id},
+        )
 
     async def _handle_clear(
         self, event: "AstrMessageEvent", args: ParsedArgs
