@@ -97,8 +97,20 @@ class L3CommandHandler(CommandHandler):
         if not l3_adapter or not l3_adapter.is_available:
             return CommandResult(success=False, message="L3 知识图谱组件不可用")
 
+        # 画像别名映射：昵称命名且无 user_id 标记的存量 Person 节点
+        # 按映射吸收合并或补打标记，修复按用户 ID 搜索/删除不命中的数据
+        from iris_memory.l3_kg.adapter import build_profile_alias_map
+        from iris_memory.profile.storage import ProfileStorage
+
+        profile_storage = manager.get_component("profile", ProfileStorage)
+        alias_map = None
+        if profile_storage and profile_storage.is_available:
+            alias_map = await build_profile_alias_map(profile_storage)
+
         merged, deleted = await l3_adapter.merge_duplicate_nodes()
-        merged_by_uid, deleted_by_uid = await l3_adapter.merge_person_nodes_by_user_id()
+        merged_by_uid, deleted_by_uid = await l3_adapter.merge_person_nodes_by_user_id(
+            alias_map
+        )
 
         total_merged = merged + merged_by_uid
         total_deleted = deleted + deleted_by_uid
@@ -132,6 +144,10 @@ class L3CommandHandler(CommandHandler):
         adapter = get_adapter(event)
         group_id = adapter.get_group_id(event)
         current_user_id = adapter.get_user_id(event)
+        # 清除操作需在当前 persona 命名空间内执行（隔离未启用时为 default）
+        from iris_memory.core.persona import resolve_persona
+
+        persona_id = await resolve_persona(manager, event)
 
         scope = args.scope
         removed_count = 0
@@ -141,7 +157,9 @@ class L3CommandHandler(CommandHandler):
             message = f"✅ 已清空所有 L3 知识图谱，共删除 {removed_count} 个节点"
 
         elif scope == DeleteScope.GROUP:
-            removed_count = await l3_adapter.delete_by_group(group_id)
+            removed_count = await l3_adapter.delete_by_group(
+                group_id, persona_id=persona_id
+            )
             message = f"✅ 已清空当前群聊的 L3 知识图谱，共删除 {removed_count} 个节点"
 
         elif scope == DeleteScope.SPECIFIED_USER:
@@ -149,11 +167,15 @@ class L3CommandHandler(CommandHandler):
             if not target_user_id:
                 return CommandResult(success=False, message="无法获取目标用户 ID")
 
-            removed_count = await l3_adapter.delete_by_user(target_user_id, group_id)
+            removed_count = await l3_adapter.delete_by_user(
+                target_user_id, group_id, persona_id=persona_id
+            )
             message = f"✅ 已清空用户 {args.target_user_name or target_user_id} 在当前群聊的 L3 知识图谱，共删除 {removed_count} 个节点"
 
         else:
-            removed_count = await l3_adapter.delete_by_user(current_user_id, group_id)
+            removed_count = await l3_adapter.delete_by_user(
+                current_user_id, group_id, persona_id=persona_id
+            )
             message = f"✅ 已清空你的 L3 知识图谱，共删除 {removed_count} 个节点"
 
         logger.info(f"L3 clear 操作: scope={scope.value}, removed={removed_count}")

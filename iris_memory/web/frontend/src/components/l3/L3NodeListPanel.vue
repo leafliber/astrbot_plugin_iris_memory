@@ -7,15 +7,27 @@
         <span class="text-subtitle-1">节点列表</span>
         <v-spacer />
         <v-text-field
-          v-model="localFilter"
-          placeholder="过滤…"
+          v-model="localKeyword"
+          placeholder="搜索用户 ID / 名称 / 内容…"
           prepend-inner-icon="mdi-magnify"
           variant="outlined"
           density="compact"
           hide-details
           clearable
           class="filter-input"
+          @keyup.enter="handleSearch"
+          @click:clear="handleClearSearch"
         />
+        <v-btn
+          color="primary"
+          size="small"
+          variant="tonal"
+          class="ml-2"
+          :loading="loading"
+          @click="handleSearch"
+        >
+          <v-icon icon="mdi-magnify" size="small" />
+        </v-btn>
         <v-btn
           v-if="selected.length > 0"
           color="error"
@@ -34,7 +46,7 @@
       <!-- 表格 -->
       <v-data-table
         :headers="headers"
-        :items="filteredItems"
+        :items="nodes"
         :items-per-page="10"
         :loading="loading"
         item-value="id"
@@ -114,7 +126,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, watch } from 'vue'
 import type { L3NodeDetail } from '@/types'
 import {
   getNodeIcon,
@@ -127,6 +139,7 @@ import {
 const props = defineProps<{
   nodes: L3NodeDetail[]
   loading: boolean
+  keyword?: string
 }>()
 
 const emit = defineEmits<{
@@ -134,10 +147,34 @@ const emit = defineEmits<{
   expand: [nodeId: string]
   delete: [nodeId: string]
   'bulk-delete': [ids: string[]]
+  search: [keyword: string]
+  'clear-search': []
 }>()
 
-const localFilter = ref('')
+const localKeyword = ref(props.keyword || '')
 const selected = ref<string[]>([])
+
+// 外部关键词变化时同步本地输入框（如刷新按钮触发重新搜索）
+watch(
+  () => props.keyword,
+  (v) => {
+    localKeyword.value = v || ''
+  },
+)
+
+const handleSearch = () => {
+  const v = localKeyword.value?.trim()
+  if (v) {
+    emit('search', v)
+  } else {
+    emit('clear-search')
+  }
+}
+
+const handleClearSearch = () => {
+  localKeyword.value = ''
+  emit('clear-search')
+}
 
 const handleRowClick = (_: unknown, row: { item: L3NodeDetail }) => {
   emit('focus-node', row.item.id)
@@ -152,16 +189,6 @@ const headers = [
   { title: '创建时间', key: 'created_time', width: '150px', sortable: true },
   { title: '操作', key: 'actions', width: '90px', sortable: false },
 ]
-
-const filteredItems = computed(() => {
-  const kw = localFilter.value?.trim().toLowerCase()
-  if (!kw) return props.nodes
-  return props.nodes.filter((n) =>
-    [n.name, n.id, n.content, n.label]
-      .filter(Boolean)
-      .some((v) => String(v).toLowerCase().includes(kw))
-  )
-})
 </script>
 
 <style scoped>

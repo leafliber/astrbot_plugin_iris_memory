@@ -98,6 +98,41 @@ async def test_save_memory_writes_importance(tool, mock_context, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_save_memory_writes_active_users(tool, mock_context, monkeypatch):
+    """工具写入的记忆带 active_users,与 L1 总结形态对齐,供用户级清理命中"""
+    mock_adapter = Mock()
+    mock_adapter.get_user_id = Mock(return_value="user_123")
+    mock_adapter.get_group_id = Mock(return_value="group_456")
+    mock_adapter.get_user_name = Mock(return_value="测试用户")
+
+    mock_config = Mock()
+    mock_config.get = Mock(return_value=True)
+
+    mock_l2 = Mock()
+    mock_l2.is_available = True
+    mock_l2.add_memory = AsyncMock(return_value="mem_au123")
+
+    mock_manager = Mock()
+    mock_manager.get_component = Mock(return_value=mock_l2)
+
+    monkeypatch.setattr(
+        "iris_memory.platform.get_adapter", Mock(return_value=mock_adapter)
+    )
+    monkeypatch.setattr("iris_memory.config.get_config", Mock(return_value=mock_config))
+    monkeypatch.setattr(
+        "iris_memory.tools.save_memory.get_component_manager",
+        Mock(return_value=mock_manager),
+    )
+
+    result = await tool.call(mock_context, content="带主体的记忆")
+
+    assert "已保存" in result
+    metadata = mock_l2.add_memory.call_args[0][1]
+    assert metadata["user_id"] == "user_123"
+    assert metadata["active_users"] == "user_123"
+
+
+@pytest.mark.asyncio
 async def test_save_memory_invalid_importance_defaults(tool, mock_context, monkeypatch):
     """非法 importance 档位回退 medium"""
     mock_adapter = Mock()

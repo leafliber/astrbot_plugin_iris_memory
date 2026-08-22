@@ -450,3 +450,21 @@ class TestEntityExtractor:
         result2 = extractor._parse_extraction_result(llm_response, context)
         assert result2.nodes[0].name == "张三"
         assert "user_id" not in result2.nodes[0].properties
+
+    def test_canonicalize_empty_alias_user_still_tagged(self, extractor):
+        """无昵称来源的用户以空别名列表入映射时,name=user_id 的
+        Person 节点仍应打上 properties.user_id 标记"""
+        llm_response = """{
+          "nodes": [
+            {"label": "Person", "name": "10001", "content": "群成员", "confidence": 0.9}
+          ],
+          "edges": [],
+          "extraction_confidence": 0.9
+        }"""
+
+        context = {"user_aliases": {"10001": []}}
+        result = extractor._parse_extraction_result(llm_response, context)
+
+        node = result.nodes[0]
+        assert node.name == "10001"
+        assert node.properties.get("user_id") == "10001"

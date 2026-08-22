@@ -754,6 +754,22 @@ class IrisMemoryPlugin(Star):
             if result:
                 yield event.plain_result(result)
 
+    @filter.permission_type(filter.PermissionType.ADMIN)
+    @filter.command("memory")
+    async def memory_legacy_alias(self, event: AstrMessageEvent) -> None:
+        """旧版 /memory 指令指引别名
+
+        v2 插件的 /memory 指令在本插件中已更名为 /iris_mem。旧指令输入
+        此前不会被任何处理器响应（无反馈、无删除），迁移用户容易误以为
+        清除已生效。此处仅返回迁移指引，不执行任何操作。
+        """
+        yield event.plain_result(
+            "ℹ️ /memory 指令已迁移到 /iris_mem\n"
+            "按层清除：/iris_mem l1|l2|l3 clear [--group|--all|@用户]\n"
+            "全部清除：/iris_mem all clear [--group|--all]\n"
+            "完整用法：/iris_mem help"
+        )
+
     @filter.on_llm_request()
     async def on_llm_request(self, event: AstrMessageEvent, req: ProviderRequest) -> None:
         # 1. 主动回复统一决策（仅处理 _triggering 中的群；可能 stop_event 终止请求）

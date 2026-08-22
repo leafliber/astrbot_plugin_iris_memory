@@ -4,13 +4,49 @@ import json
 import sqlite3
 import threading
 from datetime import datetime
-from typing import Optional
+from typing import Dict, List, Optional
 
 from iris_memory.config import get_config
 from iris_memory.core import Component, InitMode, get_logger
 from .models import GraphEdge, GraphNode
 
 logger = get_logger("l3_kg")
+
+
+async def build_profile_alias_map(profile_storage, persona_id: str = "default") -> Dict[str, List[str]]:
+    """从用户画像构建 {user_id: [昵称/曾用名...]} 别名映射
+
+    供 merge_person_nodes_by_user_id 做存量 Person 节点归一化修复：
+    昵称命名且无 user_id 标记的节点按映射吸收/打标。数据来源为
+    list_all_users（含当前昵称）与各用户画像的 historical_names。
+    画像不可用或无数据时返回空映射（修复退化为仅按节点自带别名）。
+    """
+    alias_map: Dict[str, List[str]] = {}
+    try:
+        users = await profile_storage.list_all_users(persona_id)
+        for entry in users:
+            user_id = entry.get("user_id")
+            if not user_id:
+                continue
+            names = alias_map.setdefault(user_id, [])
+            nickname = entry.get("nickname")
+            if nickname and nickname != user_id and nickname not in names:
+                names.append(nickname)
+            try:
+                profile = await profile_storage.get_user_profile(
+                    user_id, entry.get("group_id") or "default", persona_id
+                )
+            except Exception as e:
+                logger.debug(f"读取用户画像失败：{user_id}, {e}")
+                profile = None
+            if profile:
+                for hist in getattr(profile, "historical_names", None) or []:
+                    if hist and hist != user_id and hist not in names:
+                        names.append(hist)
+        return alias_map
+    except Exception as e:
+        logger.warning(f"从画像构建别名映射失败：{e}")
+        return {}
 
 
 class L3KGAdapter(Component):
@@ -1326,14 +1362,30 @@ class L3KGAdapter(Component):
             logger.error(f"淘汰节点失败：{e}")
             return 0
 
-    async def delete_by_group(self, group_id: str) -> int:
-        """删除指定群聊的所有节点和边"""
+    async def delete_by_group(self, group_id: str, persona_id: Optional[str] = None) -> int:
+        """删除指定群聊的所有节点和边
+
+        跨群共享节点（节点 ID 全局确定，合并写入后 group_id 列可能被
+        其他群覆盖）通过 properties.group_ids CSV 匹配：列命中或 CSV
+        含该群即删（彻底删除语义）。properties 可能存在损坏 JSON，
+        json_valid 守卫避免 json_extract 抛错导致整次删除失败。
+        """
         if not self._is_available:
             return 0
 
         try:
+            where = (
+                "(group_id = ? OR (json_valid(properties) "
+                "AND (',' || json_extract(properties, '$.group_ids') || ',') "
+                "LIKE ?))"
+            )
+            params: list = [group_id, f"%,{group_id},%"]
+            if persona_id is not None:
+                where += " AND persona_id = ?"
+                params.append(persona_id)
+
             count_row = self._db_fetchone(
-                "SELECT COUNT(*) FROM nodes WHERE group_id = ?", (group_id,)
+                f"SELECT COUNT(*) FROM nodes WHERE {where}", params
             )
             node_count = count_row[0]
 
@@ -1341,7 +1393,9 @@ class L3KGAdapter(Component):
                 logger.debug(f"群聊 {group_id} 没有知识图谱节点")
                 return 0
 
-            self._db_write("DELETE FROM nodes WHERE group_id = ?", (group_id,))
+            self._db_write(
+                f"DELETE FROM nodes WHERE {where}", params
+            )
 
             logger.info(f"已删除群聊 {group_id} 的 {node_count} 个节点及其关联边")
             return node_count
@@ -1373,34 +1427,57 @@ class L3KGAdapter(Component):
             logger.error(f"删除所有知识图谱失败: {e}", exc_info=True)
             return 0
 
-    async def delete_by_user(self, user_id: str, group_id: Optional[str] = None) -> int:
-        """删除与指定用户相关的节点（通过名称匹配）"""
+    async def delete_by_user(
+        self,
+        user_id: str,
+        group_id: Optional[str] = None,
+        persona_id: Optional[str] = None,
+    ) -> int:
+        """删除与指定用户相关的节点
+
+        命中条件：name == user_id（归一化形态），或
+        properties.user_id == user_id（历史标记）。存量节点 properties
+        可能损坏，json_valid 守卫避免 json_extract 抛错。群过滤同样
+        覆盖跨群共享节点（group_id 列或 properties.group_ids CSV 命中
+        即删，彻底删除语义）。count 与 DELETE 使用同一 WHERE。
+        """
         if not self._is_available:
             return 0
 
         try:
-            if group_id:
-                count_row = self._db_fetchone(
-                    "SELECT COUNT(*) FROM nodes WHERE group_id = ? AND name = ?",
-                    (group_id, user_id),
-                )
-            else:
-                count_row = self._db_fetchone(
-                    "SELECT COUNT(*) FROM nodes WHERE name = ?", (user_id,)
-                )
+            group_match = (
+                "(group_id = ? OR (json_valid(properties) "
+                "AND (',' || json_extract(properties, '$.group_ids') || ',') "
+                "LIKE ?))"
+            )
+            user_match = (
+                "(name = ? OR (json_valid(properties) "
+                "AND json_extract(properties, '$.user_id') = ?))"
+            )
 
+            conditions = [user_match]
+            params: list = [user_id, user_id]
+            if group_id:
+                conditions.insert(0, group_match)
+                params = [group_id, f"%,{group_id},%", user_id, user_id]
+
+            if persona_id is not None:
+                conditions.append("persona_id = ?")
+                params.append(persona_id)
+
+            where = " AND ".join(conditions)
+
+            count_row = self._db_fetchone(
+                f"SELECT COUNT(*) FROM nodes WHERE {where}", params
+            )
             node_count = count_row[0]
             if node_count == 0:
                 logger.debug(f"用户 {user_id} 没有知识图谱节点")
                 return 0
 
-            if group_id:
-                self._db_write(
-                    "DELETE FROM nodes WHERE group_id = ? AND name = ?",
-                    (group_id, user_id),
-                )
-            else:
-                self._db_write("DELETE FROM nodes WHERE name = ?", (user_id,))
+            self._db_write(
+                f"DELETE FROM nodes WHERE {where}", params
+            )
 
             logger.info(f"已删除用户 {user_id} 的 {node_count} 个知识图谱节点")
             return node_count
@@ -1711,7 +1788,9 @@ class L3KGAdapter(Component):
             dup_ids,
         )
 
-    async def merge_person_nodes_by_user_id(self) -> tuple[int, int]:
+    async def merge_person_nodes_by_user_id(
+        self, alias_map: Optional[Dict[str, List[str]]] = None
+    ) -> tuple[int, int]:
         """按 properties.user_id 合并分裂的 Person 节点（存量修复）
 
         同一用户的 Person 节点可能因昵称/QQ号命名差异而分裂。本方法按
@@ -1722,6 +1801,12 @@ class L3KGAdapter(Component):
         分组以带 properties.user_id 标记的节点（提取阶段归一化后写入）为锚点；
         此外会按群隔离吸收 name 恰等于某已知 user_id/别名 的无标记历史遗留
         节点进同组合并，修复归一化重命名（生成新 ID）后残留的持久分裂。
+
+        Args:
+            alias_map: 外部别名映射 {user_id: [昵称/曾用名...]}，通常来自
+                用户画像（build_profile_alias_map）。无标记昵称节点命中映射
+                时归组合并；同组无已标记锚点时仅为该节点补打 user_id 标记
+                （改名会产生新节点 ID 导致边重定向，这里不做改名）。
 
         Returns:
             (合并的节点组数, 删除的重复节点数)
@@ -1789,24 +1874,49 @@ class L3KGAdapter(Component):
                                 (persona_id, group_id, match_name), user_id
                             )
 
+                # 外部别名映射（画像驱动）并入吸收索引：昵称命中映射的无标记
+                # 节点同样归组到对应 user_id，合并时统一打标。
+                external_lookup: dict[str, str] = {}
+                if alias_map:
+                    for ext_uid, ext_aliases in alias_map.items():
+                        if not ext_uid:
+                            continue
+                        ext_names = {ext_uid}
+                        for a in ext_aliases or []:
+                            if a:
+                                ext_names.add(a)
+                        for n in ext_names:
+                            external_lookup.setdefault(n, ext_uid)
+
+                # 无锚点可归组、但命中外部映射的单节点：合并后统一补打
+                # user_id 标记（见循环后的 singleton 处理）
+                externally_tagged_singletons: list[tuple[str, dict]] = []
+
                 for node_data, user_id in parsed:
                     if user_id:
                         continue
-                    target_uid = alias_index.get(
-                        (
-                            node_data["persona_id"],
-                            node_data["group_id"],
-                            node_data["name"],
-                        )
+                    group_key = (
+                        node_data["persona_id"],
+                        node_data["group_id"],
+                        node_data["name"],
                     )
-                    if target_uid:
-                        user_groups[
-                            (
-                                node_data["persona_id"],
-                                node_data["group_id"],
-                                target_uid,
-                            )
-                        ].append(node_data)
+                    target_uid = alias_index.get(group_key)
+                    if target_uid is None and external_lookup:
+                        target_uid = external_lookup.get(node_data["name"])
+                    if not target_uid:
+                        continue
+
+                    target_key = (
+                        node_data["persona_id"],
+                        node_data["group_id"],
+                        target_uid,
+                    )
+                    group_nodes = user_groups.get(target_key)
+                    if group_nodes is None:
+                        # 同组无已标记锚点：不产生合并，仅登记待补打标记
+                        externally_tagged_singletons.append((target_uid, node_data))
+                        continue
+                    group_nodes.append(node_data)
 
                 merged_count = 0
                 deleted_count = 0
@@ -1951,12 +2061,35 @@ class L3KGAdapter(Component):
 
                     merged_count += 1
 
+                # 命中外部别名映射但无同组锚点的单节点：就地补打 user_id
+                # 标记。不改名（改名会更换节点 ID 并需边重定向），标记后
+                # 按用户搜索/删除即可命中。
+                tagged_singletons = 0
+                for uid, node_data in externally_tagged_singletons:
+                    props = dict(node_data.get("properties") or {})
+                    if props.get("user_id"):
+                        continue
+                    props["user_id"] = uid
+                    self._db.execute(
+                        "UPDATE nodes SET properties = ? WHERE id = ?",
+                        (
+                            json.dumps(props, ensure_ascii=False),
+                            node_data["id"],
+                        ),
+                    )
+                    tagged_singletons += 1
+
                 self._db.commit()
 
                 if merged_count > 0:
                     logger.info(
                         f"Person 节点按 user_id 合并完成：合并了 {merged_count} 组，"
                         f"删除了 {deleted_count} 个重复节点"
+                    )
+                if tagged_singletons > 0:
+                    logger.info(
+                        f"画像别名归一化：为 {tagged_singletons} 个存量 "
+                        f"Person 节点补打 user_id 标记"
                     )
 
                 return merged_count, deleted_count

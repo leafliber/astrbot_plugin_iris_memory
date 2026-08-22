@@ -17,7 +17,7 @@ from .models import (
     RELATION_TYPE_WHITELIST,
     RELATION_TYPE_DESCRIPTIONS,
 )
-from .adapter import L3KGAdapter
+from .adapter import L3KGAdapter, build_profile_alias_map
 from .extractor import EntityExtractor
 from .retriever import GraphRetriever
 from .related_retriever import RelatedMemoryRetriever
@@ -31,6 +31,7 @@ __all__ = [
     "RELATION_TYPE_WHITELIST",
     "RELATION_TYPE_DESCRIPTIONS",
     "L3KGAdapter",
+    "build_profile_alias_map",
     "EntityExtractor",
     "GraphRetriever",
     "RelatedMemoryRetriever",

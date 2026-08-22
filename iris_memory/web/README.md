@@ -5,7 +5,7 @@
 ## 架构
 
 - **后端**：通过 `context.register_web_api()` 注册 API，由 AstrBot Dashboard 统一托管
-- **前端**：Vue.js 3 + Vuetify 3 + TypeScript SPA，构建为单文件输出到 `pages/iris/`
+- **前端**：Vue.js 3 + Vuetify 3 + TypeScript SPA，Vite 分 chunk 构建输出到 `pages/iris/`
 - **认证**：由 AstrBot Dashboard 统一处理，无需额外配置
 - **路由**：Hash 模式（`createWebHashHistory`），兼容 AstrBot Plugin Pages
 
@@ -38,7 +38,7 @@ npm run dev
 npm run build
 ```
 
-构建产物通过 `vite-plugin-singlefile` 输出为单文件到 `pages/iris/index.html`，由 AstrBot 自动托管。
+构建产物输出到仓库根 `pages/iris/`（`index.html` + `iris.js`/`iris.css` + `chunks/` 分包），随插件一起提交，由 AstrBot Plugin Pages 自动托管。注意 `vite.config.ts` 中的 `astrBotPluginPageImportCompat` 插件会重写压缩后的 import 语法，宿主依赖此格式加载页面——改前端后必须重新 build，不能只提交源码。
 
 ## 项目结构
 
@@ -214,4 +214,4 @@ cd iris_memory/web/frontend
 npm run build
 ```
 
-构建产物自动输出到 `pages/iris/index.html`（单文件模式），AstrBot 自动托管该页面。
+构建产物自动输出到仓库根 `pages/iris/`（入口 `index.html` + `iris.js`/`iris.css` + `chunks/` 分包），AstrBot 自动托管该页面。

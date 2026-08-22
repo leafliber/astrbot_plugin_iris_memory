@@ -5,6 +5,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **用户级 clear/delete 漏删**（`iris_mem l2/l3/all clear` 默认与 `@用户` 范围）：L2 `delete_by_user` 此前仅匹配 `active_users`，漏删 `save_memory` 工具写入的仅有 `user_id` 的记忆（清后仍被检索注入、Web 手删才可清除）；现命中条件为 `metadata.user_id == user` 或 `active_users` CSV 精确包含，`save_memory` 写入同步补齐 `active_users` 对齐 L1 总结形态。
+- **L3 按用户/按群删除漏删**：`delete_by_user` 此前仅按 `name == user_id` 精确匹配，现增加 `properties.user_id` 精确命中；跨群共享节点（`group_id` 列被其他群覆盖）通过 `properties.group_ids` CSV 命中（彻底删除语义，用户已确认）；两方法均支持 `persona_id` 过滤，`json_valid` 守卫容忍存量损坏 JSON。
+- **命令清除的 persona 归属**：`l2/l3/all clear` 群级与用户级路径现经 `resolve_persona` 解析当前人格并传入删除调用，非 default persona 命名空间的记忆不再清空落空（`--all` 保持跨 persona 全清）。
+- **Web 导出按钮无反应**：`apiDownload` 增加降级链路——宿主桥接 `download` 缺失/报错/20s 无响应超时时，自动改经 `apiGet` 拉取 JSON 并在 iframe 内构造 Blob 下载（覆盖全部 6 个导出端点），双路失败才报错；兼容 AstrBot 桥接较旧版本与浏览器拦截场景。
+- **知识图谱按用户 ID 搜索不命中（存量数据）**：`_build_user_aliases` 无昵称来源的用户现以空别名列表入映射，使 `name=user_id` 的 Person 节点能打上 `properties.user_id` 标记；`save_knowledge` 工具与 dream 模式发现写入的 Person 节点同样补打标记；`merge_person_nodes_by_user_id` 支持画像别名映射（`build_profile_alias_map`，昵称/曾用名驱动），Web「合并重复节点」与 `iris_mem l3 merge` 均接入，存量无标记昵称节点按映射吸收合并或就地补打标记。
+- 注册 `/memory` 旧版指令指引别名（管理员）：返回迁移指引而非静默无效，帮助 v2 迁移用户改用 `/iris_mem`。
+
+### Changed
+
+- 知识图谱「节点」列表标签的本地过滤框升级为服务端搜索（enter/按钮触发，走既有 `keyword` 检索链路，支持用户 ID/名称/内容关键词）。
+- Web「合并重复节点」端点与命令入口对齐：补调 `merge_person_nodes_by_user_id`（此前 Web 侧漏调）。
+
+### Tests
+
+- 新增 L2 用户级删除作用域（工具记忆/多用户场景/global 保护/CSV 精确匹配）、L3 按用户与按群删除（标记命中/跨群 CSV/损坏 JSON/persona 隔离/边级联）、命令层 persona 透传、提取器空别名用户打标、`save_knowledge` Person 归一化、画像别名映射合并与构建、前端 `apiDownload` 降级链路（vitest）回归测试；修正 `save_memory` schema 快照漂移。
+
 ### Added
 
 - 新增默认启用的纯 `@` 回复接管：关闭 AstrBot 内置空提及等待后，纯 `@` 可进入标准 LLM 管道并仅使用 Iris L1 上下文。

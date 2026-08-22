@@ -161,9 +161,11 @@ class TestKnowledgeExtractPhase:
             memories, "default", component_manager=None
         )
 
-        # u2 无 user_name，不应出现；u1 聚合两个昵称
-        assert set(aliases.keys()) == {"u1"}
+        # u1 聚合两个昵称；u2 无昵称来源，仍以空别名列表纳入，
+        # 保证 name=user_id 的 Person 节点能命中归一化打标
+        assert set(aliases.keys()) == {"u1", "u2"}
         assert set(aliases["u1"]) == {"庭", "小庭"}
+        assert aliases["u2"] == []
 
     @pytest.mark.asyncio
     async def test_build_user_aliases_enriches_from_profile(self, phase):

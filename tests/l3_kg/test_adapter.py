@@ -783,3 +783,162 @@ class TestL3KGAdapter:
         assert deleted == 0
         remaining = adapter._db_fetchall("SELECT id FROM nodes WHERE label = 'Person'")
         assert len(remaining) == 2
+
+
+class TestMergePersonNodesWithAliasMap:
+    """画像别名映射驱动的存量 Person 节点归一化修复"""
+
+    @pytest.fixture
+    def temp_dir(self):
+        temp = Path(tempfile.mkdtemp())
+        yield temp
+        shutil.rmtree(temp, ignore_errors=True)
+
+    @pytest_asyncio.fixture
+    async def adapter(self, temp_dir):
+        astrbot_config = Mock()
+        astrbot_config.__getitem__ = Mock(return_value={"enable": True})
+        astrbot_config.__contains__ = Mock(return_value=True)
+
+        init_config(astrbot_config, temp_dir)
+
+        adapter = L3KGAdapter()
+        await adapter.initialize()
+
+        yield adapter
+
+        await adapter.shutdown()
+
+    def _insert(self, adapter, node_id, name, properties="{}", group_id="g1",
+                created_time="2024-01-01T00:00:00"):
+        adapter._db.execute(
+            """INSERT INTO nodes
+               (id, label, name, content, confidence, access_count,
+                last_access_time, created_time, source_memory_id, group_id, properties)
+               VALUES (?, 'Person', ?, 'c', 0.5, 0, ?, ?, NULL, ?, ?)""",
+            (node_id, name, created_time, created_time, group_id, properties),
+        )
+        adapter._db.commit()
+
+    def _get_person(self, adapter):
+        rows = adapter._db_fetchall(
+            "SELECT id, name, properties FROM nodes WHERE label = 'Person'"
+        )
+        import json as _json
+        return [
+            {"id": r["id"], "name": r["name"], "props": _json.loads(r["properties"])}
+            for r in rows
+        ]
+
+    @pytest.mark.asyncio
+    async def test_alias_map_absorbs_untagged_nickname_into_anchored_group(self, adapter):
+        """同组存在已标记锚点时,昵称无标记节点被吸收合并并打标"""
+        self._insert(
+            adapter, "anchor", "10001",
+            properties='{"user_id": "10001", "aliases": "旧名"}',
+        )
+        self._insert(adapter, "nick", "小张", properties="{}")
+
+        merged, deleted = await adapter.merge_person_nodes_by_user_id(
+            {"10001": ["小张"]}
+        )
+
+        assert merged == 1
+        assert deleted == 1
+        persons = self._get_person(adapter)
+        assert len(persons) == 1
+        assert persons[0]["name"] == "10001"
+        assert persons[0]["props"]["user_id"] == "10001"
+        assert "小张" in persons[0]["props"]["aliases"]
+
+    @pytest.mark.asyncio
+    async def test_alias_map_tags_singleton_without_anchor(self, adapter):
+        """同组无锚点时,昵称命中映射的单节点仅补打 user_id 标记(不改名)"""
+        self._insert(adapter, "nick", "小张", properties="{}")
+
+        merged, deleted = await adapter.merge_person_nodes_by_user_id(
+            {"10001": ["小张"]}
+        )
+
+        assert merged == 0
+        assert deleted == 0
+        persons = self._get_person(adapter)
+        assert len(persons) == 1
+        assert persons[0]["name"] == "小张"
+        assert persons[0]["props"].get("user_id") == "10001"
+
+    @pytest.mark.asyncio
+    async def test_without_alias_map_untagged_nickname_unchanged(self, adapter):
+        """不传映射时维持既有行为:无标记昵称节点(无锚点)不变"""
+        self._insert(adapter, "nick", "小张", properties="{}")
+
+        merged, deleted = await adapter.merge_person_nodes_by_user_id()
+
+        assert merged == 0
+        assert deleted == 0
+        persons = self._get_person(adapter)
+        assert "user_id" not in persons[0]["props"]
+
+    @pytest.mark.asyncio
+    async def test_alias_map_user_id_name_also_matched(self, adapter):
+        """映射中 user_id 本身也作为匹配名:name=user_id 的无标记节点被吸收"""
+        self._insert(
+            adapter, "anchor", "10001",
+            properties='{"user_id": "10001"}',
+            created_time="2024-01-01T00:00:00",
+        )
+        self._insert(
+            adapter, "dup", "10001", properties="{}",
+            created_time="2024-01-02T00:00:00",
+        )
+
+        merged, deleted = await adapter.merge_person_nodes_by_user_id(
+            {"10001": []}
+        )
+
+        assert merged == 1
+        persons = self._get_person(adapter)
+        assert len(persons) == 1
+
+
+class TestBuildProfileAliasMap:
+    """build_profile_alias_map 辅助函数"""
+
+    @pytest.mark.asyncio
+    async def test_builds_map_from_profiles(self):
+        from unittest.mock import AsyncMock
+
+        from iris_memory.l3_kg import build_profile_alias_map
+
+        profile = Mock()
+        profile.user_name = "小张"
+        profile.historical_names = ["张三", "小张"]
+
+        storage = Mock()
+        storage.list_all_users = AsyncMock(
+            return_value=[
+                {"user_id": "10001", "nickname": "小张", "group_id": "g1"},
+                {"user_id": "10002", "nickname": "10002", "group_id": "g1"},
+            ]
+        )
+
+        async def fake_get_profile(user_id, group_id="default", persona_id="default"):
+            return profile if user_id == "10001" else None
+
+        storage.get_user_profile = fake_get_profile
+
+        result = await build_profile_alias_map(storage)
+
+        assert result["10001"] == ["小张", "张三"]
+        # 昵称等于 user_id 的用户保留空映射键(允许 name=user_id 命中)
+        assert result["10002"] == []
+
+    @pytest.mark.asyncio
+    async def test_degrades_to_empty_on_error(self):
+        from iris_memory.l3_kg import build_profile_alias_map
+
+        storage = Mock()
+        storage.list_all_users = Mock(side_effect=RuntimeError("boom"))
+
+        result = await build_profile_alias_map(storage)
+        assert result == {}

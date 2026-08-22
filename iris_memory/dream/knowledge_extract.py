@@ -261,8 +261,14 @@ class KnowledgeExtractPhase:
             except Exception as e:
                 logger.warning(f"从画像构建用户别名失败，退化为仅 metadata：{e}")
 
-        return {
+        result = {
             user_id: sorted(names)
             for user_id, names in aliases.items()
             if names
         }
+        # 无昵称来源的用户也以空别名列表纳入映射：保证提取时 LLM 按
+        # [用户:ID] 标记用 user_id 命名的 Person 节点仍能命中归一化、
+        # 打上 properties.user_id 标记（否则搜索/删除只依赖 name 匹配）
+        for user_id in user_ids:
+            result.setdefault(user_id, [])
+        return result

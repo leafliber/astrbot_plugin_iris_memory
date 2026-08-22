@@ -414,7 +414,9 @@ PERSON 必须填写，无法确定归属用户时不要输出该模式。没有�
                     content=f"用户 {person_id_str}",
                     confidence=0.5,
                     group_id=group_key if group_key != "_all" else None,
-                    properties={"source": "dream_pattern"},
+                    # user_id 标记供按用户删除/搜索精确命中（name 已是
+                    # user_id，但历史版本只依赖 name 匹配会漏掉标记形态）
+                    properties={"source": "dream_pattern", "user_id": person_id_str},
                     persona_id=persona_id,
                 )
                 person.id = person.generate_id()

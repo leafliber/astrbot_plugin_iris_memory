@@ -90,6 +90,12 @@ class AllCommandHandler(CommandHandler):
         l3_adapter = manager.get_component("l3_kg", L3KGAdapter)
         profile_storage = manager.get_component("profile", ProfileStorage)
 
+        # 群/用户级清除需在当前 persona 命名空间内执行；
+        # --all 范围保持跨 persona 全清语义
+        from iris_memory.core.persona import resolve_persona
+
+        persona_id = await resolve_persona(manager, event)
+
         if scope == DeleteScope.ALL:
             results["l1"] = (
                 l1_buffer.clear_all() if l1_buffer and l1_buffer.is_available else 0
@@ -126,12 +132,12 @@ class AllCommandHandler(CommandHandler):
                 else 0
             )
             results["l2"] = (
-                await l2_adapter.delete_by_group(group_id)
+                await l2_adapter.delete_by_group(group_id, persona_id=persona_id)
                 if l2_adapter and l2_adapter.is_available
                 else 0
             )
             results["l3"] = (
-                await l3_adapter.delete_by_group(group_id)
+                await l3_adapter.delete_by_group(group_id, persona_id=persona_id)
                 if l3_adapter and l3_adapter.is_available
                 else 0
             )
@@ -164,12 +170,16 @@ class AllCommandHandler(CommandHandler):
                 else 0
             )
             results["l2"] = (
-                await l2_adapter.delete_by_user(target_user_id, group_id)
+                await l2_adapter.delete_by_user(
+                    target_user_id, group_id, persona_id=persona_id
+                )
                 if l2_adapter and l2_adapter.is_available
                 else 0
             )
             results["l3"] = (
-                await l3_adapter.delete_by_user(target_user_id, group_id)
+                await l3_adapter.delete_by_user(
+                    target_user_id, group_id, persona_id=persona_id
+                )
                 if l3_adapter and l3_adapter.is_available
                 else 0
             )
@@ -195,12 +205,16 @@ class AllCommandHandler(CommandHandler):
                 else 0
             )
             results["l2"] = (
-                await l2_adapter.delete_by_user(current_user_id, group_id)
+                await l2_adapter.delete_by_user(
+                    current_user_id, group_id, persona_id=persona_id
+                )
                 if l2_adapter and l2_adapter.is_available
                 else 0
             )
             results["l3"] = (
-                await l3_adapter.delete_by_user(current_user_id, group_id)
+                await l3_adapter.delete_by_user(
+                    current_user_id, group_id, persona_id=persona_id
+                )
                 if l3_adapter and l3_adapter.is_available
                 else 0
             )

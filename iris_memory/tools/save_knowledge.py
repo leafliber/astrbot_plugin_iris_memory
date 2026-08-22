@@ -131,6 +131,8 @@ class SaveKnowledgeTool(FunctionTool[AstrAgentContext]):
 
             adapter = get_adapter(event)
             group_id = adapter.get_group_id(event)
+            event_user_id = adapter.get_user_id(event)
+            event_user_name = adapter.get_user_name(event) or ""
             from iris_memory.core.persona import resolve_persona
 
             persona_id = await resolve_persona(component_manager, event)
@@ -154,8 +156,41 @@ class SaveKnowledgeTool(FunctionTool[AstrAgentContext]):
                 node.id = node.generate_id()
                 graph_nodes.append(node)
 
+            # Person 节点身份归一化：name 命中事件用户（ID 或昵称）时改写为
+            # 稳定 user_id 并打标记，与 dream 提取链路的归一化形态一致，
+            # 保证按用户 ID 搜索/删除能命中工具写入的节点
+            for node in graph_nodes:
+                if node.label != "Person" or not event_user_id:
+                    continue
+                if node.name not in (event_user_id, event_user_name):
+                    continue
+                old_name = node.name
+                if old_name != event_user_id:
+                    node.name = event_user_id
+                    alias_list = [
+                        a.strip()
+                        for a in node.properties.get("aliases", "").split(",")
+                        if a.strip()
+                    ]
+                    if old_name not in alias_list:
+                        alias_list.append(old_name)
+                    node.properties["aliases"] = ",".join(alias_list)
+                    node.id = node.generate_id()
+                node.properties["user_id"] = event_user_id
+
             # 构建 GraphEdge 对象
-            node_name_to_id = {n.name: n.id for n in graph_nodes}
+            # 映射同时注册归一化后的 name 与历史别名，LLM 的边引用
+            # 可能仍使用改写前的昵称
+            node_name_to_id: dict[str, str] = {}
+            for n in graph_nodes:
+                node_name_to_id[n.name] = n.id
+                if n.label == "Person":
+                    for alias in [
+                        a.strip()
+                        for a in n.properties.get("aliases", "").split(",")
+                        if a.strip()
+                    ]:
+                        node_name_to_id.setdefault(alias, n.id)
             graph_edges = []
             for edge_data in edges:
                 source_id = node_name_to_id.get(edge_data["source_name"])

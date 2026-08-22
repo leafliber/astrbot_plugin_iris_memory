@@ -268,3 +268,71 @@ async def test_save_knowledge_skips_subjectless_preference(
     # Person 节点保持原置信度
     person_node = next(n for n in saved_nodes if n.label == "Person")
     assert person_node.confidence == 0.9
+
+
+@pytest.mark.asyncio
+async def test_save_knowledge_canonicalizes_event_user_person(
+    tool, mock_context, mock_component_manager, monkeypatch
+):
+    """Person 节点以事件用户昵称命名时,改写为 user_id 并打标记;
+    边引用旧昵称仍可解析"""
+    monkeypatch.setattr(
+        "iris_memory.tools.save_knowledge.get_component_manager",
+        lambda: mock_component_manager,
+    )
+    monkeypatch.setattr("iris_memory.utils.sanitize_input", lambda x, source="": x)
+
+    mock_platform_adapter = Mock()
+    mock_platform_adapter.get_group_id = Mock(return_value="group_1")
+    mock_platform_adapter.get_user_id = Mock(return_value="10001")
+    mock_platform_adapter.get_user_name = Mock(return_value="Alice")
+    monkeypatch.setattr(
+        "iris_memory.platform.get_adapter", Mock(return_value=mock_platform_adapter)
+    )
+    mock_config = Mock()
+    mock_config.get = Mock(return_value=False)
+    monkeypatch.setattr("iris_memory.config.get_config", lambda: mock_config)
+
+    nodes = [
+        {
+            "label": "Person",
+            "name": "Alice",
+            "content": "喜欢 Python",
+            "confidence": 0.9,
+        },
+        {
+            "label": "Preference",
+            "name": "Python",
+            "content": "编程语言偏好",
+            "confidence": 0.8,
+        },
+    ]
+    edges = [
+        {
+            "source_name": "Alice",
+            "target_name": "Python",
+            "relation_type": "HAS_PREFERENCE",
+            "confidence": 0.85,
+        }
+    ]
+
+    result = await tool.call(mock_context, nodes=nodes, edges=edges)
+
+    assert "成功保存" in result
+    assert "2 个节点" in result
+    assert "1 条边" in result
+
+    # Person 节点归一化为 user_id 并打标记,昵称降级为别名
+    saved_person = mock_component_manager.get_component.return_value.add_node.call_args_list
+    person_calls = [
+        c.args[0] for c in saved_person if c.args[0].label == "Person"
+    ]
+    assert len(person_calls) == 1
+    person = person_calls[0]
+    assert person.name == "10001"
+    assert person.properties.get("user_id") == "10001"
+    assert "Alice" in person.properties.get("aliases", "")
+
+    # 边仍成功落库(别名映射解析旧昵称)
+    add_edge_mock = mock_component_manager.get_component.return_value.add_edge
+    assert add_edge_mock.await_count == 1

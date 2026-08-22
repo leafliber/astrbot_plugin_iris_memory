@@ -140,6 +140,23 @@ async def merge_l3_duplicates():
 
         merged_count, deleted_count = await l3_adapter.merge_duplicate_nodes()
 
+        # 与命令入口（iris_mem l3 merge）对齐：按 user_id 合并分裂的
+        # Person 节点，并用画像别名映射修复存量无标记昵称节点
+        try:
+            from iris_memory.l3_kg.adapter import build_profile_alias_map
+
+            profile_storage = manager.get_component("profile", ProfileStorage)
+            alias_map = None
+            if profile_storage and profile_storage.is_available:
+                alias_map = await build_profile_alias_map(profile_storage)
+            merged_by_uid, deleted_by_uid = await l3_adapter.merge_person_nodes_by_user_id(
+                alias_map
+            )
+            merged_count += merged_by_uid
+            deleted_count += deleted_by_uid
+        except Exception as e:
+            logger.warning(f"按 user_id 合并 Person 节点失败：{e}", exc_info=True)
+
         logger.info(
             f"合并重复节点完成：合并 {merged_count} 组，删除 {deleted_count} 个"
         )

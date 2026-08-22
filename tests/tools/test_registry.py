@@ -103,7 +103,7 @@ EXPECTED_SCHEMAS = {
                 "description": (
                     "作用域：group=仅当前群可见可检索（默认）；"
                     "global=全局共享，所有群与私聊均可检索。"
-                    "仅当信息属于 bot 自身/主人等跨群通用事实时才用 global"
+                    "仅 AstrBot 机器人管理员可创建 global；其他用户会自动降级为 group"
                 ),
                 "default": "group",
             },

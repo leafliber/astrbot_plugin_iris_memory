@@ -101,6 +101,11 @@ class L2CommandHandler(CommandHandler):
         adapter = get_adapter(event)
         group_id = adapter.get_group_id(event)
         current_user_id = adapter.get_user_id(event)
+        # 清除操作需在当前 persona 命名空间内执行，否则非 default
+        # persona 的记忆无法被命中（隔离未启用时 resolve 返回 default）
+        from iris_memory.core.persona import resolve_persona
+
+        persona_id = await resolve_persona(manager, event)
 
         scope = args.scope
         removed_count = 0
@@ -110,7 +115,9 @@ class L2CommandHandler(CommandHandler):
             message = f"✅ 已清空所有 L2 记忆，共删除 {removed_count} 条"
 
         elif scope == DeleteScope.GROUP:
-            removed_count = await l2_adapter.delete_by_group(group_id)
+            removed_count = await l2_adapter.delete_by_group(
+                group_id, persona_id=persona_id
+            )
             message = f"✅ 已清空当前群聊的 L2 记忆，共删除 {removed_count} 条"
 
         elif scope == DeleteScope.SPECIFIED_USER:
@@ -118,11 +125,15 @@ class L2CommandHandler(CommandHandler):
             if not target_user_id:
                 return CommandResult(success=False, message="无法获取目标用户 ID")
 
-            removed_count = await l2_adapter.delete_by_user(target_user_id, group_id)
+            removed_count = await l2_adapter.delete_by_user(
+                target_user_id, group_id, persona_id=persona_id
+            )
             message = f"✅ 已清空用户 {args.target_user_name or target_user_id} 在当前群聊的 L2 记忆，共删除 {removed_count} 条"
 
         else:
-            removed_count = await l2_adapter.delete_by_user(current_user_id, group_id)
+            removed_count = await l2_adapter.delete_by_user(
+                current_user_id, group_id, persona_id=persona_id
+            )
             message = f"✅ 已清空你的 L2 记忆，共删除 {removed_count} 条"
 
         logger.info(f"L2 clear 操作: scope={scope.value}, removed={removed_count}")

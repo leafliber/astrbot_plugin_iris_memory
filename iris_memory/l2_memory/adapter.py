@@ -2279,15 +2279,22 @@ class L2MemoryAdapter(Component):
                     # 全局共享记忆属于知识库资产，用户级清理跳过
                     if metadata.get("scope") == "global":
                         continue
+                    # 命中条件二选一：记忆主体即该用户（metadata.user_id，
+                    # 如 save_memory 工具写入），或该用户参与了场景记忆
+                    # （active_users CSV，如 L1 总结写入）。仅匹配任一条件，
+                    # 避免只依赖 active_users 时漏删无该字段的工具记忆。
+                    owner_hit = metadata.get("user_id") == user_id
+                    participant_hit = False
                     active_users = metadata.get("active_users", "")
                     if active_users:
-                        users = [
+                        participants = [
                             u.strip() for u in active_users.split(",") if u.strip()
                         ]
-                        if user_id in users:
-                            ids_to_delete.append(memory_id)
-                            faiss_indices_to_delete.append(faiss_idx)
-                            fts_rows_to_delete.append((faiss_idx, content))
+                        participant_hit = user_id in participants
+                    if owner_hit or participant_hit:
+                        ids_to_delete.append(memory_id)
+                        faiss_indices_to_delete.append(faiss_idx)
+                        fts_rows_to_delete.append((faiss_idx, content))
 
                 if not ids_to_delete:
                     logger.debug(f"用户 {user_id} 没有记忆记录")

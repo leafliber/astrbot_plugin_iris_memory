@@ -166,6 +166,9 @@ class SaveMemoryTool(FunctionTool[AstrAgentContext]):
                 "importance_level": importance,
                 "source": "tool",
                 "tags": tags,
+                # 与 L1 总结写入形态对齐：用户级清理按 user_id/active_users
+                # 双条件命中，缺失 active_users 的历史工具记忆曾被漏删
+                "active_users": user_id,
             }
 
             # 全局共享记忆显式标记，供检索隔离豁免与清理保护

@@ -112,6 +112,9 @@
         <L3NodeListPanel
           :nodes="memoryStore.l3Nodes"
           :loading="memoryStore.l3NodesLoading"
+          :keyword="memoryStore.l3NodesKeyword"
+          @search="handleNodeListSearch"
+          @clear-search="handleNodeListClearSearch"
           @focus-node="handleFocusNode"
           @expand="handleExpandNode"
           @delete="(id: string) => handleDeleteNodes([id])"
@@ -240,6 +243,11 @@ const handleExpandNode = (nodeId: string) => {
 // ---- 搜索 ----
 const handleSearch = (keyword: string) => memoryStore.searchL3(keyword)
 const handleClearSearch = () => memoryStore.clearL3Search()
+
+// ---- 节点列表 Tab 服务端搜索（支持用户 ID / 名称 / 内容关键词） ----
+const handleNodeListSearch = (keyword: string) =>
+  memoryStore.fetchL3Nodes(keyword)
+const handleNodeListClearSearch = () => memoryStore.fetchL3Nodes()
 
 // ---- 控制 ----
 // 深度/最大节点数变更：保留当前主节点重新加载，不随机化
