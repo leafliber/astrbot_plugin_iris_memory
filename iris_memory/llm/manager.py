@@ -369,6 +369,7 @@ class LLMManager(Component):
         total_timeout: Optional[float] = None,
         attempt: int = 1,
         job_id: str = "",
+        metadata: Optional[Dict[str, Any]] = None,
         **kwargs,
     ) -> str:
         """直接调用 Provider 生成文本响应（绕过 on_llm_request 钩子）
@@ -428,6 +429,7 @@ class LLMManager(Component):
         call_id = str(uuid.uuid4())
         lease: Optional[LLMLease] = None
         provider_started_at: Optional[float] = None
+        call_metadata = dict(metadata or {})
 
         try:
             logger.debug(
@@ -507,6 +509,10 @@ class LLMManager(Component):
                 in_flight_at_start=lease.in_flight_at_start,
                 queue_depth_at_start=lease.queue_depth_at_start,
                 job_id=job_id,
+                metadata={
+                    **call_metadata,
+                    "provider_call_started": True,
+                },
             )
             self._call_logs.append(log)
             self._record_run_log(
@@ -565,6 +571,10 @@ class LLMManager(Component):
                 priority=resolved_priority.name,
                 attempt=max(1, attempt),
                 job_id=job_id,
+                metadata={
+                    **call_metadata,
+                    "provider_call_started": False,
+                },
             )
             self._call_logs.append(log)
             self._record_run_log(
@@ -619,6 +629,10 @@ class LLMManager(Component):
                 in_flight_at_start=lease.in_flight_at_start if lease else 0,
                 queue_depth_at_start=lease.queue_depth_at_start if lease else 0,
                 job_id=job_id,
+                metadata={
+                    **call_metadata,
+                    "provider_call_started": provider_started_at is not None,
+                },
             )
             self._call_logs.append(log)
             self._record_run_log(
@@ -678,6 +692,10 @@ class LLMManager(Component):
                 in_flight_at_start=lease.in_flight_at_start if lease else 0,
                 queue_depth_at_start=lease.queue_depth_at_start if lease else 0,
                 job_id=job_id,
+                metadata={
+                    **call_metadata,
+                    "provider_call_started": provider_started_at is not None,
+                },
             )
             self._call_logs.append(log)
             self._record_run_log(

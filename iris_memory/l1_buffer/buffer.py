@@ -129,7 +129,13 @@ class L1Buffer(Component):
                 maxsize=queue_limit,
                 workers=worker_count,
             )
-            self._outbox = SummaryOutbox(config.data_dir / "l1_summary_outbox.db")
+            data_dir = getattr(config, "data_dir", None)
+            outbox_path: Path | str = (
+                Path(data_dir) / "l1_summary_outbox.db"
+                if isinstance(data_dir, (str, Path))
+                else ":memory:"
+            )
+            self._outbox = SummaryOutbox(outbox_path)
             self._outbox_work_queue = BoundedWorkQueue(
                 name="iris-l1-outbox",
                 handler=self._process_outbox_job,

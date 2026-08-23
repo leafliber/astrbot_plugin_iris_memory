@@ -11,6 +11,7 @@ Features:
 
 from collections import defaultdict
 import hashlib
+import inspect
 from typing import List, Optional, cast
 
 from iris_memory.core import get_logger
@@ -45,6 +46,7 @@ class KnowledgeExtractPhase:
                 "memories_processed": 0,
                 "nodes_extracted": 0,
                 "edges_extracted": 0,
+                "has_more": False,
             }
 
         if not llm:
@@ -53,6 +55,7 @@ class KnowledgeExtractPhase:
                 "memories_processed": 0,
                 "nodes_extracted": 0,
                 "edges_extracted": 0,
+                "has_more": False,
             }
 
         min_unprocessed = cast(
@@ -68,6 +71,7 @@ class KnowledgeExtractPhase:
                 "memories_processed": 0,
                 "nodes_extracted": 0,
                 "edges_extracted": 0,
+                "has_more": False,
             }
 
         logger.info(f"开始知识提取，未处理记忆数：{unprocessed_count}")
@@ -84,6 +88,7 @@ class KnowledgeExtractPhase:
                 "memories_processed": 0,
                 "nodes_extracted": 0,
                 "edges_extracted": 0,
+                "has_more": False,
             }
 
         groups = self._group_memories(unprocessed_memories)
@@ -104,20 +109,56 @@ class KnowledgeExtractPhase:
         total_edges = 0
         empty_finalized = 0
 
-        for group_key, memories in list(groups.items())[:max_groups_per_stage]:
-            try:
-                context = {
-                    "group_id": memories[0].group_id,
-                    "persona_id": persona_id,
-                }
+        selected_groups = list(groups.items())[:max_groups_per_stage]
+        opaque_groups: dict[str, list] = {}
+        contexts: dict[str, dict] = {}
+        labels: dict[str, str] = {}
+        for index, (group_key, memories) in enumerate(selected_groups):
+            opaque_key = f"g{index}"
+            opaque_groups[opaque_key] = memories
+            labels[opaque_key] = group_key
+            context = {
+                "group_id": memories[0].group_id,
+                "persona_id": persona_id,
+                "source_memory_ids": [memory.id for memory in memories],
+                "active_users": sorted(
+                    {
+                        str(memory.metadata.get("user_id"))
+                        for memory in memories
+                        if memory.metadata.get("user_id")
+                    }
+                ),
+            }
+            user_aliases = await self._build_user_aliases(
+                memories, persona_id, component_manager
+            )
+            if user_aliases:
+                context["user_aliases"] = user_aliases
+            contexts[opaque_key] = context
 
-                user_aliases = await self._build_user_aliases(
-                    memories, persona_id, component_manager
+        # 正常路径由一个 JSON 请求同时处理多个群。旧测试替身/第三方扩展若
+        # 尚无 async 多群接口，则保留逐群兼容路径。
+        multi_extract = getattr(extractor, "extract_from_memory_groups", None)
+        if callable(multi_extract) and inspect.iscoroutinefunction(multi_extract):
+            extraction_results = await multi_extract(opaque_groups, contexts)
+        else:
+            extraction_results = {}
+            for opaque_key, memories in opaque_groups.items():
+                extraction_results[opaque_key] = await extractor.extract_from_memories(
+                    memories, contexts[opaque_key]
                 )
-                if user_aliases:
-                    context["user_aliases"] = user_aliases
+        if extraction_results is None:
+            extraction_results = {}
 
-                result = await extractor.extract_from_memories(memories, context)
+        for opaque_key, memories in opaque_groups.items():
+            group_key = labels[opaque_key]
+            result = extraction_results.get(opaque_key)
+            if result is None:
+                logger.warning(
+                    f"群组 [{group_key}] 未获得有效多群提取结果，保留待重试"
+                )
+                continue
+            try:
 
                 if result.nodes or result.edges:
                     node_count = 0
@@ -165,6 +206,9 @@ class KnowledgeExtractPhase:
         if all_processed_ids:
             await l2.mark_memories_processed(all_processed_ids)
 
+        remaining_count = await l2.get_unprocessed_count(persona_id=persona_id)
+        has_more = remaining_count >= min_unprocessed
+
         logger.info(
             f"知识提取完成：处理 {len(all_processed_ids)} 条记忆，"
             f"提取 {total_nodes} 个节点，{total_edges} 条边"
@@ -174,6 +218,8 @@ class KnowledgeExtractPhase:
             "nodes_extracted": total_nodes,
             "edges_extracted": total_edges,
             "empty_finalized": empty_finalized,
+            "groups_requested": len(opaque_groups),
+            "has_more": has_more,
         }
 
     def _group_memories(self, memories: list) -> dict[str, list]:

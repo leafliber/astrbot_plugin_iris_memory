@@ -875,7 +875,10 @@ async def _parse_images_if_enabled(
 
     image_infos = [info for _img, info in parse_pairs]
     try:
-        parse_results = await parser.parse_batch(image_infos)
+        parse_results = await parser.parse_batch(
+            image_infos,
+            image_hashes=[img.image_hash for img, _info in parse_pairs],
+        )
     except Exception as e:
         logger.error(f"parse_batch 异常，退还全部预扣配额：{e}", exc_info=True)
         if quota_manager and quota_manager.is_available:

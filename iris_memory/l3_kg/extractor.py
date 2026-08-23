@@ -1,6 +1,6 @@
 """实体和关系提取器"""
 
-from typing import List
+from typing import Dict, List, Optional
 from iris_memory.core import get_logger
 from iris_memory.config import get_config
 from iris_memory.llm_modules import L3_KG_EXTRACTION
@@ -113,6 +113,93 @@ class EntityExtractor:
         logger.info(f"从 {len(memories)} 条记忆中批量提取实体和关系")
 
         return await self.extract_from_text(combined_text, context)
+
+    async def extract_from_memory_groups(
+        self,
+        groups: Dict[str, List[MemoryEntry]],
+        contexts: Optional[Dict[str, dict]] = None,
+    ) -> Optional[Dict[str, ExtractionResult]]:
+        """在一次 Provider 请求中独立提取多个群组。
+
+        输入/输出使用调用方生成的 opaque group_key，解析时严格忽略模型新增
+        或重复 key。顶层 JSON 无效返回 None，让调用方保留这些记忆重试；合法
+        的空 nodes/edges 则作为真正空结果返回。
+        """
+        if not groups:
+            return {}
+        contexts = contexts or {}
+        payload = [
+            {
+                "group_key": key,
+                "memories": self._combine_memories(memories),
+            }
+            for key, memories in groups.items()
+        ]
+        prompt = self._build_multi_group_extraction_prompt(payload)
+        try:
+            response = await self.llm_manager.generate_direct(
+                prompt=prompt, module=self.module
+            )
+            raw = (response or "").strip()
+            if raw.startswith("```json"):
+                raw = raw[7:]
+            elif raw.startswith("```"):
+                raw = raw[3:]
+            if raw.endswith("```"):
+                raw = raw[:-3]
+            data = json.loads(raw.strip())
+            items = data.get("groups") if isinstance(data, dict) else None
+            if not isinstance(items, list):
+                return None
+
+            results: Dict[str, ExtractionResult] = {}
+            allowed = set(groups)
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                key = str(item.get("group_key") or "")
+                if key not in allowed or key in results:
+                    continue
+                parsed = self._parse_extraction_result(
+                    json.dumps(
+                        {
+                            "nodes": item.get("nodes", []),
+                            "edges": item.get("edges", []),
+                            "extraction_confidence": item.get(
+                                "extraction_confidence", 1.0
+                            ),
+                        },
+                        ensure_ascii=False,
+                    ),
+                    contexts.get(key, {}),
+                )
+                results[key] = self._filter_low_quality(parsed)
+            return results
+        except (json.JSONDecodeError, TypeError, ValueError) as e:
+            logger.warning(f"多群实体提取 JSON 解析失败：{e}")
+            return None
+        except Exception as e:
+            logger.error(f"多群实体提取失败：{e}")
+            return None
+
+    def _build_multi_group_extraction_prompt(self, payload: list[dict]) -> str:
+        """构建共享规则、分组隔离的多群 JSON 提取提示。"""
+        return f"""从多个互相独立的对话记忆组中提取长期有效的结构化知识。
+
+规则：
+1. 各 group_key 必须独立分析，严禁跨组创建实体或关系。
+2. 只保留偏好、技能、稳定特征、目标、信念、重要事件及深层关联。
+3. Preference/Trait/Belief/Goal/Skill 必须有对应 Person 节点和关系边。
+4. 带 [用户:ID] 的 Person.name 必须使用该 ID；宁缺毋滥。
+5. 节点 content 不超过 {_MAX_CONTENT_LENGTH} 字。
+
+只输出 JSON：
+{{"groups":[{{"group_key":"g0","nodes":[{{"label":"Person","name":"用户ID","content":"概括","confidence":0.9}}],"edges":[{{"source_label":"Person","source_name":"用户ID","target_label":"Preference","target_name":"目标","relation_type":"HAS_PREFERENCE","confidence":0.8}}],"extraction_confidence":0.8}}]}}
+
+必须原样返回输入中的 group_key，不得新增 group_key。某组无知识时返回空 nodes/edges。
+
+输入：
+{json.dumps(payload, ensure_ascii=False)}"""
 
     def _combine_memories(self, memories: List[MemoryEntry]) -> str:
         """合并多条记忆内容

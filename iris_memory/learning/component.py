@@ -270,24 +270,44 @@ class LearningComponent(Component):
 
     async def _run_review_once(self) -> Optional[bool]:
         """单轮通用质量审查；调用方持有内容审查锁。"""
+        claim_token = ""
         try:
             llm_manager = self._get_llm_manager()
             if not llm_manager:
                 return False
             async with self._db_lock:
-                pairs, patterns = self._reviewer.fetch_pending()
+                claim_token, pairs, patterns = self._reviewer.claim_pending()
             if not pairs and not patterns:
                 return None
             verdicts = await self._reviewer.request_verdicts(
                 llm_manager, pairs, patterns
             )
             if verdicts is None:
+                async with self._db_lock:
+                    self._storage.fail_review_claim(
+                        claim_token,
+                        error="LLM call or JSON parse failed",
+                    )
                 return False
             async with self._db_lock:
-                self._reviewer.apply_verdicts(verdicts, pairs, patterns)
+                self._reviewer.apply_verdicts(
+                    verdicts,
+                    pairs,
+                    patterns,
+                    claim_token=claim_token,
+                )
             return True
         except Exception as e:
             logger.warning(f"学习审查执行失败：{e}")
+            if claim_token:
+                try:
+                    async with self._db_lock:
+                        self._storage.fail_review_claim(
+                            claim_token,
+                            error=str(e),
+                        )
+                except Exception as release_error:
+                    logger.error(f"学习审查 claim 退避回写失败：{release_error}")
             return False
 
     def _ensure_review_worker(self) -> None:

@@ -30,8 +30,10 @@ class SummaryOutboxJob:
 class SummaryOutbox:
     """SQLite Outbox；总结结果落盘后 L1 才允许 rotate。"""
 
-    def __init__(self, path: Path) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
+    def __init__(self, path: Path | str) -> None:
+        if str(path) != ":memory:":
+            path = Path(path)
+            path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
         self._db = sqlite3.connect(str(path), check_same_thread=False)
         self._db.row_factory = sqlite3.Row

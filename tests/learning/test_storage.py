@@ -92,6 +92,63 @@ class TestStalePendingCleanup:
         assert storage.get_approved_few_shots("g", 10)
 
 
+class TestDialogueReviewClaims:
+    def test_two_storage_workers_cannot_claim_same_rows(self, tmp_path):
+        path = tmp_path / "shared-learning.db"
+        first = LearningStorage(path)
+        second = LearningStorage(path)
+        first.init_schema()
+        second.init_schema()
+        try:
+            for index in range(20):
+                first.insert_pair("g", "u", f"问{index}", f"答{index}")
+            _, first_pairs, _ = first.claim_review_batch(
+                10, claim_token="worker-a"
+            )
+            _, second_pairs, _ = second.claim_review_batch(
+                10, claim_token="worker-b"
+            )
+            first_ids = {item["id"] for item in first_pairs}
+            second_ids = {item["id"] for item in second_pairs}
+            assert len(first_ids) == len(second_ids) == 10
+            assert first_ids.isdisjoint(second_ids)
+        finally:
+            first.close()
+            second.close()
+
+    def test_retry_wait_survives_restart_and_respects_deadline(self, tmp_path):
+        path = tmp_path / "retry-learning.db"
+        first = LearningStorage(path)
+        first.init_schema()
+        pair_id = first.insert_pair("g", "u", "问", "答")
+        token, pairs, _ = first.claim_review_batch(
+            10, claim_token="worker", now=100.0
+        )
+        assert [item["id"] for item in pairs] == [pair_id]
+        assert first.fail_review_claim(token, error="bad json", now=100.0) == 1
+        first.close()
+
+        second = LearningStorage(path)
+        second.init_schema()
+        try:
+            _, early, _ = second.claim_review_batch(10, now=399.0)
+            assert early == []
+            _, ready, _ = second.claim_review_batch(10, now=400.0)
+            assert [item["id"] for item in ready] == [pair_id]
+            assert ready[0]["review_attempt_count"] == 1
+        finally:
+            second.close()
+
+    def test_stale_reviewing_claim_is_recovered(self, storage):
+        pair_id = storage.insert_pair("g", "u", "问", "答")
+        storage.claim_review_batch(10, claim_token="dead", now=100.0)
+        token, pairs, _ = storage.claim_review_batch(
+            10, claim_token="recovery", now=400.0, stale_after=120.0
+        )
+        assert token == "recovery"
+        assert [item["id"] for item in pairs] == [pair_id]
+
+
 class TestCandidateStorage:
     def _record(self, storage, user="u1", now=None, term="绝绝子", message_hash="h1"):
         return storage.record_jargon_observations(

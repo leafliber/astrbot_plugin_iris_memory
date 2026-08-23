@@ -2,6 +2,7 @@
 
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
+from datetime import datetime
 
 import pytest
 from quart import Quart
@@ -105,3 +106,48 @@ async def test_llm_governance_endpoint_exposes_metrics_and_alerts(monkeypatch):
         "queue_wait_high",
         "module_failure_streak",
     }
+
+
+def test_duplicate_real_image_provider_calls_raise_alert(monkeypatch):
+    monkeypatch.setattr(
+        "iris_memory.config.get_config",
+        lambda: SimpleNamespace(get=lambda key, default=None: 30),
+    )
+    now = datetime.now().isoformat()
+    calls = [
+        {
+            "call_id": f"call-{index}",
+            "timestamp": now,
+            "module": "image_parsing",
+            "provider_id": "vision-1",
+            "success": index == 0,
+            "metadata": {
+                "image_hash": "same-hash",
+                "provider_call_started": True,
+            },
+        }
+        for index in range(2)
+    ]
+    # 本地排队失败不属于真实 Provider 调用，不应被计为第三次。
+    calls.append(
+        {
+            "call_id": "queued-only",
+            "timestamp": now,
+            "module": "image_parsing",
+            "provider_id": "vision-1",
+            "success": False,
+            "metadata": {
+                "image_hash": "same-hash",
+                "provider_call_started": False,
+            },
+        }
+    )
+
+    alerts = stats_routes._governor_alerts(
+        {"queue_depth": 0, "queue_limit": 10, "calls_per_minute": {}}, calls
+    )
+    duplicate = next(
+        alert for alert in alerts if alert["type"] == "duplicate_image_provider_call"
+    )
+    assert duplicate["image_hash"] == "same-hash"
+    assert duplicate["value"] == 2

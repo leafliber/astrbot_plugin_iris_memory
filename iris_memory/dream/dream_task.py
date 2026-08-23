@@ -18,6 +18,7 @@ Features:
 
 from dataclasses import dataclass, field
 from datetime import datetime
+from pathlib import Path
 from typing import TYPE_CHECKING, List, Optional
 
 from iris_memory.core import get_logger
@@ -31,6 +32,7 @@ from iris_memory.llm.budget import (
     current_llm_call_budget,
     use_llm_call_budget,
 )
+from .state import DreamCursorStore
 
 if TYPE_CHECKING:
     from iris_memory.core import ComponentManager
@@ -118,10 +120,30 @@ class DreamTask:
     在会修改条目集的阶段（合并、矛盾消解）执行后自动重载。
     """
 
-    def __init__(self, component_manager: "ComponentManager"):
+    def __init__(
+        self,
+        component_manager: "ComponentManager",
+        cursor_store: Optional[DreamCursorStore] = None,
+    ):
         self._component_manager = component_manager
         self._cached_entries: Optional[List[MemoryEntry]] = None
         self._cached_persona: Optional[str] = None
+        self._cursor_store = cursor_store
+        self._cursor_store_initialized = cursor_store is not None
+
+    def _get_cursor_store(self, config) -> Optional[DreamCursorStore]:
+        if self._cursor_store_initialized:
+            return self._cursor_store
+        self._cursor_store_initialized = True
+        try:
+            data_dir = config.data_dir
+            if isinstance(data_dir, Path):
+                self._cursor_store = DreamCursorStore(
+                    data_dir / "dream" / "cursor.db"
+                )
+        except Exception as e:
+            logger.warning(f"Dream 持久游标初始化失败，降级为单轮执行：{e}")
+        return self._cursor_store
 
     async def _get_entries(
         self, l2: L2MemoryAdapter, persona_id: str
@@ -168,18 +190,72 @@ class DreamTask:
 
         # 按人格隔离加工：每个 persona 独立跑一遍流水线，避免跨人格合并
         persona_ids = await l2.get_all_persona_ids() or ["default"]
+        # 稳定顺序让 next_persona 在重启后仍可定位；Provider/存储返回顺序变化
+        # 不会导致已完成 persona 被插队重跑。
+        persona_ids = sorted({str(item or "default") for item in persona_ids})
+        cursor_store = self._get_cursor_store(config)
+        cycle = cursor_store.get_cycle() if cursor_store else 1
+        next_persona = cursor_store.get_next_persona() if cursor_store else ""
+        if next_persona in persona_ids:
+            offset = persona_ids.index(next_persona)
+            persona_ids = persona_ids[offset:] + persona_ids[:offset]
         logger.info(f"🌙 梦境开始，待加工 persona：{persona_ids}")
 
+        incomplete_personas: list[str] = []
         with use_llm_call_budget(budget):
-            for persona_id in persona_ids:
+            for index, persona_id in enumerate(persona_ids):
+                if cursor_store and cursor_store.persona_complete(
+                    cycle, persona_id, _PHASE_CONFIG_KEYS
+                ):
+                    continue
                 if budget.exhausted:
+                    incomplete_personas.append(persona_id)
                     break
-                await self._run_pipeline_for_persona(persona_id, l2, l3, llm, report)
+                if cursor_store:
+                    cursor_store.set_next_persona(persona_id)
+                pipeline_result = await self._run_pipeline_for_persona(
+                    persona_id,
+                    l2,
+                    l3,
+                    llm,
+                    report,
+                    cycle=cycle,
+                    cursor_store=cursor_store,
+                )
+                # None 兼容旧扩展/测试替换的流水线实现；新版真实实现明确返回 bool。
+                completed = pipeline_result is not False
+                if not completed:
+                    incomplete_personas.append(persona_id)
+                elif cursor_store and persona_ids:
+                    cursor_store.set_next_persona(
+                        persona_ids[(index + 1) % len(persona_ids)]
+                    )
                 await self._invalidate_entries()
 
             # L3 是共享适配器；全图去重/孤儿清理/淘汰每轮只执行一次，避免随
             # persona 数量线性重复。L2 清洗仍在各 persona 流水线内独立执行。
-            if l3 and config.get(_GLOBAL_L3_CONFIG_KEY) and not budget.exhausted:
+            all_personas_complete = (
+                all(
+                    cursor_store.persona_complete(
+                        cycle, persona_id, _PHASE_CONFIG_KEYS
+                    )
+                    for persona_id in persona_ids
+                )
+                if cursor_store
+                else not incomplete_personas and not budget.exhausted
+            )
+            global_enabled = bool(l3 and config.get(_GLOBAL_L3_CONFIG_KEY))
+            global_complete = bool(
+                cursor_store
+                and "pruning_l3_global"
+                in cursor_store.completed_stages(cycle, "*")
+            )
+            if (
+                all_personas_complete
+                and global_enabled
+                and not global_complete
+                and not budget.exhausted
+            ):
                 global_report = await self._run_phase(
                     "pruning_l3_global",
                     True,
@@ -191,6 +267,19 @@ class DreamTask:
                     "*",
                 )
                 report.phases.append(global_report)
+                global_complete = global_report.success
+                if cursor_store and global_report.success:
+                    cursor_store.mark_stage(
+                        cycle, "*", "pruning_l3_global", completed=True
+                    )
+
+            cycle_complete = all_personas_complete and (
+                not global_enabled or global_complete
+            )
+            if cursor_store and cycle_complete:
+                cursor_store.advance_cycle(
+                    cycle, persona_ids[0] if persona_ids else "default"
+                )
 
         report.budget_exhausted = budget.exhausted
         report.budget_reason = budget.exhausted_reason or (
@@ -214,7 +303,10 @@ class DreamTask:
         l3: Optional["L3KGAdapter"],
         llm: Optional["LLMManager"],
         report: DreamReport,
-    ) -> None:
+        *,
+        cycle: int = 1,
+        cursor_store: Optional[DreamCursorStore] = None,
+    ) -> bool:
         """对单个 persona 执行优化后的流水线"""
         config = get_config()
         logger.info(f"🌙 persona [{persona_id}] 开始加工...")
@@ -226,13 +318,25 @@ class DreamTask:
             ("pruning", self._run_pruning),
         ]
 
+        completed_stages = (
+            cursor_store.completed_stages(cycle, persona_id)
+            if cursor_store
+            else set()
+        )
+        local_completed = set(completed_stages)
+
         for phase_name, phase_func in phase_order:
+            if phase_name in completed_stages:
+                logger.debug(
+                    f"🌙 persona [{persona_id}] 阶段 [{phase_name}] 已由游标完成，跳过"
+                )
+                continue
             budget = current_llm_call_budget()
             if budget is not None and budget.exhausted:
                 logger.info(
                     f"🌙 Dream 预算已耗尽，停止 persona [{persona_id}] 后续阶段"
                 )
-                break
+                return False
             config_key = _PHASE_CONFIG_KEYS[phase_name]
             enabled = bool(config.get(config_key))
 
@@ -248,8 +352,38 @@ class DreamTask:
             )
             report.phases.append(phase_report)
 
+            if phase_report.success:
+                if self._details_have_more(phase_report.details):
+                    if cursor_store:
+                        cursor_store.mark_stage(
+                            cycle, persona_id, phase_name, completed=False
+                        )
+                    logger.info(
+                        f"🌙 persona [{persona_id}] 阶段 [{phase_name}] 尚有增量，"
+                        "保存游标等待下轮"
+                    )
+                    return False
+                local_completed.add(phase_name)
+                if cursor_store:
+                    cursor_store.mark_stage(
+                        cycle, persona_id, phase_name, completed=True
+                    )
+
             if enabled and phase_name in _PHASES_THAT_MUTATE_ENTRIES:
                 await self._invalidate_entries()
+
+        return set(_PHASE_CONFIG_KEYS).issubset(local_completed)
+
+    @classmethod
+    def _details_have_more(cls, details: object) -> bool:
+        """递归识别阶段返回的增量未完成标记。"""
+        if isinstance(details, dict):
+            if bool(details.get("has_more")):
+                return True
+            return any(cls._details_have_more(value) for value in details.values())
+        if isinstance(details, (list, tuple)):
+            return any(cls._details_have_more(value) for value in details)
+        return False
 
     @staticmethod
     def _config_int(config, key: str, default: int, *, minimum: int) -> int:

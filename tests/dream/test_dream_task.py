@@ -19,6 +19,7 @@ from iris_memory.dream.dream_task import (
     _PHASE_CONFIG_KEYS,
     _PHASES_THAT_MUTATE_ENTRIES,
 )
+from iris_memory.dream.state import DreamCursorStore
 
 
 class TestDreamReport:
@@ -202,3 +203,62 @@ class TestDreamTask:
         assert dream_task._run_pipeline_for_persona.await_count == 2
         dream_task._run_phase.assert_awaited_once()
         assert report.phases[0].phase == "pruning_l3_global"
+
+    @pytest.mark.asyncio
+    async def test_stage_cursor_resumes_at_partial_stage(self, tmp_path, dream_task):
+        store = DreamCursorStore(tmp_path / "dream-cursor.db")
+        dream_task._cursor_store = store
+        dream_task._cursor_store_initialized = True
+        l2 = Mock()
+        l2.get_all_entries = AsyncMock(return_value=[])
+        phase_reports = [
+            DreamPhaseReport("temporal_anchor", True, True, 1),
+            DreamPhaseReport("reconciliation", True, True, 1),
+            DreamPhaseReport(
+                "knowledge_induction", True, True, 1, details={"has_more": True}
+            ),
+        ]
+        dream_task._run_phase = AsyncMock(side_effect=phase_reports)
+
+        with patch("iris_memory.dream.dream_task.get_config") as mock_config:
+            config = Mock()
+            config.get = Mock(return_value=True)
+            mock_config.return_value = config
+            first = await dream_task._run_pipeline_for_persona(
+                "p1", l2, None, None, DreamReport(), cycle=1, cursor_store=store
+            )
+
+        assert first is False
+        assert store.completed_stages(1, "p1") == {
+            "temporal_anchor",
+            "reconciliation",
+        }
+
+        dream_task._run_phase = AsyncMock(
+            side_effect=[
+                DreamPhaseReport("knowledge_induction", True, True, 1),
+                DreamPhaseReport("pruning", True, True, 1),
+            ]
+        )
+        with patch("iris_memory.dream.dream_task.get_config") as mock_config:
+            config = Mock()
+            config.get = Mock(return_value=True)
+            mock_config.return_value = config
+            second = await dream_task._run_pipeline_for_persona(
+                "p1", l2, None, None, DreamReport(), cycle=1, cursor_store=store
+            )
+
+        assert second is True
+        called_phases = [call.args[0] for call in dream_task._run_phase.await_args_list]
+        assert called_phases == ["knowledge_induction", "pruning"]
+
+    def test_cursor_store_survives_reopen_per_persona_and_stage(self, tmp_path):
+        path = tmp_path / "dream-cursor.db"
+        first = DreamCursorStore(path)
+        first.mark_stage(1, "persona-a", "temporal_anchor", completed=True)
+        first.set_next_persona("persona-b")
+
+        reopened = DreamCursorStore(path)
+        assert reopened.get_cycle() == 1
+        assert reopened.get_next_persona() == "persona-b"
+        assert reopened.completed_stages(1, "persona-a") == {"temporal_anchor"}

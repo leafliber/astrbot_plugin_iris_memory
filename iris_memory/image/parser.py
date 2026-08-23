@@ -172,7 +172,9 @@ class ImageParser:
             return f"data:{mime};base64,{b64}"
         return None
 
-    async def parse(self, image_info: ImageInfo) -> ParseResult:
+    async def parse(
+        self, image_info: ImageInfo, *, image_hash: str = ""
+    ) -> ParseResult:
         """解析单张图片
 
         优先使用本地图片（避免链接过期），回退到网络 URL。
@@ -198,6 +200,8 @@ class ImageParser:
                 image_urls=[image_url],
                 module=IMAGE_PARSING,
                 provider_id=self._provider if self._provider else None,
+                job_id=f"image:{image_hash}" if image_hash else "",
+                metadata={"image_hash": image_hash} if image_hash else {},
             )
 
             if self._is_unable_to_describe(response):
@@ -217,7 +221,10 @@ class ImageParser:
             )
 
     async def parse_batch(
-        self, images: List[ImageInfo], max_concurrent: int = 3
+        self,
+        images: List[ImageInfo],
+        max_concurrent: int = 3,
+        image_hashes: Optional[List[str]] = None,
     ) -> List[ParseResult]:
         """批量解析图片
 
@@ -230,11 +237,20 @@ class ImageParser:
         """
         semaphore = asyncio.Semaphore(max_concurrent)
 
-        async def _parse_with_semaphore(image: ImageInfo) -> ParseResult:
-            async with semaphore:
-                return await self.parse(image)
+        hashes = image_hashes or []
 
-        tasks = [_parse_with_semaphore(img) for img in images]
+        async def _parse_with_semaphore(
+            image: ImageInfo, image_hash: str
+        ) -> ParseResult:
+            async with semaphore:
+                return await self.parse(image, image_hash=image_hash)
+
+        tasks = [
+            _parse_with_semaphore(
+                img, hashes[index] if index < len(hashes) else ""
+            )
+            for index, img in enumerate(images)
+        ]
         return list(await asyncio.gather(*tasks))
 
     def _build_parse_prompt(self) -> str:

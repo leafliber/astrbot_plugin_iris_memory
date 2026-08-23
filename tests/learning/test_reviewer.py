@@ -91,6 +91,10 @@ class TestRunReview:
         assert llm.generate_direct.call_count == 1
         assert len(storage.get_pending_pairs(10)) == 1
 
+        # 即使继续触发审查，同一持久批次在 5 分钟退避期内也不会再次调用。
+        assert await reviewer.run_review(llm) is False
+        assert llm.generate_direct.call_count == 1
+
     def test_fetch_pending_combined_count_never_exceeds_batch(self, config, storage):
         _seed_pending(storage, pairs=20, patterns=20)
         reviewer = LearningReviewer(storage)

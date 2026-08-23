@@ -15,6 +15,8 @@ from iris_memory.l1_buffer.buffer import L1Buffer
 from iris_memory.l2_memory.adapter import L2MemoryAdapter
 from iris_memory.l3_kg.adapter import L3KGAdapter
 from typing import Dict, Any
+from datetime import datetime
+import time
 
 logger = get_logger("web.stats")
 
@@ -255,6 +257,40 @@ def _governor_alerts(metrics: Dict[str, Any], recent_calls: list[dict]) -> list[
                     "module": module,
                     "value": count,
                     "threshold": 5,
+                }
+            )
+
+    # 图片 singleflight/claim 的最终验收信号：同一 hash 在一分钟窗口内若
+    # 真正进入 Provider 两次，即使其中一次失败也应告警。排队超时、本地缓存
+    # 命中等没有 provider_call_started 的日志不会误报。
+    image_calls: dict[str, list[dict]] = {}
+    cutoff = time.time() - 60.0
+    for call in recent_calls:
+        if str(call.get("module") or "") != "image_parsing":
+            continue
+        metadata = call.get("metadata") or {}
+        if not metadata.get("provider_call_started"):
+            continue
+        image_hash = str(metadata.get("image_hash") or "")
+        if not image_hash:
+            continue
+        try:
+            timestamp = datetime.fromisoformat(str(call.get("timestamp"))).timestamp()
+        except (TypeError, ValueError):
+            continue
+        if timestamp >= cutoff:
+            image_calls.setdefault(image_hash, []).append(call)
+    for image_hash, calls in image_calls.items():
+        if len(calls) >= 2:
+            alerts.append(
+                {
+                    "type": "duplicate_image_provider_call",
+                    "image_hash": image_hash,
+                    "value": len(calls),
+                    "threshold": 1,
+                    "provider_ids": sorted(
+                        {str(call.get("provider_id") or "") for call in calls}
+                    ),
                 }
             )
     return alerts

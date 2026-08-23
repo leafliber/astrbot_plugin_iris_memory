@@ -310,6 +310,36 @@ class TestLLMManager:
             assert response == "Test response"
 
     @pytest.mark.asyncio
+    async def test_generate_direct_records_provider_metadata(
+        self, mock_context, mock_storage
+    ):
+        with patch("iris_memory.llm.manager.get_config") as mock_cfg:
+            mock_cfg.return_value.get.side_effect = self._timeout_config()
+            manager = LLMManager(mock_context, mock_storage)
+            await manager.initialize()
+
+            response = MagicMock()
+            response.completion_text = "ok"
+            response.usage = None
+            provider = MagicMock()
+            provider.text_chat = AsyncMock(return_value=response)
+            manager._get_provider_instance = MagicMock(return_value=provider)
+
+            await manager.generate_direct(
+                prompt="describe",
+                module="image_parsing",
+                job_id="image:hash-1",
+                metadata={"image_hash": "hash-1"},
+            )
+
+            log = manager.get_recent_call_logs()[0]
+            assert log["job_id"] == "image:hash-1"
+            assert log["metadata"] == {
+                "image_hash": "hash-1",
+                "provider_call_started": True,
+            }
+
+    @pytest.mark.asyncio
     async def test_generate_direct_explicit_timeout_override(
         self, mock_context, mock_storage
     ):

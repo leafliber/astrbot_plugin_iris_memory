@@ -100,10 +100,10 @@ class PatternDiscoveryPhase:
             groups_analyzed = 0
             patterns_found = 0
             patterns_written = 0
+            failed_groups = 0
 
+            eligible_groups: list[tuple[str, list]] = []
             for group_key, group_entries in groups.items():
-                if groups_analyzed >= max_groups_per_stage:
-                    break
                 analysis_entries = [
                     entry
                     for entry in group_entries
@@ -111,15 +111,16 @@ class PatternDiscoveryPhase:
                 ]
                 if len(analysis_entries) < 3:
                     continue
-
                 group_hash = self._group_content_hash(analysis_entries)
                 if all(
                     entry.metadata.get("dream_pattern_input_hash") == group_hash
                     for entry in analysis_entries
                 ):
-                    logger.debug(f"分组 [{group_key}] 内容未变化，跳过模式挖掘")
                     continue
+                eligible_groups.append((group_key, analysis_entries))
 
+            for group_key, analysis_entries in eligible_groups[:max_groups_per_stage]:
+                group_hash = self._group_content_hash(analysis_entries)
                 groups_analyzed += 1
 
                 sample = (
@@ -151,6 +152,7 @@ class PatternDiscoveryPhase:
                     await self._mark_group_scanned(analysis_entries, group_hash, l2)
 
                 except Exception as e:
+                    failed_groups += 1
                     logger.error(f"分组 [{group_key}] 模式挖掘失败：{e}", exc_info=True)
 
             logger.info(
@@ -161,6 +163,10 @@ class PatternDiscoveryPhase:
                 "groups_analyzed": groups_analyzed,
                 "patterns_found": patterns_found,
                 "patterns_written": patterns_written,
+                "has_more": (
+                    len(eligible_groups) > max_groups_per_stage
+                    or failed_groups > 0
+                ),
             }
 
         except Exception as e:

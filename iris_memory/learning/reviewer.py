@@ -22,6 +22,7 @@ from .storage import (
     STATUS_APPROVED,
     STATUS_DISABLED,
     STATUS_PENDING,
+    STATUS_REVIEWING,
 )
 
 logger = get_logger("learning.reviewer")
@@ -77,16 +78,37 @@ class LearningReviewer:
         Returns:
             本轮是否有条目被裁决（LLM 调用失败/解析失败返回 False）
         """
-        pairs, patterns = self.fetch_pending()
+        claim_token, pairs, patterns = self.claim_pending()
         if not pairs and not patterns:
             return False
 
         verdicts = await self.request_verdicts(llm_manager, pairs, patterns)
         if verdicts is None:
+            self._storage.fail_review_claim(
+                claim_token,
+                error="LLM call or JSON parse failed",
+            )
             return False
 
-        self.apply_verdicts(verdicts, pairs, patterns)
+        self.apply_verdicts(
+            verdicts, pairs, patterns, claim_token=claim_token
+        )
         return True
+
+    def claim_pending(
+        self, *, claim_token: str = "", stale_after: float = 130.0
+    ) -> tuple[str, List[Dict[str, Any]], List[Dict[str, Any]]]:
+        """原子领取一批待审内容，供一个 worker 独占处理。"""
+        batch_size = get_config().get_int("learning.review_batch_size", 10) or 10
+        token, pairs, patterns = self._storage.claim_review_batch(
+            batch_size,
+            claim_token=claim_token,
+            stale_after=stale_after,
+        )
+        if not pairs and not patterns:
+            self._pending_pair_ids.clear()
+            self._pending_pattern_ids.clear()
+        return token, pairs, patterns
 
     def fetch_pending(self) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
         """从库中取 pending 的 pairs + patterns（合计不超过 batch_size）
@@ -101,8 +123,10 @@ class LearningReviewer:
         batch_size = config.get_int("learning.review_batch_size", 10) or 10
         # 各取一个 batch 只用于公平采样，最终严格裁到合计 batch_size。
         # 默认让 pair/pattern 各占一半；某一类不足时由另一类补满。
-        all_pairs = self._storage.get_pending_pairs(batch_size)
-        all_patterns = self._storage.get_pending_patterns(batch_size)
+        all_pairs = self._storage.get_pending_pairs(batch_size, ready_only=True)
+        all_patterns = self._storage.get_pending_patterns(
+            batch_size, ready_only=True
+        )
         pair_target = min(len(all_pairs), (batch_size + 1) // 2)
         pattern_target = min(len(all_patterns), batch_size - pair_target)
         remaining = batch_size - pair_target - pattern_target
@@ -214,12 +238,15 @@ class LearningReviewer:
         verdicts: List[Dict[str, Any]],
         pairs: List[Dict[str, Any]],
         patterns: List[Dict[str, Any]],
+        *,
+        claim_token: str = "",
     ) -> None:
         """按裁决结果批量回写状态
 
         未被 LLM 覆盖到的条目保持 pending 下轮再审。
-        回写带 expected_status=pending_review 比较条件：
-        LLM 审查期间被管理员改过的条目不再被迟到裁决覆盖。
+        生产路径同时比较 reviewing + claim_token；兼容调用仍比较 pending_review。
+        因此 LLM 审查期间被管理员改过或其他 worker 重新领取的条目不会被
+        迟到裁决覆盖。LLM 未覆盖的已领取条目进入持久化 retry_wait。
         """
         pair_ids = {p["id"] for p in pairs}
         pattern_ids = {p["id"] for p in patterns}
@@ -245,21 +272,51 @@ class LearningReviewer:
             approved_pairs + disabled_pairs + approved_patterns + disabled_patterns
         )
         written = 0
+        expected_status = STATUS_REVIEWING if claim_token else STATUS_PENDING
+        expected_token = claim_token or None
         if approved_pairs:
             written += self._storage.update_status(
-                "few_shot", approved_pairs, STATUS_APPROVED, STATUS_PENDING
+                "few_shot",
+                approved_pairs,
+                STATUS_APPROVED,
+                expected_status,
+                expected_token,
             )
         if disabled_pairs:
             written += self._storage.update_status(
-                "few_shot", disabled_pairs, STATUS_DISABLED, STATUS_PENDING
+                "few_shot",
+                disabled_pairs,
+                STATUS_DISABLED,
+                expected_status,
+                expected_token,
             )
         if approved_patterns:
             written += self._storage.update_status(
-                "expression_pattern", approved_patterns, STATUS_APPROVED, STATUS_PENDING
+                "expression_pattern",
+                approved_patterns,
+                STATUS_APPROVED,
+                expected_status,
+                expected_token,
             )
         if disabled_patterns:
             written += self._storage.update_status(
-                "expression_pattern", disabled_patterns, STATUS_DISABLED, STATUS_PENDING
+                "expression_pattern",
+                disabled_patterns,
+                STATUS_DISABLED,
+                expected_status,
+                expected_token,
+            )
+
+        if claim_token:
+            uncovered_pairs = sorted(pair_ids - set(approved_pairs) - set(disabled_pairs))
+            uncovered_patterns = sorted(
+                pattern_ids - set(approved_patterns) - set(disabled_patterns)
+            )
+            self._storage.fail_review_claim(
+                claim_token,
+                pair_ids=uncovered_pairs,
+                pattern_ids=uncovered_patterns,
+                error="LLM verdict omitted item",
             )
 
         # 内存队列同步移除已裁决条目

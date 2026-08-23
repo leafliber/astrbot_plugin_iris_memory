@@ -175,6 +175,7 @@ class ReconciliationPhase:
                 continue
             contradiction_groups.append([left, right])
             used_contradiction_ids.update(pair)
+        contradiction_candidate_count = len(contradiction_groups)
         contradiction_groups = contradiction_groups[: contradiction._max_groups]
 
         contradictions_found = 0
@@ -206,4 +207,8 @@ class ReconciliationPhase:
                 "contradictions_found": contradictions_found,
                 "resolved": resolved,
             },
+            "has_more": (
+                len(high_groups) > len(selected_high)
+                or contradiction_candidate_count > len(contradiction_groups)
+            ),
         }

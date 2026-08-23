@@ -16,6 +16,7 @@ import json
 import sqlite3
 import threading
 import time
+import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -27,10 +28,10 @@ from iris_memory.learning.jargon_clustering import (
 
 logger = get_logger("learning.storage")
 
-_SCHEMA_VERSION = 4
+_SCHEMA_VERSION = 5
 
 # JSON 备份格式版本。导出使用原始数据库字段，便于完整保留自动暗语漏斗数据。
-LEARNING_EXPORT_VERSION = "1.1"
+LEARNING_EXPORT_VERSION = "1.2"
 
 # V2 及更早版本没有 persona_id。升级时以特殊值保留这些数据，首次由某个
 # Persona 使用时必须先复审，通过后再归属给该 Persona。
@@ -40,11 +41,15 @@ DEFAULT_PERSONA_ID = "default"
 _EXPORT_COLUMNS = {
     "few_shot": (
         "id", "group_id", "persona_id", "user_id", "user_text", "bot_text",
-        "message_id", "status", "created_at",
+        "message_id", "status", "review_claim_token", "review_claimed_at",
+        "review_attempt_count", "review_next_attempt_at", "review_last_error",
+        "created_at",
     ),
     "expression_pattern": (
         "id", "group_id", "persona_id", "scene", "expression", "source_pair_id",
-        "hit_count", "status", "created_at", "last_hit_at",
+        "hit_count", "status", "review_claim_token", "review_claimed_at",
+        "review_attempt_count", "review_next_attempt_at", "review_last_error",
+        "created_at", "last_hit_at",
     ),
     "jargon": (
         "id", "group_id", "term", "aliases_json", "meaning", "confidence",
@@ -69,6 +74,8 @@ _EXPORT_COLUMNS = {
 
 # 表达模式 / few_shot 的统一状态
 STATUS_PENDING = "pending_review"
+STATUS_REVIEWING = "reviewing"
+STATUS_RETRY_WAIT = "retry_wait"
 STATUS_APPROVED = "approved"
 STATUS_DISABLED = "disabled"
 
@@ -88,8 +95,14 @@ _UPDATABLE_FIELDS = {
 
 # 各表合法的 status 取值（暗语候选状态独立存放，正式词典支持休眠）
 _VALID_STATUSES = {
-    "expression_pattern": (STATUS_PENDING, STATUS_APPROVED, STATUS_DISABLED),
-    "few_shot": (STATUS_PENDING, STATUS_APPROVED, STATUS_DISABLED),
+    "expression_pattern": (
+        STATUS_PENDING, STATUS_REVIEWING, STATUS_RETRY_WAIT,
+        STATUS_APPROVED, STATUS_DISABLED,
+    ),
+    "few_shot": (
+        STATUS_PENDING, STATUS_REVIEWING, STATUS_RETRY_WAIT,
+        STATUS_APPROVED, STATUS_DISABLED,
+    ),
     "jargon": (STATUS_ACTIVE, STATUS_DORMANT, STATUS_DISABLED),
 }
 
@@ -103,6 +116,11 @@ CREATE TABLE IF NOT EXISTS expression_pattern (
     source_pair_id INTEGER,
     hit_count INTEGER DEFAULT 0,
     status TEXT DEFAULT 'pending_review',
+    review_claim_token TEXT NOT NULL DEFAULT '',
+    review_claimed_at REAL,
+    review_attempt_count INTEGER NOT NULL DEFAULT 0,
+    review_next_attempt_at REAL,
+    review_last_error TEXT NOT NULL DEFAULT '',
     created_at REAL,
     last_hit_at REAL
 );
@@ -116,6 +134,11 @@ CREATE TABLE IF NOT EXISTS few_shot (
     bot_text TEXT NOT NULL,
     message_id TEXT,
     status TEXT DEFAULT 'pending_review',
+    review_claim_token TEXT NOT NULL DEFAULT '',
+    review_claimed_at REAL,
+    review_attempt_count INTEGER NOT NULL DEFAULT 0,
+    review_next_attempt_at REAL,
+    review_last_error TEXT NOT NULL DEFAULT '',
     created_at REAL
 );
 
@@ -244,7 +267,7 @@ class LearningStorage:
             self._db.execute("PRAGMA journal_mode=WAL")
 
     def init_schema(self) -> None:
-        """创建 V3 表结构，并迁移 V2 的人格归属字段。"""
+        """创建当前表结构，并以加列方式迁移旧版学习数据库。"""
         with self._lock:
             existing = self._db.execute(
                 "SELECT 1 FROM sqlite_master WHERE type='table' AND name='jargon'"
@@ -291,6 +314,25 @@ class LearningStorage:
                         f"ALTER TABLE {table} ADD COLUMN persona_id TEXT "
                         f"NOT NULL DEFAULT '{LEGACY_PERSONA_ID}'"
                     )
+                # V5：普通学习审查使用数据库认领和持久化退避。两张表使用
+                # 同名列，便于在一个事务里公平领取 pair + pattern。
+                columns = {
+                    row["name"]
+                    for row in self._db.execute(
+                        f"PRAGMA table_info({table})"
+                    ).fetchall()
+                }
+                for column, ddl in (
+                    ("review_claim_token", "TEXT NOT NULL DEFAULT ''"),
+                    ("review_claimed_at", "REAL"),
+                    ("review_attempt_count", "INTEGER NOT NULL DEFAULT 0"),
+                    ("review_next_attempt_at", "REAL"),
+                    ("review_last_error", "TEXT NOT NULL DEFAULT ''"),
+                ):
+                    if column not in columns:
+                        self._db.execute(
+                            f"ALTER TABLE {table} ADD COLUMN {column} {ddl}"
+                        )
             self._db.execute(
                 "CREATE INDEX IF NOT EXISTS idx_pattern_persona_group_status "
                 "ON expression_pattern(persona_id, group_id, status)"
@@ -298,6 +340,14 @@ class LearningStorage:
             self._db.execute(
                 "CREATE INDEX IF NOT EXISTS idx_fewshot_persona_group_status "
                 "ON few_shot(persona_id, group_id, status)"
+            )
+            self._db.execute(
+                "CREATE INDEX IF NOT EXISTS idx_pattern_review_ready "
+                "ON expression_pattern(status, review_next_attempt_at, created_at)"
+            )
+            self._db.execute(
+                "CREATE INDEX IF NOT EXISTS idx_fewshot_review_ready "
+                "ON few_shot(status, review_next_attempt_at, created_at)"
             )
             self._db.execute(f"PRAGMA user_version={_SCHEMA_VERSION}")
             self._db.commit()
@@ -349,13 +399,26 @@ class LearningStorage:
             self._db.commit()
             return int(cur.lastrowid)
 
-    def get_pending_pairs(self, limit: int) -> List[Dict[str, Any]]:
-        """取待审查对话对（按创建时间升序）"""
+    def get_pending_pairs(
+        self, limit: int, *, ready_only: bool = False, now: Optional[float] = None
+    ) -> List[Dict[str, Any]]:
+        """取尚未裁决的对话对；可只返回已到重试时间的条目。"""
+        current = time.time() if now is None else now
+        if ready_only:
+            sql = (
+                "SELECT * FROM few_shot WHERE status=? OR "
+                "(status=? AND COALESCE(review_next_attempt_at,0)<=?) "
+                "ORDER BY created_at,id LIMIT ?"
+            )
+            params = (STATUS_PENDING, STATUS_RETRY_WAIT, current, limit)
+        else:
+            sql = (
+                "SELECT * FROM few_shot WHERE status IN (?,?) "
+                "ORDER BY created_at,id LIMIT ?"
+            )
+            params = (STATUS_PENDING, STATUS_RETRY_WAIT, limit)
         with self._lock:
-            rows = self._db.execute(
-                "SELECT * FROM few_shot WHERE status=? ORDER BY created_at LIMIT ?",
-                (STATUS_PENDING, limit),
-            ).fetchall()
+            rows = self._db.execute(sql, params).fetchall()
             return [dict(r) for r in rows]
 
     def get_approved_few_shots(
@@ -406,15 +469,200 @@ class LearningStorage:
             self._db.commit()
             return int(cur.lastrowid)
 
-    def get_pending_patterns(self, limit: int) -> List[Dict[str, Any]]:
-        """取待审查表达模式（按创建时间升序）"""
+    def get_pending_patterns(
+        self, limit: int, *, ready_only: bool = False, now: Optional[float] = None
+    ) -> List[Dict[str, Any]]:
+        """取尚未裁决的表达模式；可只返回已到重试时间的条目。"""
+        current = time.time() if now is None else now
+        if ready_only:
+            sql = (
+                "SELECT * FROM expression_pattern WHERE status=? OR "
+                "(status=? AND COALESCE(review_next_attempt_at,0)<=?) "
+                "ORDER BY created_at,id LIMIT ?"
+            )
+            params = (STATUS_PENDING, STATUS_RETRY_WAIT, current, limit)
+        else:
+            sql = (
+                "SELECT * FROM expression_pattern WHERE status IN (?,?) "
+                "ORDER BY created_at,id LIMIT ?"
+            )
+            params = (STATUS_PENDING, STATUS_RETRY_WAIT, limit)
         with self._lock:
-            rows = self._db.execute(
-                "SELECT * FROM expression_pattern WHERE status=?"
-                " ORDER BY created_at LIMIT ?",
-                (STATUS_PENDING, limit),
-            ).fetchall()
+            rows = self._db.execute(sql, params).fetchall()
             return [dict(r) for r in rows]
+
+    @staticmethod
+    def _fair_review_selection(
+        pairs: List[Dict[str, Any]],
+        patterns: List[Dict[str, Any]],
+        limit: int,
+    ) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+        """公平裁剪两类候选，且总数严格不超过 limit。"""
+        pair_target = min(len(pairs), (limit + 1) // 2)
+        pattern_target = min(len(patterns), limit - pair_target)
+        remaining = limit - pair_target - pattern_target
+        if remaining > 0:
+            extra = min(len(pairs) - pair_target, remaining)
+            pair_target += extra
+            remaining -= extra
+        if remaining > 0:
+            pattern_target += min(len(patterns) - pattern_target, remaining)
+        return pairs[:pair_target], patterns[:pattern_target]
+
+    def claim_review_batch(
+        self,
+        limit: int,
+        *,
+        claim_token: str = "",
+        now: Optional[float] = None,
+        stale_after: float = 130.0,
+    ) -> tuple[str, List[Dict[str, Any]], List[Dict[str, Any]]]:
+        """在一个 SQLite 写事务内原子领取普通学习审查批次。
+
+        领取状态为 ``pending_review/retry_wait -> reviewing``。超过
+        ``stale_after`` 的 reviewing 会先回收，保证进程在 LLM 调用期间崩溃后
+        仍可恢复；返回的 pair + pattern 总数不超过 ``limit``。
+        """
+        limit = max(0, int(limit))
+        token = claim_token or uuid.uuid4().hex
+        if limit <= 0:
+            return token, [], []
+        current = time.time() if now is None else float(now)
+        stale_before = current - max(1.0, float(stale_after))
+        eligible_sql = (
+            "status=? OR (status=? AND COALESCE(review_next_attempt_at,0)<=?)"
+        )
+        with self._lock:
+            try:
+                self._db.execute("BEGIN IMMEDIATE")
+                for table in ("few_shot", "expression_pattern"):
+                    self._db.execute(
+                        f"UPDATE {table} SET status=?, review_claim_token='', "
+                        "review_claimed_at=NULL, review_next_attempt_at=NULL, "
+                        "review_last_error='stale claim recovered' "
+                        "WHERE status=? AND COALESCE(review_claimed_at,0)<?",
+                        (STATUS_PENDING, STATUS_REVIEWING, stale_before),
+                    )
+
+                pairs = [
+                    dict(row)
+                    for row in self._db.execute(
+                        "SELECT * FROM few_shot WHERE " + eligible_sql
+                        + " ORDER BY created_at,id LIMIT ?",
+                        (STATUS_PENDING, STATUS_RETRY_WAIT, current, limit),
+                    ).fetchall()
+                ]
+                patterns = [
+                    dict(row)
+                    for row in self._db.execute(
+                        "SELECT * FROM expression_pattern WHERE " + eligible_sql
+                        + " ORDER BY created_at,id LIMIT ?",
+                        (STATUS_PENDING, STATUS_RETRY_WAIT, current, limit),
+                    ).fetchall()
+                ]
+                pairs, patterns = self._fair_review_selection(
+                    pairs, patterns, limit
+                )
+
+                for table, items in (
+                    ("few_shot", pairs),
+                    ("expression_pattern", patterns),
+                ):
+                    ids = [int(item["id"]) for item in items]
+                    if not ids:
+                        continue
+                    placeholders = ",".join("?" for _ in ids)
+                    self._db.execute(
+                        f"UPDATE {table} SET status=?, review_claim_token=?, "
+                        "review_claimed_at=?, review_next_attempt_at=NULL "
+                        f"WHERE id IN ({placeholders}) AND ({eligible_sql})",
+                        (
+                            STATUS_REVIEWING,
+                            token,
+                            current,
+                            *ids,
+                            STATUS_PENDING,
+                            STATUS_RETRY_WAIT,
+                            current,
+                        ),
+                    )
+                self._db.commit()
+            except Exception:
+                self._db.rollback()
+                raise
+
+            # 重新读取保证只返回本 token 实际领取成功的条目。
+            claimed_pairs = [
+                dict(row)
+                for row in self._db.execute(
+                    "SELECT * FROM few_shot WHERE review_claim_token=? AND status=? "
+                    "ORDER BY created_at,id",
+                    (token, STATUS_REVIEWING),
+                ).fetchall()
+            ]
+            claimed_patterns = [
+                dict(row)
+                for row in self._db.execute(
+                    "SELECT * FROM expression_pattern WHERE review_claim_token=? "
+                    "AND status=? ORDER BY created_at,id",
+                    (token, STATUS_REVIEWING),
+                ).fetchall()
+            ]
+            return token, claimed_pairs, claimed_patterns
+
+    def fail_review_claim(
+        self,
+        claim_token: str,
+        *,
+        pair_ids: Optional[List[int]] = None,
+        pattern_ids: Optional[List[int]] = None,
+        error: str = "review failed",
+        now: Optional[float] = None,
+    ) -> int:
+        """把当前 worker 持有的条目原子转入持久化 retry_wait。"""
+        if not claim_token:
+            return 0
+        current = time.time() if now is None else float(now)
+        intervals = (300.0, 1800.0, 7200.0, 43200.0)
+        changed = 0
+        with self._lock:
+            for table, ids in (
+                ("few_shot", pair_ids),
+                ("expression_pattern", pattern_ids),
+            ):
+                conditions = "review_claim_token=? AND status=?"
+                params: list[Any] = [claim_token, STATUS_REVIEWING]
+                if ids is not None:
+                    if not ids:
+                        continue
+                    placeholders = ",".join("?" for _ in ids)
+                    conditions += f" AND id IN ({placeholders})"
+                    params.extend(int(item) for item in ids)
+                rows = self._db.execute(
+                    f"SELECT id,review_attempt_count FROM {table} WHERE {conditions}",
+                    params,
+                ).fetchall()
+                for row in rows:
+                    attempt = int(row["review_attempt_count"] or 0) + 1
+                    delay = intervals[min(attempt - 1, len(intervals) - 1)]
+                    cur = self._db.execute(
+                        f"UPDATE {table} SET status=?, review_claim_token='', "
+                        "review_claimed_at=NULL, review_attempt_count=?, "
+                        "review_next_attempt_at=?, review_last_error=? "
+                        "WHERE id=? AND review_claim_token=? AND status=?",
+                        (
+                            STATUS_RETRY_WAIT,
+                            attempt,
+                            current + delay,
+                            (error or "review failed")[:500],
+                            int(row["id"]),
+                            claim_token,
+                            STATUS_REVIEWING,
+                        ),
+                    )
+                    changed += cur.rowcount
+            self._db.commit()
+        return changed
 
     def get_approved_patterns(
         self, group_id: str, limit: int, persona_id: str = DEFAULT_PERSONA_ID
@@ -497,13 +745,13 @@ class LearningStorage:
         removed = 0
         with self._lock:
             cur = self._db.execute(
-                "DELETE FROM few_shot WHERE status=? AND created_at<?",
-                (STATUS_PENDING, cutoff),
+                "DELETE FROM few_shot WHERE status IN (?,?) AND created_at<?",
+                (STATUS_PENDING, STATUS_RETRY_WAIT, cutoff),
             )
             removed += cur.rowcount
             cur = self._db.execute(
-                "DELETE FROM expression_pattern WHERE status=? AND created_at<?",
-                (STATUS_PENDING, cutoff),
+                "DELETE FROM expression_pattern WHERE status IN (?,?) AND created_at<?",
+                (STATUS_PENDING, STATUS_RETRY_WAIT, cutoff),
             )
             removed += cur.rowcount
             self._db.commit()
@@ -1386,6 +1634,7 @@ class LearningStorage:
         ids: List[int],
         status: str,
         expected_status: Optional[str] = None,
+        expected_claim_token: Optional[str] = None,
     ) -> int:
         """批量更新行状态
 
@@ -1395,6 +1644,7 @@ class LearningStorage:
             status: 目标状态（须为该表合法取值）
             expected_status: 比较更新条件——仅当行当前状态等于该值
                 才更新（后台审查回写用，防止覆盖期间的管理员修改）
+            expected_claim_token: 仅更新由指定 worker 领取的行。
 
         Returns:
             实际更新的行数
@@ -1413,6 +1663,9 @@ class LearningStorage:
         if expected_status is not None:
             conds = " AND status=?"
             params = [expected_status]
+        if expected_claim_token is not None:
+            conds += " AND review_claim_token=?"
+            params.append(expected_claim_token)
         with self._lock:
             if table == "jargon":
                 now = time.time()
@@ -1430,7 +1683,10 @@ class LearningStorage:
                     )
             else:
                 cur = self._db.execute(
-                    f"UPDATE {table} SET status=? WHERE id IN ({placeholders}){conds}",
+                    f"UPDATE {table} SET status=?, review_claim_token='', "
+                    "review_claimed_at=NULL, review_next_attempt_at=NULL, "
+                    "review_last_error='' "
+                    f"WHERE id IN ({placeholders}){conds}",
                     (status, *ids, *params),
                 )
             self._db.commit()

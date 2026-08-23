@@ -51,6 +51,17 @@ class TestImageParser:
         assert call_args[1]["provider_id"] == "test_provider"
 
     @pytest.mark.asyncio
+    async def test_parse_propagates_image_hash_to_call_log_metadata(
+        self, parser_with_url_check, mock_llm_manager
+    ):
+        image_info = ImageInfo(url="https://example.com/image.jpg")
+        await parser_with_url_check.parse(image_info, image_hash="sha256-abc")
+
+        kwargs = mock_llm_manager.generate_with_images.await_args.kwargs
+        assert kwargs["job_id"] == "image:sha256-abc"
+        assert kwargs["metadata"] == {"image_hash": "sha256-abc"}
+
+    @pytest.mark.asyncio
     async def test_parse_with_file_path(self, parser):
         """测试使用文件路径解析图片（文件不存在时回退到 URL 检查）"""
         image_info = ImageInfo(file_path="/path/to/image.jpg", format="jpg")

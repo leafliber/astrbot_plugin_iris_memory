@@ -1680,7 +1680,9 @@ async def _parse_images_if_related_mode(
         async with semaphore:
             if not img_item.image_info or not img_item.image_info.has_url:
                 return (img_item, None)
-            result = await parser.parse(img_item.image_info)
+            result = await parser.parse(
+                img_item.image_info, image_hash=img_item.image_hash
+            )
             return (img_item, result)
 
     task_to_img: dict = {}

@@ -299,3 +299,48 @@ class TestKnowledgeExtractPhase:
         assert second == 1
         assert memory.metadata["kg_empty_attempts"] == 2
         assert memory.metadata["kg_processed"] is True
+
+    @pytest.mark.asyncio
+    async def test_multiple_groups_use_one_real_llm_request(self, phase):
+        memories = [
+            MemoryEntry(
+                id="m1",
+                content="u1 喜欢 Python",
+                metadata={"group_id": "group-a", "user_id": "u1"},
+            ),
+            MemoryEntry(
+                id="m2",
+                content="u2 擅长绘画",
+                metadata={"group_id": "group-b", "user_id": "u2"},
+            ),
+        ]
+        l2 = Mock(is_available=True)
+        l2.get_unprocessed_count = AsyncMock(side_effect=[10, 0])
+        l2.get_unprocessed_memories = AsyncMock(return_value=memories)
+        l2.mark_memories_processed = AsyncMock()
+        l2.update_metadata = AsyncMock(return_value=True)
+        l3 = Mock(is_available=True)
+        l3.add_node = AsyncMock(return_value=True)
+        l3.add_edge = AsyncMock(return_value=True)
+        llm = Mock()
+        llm.generate_direct = AsyncMock(
+            return_value='''{"groups":[
+              {"group_key":"g0","nodes":[{"label":"Person","name":"u1","content":"用户 u1","confidence":0.9}],"edges":[]},
+              {"group_key":"g1","nodes":[{"label":"Person","name":"u2","content":"用户 u2","confidence":0.9}],"edges":[]}
+            ]}'''
+        )
+
+        with patch(
+            "iris_memory.dream.knowledge_extract.get_config",
+            return_value=_mock_config(),
+        ), patch(
+            "iris_memory.l3_kg.extractor.get_config",
+            return_value=_mock_config(),
+        ):
+            result = await phase.execute(l2, l3, llm)
+
+        assert llm.generate_direct.await_count == 1
+        l2.mark_memories_processed.assert_awaited_once()
+        assert set(l2.mark_memories_processed.await_args.args[0]) == {"m1", "m2"}
+        assert result["groups_requested"] == 2
+        assert result["memories_processed"] == 2

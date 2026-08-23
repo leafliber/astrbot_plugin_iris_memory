@@ -100,6 +100,7 @@ from iris_memory.proactive.proactive import ProactiveEngine
 from iris_memory.proactive.signals import SignalGate
 from iris_memory.proactive.state import StateManager
 from iris_memory.proactive.stats import StatsCollector
+from iris_memory.proactive.tickets import DecisionTicketRegistry
 from iris_memory.proactive.time_hint import resolve_datetime_reminder
 from iris_memory.proactive.tools import ToolContext
 from iris_memory.extras import ErrorFriendlyProcessor, MarkdownStripper
@@ -216,6 +217,7 @@ class IrisMemoryPlugin(Star):
             self._reply_in_progress: dict[str, float] = {}
             self._passive_active: dict[str, float] = {}
             self._triggering: dict[str, float] = {}
+            self._decision_tickets = DecisionTicketRegistry(_IRIS_ACTIVE_TIMEOUT)
             self._passive_watch_last: dict[str, float] = {}
             self._passive_watch_hash: dict[str, str] = {}
             self._follow_pending: set[str] = set()
@@ -449,6 +451,7 @@ class IrisMemoryPlugin(Star):
         self._reply_in_progress.clear()
         self._passive_active.clear()
         self._triggering.clear()
+        self._decision_tickets.clear()
         self._passive_watch_last.clear()
         self._passive_watch_hash.clear()
         # 记忆侧
@@ -488,6 +491,36 @@ class IrisMemoryPlugin(Star):
         for gid in stale_triggering:
             logger.info(f"Iris Reply: cleaning up stale triggering for group {gid}")
             self._triggering.pop(gid, None)
+        registry = getattr(self, "_decision_tickets", None)
+        if registry is not None:
+            for ticket in registry.cleanup(now):
+                logger.info(
+                    "Iris Reply: cleaning up stale decision ticket "
+                    f"for group {ticket.group_id}, event={ticket.event_id}"
+                )
+                if ticket.group_id not in self._reply_in_progress:
+                    self._triggering.pop(ticket.group_id, None)
+
+    @staticmethod
+    def _decision_event_id(event: AstrMessageEvent) -> str:
+        """取得平台消息 ID；缺失时退化为当前事件对象 ID。"""
+        message_obj = getattr(event, "message_obj", None)
+        raw_id = getattr(message_obj, "message_id", None) if message_obj else None
+        if raw_id not in (None, ""):
+            return f"message:{raw_id}"
+        return f"event:{id(event)}"
+
+    def _release_decision_ticket(self, group_id: str, ticket_id: str = "") -> None:
+        """仅由 ticket 所有者释放，避免迟到事件清掉新事件的决策状态。"""
+        registry = getattr(self, "_decision_tickets", None)
+        if registry is None:
+            self._triggering.pop(group_id, None)
+            return
+        active = registry.get(group_id)
+        if active is not None and ticket_id and active.ticket_id != ticket_id:
+            return
+        registry.release(group_id, ticket_id)
+        self._triggering.pop(group_id, None)
 
     def _is_busy(self, group_id: str) -> bool:
         return (
@@ -688,7 +721,7 @@ class IrisMemoryPlugin(Star):
         self._proactive.notify_human_message(group_id, message_timestamp)
 
         if event.is_at_or_wake_command:
-            self._triggering.pop(group_id, None)
+            self._release_decision_ticket(group_id)
             self._state.increment_msg_count(group_id)
             self._passive_active[group_id] = time.time()
             event.set_extra("iris_mode", "passive")
@@ -738,12 +771,23 @@ class IrisMemoryPlugin(Star):
             if group_id in self._triggering:
                 logger.debug(f"Iris Reply: trigger already in progress for group {group_id}")
                 return
+            event_id = self._decision_event_id(event)
+            registry = getattr(self, "_decision_tickets", None)
+            ticket = registry.claim(group_id, event_id) if registry else None
+            if registry is not None and ticket is None:
+                logger.debug(
+                    f"Iris Reply: duplicate decision event rejected for group {group_id}, "
+                    f"event={event_id}"
+                )
+                return
             self._state.record_detect_time(group_id)
             self._triggering[group_id] = time.time()
 
         event.set_extra("iris_decision", {
             "motive": motive,
             "provider_id": provider_id,
+            "event_id": event_id,
+            "ticket_id": ticket.ticket_id if ticket else "",
         })
 
         event.is_at_or_wake_command = True
@@ -861,11 +905,31 @@ class IrisMemoryPlugin(Star):
 
         info = event.get_extra("iris_decision")
         if not info:
-            self._triggering.pop(group_id, None)
+            self._release_decision_ticket(group_id)
             return False
 
         motive = info.get("motive", "")
         provider_id = info.get("provider_id", "")
+        ticket_id = str(info.get("ticket_id") or "")
+        event_id = str(info.get("event_id") or "")
+        registry = getattr(self, "_decision_tickets", None)
+        if registry is not None:
+            active = registry.get(group_id)
+            # 旧测试/升级中的遗留事件没有 ticket_id，继续走兼容路径；生产事件
+            # 一旦携带 ticket，就必须同时匹配 ticket_id + event_id。
+            if ticket_id and not registry.owns(group_id, ticket_id, event_id):
+                logger.warning(
+                    f"Iris Reply: stale decision ticket rejected for group {group_id}, "
+                    f"event={event_id}"
+                )
+                event.stop_event()
+                return True
+            if active is not None and not ticket_id:
+                logger.warning(
+                    f"Iris Reply: decision event without owner ticket rejected for group {group_id}"
+                )
+                event.stop_event()
+                return True
 
         req = DecisionRequest(group_id=group_id, wake="message", motive=motive)
         outcome = await self._decision_core.decide(req, self._llm_manager, provider_id)
@@ -893,7 +957,7 @@ class IrisMemoryPlugin(Star):
                     self._state.record_skip_reply(group_id)
                 await self._state.save_dirty(self._kv_save)
             self._stats.record_decision_error(group_id, motive)
-            self._triggering.pop(group_id, None)
+            self._release_decision_ticket(group_id, ticket_id)
             event.stop_event()
             return True
 
@@ -925,7 +989,7 @@ class IrisMemoryPlugin(Star):
             async with self._state.get_lock(group_id):
                 self._state.record_skip_reply(group_id)
             await self._state.save_dirty(self._kv_save)
-            self._triggering.pop(group_id, None)
+            self._release_decision_ticket(group_id, ticket_id)
             event.stop_event()
             return True
 
@@ -934,7 +998,7 @@ class IrisMemoryPlugin(Star):
             async with self._state.get_lock(group_id):
                 self._state.record_skip_reply(group_id)
             await self._state.save_dirty(self._kv_save)
-            self._triggering.pop(group_id, None)
+            self._release_decision_ticket(group_id, ticket_id)
             event.stop_event()
             return True
 
@@ -944,7 +1008,7 @@ class IrisMemoryPlugin(Star):
                 self._state.record_skip_reply(group_id)
             await self._state.save_dirty(self._kv_save)
             logger.info(f"Iris Reply: decision requested cooldown {actual} min for group {group_id}")
-            self._triggering.pop(group_id, None)
+            self._release_decision_ticket(group_id, ticket_id)
             event.stop_event()
             return True
 
@@ -954,7 +1018,7 @@ class IrisMemoryPlugin(Star):
                 self._state.record_drift(group_id)
             await self._state.save_dirty(self._kv_save)
             logger.info(f"Iris Reply: topic drifted for group {group_id}, anchor closed")
-            self._triggering.pop(group_id, None)
+            self._release_decision_ticket(group_id, ticket_id)
             event.stop_event()
             return True
 
@@ -981,12 +1045,12 @@ class IrisMemoryPlugin(Star):
                 self._state.record_skip_reply(group_id)
             await self._state.save_dirty(self._kv_save)
             logger.debug(f"Iris Reply: decision skip for group {group_id}")
-            self._triggering.pop(group_id, None)
+            self._release_decision_ticket(group_id, ticket_id)
             event.stop_event()
             return True
 
         self._reply_in_progress[group_id] = time.time()
-        self._triggering.pop(group_id, None)
+        self._release_decision_ticket(group_id, ticket_id)
 
         event.set_extra("iris_mode", motive)
         event.set_extra("iris_llm_provider_id", provider_id)
