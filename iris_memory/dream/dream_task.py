@@ -26,6 +26,11 @@ from iris_memory.l2_memory.adapter import L2MemoryAdapter
 from iris_memory.l2_memory.models import MemoryEntry
 from iris_memory.l3_kg.adapter import L3KGAdapter
 from iris_memory.llm.manager import LLMManager
+from iris_memory.llm.budget import (
+    LLMCallBudget,
+    current_llm_call_budget,
+    use_llm_call_budget,
+)
 
 if TYPE_CHECKING:
     from iris_memory.core import ComponentManager
@@ -54,6 +59,9 @@ class DreamReport:
     finished_at: str = ""
     total_duration_ms: int = 0
     phases: List[DreamPhaseReport] = field(default_factory=list)
+    budget_exhausted: bool = False
+    budget_reason: str = ""
+    budget_calls_reserved: int = 0
 
     @property
     def cost(self) -> dict:
@@ -80,6 +88,7 @@ class DreamReport:
         return (
             f"梦境完成：{', '.join(parts)}，耗时 {self.total_duration_ms}ms，"
             f"LLM {cost['llm_calls']} 次，Embedding {cost['embedding_requests']} 次"
+            + (f"，预算已耗尽({self.budget_reason})" if self.budget_exhausted else "")
         )
 
 
@@ -135,6 +144,19 @@ class DreamTask:
 
         started_at = datetime.now()
         report = DreamReport(started_at=started_at.isoformat())
+        budget = LLMCallBudget(
+            max_calls=self._config_int(
+                config, "scheduled_tasks.dream_max_llm_calls_per_run", 20, minimum=1
+            ),
+            max_runtime_seconds=self._config_int(
+                config, "scheduled_tasks.dream_max_runtime_minutes", 20, minimum=1
+            )
+            * 60.0,
+            min_call_interval_seconds=self._config_int(
+                config, "scheduled_tasks.dream_min_call_interval_ms", 500, minimum=0
+            )
+            / 1000.0,
+        )
 
         l2 = self._get_l2()
         l3 = self._get_l3()
@@ -148,24 +170,33 @@ class DreamTask:
         persona_ids = await l2.get_all_persona_ids() or ["default"]
         logger.info(f"🌙 梦境开始，待加工 persona：{persona_ids}")
 
-        for persona_id in persona_ids:
-            await self._run_pipeline_for_persona(persona_id, l2, l3, llm, report)
-            await self._invalidate_entries()
+        with use_llm_call_budget(budget):
+            for persona_id in persona_ids:
+                if budget.exhausted:
+                    break
+                await self._run_pipeline_for_persona(persona_id, l2, l3, llm, report)
+                await self._invalidate_entries()
 
-        # L3 是共享适配器；全图去重/孤儿清理/淘汰每轮只执行一次，避免随
-        # persona 数量线性重复。L2 清洗仍在各 persona 流水线内独立执行。
-        if l3 and config.get(_GLOBAL_L3_CONFIG_KEY):
-            global_report = await self._run_phase(
-                "pruning_l3_global",
-                True,
-                self._run_global_pruning,
-                l2,
-                l3,
-                llm,
-                [],
-                "*",
-            )
-            report.phases.append(global_report)
+            # L3 是共享适配器；全图去重/孤儿清理/淘汰每轮只执行一次，避免随
+            # persona 数量线性重复。L2 清洗仍在各 persona 流水线内独立执行。
+            if l3 and config.get(_GLOBAL_L3_CONFIG_KEY) and not budget.exhausted:
+                global_report = await self._run_phase(
+                    "pruning_l3_global",
+                    True,
+                    self._run_global_pruning,
+                    l2,
+                    l3,
+                    llm,
+                    [],
+                    "*",
+                )
+                report.phases.append(global_report)
+
+        report.budget_exhausted = budget.exhausted
+        report.budget_reason = budget.exhausted_reason or (
+            "calls" if budget.max_calls > 0 and budget.calls >= budget.max_calls else ""
+        )
+        report.budget_calls_reserved = budget.calls
 
         finished_at = datetime.now()
         report.finished_at = finished_at.isoformat()
@@ -196,6 +227,12 @@ class DreamTask:
         ]
 
         for phase_name, phase_func in phase_order:
+            budget = current_llm_call_budget()
+            if budget is not None and budget.exhausted:
+                logger.info(
+                    f"🌙 Dream 预算已耗尽，停止 persona [{persona_id}] 后续阶段"
+                )
+                break
             config_key = _PHASE_CONFIG_KEYS[phase_name]
             enabled = bool(config.get(config_key))
 
@@ -213,6 +250,13 @@ class DreamTask:
 
             if enabled and phase_name in _PHASES_THAT_MUTATE_ENTRIES:
                 await self._invalidate_entries()
+
+    @staticmethod
+    def _config_int(config, key: str, default: int, *, minimum: int) -> int:
+        try:
+            return max(minimum, int(config.get(key, default)))
+        except (TypeError, ValueError, OverflowError):
+            return default
 
     async def _run_phase(
         self,

@@ -16,6 +16,7 @@ from .models import (
 from .quota_manager import ImageQuotaManager
 from .cache_manager import ImageCacheManager
 from .parser import ImageParser
+from .coordinator import ImageParseCoordinator
 from .recorder_bridge import (
     MessageRecorderBridge,
     init_recorder_bridge,
@@ -42,6 +43,7 @@ __all__ = [
     "ImageQuotaManager",
     "ImageCacheManager",
     "ImageParser",
+    "ImageParseCoordinator",
     "MessageRecorderBridge",
     "init_recorder_bridge",
     "get_recorder_bridge",

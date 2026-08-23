@@ -151,6 +151,23 @@ class TestL2MemoryAdapter:
         assert memory_id == "mem_existing"
 
     @pytest.mark.asyncio
+    async def test_add_memories_bulk_embeds_all_items_once(self, mock_faiss_adapter):
+        adapter = mock_faiss_adapter
+        adapter._find_similar_unlocked = Mock(return_value=None)
+        adapter._embed = AsyncMock(return_value=[[0.1] * 8 for _ in range(10)])
+        items = [
+            (f"批量记忆 {index}", {"group_id": "g1"}) for index in range(10)
+        ]
+
+        memory_ids = await adapter.add_memories_bulk(items)
+
+        assert len([memory_id for memory_id in memory_ids if memory_id]) == 10
+        adapter._embed.assert_awaited_once_with(
+            [f"批量记忆 {index}" for index in range(10)]
+        )
+        assert adapter._count_db() == 10
+
+    @pytest.mark.asyncio
     async def test_add_memory_unavailable(self):
         """测试不可用时添加记忆"""
         adapter = L2MemoryAdapter()

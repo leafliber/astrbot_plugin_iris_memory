@@ -65,6 +65,9 @@ class PatternDiscoveryPhase:
     ) -> dict:
         config = get_config()
         self._sample_size = cast(int, config.get("dream_pattern_sample_size"))
+        max_groups_per_stage = max(
+            1, int(config.get("scheduled_tasks.dream_max_groups_per_stage", 5))
+        )
         raw_confidence = cast(str, config.get("dream_pattern_min_confidence", "medium"))
         self._min_confidence = raw_confidence.lower() if raw_confidence else "medium"
         if self._min_confidence not in _CONFIDENCE_LEVEL:
@@ -99,6 +102,8 @@ class PatternDiscoveryPhase:
             patterns_written = 0
 
             for group_key, group_entries in groups.items():
+                if groups_analyzed >= max_groups_per_stage:
+                    break
                 analysis_entries = [
                     entry
                     for entry in group_entries

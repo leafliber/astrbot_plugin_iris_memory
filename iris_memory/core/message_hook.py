@@ -8,7 +8,9 @@
 """
 
 import asyncio
+import inspect
 import time
+import uuid
 from collections import OrderedDict
 from typing import TYPE_CHECKING, Any, cast
 
@@ -26,6 +28,30 @@ _name_cache: OrderedDict = OrderedDict()
 _NAME_CACHE_MAX_SIZE = 1000
 _IMAGE_QUEUE_TASK_EXTRA = "_iris_image_background_task"
 _IMAGE_BACKGROUND_TASKS: set[asyncio.Task] = set()
+
+
+async def _claim_pending_images_compat(
+    l1_buffer: Any,
+    session_id: str,
+    limit: int,
+    claim_token: str,
+    stale_after_seconds: float,
+) -> list[Any]:
+    """调用新原子领取接口；仅为旧测试替身保留同步读取兼容。"""
+
+    claim = getattr(l1_buffer, "claim_pending_images", None)
+    if callable(claim):
+        result = claim(
+            session_id,
+            limit,
+            claim_token,
+            stale_after_seconds=stale_after_seconds,
+        )
+        if inspect.isawaitable(result):
+            return list(await result)
+        if isinstance(result, list):
+            return result
+    return list(l1_buffer.get_images(session_id, limit=limit, only_pending=True))
 
 
 def _mark_current_event_recorded(event: "AstrMessageEvent") -> None:
@@ -146,6 +172,30 @@ def _schedule_image_pipeline(
                     duration_ms=duration_ms,
                     error="; ".join(errors),
                 )
+
+    # 生产路径统一交给插件级固定 Worker；测试替身或旧组件图才走兼容分支。
+    try:
+        from iris_memory.image import ImageParseCoordinator
+        from iris_memory.platform import get_adapter
+
+        coordinator = component_manager.get_available_component("image_coordinator")
+        if isinstance(coordinator, ImageParseCoordinator):
+            adapter = get_adapter(event)
+            session_id = adapter.get_session_id(event)
+            raw = adapter.get_raw_message(event) or {}
+            message_id = str(raw.get("message_id") or id(event))
+            completion = coordinator.submit(
+                key=f"pipeline:{session_id}:{message_id}",
+                session_id=session_id,
+                runner=runner,
+            )
+            if completion is None:
+                completion = asyncio.Event()
+                completion.set()
+            event.set_extra(_IMAGE_QUEUE_TASK_EXTRA, completion)
+            return
+    except Exception as exc:
+        logger.warning(f"统一图片协调器调度失败：{exc}")
 
     task = asyncio.create_task(runner(), name="iris-image-pipeline")
     _IMAGE_BACKGROUND_TASKS.add(task)
@@ -729,8 +779,16 @@ async def _parse_images_if_enabled(
         logger.warning("LLM Manager 不可用，跳过图片解析")
         return
 
-    max_parse = config.get("image_max_parse_per_request")
-    pending_images = l1_buffer.get_images(session_id, limit=max_parse, only_pending=True)
+    max_parse = int(config.get("image_max_parse_per_request", 3) or 3)
+    parse_timeout_ms = int(config.get("image_parse_timeout_ms", 30000) or 30000)
+    claim_token = str(uuid.uuid4())
+    pending_images = await _claim_pending_images_compat(
+        l1_buffer,
+        session_id,
+        max_parse,
+        claim_token,
+        max(1.0, parse_timeout_ms * 2 / 1000.0),
+    )
 
     if not pending_images:
         return
@@ -741,7 +799,10 @@ async def _parse_images_if_enabled(
             cached = await cache_manager.get_cache(img_item.image_hash)
             if cached:
                 l1_buffer.mark_image_parsed(
-                    session_id, img_item.image_hash, ImageParseStatus.SUCCESS
+                    session_id,
+                    img_item.image_hash,
+                    ImageParseStatus.SUCCESS,
+                    claim_token,
                 )
                 placeholder = f"[IMG:{img_item.image_hash.removeprefix('ph:')[:12]}]"
                 l1_buffer.replace_image_placeholder(
@@ -758,11 +819,19 @@ async def _parse_images_if_enabled(
         has_quota = await quota_manager.check_quota()
         if not has_quota:
             logger.info("图片解析配额已耗尽，跳过解析")
+            for item in images_to_parse:
+                l1_buffer.release_image_claim(
+                    session_id, item.image_hash, claim_token, deferred=True
+                )
             return
 
         quota_used = await quota_manager.use_quota(len(images_to_parse))
         if not quota_used:
             logger.warning("图片解析配额使用失败")
+            for item in images_to_parse:
+                l1_buffer.release_image_claim(
+                    session_id, item.image_hash, claim_token, deferred=True
+                )
             return
 
     provider = config.get("l1_buffer.image_parsing.provider", "")
@@ -793,7 +862,7 @@ async def _parse_images_if_enabled(
     for img_item in no_url_items:
         logger.debug(f"图片无 URL，跳过解析：{img_item.image_hash[:8]}")
         l1_buffer.mark_image_parsed(
-            session_id, img_item.image_hash, ImageParseStatus.FAILED
+            session_id, img_item.image_hash, ImageParseStatus.FAILED, claim_token
         )
         placeholder = f"[IMG:{img_item.image_hash.removeprefix('ph:')[:12]}]"
         l1_buffer.replace_image_placeholder(session_id, placeholder, "")
@@ -814,7 +883,7 @@ async def _parse_images_if_enabled(
         # 标记所有可解析图片为 FAILED 并清占位符
         for img_item, _info in parse_pairs:
             l1_buffer.mark_image_parsed(
-                session_id, img_item.image_hash, ImageParseStatus.FAILED
+                session_id, img_item.image_hash, ImageParseStatus.FAILED, claim_token
             )
             placeholder = f"[IMG:{img_item.image_hash.removeprefix('ph:')[:12]}]"
             l1_buffer.replace_image_placeholder(session_id, placeholder, "")
@@ -825,7 +894,7 @@ async def _parse_images_if_enabled(
         if not result.success:
             logger.warning(f"图片解析失败：{result.error_message}")
             l1_buffer.mark_image_parsed(
-                session_id, img_item.image_hash, ImageParseStatus.FAILED
+                session_id, img_item.image_hash, ImageParseStatus.FAILED, claim_token
             )
             placeholder = f"[IMG:{img_item.image_hash.removeprefix('ph:')[:12]}]"
             l1_buffer.replace_image_placeholder(session_id, placeholder, "")
@@ -834,7 +903,7 @@ async def _parse_images_if_enabled(
         if not result.content:
             logger.debug("图片解析结果为空")
             l1_buffer.mark_image_parsed(
-                session_id, img_item.image_hash, ImageParseStatus.FAILED
+                session_id, img_item.image_hash, ImageParseStatus.FAILED, claim_token
             )
             placeholder = f"[IMG:{img_item.image_hash.removeprefix('ph:')[:12]}]"
             l1_buffer.replace_image_placeholder(session_id, placeholder, "")
@@ -850,7 +919,7 @@ async def _parse_images_if_enabled(
             await cache_manager.set_cache(cache)
 
         l1_buffer.mark_image_parsed(
-            session_id, img_item.image_hash, ImageParseStatus.SUCCESS
+            session_id, img_item.image_hash, ImageParseStatus.SUCCESS, claim_token
         )
 
         placeholder = f"[IMG:{img_item.image_hash.removeprefix('ph:')[:12]}]"

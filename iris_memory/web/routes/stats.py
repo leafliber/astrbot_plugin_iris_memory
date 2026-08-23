@@ -199,6 +199,88 @@ async def get_system_stats():
         return jsonify({"success": False, "error": "内部错误，详见服务日志"}), 500
 
 
+def _governor_alerts(metrics: Dict[str, Any], recent_calls: list[dict]) -> list[dict]:
+    """Build a read-only alert snapshot from current Governor/call-log state."""
+
+    from iris_memory.config import get_config
+
+    alerts: list[dict] = []
+    rpm_limit = int(get_config().get("llm_provider_rpm", 30) or 0)
+    if rpm_limit > 0:
+        for provider_id, modules in metrics.get("calls_per_minute", {}).items():
+            total = sum(int(value) for value in modules.values())
+            if total >= rpm_limit * 0.8:
+                alerts.append(
+                    {
+                        "type": "provider_rpm_high",
+                        "provider_id": provider_id,
+                        "value": total,
+                        "threshold": rpm_limit * 0.8,
+                    }
+                )
+
+    queue_limit = max(1, int(metrics.get("queue_limit", 500)))
+    if int(metrics.get("queue_depth", 0)) >= queue_limit * 0.7:
+        alerts.append(
+            {
+                "type": "queue_depth_high",
+                "value": int(metrics.get("queue_depth", 0)),
+                "threshold": queue_limit * 0.7,
+            }
+        )
+    if int(metrics.get("queue_wait_p95_ms", 0)) > 1000:
+        alerts.append(
+            {
+                "type": "queue_wait_high",
+                "value": int(metrics.get("queue_wait_p95_ms", 0)),
+                "threshold": 1000,
+            }
+        )
+
+    streaks: dict[str, int] = {}
+    closed: set[str] = set()
+    for call in reversed(recent_calls):
+        module = str(call.get("module") or "default")
+        if module in closed:
+            continue
+        if call.get("success"):
+            closed.add(module)
+            continue
+        streaks[module] = streaks.get(module, 0) + 1
+    for module, count in streaks.items():
+        if count >= 5:
+            alerts.append(
+                {
+                    "type": "module_failure_streak",
+                    "module": module,
+                    "value": count,
+                    "threshold": 5,
+                }
+            )
+    return alerts
+
+
+async def get_llm_governance_stats():
+    try:
+        manager = get_component_manager()
+        llm_manager = manager.get_component("llm_manager", LLMManager)
+        if not llm_manager or not llm_manager.is_available:
+            return jsonify({"success": False, "error": "LLM 管理器不可用"}), 503
+        metrics = llm_manager.get_governor_metrics()
+        recent_calls = llm_manager.get_recent_call_logs(limit=100)
+        return jsonify(
+            {
+                "success": True,
+                "metrics": metrics,
+                "alerts": _governor_alerts(metrics, recent_calls),
+                "recent_calls": recent_calls,
+            }
+        )
+    except Exception as e:
+        logger.error(f"获取 LLM 治理统计失败：{e}", exc_info=True)
+        return jsonify({"success": False, "error": "内部错误，详见服务日志"}), 500
+
+
 async def get_isolation_status():
     """返回三类隔离开关的当前值，供前端展示状态徽章"""
     try:
@@ -308,6 +390,17 @@ async def get_all_stats():
             "global_status": global_status,
             "uptime": _get_uptime(),
         }
+        llm_governance: Dict[str, Any] = {"metrics": {}, "alerts": []}
+        if llm_manager and llm_manager.is_available:
+            try:
+                governance_metrics = llm_manager.get_governor_metrics()
+                governance_calls = llm_manager.get_recent_call_logs(limit=100)
+                llm_governance = {
+                    "metrics": governance_metrics,
+                    "alerts": _governor_alerts(governance_metrics, governance_calls),
+                }
+            except Exception as e:
+                logger.warning(f"获取 LLM 治理统计失败：{e}")
 
         logger.info("获取所有统计成功")
 
@@ -319,6 +412,7 @@ async def get_all_stats():
                 "token_days": token_days,
                 "kg": kg_stats,
                 "system": system_stats,
+                "llm_governance": llm_governance,
             }
         )
 
@@ -335,6 +429,7 @@ def register_stats_routes(context) -> None:
         (f"{prefix}/memory", get_memory_stats, ["GET"], "获取记忆统计"),
         (f"{prefix}/kg", get_kg_stats, ["GET"], "获取图谱统计"),
         (f"{prefix}/system", get_system_stats, ["GET"], "获取系统统计"),
+        (f"{prefix}/llm-governance", get_llm_governance_stats, ["GET"], "获取 LLM 治理统计"),
         (f"{prefix}/isolation", get_isolation_status, ["GET"], "获取隔离状态"),
         (f"{prefix}/all", get_all_stats, ["GET"], "获取所有统计"),
     ]

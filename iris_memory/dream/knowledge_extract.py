@@ -87,6 +87,9 @@ class KnowledgeExtractPhase:
             }
 
         groups = self._group_memories(unprocessed_memories)
+        max_groups_per_stage = max(
+            1, int(config.get("scheduled_tasks.dream_max_groups_per_stage", 5))
+        )
 
         logger.info(
             f"按群聊分组：{len(groups)} 个组，共 {len(unprocessed_memories)} 条记忆"
@@ -101,7 +104,7 @@ class KnowledgeExtractPhase:
         total_edges = 0
         empty_finalized = 0
 
-        for group_key, memories in groups.items():
+        for group_key, memories in list(groups.items())[:max_groups_per_stage]:
             try:
                 context = {
                     "group_id": memories[0].group_id,

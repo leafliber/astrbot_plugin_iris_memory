@@ -431,7 +431,10 @@ class UserProfileManager:
         interval_hours = ProfileConfig.get_mid_update_interval_hours(config)
 
         tracker = profile.get_update_tracker()
-        return tracker.should_update_mid(interval_summaries, interval_hours)
+        first_min = int(config.get("profile_first_mid_min_summaries", 3) or 3)
+        return tracker.should_update_mid(
+            interval_summaries, interval_hours, first_min
+        )
 
     def should_update_long(self, profile: UserProfile) -> bool:
         """判断用户画像是否需要长期更新
@@ -446,7 +449,9 @@ class UserProfileManager:
         interval_hours = ProfileConfig.get_long_update_interval_hours(config)
 
         tracker = profile.get_update_tracker()
-        return tracker.should_update_long(interval_hours)
+        first_min = int(config.get("profile_first_long_min_summaries", 10) or 10)
+        min_new = int(config.get("profile_long_min_new_summaries", 3) or 3)
+        return tracker.should_update_long(interval_hours, first_min, min_new)
 
     async def increment_summary_count(
         self, user_id: str, group_id: str, persona_id: str = "default"

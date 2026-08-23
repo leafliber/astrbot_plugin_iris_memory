@@ -163,6 +163,19 @@ class MemoryRetriever:
 
         return memory_id
 
+    async def add_memories_from_summary(
+        self,
+        items: List[tuple[str, Dict[str, Any]]],
+        persona_id: str = "default",
+    ) -> List[Optional[str]]:
+        """批量写入总结条目，Embedding 请求数恒为一次。"""
+
+        adapter = self._get_adapter()
+        if not adapter:
+            logger.warning("L2 记忆库不可用，跳过批量写入记忆")
+            return [None] * len(items)
+        return await adapter.add_memories_bulk(items, persona_id=persona_id)
+
     async def update_access(self, memory_id: str) -> bool:
         """更新记忆的访问信息
 

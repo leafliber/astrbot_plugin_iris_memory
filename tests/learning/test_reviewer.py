@@ -80,16 +80,23 @@ class TestRunReview:
         assert len(storage.get_pending_patterns(10)) == 1
 
     @pytest.mark.asyncio
-    async def test_review_llm_exception_retry_once(self, config, storage):
+    async def test_review_llm_exception_does_not_immediately_retry(self, config, storage):
         _seed_pending(storage, pairs=1)
         reviewer = LearningReviewer(storage)
         llm = MagicMock()
         llm.generate_direct = AsyncMock(side_effect=RuntimeError("LLM 挂了"))
         result = await reviewer.run_review(llm)
         assert result is False
-        # 重试一次后放弃：共调用 2 次
-        assert llm.generate_direct.call_count == 2
+        # 同一任务只调用一次，由组件进入分钟级退避。
+        assert llm.generate_direct.call_count == 1
         assert len(storage.get_pending_pairs(10)) == 1
+
+    def test_fetch_pending_combined_count_never_exceeds_batch(self, config, storage):
+        _seed_pending(storage, pairs=20, patterns=20)
+        reviewer = LearningReviewer(storage)
+        pairs, patterns = reviewer.fetch_pending()
+        assert len(pairs) + len(patterns) <= 10
+        assert pairs and patterns
 
     @pytest.mark.asyncio
     async def test_review_uncovered_items_stay_pending(self, config, storage):

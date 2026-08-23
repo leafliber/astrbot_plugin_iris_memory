@@ -29,8 +29,9 @@
         "items": {
           "enable": {
             "type": "bool",
-            "default": true,
-            "description": "启用图片解析"
+            "default": false,
+            "description": "启用图片解析",
+            "hint": "视觉解析会产生额外 LLM 调用，默认关闭；完成限流配置后再显式启用"
           },
           "provider": {
             "type": "string",
@@ -284,9 +285,9 @@
     "items": {
       "enable_dream": {
         "type": "bool",
-        "default": true,
+        "default": false,
         "description": "启用梦境任务",
-        "hint": "定期执行记忆的离线深度加工"
+        "hint": "高成本离线任务，默认关闭"
       },
       "provider": {
         "type": "string",
@@ -324,6 +325,27 @@
         "default": true,
         "description": "L3 全局维护",
         "hint": "每轮执行一次图谱去重、无主节点清理和低价值节点淘汰"
+      },
+      "dream_max_llm_calls_per_run": {
+        "type": "int",
+        "default": 20,
+        "description": "单轮 LLM 调用硬上限",
+        "hint": "达到上限立即停止后续 persona/阶段，下一轮继续"
+      },
+      "dream_max_runtime_minutes": {
+        "type": "int",
+        "default": 20,
+        "description": "单轮最长运行分钟数"
+      },
+      "dream_max_groups_per_stage": {
+        "type": "int",
+        "default": 5,
+        "description": "单阶段最多处理的分组数"
+      },
+      "dream_min_call_interval_ms": {
+        "type": "int",
+        "default": 500,
+        "description": "Dream 两次 LLM 调用最小间隔(ms)"
       }
     }
   },

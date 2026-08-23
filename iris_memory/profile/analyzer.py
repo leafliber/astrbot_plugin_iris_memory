@@ -135,6 +135,96 @@ class ProfileAnalyzer:
             logger.error(f"用户画像分析失败: {e}")
             return {}
 
+    async def analyze_profiles_batch(
+        self,
+        *,
+        group: Dict | None,
+        users: List[Dict],
+    ) -> Dict:
+        """一次调用同时分析群画像与最多一批用户画像。
+
+        ``users`` 每项包含 id/tier/messages/profile。返回时严格过滤用户 ID，
+        不接受模型凭空新增的主体。
+        """
+
+        allowed_ids = {str(item.get("id", "")) for item in users}
+        max_chars = _get_max_chars()
+        try:
+            per_user_messages = max(
+                1,
+                int(
+                    get_config().get(
+                        "profile_batch_user_messages", 12
+                    )
+                    or 12
+                ),
+            )
+        except RuntimeError:
+            per_user_messages = 12
+
+        payload: Dict = {"group": None, "users": []}
+        if group:
+            payload["group"] = {
+                "id": str(group.get("id", "")),
+                "tier": str(group.get("tier", "mid")),
+                "profile": _slim_profile_dict(group.get("profile", {})),
+                "messages": _truncate_messages(
+                    list(group.get("messages", []))[-50:], max_chars
+                ),
+            }
+        for item in users:
+            payload["users"].append(
+                {
+                    "id": str(item.get("id", "")),
+                    "tier": str(item.get("tier", "mid")),
+                    "profile": _slim_profile_dict(item.get("profile", {})),
+                    "messages": _truncate_messages(
+                        list(item.get("messages", []))[-per_user_messages:],
+                        max_chars,
+                    ),
+                }
+            )
+
+        prompt = f"""批量分析群聊与用户画像。输入中的 id 是唯一合法主体，严禁新增、改写或猜测 id。
+tier=mid 只更新中期字段，tier=long 只更新长期字段，tier=combined 可同时更新。
+
+输入：
+{json.dumps(payload, ensure_ascii=False)}
+
+仅返回以下 JSON：
+{{
+  "group": {{"interests": [], "atmosphere_tags": [], "long_term_tags": [], "blacklist_topics": [], "custom_fields": {{}}}} 或 null,
+  "users": {{
+    "原样用户ID": {{
+      "personality_tags": [], "interests": [], "occupation": "", "language_style": "",
+      "communication_style": "", "emotional_baseline": "", "favorability_delta": 0,
+      "bot_relationship": "", "important_dates": [], "taboo_topics": [],
+      "important_events": [], "custom_fields": {{}}
+    }}
+  }}
+}}
+不确定的字段返回空值；users 只能包含输入中给出的 id。"""
+
+        try:
+            response = await self._llm_manager.generate_direct(
+                prompt=prompt, module=PROFILE_ANALYSIS
+            )
+            parsed = self._parse_json_response(response)
+            raw_users = parsed.get("users", {})
+            safe_users = {
+                str(user_id): result
+                for user_id, result in raw_users.items()
+                if str(user_id) in allowed_ids and isinstance(result, dict)
+            } if isinstance(raw_users, dict) else {}
+            group_result = parsed.get("group")
+            return {
+                "group": group_result if isinstance(group_result, dict) else {},
+                "users": safe_users,
+            }
+        except Exception as e:
+            logger.error(f"批量画像分析失败: {e}")
+            return {}
+
     def _build_group_analysis_prompt(
         self,
         messages: List[str],

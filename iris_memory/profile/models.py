@@ -83,11 +83,17 @@ class ProfileUpdateTracker:
     """
 
     summary_count_since_mid_update: int = 0
+    summary_count_since_long_update: int = 0
+    total_summary_count: int = 0
+    created_at: datetime = field(default_factory=datetime.now)
     last_mid_update_time: Optional[datetime] = None
     last_long_update_time: Optional[datetime] = None
 
     def should_update_mid(
-        self, interval_summaries: int = 5, interval_hours: float = 24.0
+        self,
+        interval_summaries: int = 5,
+        interval_hours: float = 24.0,
+        first_min_summaries: int = 3,
     ) -> bool:
         """判断是否应该进行中期更新
 
@@ -98,9 +104,9 @@ class ProfileUpdateTracker:
         Returns:
             是否应该更新
         """
-        if self.summary_count_since_mid_update >= interval_summaries:
-            return True
         if self.last_mid_update_time is None:
+            return self.total_summary_count >= max(1, first_min_summaries)
+        if self.summary_count_since_mid_update >= interval_summaries:
             return True
         if interval_hours > 0:
             elapsed = (
@@ -110,7 +116,12 @@ class ProfileUpdateTracker:
                 return True
         return False
 
-    def should_update_long(self, interval_hours: float = 168.0) -> bool:
+    def should_update_long(
+        self,
+        interval_hours: float = 168.0,
+        first_min_summaries: int = 10,
+        min_new_summaries: int = 3,
+    ) -> bool:
         """判断是否应该进行长期更新
 
         Args:
@@ -120,7 +131,13 @@ class ProfileUpdateTracker:
             是否应该更新
         """
         if self.last_long_update_time is None:
-            return True
+            age_hours = (datetime.now() - self.created_at).total_seconds() / 3600
+            return (
+                self.total_summary_count >= max(1, first_min_summaries)
+                and (interval_hours <= 0 or age_hours >= interval_hours)
+            )
+        if self.summary_count_since_long_update < max(1, min_new_summaries):
+            return False
         if interval_hours > 0:
             elapsed = (
                 datetime.now() - self.last_long_update_time
@@ -137,10 +154,13 @@ class ProfileUpdateTracker:
     def record_long_update(self) -> None:
         """记录长期更新"""
         self.last_long_update_time = datetime.now()
+        self.summary_count_since_long_update = 0
 
     def increment_summary_count(self) -> None:
         """总结次数+1"""
         self.summary_count_since_mid_update += 1
+        self.summary_count_since_long_update += 1
+        self.total_summary_count += 1
 
 
 # ============================================================================
@@ -166,6 +186,18 @@ class ProfileMetadataMixin:
         tracker.summary_count_since_mid_update = data.get(
             "summary_count_since_mid_update", 0
         )
+        tracker.summary_count_since_long_update = data.get(
+            "summary_count_since_long_update", 0
+        )
+        tracker.total_summary_count = data.get(
+            "total_summary_count",
+            tracker.summary_count_since_mid_update,
+        )
+        if data.get("created_at"):
+            if isinstance(data["created_at"], str):
+                tracker.created_at = datetime.fromisoformat(data["created_at"])
+            elif isinstance(data["created_at"], datetime):
+                tracker.created_at = data["created_at"]
         if data.get("last_mid_update_time"):
             if isinstance(data["last_mid_update_time"], str):
                 tracker.last_mid_update_time = datetime.fromisoformat(
@@ -186,6 +218,9 @@ class ProfileMetadataMixin:
         """保存更新追踪器（转为dict存储）"""
         self.update_tracker = {
             "summary_count_since_mid_update": tracker.summary_count_since_mid_update,
+            "summary_count_since_long_update": tracker.summary_count_since_long_update,
+            "total_summary_count": tracker.total_summary_count,
+            "created_at": tracker.created_at.isoformat(),
             "last_mid_update_time": tracker.last_mid_update_time.isoformat()
             if tracker.last_mid_update_time
             else None,

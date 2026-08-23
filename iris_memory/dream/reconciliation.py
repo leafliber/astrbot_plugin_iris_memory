@@ -33,11 +33,19 @@ class ReconciliationPhase:
             return {}
 
         consolidation = ConsolidationPhase()
+        max_groups_per_stage = max(
+            1,
+            cast(
+                int,
+                config.get("scheduled_tasks.dream_max_groups_per_stage", 5),
+            ),
+        )
         consolidation._similarity_threshold = cast(
             float, config.get("dream_consolidation_similarity_threshold")
         )
-        consolidation._batch_size = max(
-            1, cast(int, config.get("dream_consolidation_batch_size"))
+        consolidation._batch_size = min(
+            max_groups_per_stage,
+            max(1, cast(int, config.get("dream_consolidation_batch_size"))),
         )
         consolidation._scan_budget = max(
             1, cast(int, config.get("dream_consolidation_scan_budget"))
@@ -59,8 +67,9 @@ class ReconciliationPhase:
         contradiction._similarity_ceiling = cast(
             float, config.get("dream_contradiction_similarity_ceiling")
         )
-        contradiction._max_groups = max(
-            1, cast(int, config.get("dream_contradiction_max_groups"))
+        contradiction._max_groups = min(
+            max_groups_per_stage,
+            max(1, cast(int, config.get("dream_contradiction_max_groups"))),
         )
         contradiction._scan_budget = max(
             1, cast(int, config.get("dream_contradiction_scan_budget"))

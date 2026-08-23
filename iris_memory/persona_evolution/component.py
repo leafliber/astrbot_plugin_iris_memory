@@ -69,6 +69,7 @@ class PersonaEvolutionComponent(Component):
         self._reconcile_task: Optional[asyncio.Task] = None
         # 消息链本地计数：自上次触发检查以来新入库的语料条数
         self._pending_new_samples = 0
+        self._scan_queued = False
 
     @property
     def name(self) -> str:
@@ -156,6 +157,7 @@ class PersonaEvolutionComponent(Component):
         self._collector = None
         self._service = None
         self._pending_new_samples = 0
+        self._scan_queued = False
         self._reset_state()
 
     # ------------------------------------------------------------------
@@ -207,10 +209,12 @@ class PersonaEvolutionComponent(Component):
         if scheduler is None:
             return
         try:
-            if scheduler.is_task_running(_TRIGGER_SCAN_TASK):
+            if self._scan_queued or scheduler.is_task_running(_TRIGGER_SCAN_TASK):
                 return
+            self._scan_queued = True
             await scheduler.schedule_task(_TRIGGER_SCAN_TASK, self.run_trigger_scan)
         except Exception as e:
+            self._scan_queued = False
             logger.warning(f"触发扫描调度失败：{e}")
 
     @staticmethod
@@ -240,6 +244,7 @@ class PersonaEvolutionComponent(Component):
         """
         if not self._is_available or not self._service:
             return 0
+        self._scan_queued = False
         try:
             await self._service.reconcile_publishing()
             return await self._service.run_trigger_scan()

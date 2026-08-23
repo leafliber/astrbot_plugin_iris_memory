@@ -71,7 +71,7 @@ class TestLLMConfigAccess:
             manager = LLMManager(mock_context, mock_storage)
             await manager.initialize()
 
-            assert manager._call_logs.maxlen == 100
+            assert manager._call_logs.maxlen == 1000
 
     @pytest.mark.asyncio
     async def test_config_access_with_custom_limit(self, mock_context, mock_storage):

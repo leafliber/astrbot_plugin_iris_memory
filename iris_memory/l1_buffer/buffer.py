@@ -21,8 +21,11 @@ import re
 from iris_memory.core import Component, get_logger
 from iris_memory.config import get_config
 from iris_memory.platform.base import PRIVATE_SESSION_PREFIX
+from iris_memory.llm.policy import CallPriority
+from iris_memory.tasks.work_queue import BoundedWorkQueue
 from iris_memory.utils import count_tokens
 from .models import ContextMessage, SegmentedMessageQueue
+from .outbox import SummaryOutbox
 from .summarizer import Summarizer
 
 if TYPE_CHECKING:
@@ -87,12 +90,16 @@ class L1Buffer(Component):
         super().__init__()
         self._queues: Dict[str, SegmentedMessageQueue] = {}
         self._image_queues: Dict[str, List[Any]] = {}
+        self._image_queue_lock = asyncio.Lock()
         self._summarizer: Optional[Summarizer] = None
         self._component_manager: Optional["ComponentManager"] = None
         self._provider: str = ""
         self._summarizing_locks: Dict[str, asyncio.Lock] = {}
         self._summary_fail_counts: Dict[str, int] = {}
-        self._background_tasks: set[asyncio.Task] = set()
+        self._summary_work_queue: Optional[BoundedWorkQueue[str]] = None
+        self._outbox: Optional[SummaryOutbox] = None
+        self._outbox_work_queue: Optional[BoundedWorkQueue[str]] = None
+        self._outbox_recovery_task: Optional[asyncio.Task] = None
         logger.debug("L1Buffer 实例已创建")
 
     @property
@@ -110,6 +117,27 @@ class L1Buffer(Component):
                 return
 
             self._provider = str(config.get("l1_buffer.summary_provider", ""))
+            queue_limit = max(
+                1, int(config.get("l1_summary_queue_limit", 500) or 500)
+            )
+            worker_count = max(
+                1, int(config.get("l1_summary_worker_count", 2) or 2)
+            )
+            self._summary_work_queue = BoundedWorkQueue(
+                name="iris-l1-summary",
+                handler=self._check_and_summarize,
+                maxsize=queue_limit,
+                workers=worker_count,
+            )
+            self._outbox = SummaryOutbox(config.data_dir / "l1_summary_outbox.db")
+            self._outbox_work_queue = BoundedWorkQueue(
+                name="iris-l1-outbox",
+                handler=self._process_outbox_job,
+                maxsize=queue_limit,
+                workers=max(
+                    1, int(config.get("l1_outbox_worker_count", 2) or 2)
+                ),
+            )
 
             self._is_available = True
             logger.info("L1 缓冲组件初始化成功")
@@ -122,19 +150,80 @@ class L1Buffer(Component):
 
     def set_component_manager(self, manager: "ComponentManager") -> None:
         self._component_manager = manager
+        self._enqueue_due_outbox_jobs()
+        if self._outbox_recovery_task is None or self._outbox_recovery_task.done():
+            self._outbox_recovery_task = asyncio.create_task(
+                self._outbox_recovery_loop(), name="iris-l1-outbox-recovery"
+            )
         logger.debug("L1Buffer 已获取 ComponentManager 引用")
 
     async def shutdown(self) -> None:
-        for task in self._background_tasks:
-            task.cancel()
-        if self._background_tasks:
-            await asyncio.gather(*self._background_tasks, return_exceptions=True)
-            self._background_tasks.clear()
+        if self._outbox_recovery_task and not self._outbox_recovery_task.done():
+            self._outbox_recovery_task.cancel()
+            await asyncio.gather(
+                self._outbox_recovery_task, return_exceptions=True
+            )
+        self._outbox_recovery_task = None
+        if self._summary_work_queue:
+            await self._summary_work_queue.shutdown()
+            self._summary_work_queue = None
+        if self._outbox_work_queue:
+            await self._outbox_work_queue.shutdown()
+            self._outbox_work_queue = None
+        if self._outbox:
+            self._outbox.close()
+            self._outbox = None
         self.clear_all()
         self._summarizing_locks.clear()
         self._summary_fail_counts.clear()
         self._reset_state()
         logger.info("L1 缓冲组件已关闭")
+
+    def _enqueue_due_outbox_jobs(self) -> int:
+        if not self._outbox or not self._outbox_work_queue:
+            return 0
+        enqueued = 0
+        for job in self._outbox.list_due(limit=500):
+            if self._outbox_work_queue.enqueue_once(
+                job.job_id, job.job_id, priority=CallPriority.BACKGROUND
+            ):
+                enqueued += 1
+        return enqueued
+
+    async def _outbox_recovery_loop(self) -> None:
+        try:
+            while self._is_available:
+                self._enqueue_due_outbox_jobs()
+                poll_seconds = max(
+                    1,
+                    int(get_config().get("l1_outbox_poll_seconds", 60) or 60),
+                )
+                await asyncio.sleep(poll_seconds)
+        except asyncio.CancelledError:
+            return
+
+    async def _process_outbox_job(self, job_id: str) -> None:
+        if not self._outbox:
+            return
+        job = self._outbox.get(job_id)
+        if job is None:
+            return
+        try:
+            if not job.l2_done:
+                await self._write_summary_to_l2(
+                    job.group_id, job.messages, job.summary, raise_errors=True
+                )
+                self._outbox.mark_stage_done(job_id, "l2")
+            if not job.profile_done:
+                await self._update_profile_after_summary(
+                    job.group_id, job.messages, job.summary, raise_errors=True
+                )
+                self._outbox.mark_stage_done(job_id, "profile")
+            self._outbox.complete(job_id)
+            logger.info(f"L1 Outbox 写入完成：{job_id}")
+        except Exception as exc:
+            self._outbox.fail(job_id, str(exc))
+            logger.warning(f"L1 Outbox 写入失败，已退避：{job_id}, {exc}")
 
     def _get_or_create_summarizer(self) -> Optional[Summarizer]:
         if self._summarizer is not None:
@@ -295,6 +384,7 @@ class L1Buffer(Component):
 
     def clear_all(self) -> int:
         total_messages = sum(len(q) for q in self._queues.values())
+        queue_keys = list(self._queues)
         # 收集所有图片项用于清理缓存文件
         all_image_items: list[Any] = []
         for img_list in self._image_queues.values():
@@ -302,6 +392,9 @@ class L1Buffer(Component):
         self._queues.clear()
         self._image_queues.clear()
         self._summarizing_locks.clear()
+        if self._summary_work_queue:
+            for queue_key in queue_keys:
+                self._summary_work_queue.discard(queue_key)
         self._cleanup_image_cache_files(all_image_items)
         logger.info(f"已清空所有队列，共 {total_messages} 条消息")
         return total_messages
@@ -339,22 +432,35 @@ class L1Buffer(Component):
             logger.info(f"已清空队列：{queue_key}，原 {old_size} 条消息")
             self.clear_images_for_queue(group_id)
             self._summarizing_locks.pop(queue_key, None)
+            if self._summary_work_queue:
+                self._summary_work_queue.discard(queue_key)
             return old_size
 
         return 0
 
     def _schedule_summarize(self, group_id: str) -> None:
-        """将总结检查调度为后台任务，避免阻塞调用方（如 session lock 内的钩子）。
+        """仅在达到总结条件时按会话入有界队列；相同会话自动合并。"""
 
-        _check_and_summarize 内部已有 asyncio.Lock 防止并发执行，
-        多次调度是安全的：后续任务会看到锁被持有后立即返回。
-        """
-        task = asyncio.create_task(self._check_and_summarize(group_id))
-        self._background_tasks.add(task)
-        task.add_done_callback(self._background_tasks.discard)
+        if not self._summary_work_queue or not self._component_manager:
+            return
+        queue_key = self._get_queue_key(group_id)
+        queue = self._queues.get(queue_key)
+        if queue is None:
+            return
+        summarizer = self._get_or_create_summarizer()
+        if not summarizer or not summarizer.should_summarize(queue):
+            return
+        accepted = self._summary_work_queue.enqueue_once(
+            queue_key,
+            queue_key,
+            priority=CallPriority.NEARLINE,
+        )
+        if not accepted:
+            logger.warning(f"L1 总结队列已满，暂缓会话：{queue_key}")
 
     async def _check_and_summarize(self, group_id: str) -> None:
         queue_key = self._get_queue_key(group_id)
+        outbox_job_id: Optional[str] = None
 
         if queue_key not in self._summarizing_locks:
             self._summarizing_locks[queue_key] = asyncio.Lock()
@@ -405,13 +511,23 @@ class L1Buffer(Component):
                     # 避免私聊总结写入读不到的 private: 命名空间
                     storage_group_id = self._get_storage_group_id(queue_key)
 
-                    await self._write_summary_to_l2(
-                        storage_group_id, target_messages, summary
-                    )
-
-                    await self._update_profile_after_summary(
-                        storage_group_id, target_messages, summary
-                    )
+                    if self._outbox:
+                        # 先持久化，再 rotate。崩溃后由恢复 Worker 重放，
+                        # L2/Embedding/画像不再占用会话总结锁。
+                        outbox_job_id = self._outbox.enqueue(
+                            queue_key=queue_key,
+                            group_id=storage_group_id,
+                            summary=summary,
+                            messages=target_messages,
+                        )
+                    else:
+                        # 仅供无法创建 SQLite Outbox 的降级/测试路径。
+                        await self._write_summary_to_l2(
+                            storage_group_id, target_messages, summary
+                        )
+                        await self._update_profile_after_summary(
+                            storage_group_id, target_messages, summary
+                        )
 
                     self._summary_fail_counts[queue_key] = 0
                 else:
@@ -463,18 +579,38 @@ class L1Buffer(Component):
                         self._clear_images_for_summarized_messages(queue_key, removed)
                     self._summary_fail_counts[queue_key] = 0
 
+        if outbox_job_id and self._outbox_work_queue:
+            accepted = self._outbox_work_queue.enqueue_once(
+                outbox_job_id,
+                outbox_job_id,
+                priority=CallPriority.BACKGROUND,
+            )
+            if not accepted:
+                logger.warning(
+                    f"L1 Outbox 队列已满，Job 将由恢复扫描重放：{outbox_job_id}"
+                )
+
     async def _update_profile_after_summary(
-        self, group_id: str, messages: list[ContextMessage], summary: str
+        self,
+        group_id: str,
+        messages: list[ContextMessage],
+        summary: str,
+        *,
+        raise_errors: bool = False,
     ) -> None:
         config = get_config()
         if not config.get("profile.enable"):
             return
 
         if not self._component_manager:
+            if raise_errors:
+                raise RuntimeError("ComponentManager 不可用")
             return
 
         profile_storage = self._component_manager.get_component("profile")
         if not profile_storage or not profile_storage.is_available:
+            if raise_errors:
+                raise RuntimeError("画像组件暂不可用")
             return
 
         try:
@@ -511,20 +647,35 @@ class L1Buffer(Component):
             group_profile_obj = await group_manager.get_or_create(group_id, persona_id)
             group_should_mid = group_manager.should_update_mid(group_profile_obj)
             group_should_long = group_manager.should_update_long(group_profile_obj)
+            from iris_memory.llm import LLMManager
+            from iris_memory.profile import ProfileAnalyzer
+            from iris_memory.profile.models import profile_to_dict
 
-            if group_should_mid and group_should_long:
-                await self._update_group_combined(
-                    group_id, messages, group_manager, profile_storage, persona_id
-                )
-            elif group_should_mid:
-                await self._update_group_mid_term(
-                    group_id, messages, group_manager, profile_storage, persona_id
-                )
-            elif group_should_long:
-                await self._update_group_long_term(
-                    group_id, messages, group_manager, profile_storage, persona_id
-                )
+            llm_manager = self._component_manager.get_component("llm_manager")
+            if not llm_manager or not llm_manager.is_available:
+                if raise_errors:
+                    raise RuntimeError("LLMManager 暂不可用")
+                return
+            assert isinstance(llm_manager, LLMManager)
+            analyzer = ProfileAnalyzer(llm_manager)
 
+            def tier_name(mid: bool, long: bool) -> str:
+                if mid and long:
+                    return "combined"
+                return "long" if long else "mid"
+
+            group_spec: Optional[dict[str, Any]] = None
+            group_tier = ""
+            if group_should_mid or group_should_long:
+                group_tier = tier_name(group_should_mid, group_should_long)
+                group_spec = {
+                    "id": group_id,
+                    "tier": group_tier,
+                    "profile": profile_to_dict(group_profile_obj),
+                    "messages": [msg.content for msg in messages if msg.content],
+                }
+
+            user_specs: list[dict[str, Any]] = []
             for user_id, user_msgs in user_messages_by_id.items():
                 user_profile_obj = await user_manager.get_or_create(
                     user_id, effective_group_id, persona_id
@@ -532,35 +683,63 @@ class L1Buffer(Component):
 
                 user_should_mid = user_manager.should_update_mid(user_profile_obj)
                 user_should_long = user_manager.should_update_long(user_profile_obj)
+                if user_should_mid or user_should_long:
+                    user_specs.append(
+                        {
+                            "id": user_id,
+                            "tier": tier_name(user_should_mid, user_should_long),
+                            "profile": profile_to_dict(user_profile_obj),
+                            "messages": user_msgs,
+                            "profile_obj": user_profile_obj,
+                        }
+                    )
 
-                if user_should_mid and user_should_long:
-                    await self._update_user_combined(
-                        user_id,
-                        effective_group_id,
-                        user_msgs,
-                        user_manager,
-                        user_profile_obj,
-                        profile_storage,
+            if not group_spec and not user_specs:
+                return
+
+            batch_size = max(1, int(config.get("profile_batch_size", 8) or 8))
+            chunks = [
+                user_specs[start : start + batch_size]
+                for start in range(0, len(user_specs), batch_size)
+            ] or [[]]
+            for index, chunk in enumerate(chunks):
+                prompt_users = [
+                    {key: value for key, value in spec.items() if key != "profile_obj"}
+                    for spec in chunk
+                ]
+                result = await analyzer.analyze_profiles_batch(
+                    group=group_spec if index == 0 else None,
+                    users=prompt_users,
+                )
+                if not result:
+                    if raise_errors:
+                        raise RuntimeError("批量画像分析返回无效 JSON")
+                    continue
+                if index == 0 and group_spec:
+                    group_result = result.get("group", {})
+                    if not group_result and raise_errors:
+                        raise RuntimeError("批量画像结果缺少 group")
+                    await self._apply_group_batch_result(
+                        group_id,
+                        group_tier,
+                        group_result,
+                        group_manager,
                         persona_id,
                     )
-                elif user_should_mid:
-                    await self._update_user_mid_term(
-                        user_id,
+                user_results = result.get("users", {})
+                expected_ids = {str(spec["id"]) for spec in chunk}
+                if raise_errors and not expected_ids.issubset(user_results):
+                    raise RuntimeError("批量画像结果缺少请求中的用户 ID")
+                for spec in chunk:
+                    user_result = user_results.get(str(spec["id"]))
+                    if not isinstance(user_result, dict):
+                        continue
+                    await self._apply_user_batch_result(
+                        str(spec["id"]),
                         effective_group_id,
-                        user_msgs,
+                        str(spec["tier"]),
+                        user_result,
                         user_manager,
-                        user_profile_obj,
-                        profile_storage,
-                        persona_id,
-                    )
-                elif user_should_long:
-                    await self._update_user_long_term(
-                        user_id,
-                        effective_group_id,
-                        user_msgs,
-                        user_manager,
-                        user_profile_obj,
-                        profile_storage,
                         persona_id,
                     )
 
@@ -568,6 +747,86 @@ class L1Buffer(Component):
 
         except Exception as e:
             logger.error(f"更新画像失败: {e}", exc_info=True)
+            if raise_errors:
+                raise
+
+    async def _apply_group_batch_result(
+        self,
+        group_id: str,
+        tier: str,
+        result: dict[str, Any],
+        group_manager: "GroupProfileManager",
+        persona_id: str,
+    ) -> None:
+        from iris_memory.profile.models import UpdateTier
+
+        if tier in {"mid", "combined"}:
+            await group_manager.update_from_analysis(
+                group_id=group_id,
+                interests=_as_str_list(result.get("interests")),
+                atmosphere_tags=_as_str_list(result.get("atmosphere_tags")),
+                custom_fields=_as_str_dict(result.get("custom_fields")),
+                tier=UpdateTier.MID,
+                confidence=0.7,
+                persona_id=persona_id,
+            )
+        if tier in {"long", "combined"}:
+            await group_manager.update_long_term_from_analysis(
+                group_id=group_id,
+                long_term_tags=_as_str_list(result.get("long_term_tags")),
+                blacklist_topics=_as_str_list(result.get("blacklist_topics")),
+                interests=_as_str_list(result.get("interests")),
+                atmosphere_tags=_as_str_list(result.get("atmosphere_tags")),
+                custom_fields=_as_str_dict(result.get("custom_fields")),
+                confidence=0.8,
+                persona_id=persona_id,
+            )
+
+    async def _apply_user_batch_result(
+        self,
+        user_id: str,
+        group_id: str,
+        tier: str,
+        result: dict[str, Any],
+        user_manager: "UserProfileManager",
+        persona_id: str,
+    ) -> None:
+        from iris_memory.profile.models import UpdateTier
+
+        if tier in {"mid", "combined"}:
+            await user_manager.update_from_analysis(
+                user_id=user_id,
+                group_id=group_id,
+                personality_tags=_as_str_list(result.get("personality_tags")),
+                interests=_as_str_list(result.get("interests")),
+                occupation=_as_str(result.get("occupation")),
+                language_style=_as_str(result.get("language_style")),
+                communication_style=_as_str(result.get("communication_style")),
+                emotional_baseline=_as_str(result.get("emotional_baseline")),
+                favorability_delta=_as_float(result.get("favorability_delta")),
+                custom_fields=_as_str_dict(result.get("custom_fields")),
+                tier=UpdateTier.MID,
+                confidence=0.7,
+                persona_id=persona_id,
+            )
+        if tier in {"long", "combined"}:
+            await user_manager.update_long_term_from_analysis(
+                user_id=user_id,
+                group_id=group_id,
+                occupation=_as_str(result.get("occupation")),
+                bot_relationship=_as_str(result.get("bot_relationship")),
+                important_events=_as_str_list(result.get("important_events")),
+                taboo_topics=_as_str_list(result.get("taboo_topics")),
+                important_dates=result.get("important_dates"),
+                personality_tags=_as_str_list(result.get("personality_tags")),
+                interests=_as_str_list(result.get("interests")),
+                language_style=_as_str(result.get("language_style")),
+                communication_style=_as_str(result.get("communication_style")),
+                emotional_baseline=_as_str(result.get("emotional_baseline")),
+                custom_fields=_as_str_dict(result.get("custom_fields")),
+                confidence=0.8,
+                persona_id=persona_id,
+            )
 
     async def _update_group_mid_term(
         self,
@@ -892,7 +1151,12 @@ class L1Buffer(Component):
             logger.error(f"群聊画像合并更新失败: {e}", exc_info=True)
 
     async def _write_summary_to_l2(
-        self, group_id: str, messages: list[ContextMessage], summary: str
+        self,
+        group_id: str,
+        messages: list[ContextMessage],
+        summary: str,
+        *,
+        raise_errors: bool = False,
     ) -> Optional[str]:
         config = get_config()
         if not config.get("l2_memory.enable"):
@@ -900,10 +1164,14 @@ class L1Buffer(Component):
             return None
 
         if not self._component_manager:
+            if raise_errors:
+                raise RuntimeError("ComponentManager 不可用")
             return None
 
         l2_adapter = self._component_manager.get_component("l2_memory")
         if not l2_adapter or not l2_adapter.is_available:
+            if raise_errors:
+                raise RuntimeError("L2 组件暂不可用")
             logger.debug("L2 记忆库组件不可用，跳过写入")
             return None
 
@@ -980,8 +1248,8 @@ class L1Buffer(Component):
                     f"限制记忆数量：截取前 {max_per_summary} 条（按置信度优先）"
                 )
 
-            memory_ids = []
-            written_confidences: list[str] = []
+            bulk_items: list[tuple[str, dict[str, Any]]] = []
+            bulk_confidences: list[str] = []
             quality_filtered = 0
             for item in filtered_items:
                 content = item.get("content", "")
@@ -1031,12 +1299,18 @@ class L1Buffer(Component):
                 if active_users:
                     metadata["active_users"] = ",".join(active_users)
 
-                memory_id = await retriever.add_from_summary(
-                    content, metadata, persona_id
-                )
-                if memory_id:
-                    memory_ids.append(memory_id)
-                    written_confidences.append(confidence_str)
+                bulk_items.append((content, metadata))
+                bulk_confidences.append(confidence_str)
+
+            bulk_results = await retriever.add_memories_from_summary(
+                bulk_items, persona_id
+            )
+            memory_ids = [memory_id for memory_id in bulk_results if memory_id]
+            written_confidences = [
+                confidence
+                for confidence, memory_id in zip(bulk_confidences, bulk_results)
+                if memory_id
+            ]
 
             if memory_ids:
                 high_count = sum(
@@ -1064,6 +1338,8 @@ class L1Buffer(Component):
 
         except Exception as e:
             logger.error(f"写入 L2 记忆库失败: {e}", exc_info=True)
+            if raise_errors:
+                raise
             return None
 
     def _build_name_to_id_map(self, messages: list[ContextMessage]) -> dict[str, str]:
@@ -1386,7 +1662,62 @@ class L1Buffer(Component):
 
         return images
 
-    def mark_image_parsed(self, group_id: str, image_hash: str, status: Any) -> bool:
+    async def claim_pending_images(
+        self,
+        group_id: str,
+        limit: int,
+        claim_token: str,
+        *,
+        stale_after_seconds: float = 60.0,
+    ) -> List[Any]:
+        """原子领取待解析图片，并回收超时的 PROCESSING 项。"""
+
+        from iris_memory.image import ImageParseStatus
+
+        if not claim_token or limit <= 0:
+            return []
+        queue_key = self._get_queue_key(group_id)
+        async with self._image_queue_lock:
+            images = self._image_queues.get(queue_key, [])
+            now = datetime.now()
+            for image in images:
+                if (
+                    image.status == ImageParseStatus.PROCESSING
+                    and image.claimed_at is not None
+                    and (now - image.claimed_at).total_seconds()
+                    >= max(1.0, stale_after_seconds)
+                ):
+                    image.status = ImageParseStatus.PENDING
+                    image.claim_token = ""
+                    image.claimed_at = None
+
+            claimed: List[Any] = []
+            for image in images:
+                if image.status not in (
+                    ImageParseStatus.PENDING,
+                    ImageParseStatus.DEFERRED,
+                ):
+                    continue
+                if image.next_attempt_at and image.next_attempt_at > now:
+                    continue
+                image.status = ImageParseStatus.PROCESSING
+                image.claim_token = claim_token
+                image.claimed_at = now
+                image.attempt_count = int(image.attempt_count or 0) + 1
+                claimed.append(image)
+                if len(claimed) >= limit:
+                    break
+            return claimed
+
+    def mark_image_parsed(
+        self,
+        group_id: str,
+        image_hash: str,
+        status: Any,
+        claim_token: str = "",
+    ) -> bool:
+        from iris_memory.image import ImageParseStatus
+
         queue_key = self._get_queue_key(group_id)
 
         if queue_key not in self._image_queues:
@@ -1394,13 +1725,47 @@ class L1Buffer(Component):
 
         for img in self._image_queues[queue_key]:
             if img.image_hash == image_hash:
+                if claim_token and img.claim_token != claim_token:
+                    logger.warning(
+                        f"忽略非持有者图片回写：{queue_key}, hash={image_hash[:8]}"
+                    )
+                    return False
                 img.status = status
+                if status != ImageParseStatus.PROCESSING:
+                    img.claim_token = ""
+                    img.claimed_at = None
                 logger.debug(
                     f"图片状态已更新：{queue_key}, hash={image_hash[:8]}..., "
                     f"status={status.value}"
                 )
                 return True
 
+        return False
+
+    def release_image_claim(
+        self,
+        group_id: str,
+        image_hash: str,
+        claim_token: str,
+        *,
+        deferred: bool = False,
+        next_attempt_at: Optional[datetime] = None,
+    ) -> bool:
+        """仅由当前持有者释放领取，供配额不足/可重试失败使用。"""
+
+        from iris_memory.image import ImageParseStatus
+
+        queue_key = self._get_queue_key(group_id)
+        for img in self._image_queues.get(queue_key, []):
+            if img.image_hash != image_hash or img.claim_token != claim_token:
+                continue
+            img.status = (
+                ImageParseStatus.DEFERRED if deferred else ImageParseStatus.PENDING
+            )
+            img.claim_token = ""
+            img.claimed_at = None
+            img.next_attempt_at = next_attempt_at
+            return True
         return False
 
     def clear_images_for_message(self, group_id: str, message_id: str) -> int:
@@ -1471,6 +1836,12 @@ class L1Buffer(Component):
             1 for img in images if img.status == ImageParseStatus.SUCCESS
         )
         failed_count = sum(1 for img in images if img.status == ImageParseStatus.FAILED)
+        processing_count = sum(
+            1 for img in images if img.status == ImageParseStatus.PROCESSING
+        )
+        deferred_count = sum(
+            1 for img in images if img.status == ImageParseStatus.DEFERRED
+        )
 
         return {
             "group_id": queue_key,
@@ -1478,6 +1849,8 @@ class L1Buffer(Component):
             "pending_count": pending_count,
             "success_count": success_count,
             "failed_count": failed_count,
+            "processing_count": processing_count,
+            "deferred_count": deferred_count,
         }
 
     def _clear_images_for_summarized_messages(

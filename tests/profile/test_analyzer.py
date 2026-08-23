@@ -94,6 +94,26 @@ class TestProfileAnalyzer:
         # 无效 JSON 时返回空字典
         assert result == {}
 
+    @pytest.mark.asyncio
+    async def test_batch_analysis_rejects_model_invented_user_ids(
+        self, analyzer, mock_llm_manager
+    ):
+        mock_llm_manager.generate_direct.return_value = json.dumps(
+            {
+                "group": {"interests": ["AI"]},
+                "users": {
+                    "u1": {"interests": ["Python"]},
+                    "invented": {"interests": ["不应接受"]},
+                },
+            },
+            ensure_ascii=False,
+        )
+        result = await analyzer.analyze_profiles_batch(
+            group={"id": "g1", "tier": "mid", "messages": [], "profile": {}},
+            users=[{"id": "u1", "tier": "mid", "messages": [], "profile": {}}],
+        )
+        assert set(result["users"]) == {"u1"}
+
     def test_build_group_analysis_prompt(self, analyzer):
         """测试构建群聊分析 prompt"""
         messages = ["消息1", "消息2", "消息3"]

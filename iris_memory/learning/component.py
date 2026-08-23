@@ -14,6 +14,7 @@ LLM 调用（审查/暗语推断）一律在锁外 await，避免阻塞注入与
 
 import asyncio
 import hashlib
+import time
 from typing import Any, Dict, Optional, TYPE_CHECKING
 
 from iris_memory.config import get_config
@@ -24,6 +25,8 @@ from iris_memory.core import (
     get_logger,
 )
 from iris_memory.platform import get_adapter
+from iris_memory.llm.policy import CallPriority
+from iris_memory.tasks.work_queue import BoundedWorkQueue
 from . import expression, injector
 from .collector import LearningCollector
 from .jargon import JargonLearner
@@ -61,9 +64,18 @@ class LearningComponent(Component):
         self._jargon_scan_lock = asyncio.Lock()
         # 通用质量审查与 Persona 一致性复审共用，避免对同一条目并发裁决。
         self._content_review_lock = asyncio.Lock()
-        self._persona_review_tasks: Dict[str, asyncio.Task] = {}
-        # 满批即时触发的审查任务引用，防止被 GC 回收（CPython 事件循环仅持弱引用）
-        self._content_review_tasks: set[asyncio.Task] = set()
+        self._persona_review_tasks: Dict[str, asyncio.Future] = {}
+        self._persona_review_queue = BoundedWorkQueue(
+            name="iris-learning-persona-review",
+            handler=self._handle_persona_review_work,
+            maxsize=100,
+            workers=1,
+        )
+        # 满批即时审查严格单 Worker；洪峰仅更新 requested 标志，不创建新任务。
+        self._review_worker: Optional[asyncio.Task] = None
+        self._review_requested = False
+        self._review_attempt_count = 0
+        self._review_retry_not_before = 0.0
 
     @property
     def name(self) -> str:
@@ -108,22 +120,16 @@ class LearningComponent(Component):
 
     async def shutdown(self) -> None:
         """关闭学习模块：词频计数刷盘、关闭数据库"""
-        for task in list(self._persona_review_tasks.values()):
-            if not task.done():
-                task.cancel()
-        if self._persona_review_tasks:
-            await asyncio.gather(
-                *self._persona_review_tasks.values(), return_exceptions=True
-            )
+        await self._persona_review_queue.shutdown()
+        for future in list(self._persona_review_tasks.values()):
+            if not future.done():
+                future.cancel()
         self._persona_review_tasks.clear()
-        for task in list(self._content_review_tasks):
-            if not task.done():
-                task.cancel()
-        if self._content_review_tasks:
-            await asyncio.gather(
-                *self._content_review_tasks, return_exceptions=True
-            )
-        self._content_review_tasks.clear()
+        if self._review_worker and not self._review_worker.done():
+            self._review_worker.cancel()
+            await asyncio.gather(self._review_worker, return_exceptions=True)
+        self._review_worker = None
+        self._review_requested = False
         if self._storage:
             try:
                 self._storage.close()
@@ -175,7 +181,7 @@ class LearningComponent(Component):
             async with self._db_lock:
                 self._collector.on_response(event, resp, str(persona_id))
             if self._reviewer and self._reviewer.is_batch_full():
-                self._spawn_review()
+                self._ensure_review_worker()
         except Exception as e:
             logger.warning(f"学习模块响应采集失败：{e}")
 
@@ -237,49 +243,100 @@ class LearningComponent(Component):
     # 周期任务入口（供调度器调用）
     # ------------------------------------------------------------------
 
-    async def run_review(self) -> None:
+    async def run_review(self) -> bool:
         """执行一轮攒批审查（满批即时触发 + 周期兜底共用）
 
         锁粒度：fetch/回写持 _db_lock，LLM await 在锁外，
         避免审查期间（最长 2×60s）阻塞注入与采集路径。
         """
         if not self._is_available or not self._reviewer or not self._storage:
-            return
+            return False
+        if time.time() < self._review_retry_not_before:
+            return False
         try:
             async with self._content_review_lock:
-                await self._run_review_once()
+                result = await self._run_review_once()
+            if result is True:
+                self._review_attempt_count = 0
+                self._review_retry_not_before = 0.0
+                return True
+            if result is False:
+                self._schedule_review_backoff()
+            return False
         except Exception as e:
             logger.warning(f"学习审查执行失败：{e}")
+            self._schedule_review_backoff()
+            return False
 
-    async def _run_review_once(self) -> None:
+    async def _run_review_once(self) -> Optional[bool]:
         """单轮通用质量审查；调用方持有内容审查锁。"""
         try:
             llm_manager = self._get_llm_manager()
             if not llm_manager:
-                return
+                return False
             async with self._db_lock:
                 pairs, patterns = self._reviewer.fetch_pending()
             if not pairs and not patterns:
-                return
+                return None
             verdicts = await self._reviewer.request_verdicts(
                 llm_manager, pairs, patterns
             )
             if verdicts is None:
-                return
+                return False
             async with self._db_lock:
                 self._reviewer.apply_verdicts(verdicts, pairs, patterns)
+            return True
         except Exception as e:
             logger.warning(f"学习审查执行失败：{e}")
+            return False
 
-    def _spawn_review(self) -> None:
-        """满批即时触发一轮审查（持有 task 引用避免被 GC 回收）
+    def _ensure_review_worker(self) -> None:
+        """确保至多一个即时审查 Worker。"""
 
-        run_review 经 _content_review_lock 串行，并发触发只会排队领取下一批，
-        不会重复审查同一批 pending。
-        """
-        task = asyncio.create_task(self.run_review(), name="iris-learning-review")
-        self._content_review_tasks.add(task)
-        task.add_done_callback(self._content_review_tasks.discard)
+        self._review_requested = True
+        if time.time() < self._review_retry_not_before:
+            return
+        if self._review_worker is not None and not self._review_worker.done():
+            return
+        self._review_worker = asyncio.create_task(
+            self._drain_reviews(), name="iris-learning-review-worker"
+        )
+
+    async def _drain_reviews(self) -> None:
+        """按预算逐批清空；失败立即退避，不在同一响应内重调。"""
+
+        try:
+            max_batches = max(
+                1,
+                get_config().get_int(
+                    "learning_review_max_batches_per_drain", 5
+                ),
+            )
+            for _ in range(max_batches):
+                self._review_requested = False
+                if not self._reviewer or not self._reviewer.is_batch_full():
+                    return
+                if not await self.run_review():
+                    return
+        finally:
+            self._review_worker = None
+            if (
+                self._review_requested
+                and self._reviewer
+                and self._reviewer.is_batch_full()
+                and time.time() >= self._review_retry_not_before
+            ):
+                self._ensure_review_worker()
+
+    def _schedule_review_backoff(self) -> None:
+        intervals = (300, 1800, 7200, 43200)
+        index = min(self._review_attempt_count, len(intervals) - 1)
+        self._review_attempt_count += 1
+        self._review_retry_not_before = time.time() + intervals[index]
+        logger.warning(
+            f"学习审查进入退避：attempt={self._review_attempt_count}, "
+            f"retry_after={intervals[index]}s"
+        )
 
     async def _ensure_persona_review(
         self,
@@ -307,7 +364,9 @@ class LearningComponent(Component):
             logger.info(f"检测到 Persona {persona_id} 已修改，已调度学习内容复审")
         elif action == "reviewing" and persona_id not in self._persona_review_tasks:
             # 重启后 reviewing 状态仍在库中，但内存任务已丢失。
-            self._schedule_persona_review(persona_id, prompt, prompt_hash)
+            state = self._storage.get_persona_review_state(persona_id)
+            if not state.get("next_run_at") or float(state["next_run_at"]) <= time.time():
+                self._schedule_persona_review(persona_id, prompt, prompt_hash)
         return action in {"changed", "reviewing"}
 
     def _schedule_persona_review(
@@ -316,17 +375,29 @@ class LearningComponent(Component):
         current = self._persona_review_tasks.get(persona_id)
         if current and not current.done():
             return
-        task = asyncio.create_task(
-            self._run_persona_revalidation(persona_id, persona_prompt, prompt_hash),
-            name=f"iris-learning-persona-review-{persona_id}",
+        future = asyncio.get_running_loop().create_future()
+        accepted = self._persona_review_queue.enqueue_once(
+            persona_id,
+            (persona_id, persona_prompt, prompt_hash, future),
+            priority=CallPriority.MAINTENANCE,
         )
-        self._persona_review_tasks[persona_id] = task
+        if accepted:
+            self._persona_review_tasks[persona_id] = future
+        else:
+            future.set_result(None)
+            logger.warning("Persona 学习复审队列已满，本轮稍后重试")
 
-        def cleanup(done: asyncio.Task) -> None:
-            if self._persona_review_tasks.get(persona_id) is done:
+    async def _handle_persona_review_work(self, payload: tuple) -> None:
+        persona_id, persona_prompt, prompt_hash, future = payload
+        try:
+            await self._run_persona_revalidation(
+                persona_id, persona_prompt, prompt_hash
+            )
+        finally:
+            if not future.done():
+                future.set_result(None)
+            if self._persona_review_tasks.get(persona_id) is future:
                 self._persona_review_tasks.pop(persona_id, None)
-
-        task.add_done_callback(cleanup)
 
     async def _run_persona_revalidation(
         self, persona_id: str, persona_prompt: str, prompt_hash: str
@@ -341,22 +412,66 @@ class LearningComponent(Component):
 
             async with self._content_review_lock:
                 async with self._db_lock:
-                    pairs, patterns = self._storage.get_persona_review_items(persona_id)
+                    if not self._storage.claim_persona_review(
+                        persona_id, prompt_hash
+                    ):
+                        return
+                    state = self._storage.get_persona_review_state(persona_id)
 
-                tagged = [("pair", row) for row in pairs] + [
-                    ("pattern", row) for row in patterns
-                ]
                 batch_size = max(
                     1, get_config().get_int("learning.review_batch_size", 10) or 10
                 )
+                max_batches = max(
+                    1,
+                    get_config().get_int(
+                        "learning_persona_review_max_batches_per_run", 5
+                    ),
+                )
+                max_calls = max(
+                    1,
+                    get_config().get_int(
+                        "learning_persona_review_max_llm_calls_per_run", 10
+                    ),
+                )
+                max_runtime = max(
+                    1,
+                    get_config().get_int(
+                        "learning_persona_review_max_runtime_minutes", 5
+                    ),
+                ) * 60
+                deadline = time.monotonic() + max_runtime
+                pair_cursor = int(state.get("pair_cursor") or 0)
+                pattern_cursor = int(state.get("pattern_cursor") or 0)
+                processed = int(state.get("processed") or 0)
                 deleted = 0
-                for start in range(0, len(tagged), batch_size):
-                    batch = tagged[start : start + batch_size]
-                    batch_pairs = [row for kind, row in batch if kind == "pair"]
-                    batch_patterns = [row for kind, row in batch if kind == "pattern"]
+                llm_calls = 0
+                for _ in range(max_batches):
+                    if llm_calls >= max_calls or time.monotonic() >= deadline:
+                        break
+                    async with self._db_lock:
+                        batch_pairs, batch_patterns = (
+                            self._storage.get_persona_review_items(
+                                persona_id,
+                                pair_after=pair_cursor,
+                                pattern_after=pattern_cursor,
+                                limit=batch_size,
+                            )
+                        )
+                    if not batch_pairs and not batch_patterns:
+                        async with self._db_lock:
+                            applied = self._storage.finish_persona_review(
+                                persona_id, prompt_hash
+                            )
+                        if applied:
+                            logger.info(
+                                f"Persona {persona_id} 学习内容复审完成："
+                                f"检查 {processed} 条，删除 {deleted} 条"
+                            )
+                        return
                     verdicts = await self._persona_reviewer.request_verdicts(
                         llm_manager, persona_prompt, batch_pairs, batch_patterns
                     )
+                    llm_calls += 1
                     if verdicts is None:
                         raise RuntimeError("LLM 复审结果无效或不完整")
 
@@ -396,25 +511,53 @@ class LearningComponent(Component):
                             accepted_patterns,
                             rejected_patterns,
                         )
+                        pair_cursor = max(
+                            [pair_cursor]
+                            + [int(row["id"]) for row in batch_pairs]
+                        )
+                        pattern_cursor = max(
+                            [pattern_cursor]
+                            + [int(row["id"]) for row in batch_patterns]
+                        )
+                        processed += len(batch_pairs) + len(batch_patterns)
+                        self._storage.advance_persona_review(
+                            persona_id,
+                            prompt_hash,
+                            pair_cursor=pair_cursor,
+                            pattern_cursor=pattern_cursor,
+                            processed=processed,
+                        )
                     deleted += result["total"]
 
                 async with self._db_lock:
-                    applied = self._storage.finish_persona_review(
-                        persona_id, prompt_hash
+                    self._storage.advance_persona_review(
+                        persona_id,
+                        prompt_hash,
+                        pair_cursor=pair_cursor,
+                        pattern_cursor=pattern_cursor,
+                        processed=processed,
+                        next_run_at=time.time() + 60,
                     )
-                if applied:
-                    logger.info(
-                        f"Persona {persona_id} 学习内容复审完成："
-                        f"检查 {len(tagged)} 条，删除 {deleted} 条"
-                    )
+                logger.info(
+                    f"Persona {persona_id} 复审达到单轮预算，"
+                    f"cursor=({pair_cursor},{pattern_cursor})，下轮继续"
+                )
         except asyncio.CancelledError:
             raise
         except Exception as exc:
             logger.warning(f"Persona {persona_id} 学习内容复审失败：{exc}")
             if self._storage:
                 async with self._db_lock:
+                    state = self._storage.get_persona_review_state(persona_id)
+                    attempt = int(state.get("attempt_count") or 0) + 1
+                    intervals = (300, 1800, 7200, 43200)
+                    delay = intervals[min(attempt - 1, len(intervals) - 1)]
                     self._storage.fail_persona_review(
-                        persona_id, prompt_hash, str(exc)
+                        persona_id,
+                        prompt_hash,
+                        str(exc),
+                        attempt_count=attempt,
+                        next_run_at=time.time() + delay,
                     )
 
     async def run_jargon_scan(self) -> None:

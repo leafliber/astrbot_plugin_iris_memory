@@ -40,7 +40,7 @@ from .models import (
 logger = get_logger("persona_evolution.storage")
 
 # 当前 schema 版本（迁移按版本号顺序执行）
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 # 组件级导出格式版本（文档 §19，与全量备份 1.1 对齐）
 PE_EXPORT_VERSION = "1.1"
@@ -64,6 +64,8 @@ _JOB_UPDATABLE_FIELDS = (
     "last_sample_cursor",
     "last_applied_revision_id",
     "consecutive_failures",
+    "retry_attempt_count",
+    "retry_not_before",
 )
 
 # update_run 允许修改的字段白名单
@@ -206,6 +208,12 @@ _MIGRATIONS: Dict[int, str] = {
     0: _SCHEMA_V1,
     # v2：persona_revisions 增加管理决策原因列（拒绝/回滚/采纳基线，文档 §13.1）
     1: "ALTER TABLE persona_revisions ADD COLUMN decision_reason TEXT NOT NULL DEFAULT ''",
+    # v3：Provider 退避状态持久化，重启/周期扫描不能绕过 retry window。
+    2: (
+        "ALTER TABLE evolution_jobs ADD COLUMN retry_attempt_count "
+        "INTEGER NOT NULL DEFAULT 0;"
+        "ALTER TABLE evolution_jobs ADD COLUMN retry_not_before REAL"
+    ),
 }
 
 
@@ -520,8 +528,9 @@ class PersonaEvolutionStorage:
                     " trigger_sample_count, min_interval_hours,"
                     " provider_id, reviewer_provider_id, protected_fragments_json,"
                     " last_success_at, last_sample_cursor, last_applied_revision_id,"
-                    " consecutive_failures, created_at, updated_at)"
-                    " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    " consecutive_failures, retry_attempt_count, retry_not_before,"
+                    " created_at, updated_at)"
+                    " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     (
                         job.persona_id,
                         job.name,
@@ -541,6 +550,8 @@ class PersonaEvolutionStorage:
                         job.last_sample_cursor,
                         job.last_applied_revision_id,
                         job.consecutive_failures,
+                        job.retry_attempt_count,
+                        job.retry_not_before,
                         now,
                         now,
                     ),
@@ -639,6 +650,8 @@ class PersonaEvolutionStorage:
             last_sample_cursor=int(row["last_sample_cursor"]),
             last_applied_revision_id=row["last_applied_revision_id"],
             consecutive_failures=int(row["consecutive_failures"]),
+            retry_attempt_count=int(row["retry_attempt_count"] or 0),
+            retry_not_before=row["retry_not_before"],
             created_at=row["created_at"] or 0.0,
             updated_at=row["updated_at"] or 0.0,
         )
@@ -1240,6 +1253,8 @@ class PersonaEvolutionStorage:
                         last_success_at=jd.get("last_success_at"),
                         last_sample_cursor=int(jd.get("last_sample_cursor") or 0),
                         consecutive_failures=int(jd.get("consecutive_failures") or 0),
+                        retry_attempt_count=int(jd.get("retry_attempt_count") or 0),
+                        retry_not_before=jd.get("retry_not_before"),
                     )
                 )
                 job_id_map[old_id] = new_id

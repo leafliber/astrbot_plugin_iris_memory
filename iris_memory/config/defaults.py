@@ -77,12 +77,17 @@ class ScheduledTasksConfig:
     """梦境任务配置"""
 
     provider: str = ""
-    enable_dream: bool = True
+    # 高成本维护任务默认关闭；完成 Governor 灰度后由管理员显式启用。
+    enable_dream: bool = False
     dream_stage_temporal_anchor_enabled: bool = True
     dream_stage_reconciliation_enabled: bool = True
     dream_stage_knowledge_induction_enabled: bool = True
     dream_stage_l2_pruning_enabled: bool = True
     dream_stage_l3_maintenance_enabled: bool = True
+    dream_max_llm_calls_per_run: int = 20
+    dream_max_runtime_minutes: int = 20
+    dream_max_groups_per_stage: int = 5
+    dream_min_call_interval_ms: int = 500
 
 
 @dataclass
@@ -168,6 +173,22 @@ class HiddenConfig:
     l1_max_memories_per_summary: int = field(
         default=10,
         metadata={"description": "每次总结写入 L2 的最大记忆条数", "group": "L1 缓冲"},
+    )
+    l1_summary_queue_limit: int = field(
+        default=500,
+        metadata={"description": "L1 总结待处理会话上限", "group": "L1 缓冲"},
+    )
+    l1_summary_worker_count: int = field(
+        default=2,
+        metadata={"description": "L1 总结固定 Worker 数", "group": "L1 缓冲"},
+    )
+    l1_outbox_worker_count: int = field(
+        default=2,
+        metadata={"description": "L1 Outbox 后台写入 Worker 数", "group": "L1 缓冲"},
+    )
+    l1_outbox_poll_seconds: int = field(
+        default=60,
+        metadata={"description": "L1 Outbox 崩溃恢复扫描间隔(秒)", "group": "L1 缓冲"},
     )
 
     # 遗忘权重算法参数
@@ -346,15 +367,89 @@ class HiddenConfig:
 
     # LLM 调用管理参数
     call_log_max_entries: int = field(
-        default=100,
+        default=1000,
         metadata={"description": "调用日志最大保留条数", "group": "LLM 调用管理"},
+    )
+    llm_global_concurrency: int = field(
+        default=4,
+        metadata={"description": "全插件 LLM 最大并发", "group": "LLM 调用管理"},
+    )
+    llm_provider_concurrency: int = field(
+        default=2,
+        metadata={"description": "单 Provider 最大并发", "group": "LLM 调用管理"},
+    )
+    llm_provider_background_concurrency: int = field(
+        default=1,
+        metadata={"description": "单 Provider 后台最大并发", "group": "LLM 调用管理"},
+    )
+    llm_provider_rpm: int = field(
+        default=30,
+        metadata={"description": "单 Provider 每分钟调用上限，0 关闭", "group": "LLM 调用管理"},
+    )
+    llm_provider_min_interval_ms: int = field(
+        default=0,
+        metadata={"description": "单 Provider 两次调用的最小间隔(ms)，0 关闭", "group": "LLM 调用管理"},
+    )
+    llm_queue_limit: int = field(
+        default=500,
+        metadata={"description": "LLM 等待队列上限", "group": "LLM 调用管理"},
+    )
+    llm_interactive_reserved_slots: int = field(
+        default=1,
+        metadata={"description": "为交互请求保留的并发槽位", "group": "LLM 调用管理"},
+    )
+    llm_circuit_failure_threshold: int = field(
+        default=5,
+        metadata={"description": "Provider 连续失败熔断阈值，0 关闭", "group": "LLM 调用管理"},
+    )
+    llm_circuit_open_seconds: int = field(
+        default=60,
+        metadata={"description": "Provider 熔断持续时间(秒)", "group": "LLM 调用管理"},
+    )
+    llm_priority_aging_seconds: int = field(
+        default=30,
+        metadata={"description": "低优先级等待多久提升一级(秒)", "group": "LLM 调用管理"},
+    )
+    llm_queue_timeout_ms: int = field(
+        default=300000,
+        metadata={"description": "等待 LLM 调用资格的超时(ms)，0 不限制", "group": "LLM 调用管理"},
+    )
+    llm_provider_timeout_ms: int = field(
+        default=60000,
+        metadata={"description": "Provider 实际调用超时(ms)，0 不限制", "group": "LLM 调用管理"},
+    )
+    llm_total_timeout_ms: int = field(
+        default=360000,
+        metadata={"description": "排队加 Provider 调用的整体超时(ms)，0 不限制", "group": "LLM 调用管理"},
     )
     llm_call_timeout_ms: int = field(
         default=60000,
         metadata={
-            "description": "LLM 调用全局超时(ms)，0 表示不限制。兜底防止 provider 卡死阻塞会话锁",
+            "description": "旧版 Provider 超时兼容项；llm_provider_timeout_ms 未配置时使用",
             "group": "LLM 调用管理",
         },
+    )
+
+    # 画像首次/后续分析证据门槛
+    profile_first_mid_min_summaries: int = field(
+        default=3,
+        metadata={"description": "新画像首次中期分析所需总结次数", "group": "画像系统"},
+    )
+    profile_first_long_min_summaries: int = field(
+        default=10,
+        metadata={"description": "新画像首次长期分析所需总结次数", "group": "画像系统"},
+    )
+    profile_long_min_new_summaries: int = field(
+        default=3,
+        metadata={"description": "后续长期分析所需最小新增总结证据", "group": "画像系统"},
+    )
+    profile_batch_size: int = field(
+        default=8,
+        metadata={"description": "单次画像分析最多包含的用户数", "group": "画像系统"},
+    )
+    profile_batch_user_messages: int = field(
+        default=12,
+        metadata={"description": "批量画像中每个用户最多保留的近期消息数", "group": "画像系统"},
     )
 
     # 运行日志参数
@@ -366,7 +461,7 @@ class HiddenConfig:
         },
     )
     run_log_max_entries: int = field(
-        default=10,
+        default=100,
         metadata={
             "description": "运行日志每类保留的最新条数",
             "group": "运行日志",
@@ -390,7 +485,7 @@ class HiddenConfig:
         metadata={"description": "合并相似度阈值", "group": "梦境任务"},
     )
     dream_consolidation_batch_size: int = field(
-        default=10,
+        default=5,
         metadata={"description": "合并批处理大小", "group": "梦境任务"},
     )
     dream_consolidation_scan_budget: int = field(
@@ -521,6 +616,10 @@ class HiddenConfig:
         default=3,
         metadata={"description": "最大并发图片解析数", "group": "图片处理"},
     )
+    image_queue_limit: int = field(
+        default=200,
+        metadata={"description": "图片解析后台队列上限", "group": "图片解析"},
+    )
     image_cache_retention_days: int = field(
         default=7,
         metadata={"description": "图片解析结果缓存保留天数", "group": "图片处理"},
@@ -590,7 +689,7 @@ class HiddenConfig:
 
     # L2 查询改写参数
     l2_query_rewrite_enable: bool = field(
-        default=True,
+        default=False,
         metadata={"description": "启用 L2 检索查询改写", "group": "L2 查询改写"},
     )
     l2_query_rewrite_provider: str = field(
@@ -603,6 +702,22 @@ class HiddenConfig:
     l2_query_rewrite_timeout_ms: int = field(
         default=3000,
         metadata={"description": "查询改写超时(ms)", "group": "L2 查询改写"},
+    )
+    l2_query_rewrite_queue_timeout_ms: int = field(
+        default=800,
+        metadata={"description": "查询改写排队超时(ms)，超时回退原查询", "group": "L2 查询改写"},
+    )
+    l2_query_rewrite_cache_size: int = field(
+        default=256,
+        metadata={"description": "查询改写 LRU 缓存条数", "group": "L2 查询改写"},
+    )
+    l2_query_rewrite_inflight_limit: int = field(
+        default=64,
+        metadata={"description": "查询改写最大在途 singleflight 数", "group": "L2 查询改写"},
+    )
+    persona_evolution_retry_task_limit: int = field(
+        default=100,
+        metadata={"description": "人格迭代进程内退避定时任务上限", "group": "人格自迭代"},
     )
 
     # 上下文清理参数
@@ -655,6 +770,20 @@ class HiddenConfig:
         default=30,
         metadata={
             "description": "触发最小间隔(秒)，同一群两次 LLM 决策调用之间的最短时间",
+            "group": "主动回复·触发门控",
+        },
+    )
+    reply_passive_watch_min_interval: int = field(
+        default=600,
+        metadata={
+            "description": "同群两次 passive watch LLM 评估的最小间隔(秒)",
+            "group": "主动回复·触发门控",
+        },
+    )
+    reply_passive_watch_enabled: bool = field(
+        default=False,
+        metadata={
+            "description": "启用被动回复后的 LLM 跟进评估（高成本，默认关闭）",
             "group": "主动回复·触发门控",
         },
     )
@@ -806,6 +935,22 @@ class HiddenConfig:
     learning_few_shot_max: int = field(
         default=3,
         metadata={"description": "注入的对话样例最大条数", "group": "学习模块"},
+    )
+    learning_review_max_batches_per_drain: int = field(
+        default=5,
+        metadata={"description": "学习审查 Worker 每轮最多处理批次数", "group": "学习模块"},
+    )
+    learning_persona_review_max_batches_per_run: int = field(
+        default=5,
+        metadata={"description": "Persona 学习复审单轮最大批次数", "group": "学习模块"},
+    )
+    learning_persona_review_max_llm_calls_per_run: int = field(
+        default=10,
+        metadata={"description": "Persona 学习复审单轮 LLM 调用上限", "group": "学习模块"},
+    )
+    learning_persona_review_max_runtime_minutes: int = field(
+        default=5,
+        metadata={"description": "Persona 学习复审单轮运行上限(分钟)", "group": "学习模块"},
     )
     learning_pattern_top_n: int = field(
         default=5,

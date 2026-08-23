@@ -5,6 +5,7 @@ import sqlite3
 import pytest
 
 from iris_memory.persona_evolution import PersonaEvolutionStorage
+from iris_memory.persona_evolution.storage import SCHEMA_VERSION
 from iris_memory.persona_evolution.models import (
     ErrorCode,
     EvolutionJob,
@@ -580,7 +581,7 @@ class TestDeleteAll:
 
 
 class TestSchemaV2Migration:
-    """schema v1 → v2 迁移（decision_reason 列）"""
+    """schema v1 → 当前版本迁移（含 decision_reason 与 retry 状态）"""
 
     def test_migrates_v1_to_v2(self, tmp_path):
         from iris_memory.persona_evolution.storage import _SCHEMA_V1
@@ -601,7 +602,7 @@ class TestSchemaV2Migration:
         storage = PersonaEvolutionStorage(db_path)
         storage.init_schema()
         try:
-            assert storage.get_schema_version() == 2
+            assert storage.get_schema_version() == SCHEMA_VERSION
             revision = storage.get_revision_by_version(1, 1)
             assert revision.result_prompt == "旧内容"
             assert revision.decision_reason == ""  # 迁移默认空

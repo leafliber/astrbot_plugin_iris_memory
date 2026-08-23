@@ -7,7 +7,7 @@ Iris Chat Memory - 运行日志管理器
 - proactive: 主动回复统一决策与发送结果
 
 特性：
-- 每类日志独立环形缓冲，容量由隐藏配置 run_log_max_entries 控制（默认 10）
+- 每类日志独立环形缓冲，容量由隐藏配置 run_log_max_entries 控制（默认 100）
 - 线程安全（RLock），记录失败永不影响主流程
 - 长文本字段按 run_log_content_max_chars 截断并保留原始长度
 - 可通过隐藏配置 run_log_enabled 整体关闭
@@ -30,7 +30,7 @@ TYPE_LABELS = {
     "proactive": "主动回复",
 }
 
-_DEFAULT_MAX_ENTRIES = 10
+_DEFAULT_MAX_ENTRIES = 100
 _DEFAULT_CONTENT_MAX_CHARS = 2000
 
 

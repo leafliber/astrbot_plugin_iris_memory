@@ -57,6 +57,15 @@ class CallLog:
     duration_ms: int  # 调用耗时（毫秒）
     success: bool  # 是否成功
     error_message: Optional[str] = None  # 错误信息
+    priority: str = ""  # Governor 优先级
+    queue_wait_ms: int = 0  # 等待调用资格耗时
+    provider_duration_ms: int = 0  # Provider 实际调用耗时
+    attempt: int = 1  # 当前任务内第几次尝试
+    in_flight_at_start: int = 0  # 取得 lease 前的全局并发
+    queue_depth_at_start: int = 0  # 入队时等待队列深度
+    dedupe_hit: bool = False  # 是否由 singleflight/去重命中
+    retry_reason: str = ""  # 重试原因
+    job_id: str = ""  # 后台 Job 唯一标识
     metadata: Dict[str, Any] = field(default_factory=dict)  # 额外元数据
 
     @property

@@ -9,6 +9,22 @@ from .caller import LLMCaller
 from .manager import LLMManager
 from .token_stats import TokenUsage, TokenStatsManager
 from .call_log import CallLog
+from .governor import (
+    GovernorSettings,
+    LLMCircuitOpenError,
+    LLMCallGovernor,
+    LLMGovernorError,
+    LLMLease,
+    LLMQueueFullError,
+    LLMQueueTimeoutError,
+)
+from .policy import CallPriority, priority_for_module
+from .budget import (
+    LLMCallBudget,
+    LLMCallBudgetExceeded,
+    current_llm_call_budget,
+    use_llm_call_budget,
+)
 from iris_memory.llm_modules import ALL_LLM_MODULES
 
 __all__ = [
@@ -21,5 +37,18 @@ __all__ = [
     "TokenStatsManager",
     # 调用日志
     "CallLog",
+    "CallPriority",
+    "GovernorSettings",
+    "LLMCallGovernor",
+    "LLMCircuitOpenError",
+    "LLMGovernorError",
+    "LLMLease",
+    "LLMQueueFullError",
+    "LLMQueueTimeoutError",
+    "priority_for_module",
+    "LLMCallBudget",
+    "LLMCallBudgetExceeded",
+    "current_llm_call_budget",
+    "use_llm_call_budget",
     "ALL_LLM_MODULES",
 ]

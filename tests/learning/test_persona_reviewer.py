@@ -1,6 +1,8 @@
 """Persona 修改检测与学习内容一致性复审测试。"""
 
 import json
+import hashlib
+import time
 import sqlite3
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -199,5 +201,63 @@ class TestPersonaRevalidationFlow:
                 )
             assert "人格一表达" in text
             assert "人格二表达" not in text
+        finally:
+            await comp.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_large_review_is_sliced_and_resumes_from_persistent_cursor(
+        self, config
+    ):
+        comp = LearningComponent()
+        await comp.initialize()
+        try:
+            assert comp.storage.observe_persona_prompt("p1", "old") == "baseline"
+            for index in range(60):
+                row_id = comp.storage.insert_pair(
+                    "g1",
+                    f"u{index}",
+                    f"问题 {index}",
+                    f"回复 {index}",
+                    persona_id="p1",
+                )
+                comp.storage.update_status("few_shot", [row_id], "approved")
+
+            prompt = "全新人格"
+            prompt_hash = hashlib.sha256(prompt.encode("utf-8")).hexdigest()
+            assert comp.storage.observe_persona_prompt("p1", prompt_hash) == "changed"
+
+            async def accept_all(_llm, _prompt, pairs, patterns):
+                return {
+                    **{("pair", int(row["id"])): True for row in pairs},
+                    **{("pattern", int(row["id"])): True for row in patterns},
+                }
+
+            comp._persona_reviewer.request_verdicts = AsyncMock(
+                side_effect=accept_all
+            )
+            with patch.object(comp, "_get_llm_manager", return_value=MagicMock()):
+                comp._schedule_persona_review("p1", prompt, prompt_hash)
+                await comp._persona_review_tasks["p1"]
+
+                state = comp.storage.get_persona_review_state("p1")
+                assert state["status"] == "reviewing"
+                assert state["processed"] == 50
+                assert state["next_run_at"] > time.time()
+                assert comp._persona_reviewer.request_verdicts.await_count == 5
+
+                comp.storage.advance_persona_review(
+                    "p1",
+                    prompt_hash,
+                    pair_cursor=state["pair_cursor"],
+                    pattern_cursor=state["pattern_cursor"],
+                    processed=state["processed"],
+                    next_run_at=time.time() - 1,
+                )
+                comp._schedule_persona_review("p1", prompt, prompt_hash)
+                await comp._persona_review_tasks["p1"]
+
+            state = comp.storage.get_persona_review_state("p1")
+            assert state["status"] == "idle"
+            assert comp._persona_reviewer.request_verdicts.await_count == 6
         finally:
             await comp.shutdown()

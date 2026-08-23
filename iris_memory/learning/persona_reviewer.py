@@ -83,21 +83,17 @@ class PersonaLearningReviewer:
             return {}
 
         prompt = self.build_prompt(persona_prompt, pairs, patterns)
-        raw: Optional[str] = None
-        for attempt in (1, 2):
-            try:
-                raw = await llm_manager.generate_direct(
-                    prompt=prompt,
-                    module=LEARNING_PERSONA_REVIEW,
-                    system_prompt=_SYSTEM_PROMPT,
-                    timeout=60,
-                )
-                break
-            except Exception as exc:
-                logger.warning(
-                    f"人格一致性复审 LLM 调用失败（第 {attempt} 次）：{exc}"
-                )
-        if raw is None:
+        try:
+            # 一次 slice 默认只尝试一次；Provider/JSON 故障由持久化 Job
+            # 进入分钟级退避，避免同一故障立刻把调用量翻倍。
+            raw = await llm_manager.generate_direct(
+                prompt=prompt,
+                module=LEARNING_PERSONA_REVIEW,
+                system_prompt=_SYSTEM_PROMPT,
+                timeout=60,
+            )
+        except Exception as exc:
+            logger.warning(f"人格一致性复审 LLM 调用失败：{exc}")
             return None
 
         expected = {

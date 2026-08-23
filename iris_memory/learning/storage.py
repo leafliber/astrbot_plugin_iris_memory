@@ -27,7 +27,7 @@ from iris_memory.learning.jargon_clustering import (
 
 logger = get_logger("learning.storage")
 
-_SCHEMA_VERSION = 3
+_SCHEMA_VERSION = 4
 
 # JSON 备份格式版本。导出使用原始数据库字段，便于完整保留自动暗语漏斗数据。
 LEARNING_EXPORT_VERSION = "1.1"
@@ -202,6 +202,11 @@ CREATE TABLE IF NOT EXISTS persona_review_state (
     review_hash TEXT NOT NULL DEFAULT '',
     status TEXT NOT NULL DEFAULT 'idle',
     last_error TEXT NOT NULL DEFAULT '',
+    pair_cursor INTEGER NOT NULL DEFAULT 0,
+    pattern_cursor INTEGER NOT NULL DEFAULT 0,
+    processed INTEGER NOT NULL DEFAULT 0,
+    attempt_count INTEGER NOT NULL DEFAULT 0,
+    next_run_at REAL,
     updated_at REAL NOT NULL
 );
 
@@ -255,6 +260,23 @@ class LearningStorage:
                         "请先自行处理并重建 learning.db"
                     )
             self._db.executescript(_SCHEMA)
+            review_columns = {
+                row["name"]
+                for row in self._db.execute(
+                    "PRAGMA table_info(persona_review_state)"
+                ).fetchall()
+            }
+            for column, ddl in (
+                ("pair_cursor", "INTEGER NOT NULL DEFAULT 0"),
+                ("pattern_cursor", "INTEGER NOT NULL DEFAULT 0"),
+                ("processed", "INTEGER NOT NULL DEFAULT 0"),
+                ("attempt_count", "INTEGER NOT NULL DEFAULT 0"),
+                ("next_run_at", "REAL"),
+            ):
+                if column not in review_columns:
+                    self._db.execute(
+                        f"ALTER TABLE persona_review_state ADD COLUMN {column} {ddl}"
+                    )
             # SQLite 的 CREATE TABLE IF NOT EXISTS 不会为旧表补列。旧数据
             # 不能武断归给 default Persona，先标记为 legacy，首次使用时复审。
             for table in ("few_shot", "expression_pattern"):
@@ -520,35 +542,46 @@ class LearningStorage:
                 status = "reviewing" if has_items else "idle"
                 self._db.execute(
                     "INSERT INTO persona_review_state"
-                    " (persona_id,prompt_hash,review_hash,status,last_error,updated_at)"
-                    " VALUES (?,?,?,?,?,?)",
+                    " (persona_id,prompt_hash,review_hash,status,last_error,"
+                    " pair_cursor,pattern_cursor,processed,attempt_count,next_run_at,updated_at)"
+                    " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                     (
                         persona_id,
                         "" if has_items else prompt_hash,
                         prompt_hash if has_items else "",
                         status,
                         "",
+                        0,
+                        0,
+                        0,
+                        0,
+                        None,
                         now,
                     ),
                 )
                 self._db.commit()
                 return "changed" if has_items else "baseline"
 
-            if row["status"] == "reviewing" and row["review_hash"] == prompt_hash:
+            if row["status"] in ("reviewing", "retry_wait") and row["review_hash"] == prompt_hash:
                 return "reviewing"
             if row["status"] == "idle" and row["prompt_hash"] == prompt_hash:
                 return "unchanged"
 
             self._db.execute(
                 "UPDATE persona_review_state SET review_hash=?, status='reviewing',"
-                " last_error='', updated_at=? WHERE persona_id=?",
+                " last_error='', pair_cursor=0, pattern_cursor=0, processed=0,"
+                " attempt_count=0, next_run_at=NULL, updated_at=? WHERE persona_id=?",
                 (prompt_hash, now, persona_id),
             )
             self._db.commit()
             return "changed"
 
     def get_persona_review_items(
-        self, persona_id: str
+        self,
+        persona_id: str,
+        pair_after: int = 0,
+        pattern_after: int = 0,
+        limit: Optional[int] = None,
     ) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
         """返回该人格仍可能生效的对话样例与表达规则（含旧版遗留）。"""
         persona_id = persona_id or DEFAULT_PERSONA_ID
@@ -556,17 +589,67 @@ class LearningStorage:
             persona_id, LEGACY_PERSONA_ID, STATUS_PENDING, STATUS_APPROVED,
         )
         with self._lock:
-            pairs = self._db.execute(
+            pair_sql = (
                 "SELECT * FROM few_shot WHERE persona_id IN (?,?)"
-                " AND status IN (?,?) ORDER BY id",
-                params,
-            ).fetchall()
-            patterns = self._db.execute(
+                " AND status IN (?,?) AND id>? ORDER BY id"
+            )
+            pair_params: tuple[Any, ...] = (*params, max(0, int(pair_after)))
+            if limit is not None:
+                pair_sql += " LIMIT ?"
+                pair_params = (*pair_params, max(0, int(limit)))
+            pairs = self._db.execute(pair_sql, pair_params).fetchall()
+
+            remaining = None if limit is None else max(0, int(limit) - len(pairs))
+            pattern_sql = (
                 "SELECT * FROM expression_pattern WHERE persona_id IN (?,?)"
-                " AND status IN (?,?) ORDER BY id",
-                params,
-            ).fetchall()
+                " AND status IN (?,?) AND id>? ORDER BY id"
+            )
+            pattern_params: tuple[Any, ...] = (
+                *params,
+                max(0, int(pattern_after)),
+            )
+            if remaining is not None:
+                pattern_sql += " LIMIT ?"
+                pattern_params = (*pattern_params, remaining)
+            patterns = self._db.execute(pattern_sql, pattern_params).fetchall()
             return [dict(row) for row in pairs], [dict(row) for row in patterns]
+
+    def get_persona_review_state(self, persona_id: str) -> Dict[str, Any]:
+        with self._lock:
+            row = self._db.execute(
+                "SELECT * FROM persona_review_state WHERE persona_id=?",
+                (persona_id or DEFAULT_PERSONA_ID,),
+            ).fetchone()
+            return dict(row) if row else {}
+
+    def advance_persona_review(
+        self,
+        persona_id: str,
+        prompt_hash: str,
+        *,
+        pair_cursor: int,
+        pattern_cursor: int,
+        processed: int,
+        next_run_at: Optional[float] = None,
+    ) -> bool:
+        with self._lock:
+            cur = self._db.execute(
+                "UPDATE persona_review_state SET pair_cursor=?, pattern_cursor=?,"
+                " processed=?, status='reviewing', next_run_at=?, last_error='',"
+                " updated_at=? WHERE persona_id=? AND review_hash=?"
+                " AND status IN ('reviewing','retry_wait')",
+                (
+                    pair_cursor,
+                    pattern_cursor,
+                    processed,
+                    next_run_at,
+                    time.time(),
+                    persona_id or DEFAULT_PERSONA_ID,
+                    prompt_hash,
+                ),
+            )
+            self._db.commit()
+            return bool(cur.rowcount)
 
     def apply_persona_review_batch(
         self,
@@ -629,15 +712,33 @@ class LearningStorage:
                 (persona_id or DEFAULT_PERSONA_ID,),
             ).fetchone()
             return bool(
-                row and row["status"] == "reviewing" and row["review_hash"] == prompt_hash
+                row
+                and row["status"] in ("reviewing", "retry_wait")
+                and row["review_hash"] == prompt_hash
             )
+
+    def claim_persona_review(self, persona_id: str, prompt_hash: str) -> bool:
+        """Atomically claim a due persistent review slice."""
+
+        now = time.time()
+        with self._lock:
+            cur = self._db.execute(
+                "UPDATE persona_review_state SET status='reviewing', next_run_at=NULL,"
+                " updated_at=? WHERE persona_id=? AND review_hash=?"
+                " AND status IN ('reviewing','retry_wait')"
+                " AND (next_run_at IS NULL OR next_run_at<=?)",
+                (now, persona_id or DEFAULT_PERSONA_ID, prompt_hash, now),
+            )
+            self._db.commit()
+            return bool(cur.rowcount)
 
     def finish_persona_review(self, persona_id: str, prompt_hash: str) -> bool:
         """提交已完成的人格复审指纹；目标已变化时不覆盖。"""
         with self._lock:
             cur = self._db.execute(
                 "UPDATE persona_review_state SET prompt_hash=?, review_hash='',"
-                " status='idle', last_error='', updated_at=?"
+                " status='idle', last_error='', pair_cursor=0, pattern_cursor=0,"
+                " processed=0, attempt_count=0, next_run_at=NULL, updated_at=?"
                 " WHERE persona_id=? AND status='reviewing' AND review_hash=?",
                 (
                     prompt_hash, time.time(), persona_id or DEFAULT_PERSONA_ID,
@@ -648,16 +749,28 @@ class LearningStorage:
             return bool(cur.rowcount)
 
     def fail_persona_review(
-        self, persona_id: str, prompt_hash: str, error: str
+        self,
+        persona_id: str,
+        prompt_hash: str,
+        error: str,
+        *,
+        attempt_count: int = 0,
+        next_run_at: Optional[float] = None,
     ) -> None:
         """记录失败；下次请求观察到相同新指纹时会重新领取。"""
         with self._lock:
             self._db.execute(
-                "UPDATE persona_review_state SET status='failed', last_error=?,"
-                " updated_at=? WHERE persona_id=? AND review_hash=?",
+                "UPDATE persona_review_state SET status=?, last_error=?,"
+                " attempt_count=?, next_run_at=?, updated_at=?"
+                " WHERE persona_id=? AND review_hash=?",
                 (
-                    (error or "unknown")[:500], time.time(),
-                    persona_id or DEFAULT_PERSONA_ID, prompt_hash,
+                    "retry_wait" if next_run_at is not None else "failed",
+                    (error or "unknown")[:500],
+                    attempt_count,
+                    next_run_at,
+                    time.time(),
+                    persona_id or DEFAULT_PERSONA_ID,
+                    prompt_hash,
                 ),
             )
             self._db.commit()

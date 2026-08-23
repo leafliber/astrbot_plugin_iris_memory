@@ -24,6 +24,8 @@ _DEFAULTS = {
     "quality_threshold": 0.2,
     "provider_id": "",
     "trigger_min_interval": 30,
+    "passive_watch_min_interval": 600,
+    "passive_watch_enabled": False,
     "boost_factor": 0.6,
     "boost_duration": 15,
     "max_boosted_replies": 5,
@@ -55,6 +57,8 @@ _HIDDEN_KEY_MAP = {
     "follow_up_aggregate_window": "reply_follow_up_aggregate_window",
     "quality_threshold": "reply_quality_threshold",
     "trigger_min_interval": "reply_trigger_min_interval",
+    "passive_watch_min_interval": "reply_passive_watch_min_interval",
+    "passive_watch_enabled": "reply_passive_watch_enabled",
     "boost_factor": "reply_boost_factor",
     "boost_duration": "reply_boost_duration",
     "max_boosted_replies": "reply_max_boosted_replies",
@@ -247,6 +251,14 @@ class ConfigManager:
     @property
     def trigger_min_interval(self) -> int:
         return max(10, min(120, int(self._get("trigger_min_interval"))))
+
+    @property
+    def passive_watch_min_interval(self) -> int:
+        return max(60, min(3600, int(self._get("passive_watch_min_interval"))))
+
+    @property
+    def passive_watch_enabled(self) -> bool:
+        return bool(self._get("passive_watch_enabled"))
 
     @property
     def boost_factor(self) -> float:

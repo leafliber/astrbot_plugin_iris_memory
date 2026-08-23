@@ -1,7 +1,9 @@
 """LearningComponent 组件测试"""
 
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+import asyncio
+import time
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -182,4 +184,34 @@ class TestShutdown:
         assert comp.is_available is False
         assert comp.storage is None
         # 再次关闭不报错
+        await comp.shutdown()
+
+
+class TestReviewWorker:
+    @pytest.mark.asyncio
+    async def test_response_burst_keeps_single_review_worker(self, config):
+        comp = LearningComponent()
+        await comp.initialize()
+        assert comp._reviewer is not None
+        comp._reviewer.is_batch_full = MagicMock(return_value=True)
+        started = asyncio.Event()
+        release = asyncio.Event()
+
+        async def failed_once():
+            started.set()
+            await release.wait()
+            return False
+
+        comp._run_review_once = AsyncMock(side_effect=failed_once)
+        for _ in range(100):
+            comp._ensure_review_worker()
+        first_worker = comp._review_worker
+        await started.wait()
+        assert first_worker is not None
+        assert comp._review_worker is first_worker
+
+        release.set()
+        await first_worker
+        assert comp._run_review_once.await_count == 1
+        assert comp._review_retry_not_before > time.time()
         await comp.shutdown()

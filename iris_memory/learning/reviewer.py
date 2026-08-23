@@ -7,7 +7,7 @@ Iris Chat Memory - 攒批 LLM 自动审查
   [{"id": .., "type": "pair|pattern", "pass": true|false, "reason": ..}]
 - 审查维度：低质 / 敏感 / 复读 / 不像真实对话；
 - pass → approved，fail → disabled；
-- LLM 调用异常重试一次后放弃本轮，解析失败整体保留 pending 下轮再审。
+- 每个批次只调用一次；异常或解析失败保留 pending，由组件按分钟级退避重排。
 """
 
 import json
@@ -89,7 +89,7 @@ class LearningReviewer:
         return True
 
     def fetch_pending(self) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
-        """从库中取 pending 的 pairs + patterns（上限 batch_size*2）
+        """从库中取 pending 的 pairs + patterns（合计不超过 batch_size）
 
         库中无待审条目时同步清空内存队列（队列可能滞后于库，
         如重启后内存队列丢失，以库为准）。
@@ -99,10 +99,21 @@ class LearningReviewer:
         """
         config = get_config()
         batch_size = config.get_int("learning.review_batch_size", 10) or 10
-        fetch_limit = batch_size * 2
-
-        pairs = self._storage.get_pending_pairs(fetch_limit)
-        patterns = self._storage.get_pending_patterns(fetch_limit)
+        # 各取一个 batch 只用于公平采样，最终严格裁到合计 batch_size。
+        # 默认让 pair/pattern 各占一半；某一类不足时由另一类补满。
+        all_pairs = self._storage.get_pending_pairs(batch_size)
+        all_patterns = self._storage.get_pending_patterns(batch_size)
+        pair_target = min(len(all_pairs), (batch_size + 1) // 2)
+        pattern_target = min(len(all_patterns), batch_size - pair_target)
+        remaining = batch_size - pair_target - pattern_target
+        if remaining > 0:
+            pair_extra = min(len(all_pairs) - pair_target, remaining)
+            pair_target += pair_extra
+            remaining -= pair_extra
+        if remaining > 0:
+            pattern_target += min(len(all_patterns) - pattern_target, remaining)
+        pairs = all_pairs[:pair_target]
+        patterns = all_patterns[:pattern_target]
         if not pairs and not patterns:
             self._pending_pair_ids.clear()
             self._pending_pattern_ids.clear()
@@ -116,27 +127,23 @@ class LearningReviewer:
     ) -> List[Dict[str, Any]] | None:
         """拼一次 prompt 让 LLM 逐条裁决（纯 LLM 调用，不读写库）
 
-        LLM 调用异常重试一次后放弃本轮；结果解析失败返回 None，
-        两种失败都保留 pending 下轮再审。
+        每个任务默认只发一次请求；结果解析失败返回 None。异常与解析失败均由
+        组件进入 5 分钟起步的退避，避免机器人响应洪峰把失败请求直接翻倍。
 
         Returns:
             verdict 列表；失败返回 None
         """
         prompt = self._build_prompt(pairs, patterns)
 
-        raw = None
-        for attempt in (1, 2):
-            try:
-                raw = await llm_manager.generate_direct(
-                    prompt=prompt,
-                    module=LEARNING_DIALOGUE_REVIEW,
-                    system_prompt=_SYSTEM_PROMPT,
-                    timeout=60,
-                )
-                break
-            except Exception as e:
-                logger.warning(f"学习审查 LLM 调用失败（第 {attempt} 次）：{e}")
-        if raw is None:
+        try:
+            raw = await llm_manager.generate_direct(
+                prompt=prompt,
+                module=LEARNING_DIALOGUE_REVIEW,
+                system_prompt=_SYSTEM_PROMPT,
+                timeout=60,
+            )
+        except Exception as e:
+            logger.warning(f"学习审查 LLM 调用失败：{e}")
             return None
 
         verdicts = self._parse_verdicts(raw)

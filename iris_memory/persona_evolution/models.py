@@ -144,6 +144,8 @@ class EvolutionJob:
     last_sample_cursor: int = 0
     last_applied_revision_id: Optional[int] = None
     consecutive_failures: int = 0
+    retry_attempt_count: int = 0
+    retry_not_before: Optional[float] = None
     created_at: float = 0.0
     updated_at: float = 0.0
 

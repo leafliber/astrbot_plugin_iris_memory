@@ -20,8 +20,10 @@ class ImageParseStatus(Enum):
     """
 
     PENDING = "pending"
+    PROCESSING = "processing"
     SUCCESS = "success"
     FAILED = "failed"
+    DEFERRED = "deferred"
 
 
 # ============================================================================
@@ -467,6 +469,10 @@ class ImageQueueItem:
     user_id: str = ""
     timestamp: datetime = field(default_factory=datetime.now)
     status: ImageParseStatus = ImageParseStatus.PENDING
+    claim_token: str = ""
+    claimed_at: Optional[datetime] = None
+    attempt_count: int = 0
+    next_attempt_at: Optional[datetime] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """转换为字典格式
@@ -483,6 +489,12 @@ class ImageQueueItem:
             "user_id": self.user_id,
             "timestamp": self.timestamp.isoformat(),
             "status": self.status.value,
+            "claim_token": self.claim_token,
+            "claimed_at": self.claimed_at.isoformat() if self.claimed_at else None,
+            "attempt_count": self.attempt_count,
+            "next_attempt_at": self.next_attempt_at.isoformat()
+            if self.next_attempt_at
+            else None,
         }
 
     @classmethod
@@ -511,6 +523,16 @@ class ImageQueueItem:
             if status_str in [s.value for s in ImageParseStatus]
             else ImageParseStatus.PENDING
         )
+        claimed_at = data.get("claimed_at")
+        if isinstance(claimed_at, str):
+            claimed_at = datetime.fromisoformat(claimed_at)
+        else:
+            claimed_at = None
+        next_attempt_at = data.get("next_attempt_at")
+        if isinstance(next_attempt_at, str):
+            next_attempt_at = datetime.fromisoformat(next_attempt_at)
+        else:
+            next_attempt_at = None
 
         return cls(
             image_hash=data.get("image_hash", ""),
@@ -521,6 +543,10 @@ class ImageQueueItem:
             user_id=data.get("user_id", ""),
             timestamp=timestamp,
             status=status,
+            claim_token=str(data.get("claim_token", "") or ""),
+            claimed_at=claimed_at,
+            attempt_count=int(data.get("attempt_count", 0) or 0),
+            next_attempt_at=next_attempt_at,
         )
 
 

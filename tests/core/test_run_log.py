@@ -61,18 +61,18 @@ class TestRunLogManager:
         assert len(entries) == 2
         assert entries[0]["title"] == "调用 4"
 
-    def test_per_type_max_entries_default_10(self):
+    def test_per_type_max_entries_default_100(self):
         manager = RunLogManager()
         for i in range(15):
             manager.record("llm_call", f"调用 {i}")
         for i in range(3):
             manager.record("injection", f"注入 {i}")
 
-        assert manager.get_counts()["llm_call"] == 10
+        assert manager.get_counts()["llm_call"] == 15
         assert manager.get_counts()["injection"] == 3
 
         entries = manager.get_entries(log_type="llm_call")
-        assert entries[-1]["title"] == "调用 5"
+        assert entries[-1]["title"] == "调用 0"
 
     def test_long_string_truncated(self):
         manager = RunLogManager()

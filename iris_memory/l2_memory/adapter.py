@@ -924,6 +924,82 @@ class L2MemoryAdapter(Component):
         )
         return memory_id
 
+    async def add_memories_bulk(
+        self,
+        items: List[tuple[str, Dict[str, Any]]],
+        *,
+        skip_dedup: bool = False,
+        persona_id: str = "default",
+    ) -> List[Optional[str]]:
+        """批量写入记忆，所有内容只发起一次 Embedding 请求。
+
+        返回值与输入顺序一致；去重命中返回既有 ID，单条失败返回 None。
+        """
+
+        if not items:
+            return []
+        if not self._is_available:
+            await self._try_recover()
+        if not self._is_available:
+            return [None] * len(items)
+
+        prepared: List[tuple[str, Dict[str, Any]]] = []
+        now = datetime.now().isoformat()
+        for content, metadata in items:
+            copied = dict(metadata or {})
+            copied.setdefault("timestamp", now)
+            copied.setdefault("access_count", 0)
+            copied.setdefault("confidence", 0.5)
+            copied.setdefault("last_access_time", now)
+            prepared.append((content, copied))
+
+        try:
+            vectors = await self._embed([content for content, _ in prepared])
+            results: List[Optional[str]] = []
+            created = 0
+            with self._lock:
+                if self._index is None or self._db is None:
+                    return [None] * len(items)
+                for (content, metadata), vector in zip(prepared, vectors):
+                    vector_np = np.array([vector], dtype=np.float32)
+                    if not skip_dedup:
+                        existing_id = self._find_similar_unlocked(
+                            vector_np, persona_id
+                        )
+                        if existing_id:
+                            results.append(existing_id)
+                            continue
+
+                    memory_id = f"mem_{uuid.uuid4().hex[:12]}"
+                    if self._free_list:
+                        faiss_idx = self._free_list.pop(0)
+                    else:
+                        row = self._db.execute(
+                            "SELECT MAX(faiss_idx) FROM memories"
+                        ).fetchone()
+                        max_idx = row[0] if row and row[0] is not None else -1
+                        faiss_idx = max_idx + 1
+                    self._index.add_with_ids(
+                        vector_np, np.array([faiss_idx], dtype=np.int64)
+                    )
+                    self._upsert_db_unlocked(
+                        faiss_idx,
+                        memory_id,
+                        content,
+                        metadata,
+                        persona_id,
+                        commit=False,
+                    )
+                    results.append(memory_id)
+                    created += 1
+                self._db.commit()
+            if created:
+                self._mark_dirty()
+            return results
+        except Exception as e:
+            logger.error(f"批量添加记忆失败：{e}", exc_info=True)
+            return [None] * len(items)
+
     def _find_similar_unlocked(
         self, vector: np.ndarray, persona_id: str = "default"
     ) -> Optional[str]:
@@ -3153,6 +3229,8 @@ class L2MemoryAdapter(Component):
         content: str,
         metadata: Dict[str, Any],
         persona_id: str = "default",
+        *,
+        commit: bool = True,
     ) -> None:
         """插入或更新 SQLite 记录（调用方需持有 _lock）"""
         group_id = metadata.get("group_id")
@@ -3178,4 +3256,5 @@ class L2MemoryAdapter(Component):
                 persona_id,
             ),
         )
-        self._db.commit()
+        if commit:
+            self._db.commit()

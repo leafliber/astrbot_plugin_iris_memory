@@ -26,14 +26,41 @@ req.contexts 和 req.prompt。
 """
 
 import asyncio
+import inspect
 import re
 import time
+import uuid
+from collections import OrderedDict
 from collections.abc import Awaitable
 from typing import TYPE_CHECKING, Any, List, Optional, cast
 
 from iris_memory.core import get_logger
 from iris_memory.core.event_extras import L1_CURRENT_EVENT_RECORD_COUNT
 from iris_memory.llm_modules import L2_QUERY_REWRITE
+
+
+async def _claim_pending_images_compat(
+    l1_buffer: Any,
+    session_id: str,
+    limit: int,
+    claim_token: str,
+    stale_after_seconds: float,
+) -> list[Any]:
+    """调用新原子领取接口；仅为旧测试替身保留同步读取兼容。"""
+
+    claim = getattr(l1_buffer, "claim_pending_images", None)
+    if callable(claim):
+        result = claim(
+            session_id,
+            limit,
+            claim_token,
+            stale_after_seconds=stale_after_seconds,
+        )
+        if inspect.isawaitable(result):
+            return list(await result)
+        if isinstance(result, list):
+            return result
+    return list(l1_buffer.get_images(session_id, limit=limit, only_pending=True))
 
 _KG_STOPWORDS = frozenset(
     {
@@ -87,6 +114,49 @@ _MEMORY_INTENT_PATTERNS = (
         re.IGNORECASE,
     ),
 )
+
+# 查询改写是交互热路径：成功结果做小型 LRU，同一个 persona 的同一标准化
+# 查询只允许一个在途请求，其余调用加入 singleflight。
+_QUERY_REWRITE_CACHE: "OrderedDict[tuple[str, str], str]" = OrderedDict()
+_QUERY_REWRITE_INFLIGHT: dict[tuple[str, str], asyncio.Task[Optional[str]]] = {}
+
+
+def _normalize_rewrite_query(text: str) -> str:
+    return re.sub(r"\s+", " ", (text or "").strip().lower())
+
+
+def _local_memory_query_rewrite(text: str) -> Optional[str]:
+    """Handle stable high-frequency forms without spending an LLM call."""
+
+    compact = re.sub(r"[\s，。！？、,.!?]", "", text or "")
+    if re.search(r"(?:还)?记得我(?:喜欢|爱好|偏好|喜好)(?:什么|啥)", compact):
+        return "用户 偏好 喜好"
+    if re.search(r"(?:还)?记得我(?:不喜欢|讨厌)(?:什么|啥)", compact):
+        return "用户 不喜欢 讨厌 偏好"
+    if re.search(r"(?:还)?记得我(?:以前|之前)?说过什么", compact):
+        return "用户 过去 提及 事件"
+    if re.search(r"(?:remember|recall)\s+my\s+preferences?", text, re.I):
+        return "user preferences likes"
+    return None
+
+
+def _skip_llm_query_rewrite(text: str) -> bool:
+    stripped = (text or "").strip()
+    if len(stripped) < 4:
+        return True
+    if stripped.startswith((">", "「", "『", '"')) and stripped.endswith(
+        ("」", "』", '"')
+    ):
+        return True
+    # 已是短关键词列表时，原文就是更好的检索 query。
+    if (
+        " " in stripped
+        and len(stripped.split()) <= 8
+        and not re.search(r"[？?！!。.]", stripped)
+        and not _has_memory_retrieval_intent(stripped)
+    ):
+        return True
+    return False
 
 _IMAGE_QUEUE_TASK_EXTRA = "_iris_image_background_task"
 _IMAGE_BACKGROUND_TASKS: set[asyncio.Task] = set()
@@ -268,19 +338,22 @@ def _schedule_related_image_parse(
         queue_task = None
         try:
             candidate = event.get_extra(_IMAGE_QUEUE_TASK_EXTRA)
-            if isinstance(candidate, asyncio.Future):
+            if isinstance(candidate, (asyncio.Future, asyncio.Event)):
                 queue_task = candidate
         except Exception:
             pass
 
-        async def runner() -> None:
+        async def runner(*, wait_for_queue: bool = True) -> None:
             started = time.perf_counter()
             error = ""
             try:
-                if queue_task is not None:
+                if wait_for_queue and queue_task is not None:
                     # 下载/入队也在后台。先等它完成，避免 related
                     # 解析与入队竞态，但不阻塞当前回复。
-                    await asyncio.shield(queue_task)
+                    if isinstance(queue_task, asyncio.Event):
+                        await queue_task.wait()
+                    else:
+                        await asyncio.shield(queue_task)
                 await parse_fn(event, req, component_manager)
             except asyncio.CancelledError:
                 raise
@@ -296,6 +369,28 @@ def _schedule_related_image_parse(
                     duration_ms=duration_ms,
                     error=error,
                 )
+
+        from iris_memory.image import ImageParseCoordinator
+        from iris_memory.platform import get_adapter
+
+        coordinator = component_manager.get_available_component("image_coordinator")
+        if isinstance(coordinator, ImageParseCoordinator):
+            adapter = get_adapter(event)
+            session_id = adapter.get_session_id(event)
+            raw = adapter.get_raw_message(event) or {}
+            message_id = str(raw.get("message_id") or id(event))
+            completion = coordinator.submit(
+                key=f"related:{session_id}:{message_id}",
+                session_id=session_id,
+                runner=lambda: runner(wait_for_queue=False),
+                dependency=queue_task,
+            )
+            if completion is None:
+                meta["skipped"] = "image_queue_backpressure"
+                return
+            meta["background_scheduled"] = True
+            meta["blocking"] = False
+            return
 
         task = asyncio.create_task(runner(), name="iris-related-image-parse")
         _IMAGE_BACKGROUND_TASKS.add(task)
@@ -830,7 +925,9 @@ async def _collect_user_profile(
 
 
 async def _rewrite_query_for_retrieval(
-    user_message: str, component_manager: "ComponentManager"
+    user_message: str,
+    component_manager: "ComponentManager",
+    persona_id: str = "default",
 ) -> Optional[str]:
     """查询改写：从用户消息中提取检索意图
 
@@ -856,39 +953,77 @@ async def _rewrite_query_for_retrieval(
         logger.debug("用户消息无明确记忆检索意图，跳过 L2 查询改写")
         return None
 
+    local_rewrite = _local_memory_query_rewrite(user_message)
+    if local_rewrite:
+        return local_rewrite
+    if _skip_llm_query_rewrite(user_message):
+        return None
+
+    cache_size = max(1, int(config.get("l2_query_rewrite_cache_size", 256)))
+    inflight_limit = max(
+        1, int(config.get("l2_query_rewrite_inflight_limit", 64))
+    )
+    key = (persona_id or "default", _normalize_rewrite_query(user_message))
+    cached = _QUERY_REWRITE_CACHE.get(key)
+    if cached is not None:
+        _QUERY_REWRITE_CACHE.move_to_end(key)
+        return cached
+
     llm_manager = component_manager.get_component("llm_manager")
     if not llm_manager or not llm_manager.is_available:
         return None
 
-    prompt = (
-        "从用户消息中提取用于记忆检索的关键词，空格分隔，不要解释。\n"
-        "提取核心实体、事件和偏好，去除口语语气词。\n"
-        f"用户消息：{user_message}\n\n搜索关键词："
-    )
-
     timeout_ms = config.get("l2_query_rewrite_timeout_ms", 3000)
+    queue_timeout_ms = config.get("l2_query_rewrite_queue_timeout_ms", 800)
 
-    try:
-        rewritten = await asyncio.wait_for(
-            llm_manager.generate_direct(prompt=prompt, module=L2_QUERY_REWRITE),
-            timeout=timeout_ms / 1000.0,
+    async def do_rewrite() -> Optional[str]:
+        prompt = (
+            "从用户消息中提取用于记忆检索的关键词，空格分隔，不要解释。\n"
+            "提取核心实体、事件和偏好，去除口语语气词。\n"
+            f"用户消息：{user_message}\n\n搜索关键词："
         )
-
-        rewritten = rewritten.strip()
-
-        if not rewritten or rewritten == "无":
-            logger.debug("查询改写结果为空，使用原始消息")
+        try:
+            rewritten = await asyncio.wait_for(
+                llm_manager.generate_direct(
+                    prompt=prompt,
+                    module=L2_QUERY_REWRITE,
+                    queue_timeout=max(0.001, float(queue_timeout_ms) / 1000.0),
+                    total_timeout=max(0.001, float(timeout_ms) / 1000.0),
+                ),
+                timeout=max(0.001, float(timeout_ms) / 1000.0),
+            )
+            rewritten = rewritten.strip()
+            if not rewritten or rewritten == "无":
+                return None
+            _QUERY_REWRITE_CACHE[key] = rewritten
+            _QUERY_REWRITE_CACHE.move_to_end(key)
+            while len(_QUERY_REWRITE_CACHE) > cache_size:
+                _QUERY_REWRITE_CACHE.popitem(last=False)
+            logger.debug(f"查询改写：'{user_message[:30]}...' -> '{rewritten}'")
+            return rewritten
+        except asyncio.TimeoutError:
+            logger.debug(f"查询改写超时（{timeout_ms}ms），使用原始消息")
+            return None
+        except Exception as e:
+            logger.debug(f"查询改写失败：{e}，使用原始消息")
             return None
 
-        logger.debug(f"查询改写：'{user_message[:30]}...' -> '{rewritten}'")
-        return rewritten
-
-    except asyncio.TimeoutError:
-        logger.debug(f"查询改写超时（{timeout_ms}ms），使用原始消息")
-        return None
-    except Exception as e:
-        logger.debug(f"查询改写失败：{e}，使用原始消息")
-        return None
+    task = _QUERY_REWRITE_INFLIGHT.get(key)
+    if task is None:
+        if len(_QUERY_REWRITE_INFLIGHT) >= inflight_limit:
+            logger.info("查询改写在途任务已满，回退原始查询")
+            return None
+        task = asyncio.create_task(do_rewrite(), name="iris-l2-query-rewrite")
+        _QUERY_REWRITE_INFLIGHT[key] = task
+    else:
+        record_join = getattr(llm_manager, "record_singleflight_join", None)
+        if callable(record_join):
+            record_join()
+    try:
+        return await asyncio.shield(task)
+    finally:
+        if task.done() and _QUERY_REWRITE_INFLIGHT.get(key) is task:
+            _QUERY_REWRITE_INFLIGHT.pop(key, None)
 
 
 def _has_memory_retrieval_intent(text: str) -> bool:
@@ -968,7 +1103,7 @@ async def _collect_l2_memory(
 
     try:
         rewritten_query = await _rewrite_query_for_retrieval(
-            query_text, component_manager
+            query_text, component_manager, persona_id
         )
         search_query = rewritten_query if rewritten_query else query_text
 
@@ -1465,10 +1600,17 @@ async def _parse_images_if_related_mode(
         logger.warning("LLM Manager 不可用，跳过图片解析")
         return
 
-    max_parse = config.get("image_max_parse_per_request")
-    max_concurrent = config.get("image_max_concurrent_parse")
-
-    pending_images = l1_buffer.get_images(session_id, limit=max_parse, only_pending=True)
+    max_parse = int(config.get("image_max_parse_per_request", 3) or 3)
+    max_concurrent = int(config.get("image_max_concurrent_parse", 2) or 2)
+    parse_timeout_ms = cast(int, config.get("image_parse_timeout_ms", 30000))
+    claim_token = str(uuid.uuid4())
+    pending_images = await _claim_pending_images_compat(
+        l1_buffer,
+        session_id,
+        max_parse,
+        claim_token,
+        max(1.0, parse_timeout_ms * 2 / 1000.0),
+    )
 
     if not pending_images:
         return
@@ -1481,7 +1623,10 @@ async def _parse_images_if_related_mode(
             cached = await cache_manager.get_cache(img_item.image_hash)
             if cached:
                 l1_buffer.mark_image_parsed(
-                    session_id, img_item.image_hash, ImageParseStatus.SUCCESS
+                    session_id,
+                    img_item.image_hash,
+                    ImageParseStatus.SUCCESS,
+                    claim_token,
                 )
                 placeholder = f"[IMG:{img_item.image_hash.removeprefix('ph:')[:12]}]"
                 l1_buffer.replace_image_placeholder(
@@ -1506,11 +1651,19 @@ async def _parse_images_if_related_mode(
         if not has_quota:
             logger.info("图片解析配额已耗尽，跳过解析")
             req._iris_image_meta = {"skipped": "quota_exhausted"}
+            for item in images_to_parse:
+                l1_buffer.release_image_claim(
+                    session_id, item.image_hash, claim_token, deferred=True
+                )
             return
 
         quota_used = await quota_manager.use_quota(len(images_to_parse))
         if not quota_used:
             logger.warning("图片解析配额使用失败")
+            for item in images_to_parse:
+                l1_buffer.release_image_claim(
+                    session_id, item.image_hash, claim_token, deferred=True
+                )
             return
 
     provider = config.get("l1_buffer.image_parsing.provider", "")
@@ -1530,8 +1683,6 @@ async def _parse_images_if_related_mode(
             result = await parser.parse(img_item.image_info)
             return (img_item, result)
 
-    parse_timeout_ms = cast(int, config.get("image_parse_timeout_ms", 30000))
-
     task_to_img: dict = {}
     for img in images_to_parse:
         task_to_img[asyncio.ensure_future(parse_with_semaphore(img))] = img
@@ -1548,7 +1699,7 @@ async def _parse_images_if_related_mode(
             t.cancel()
             img_item = task_to_img[t]
             l1_buffer.mark_image_parsed(
-                session_id, img_item.image_hash, ImageParseStatus.FAILED
+                session_id, img_item.image_hash, ImageParseStatus.FAILED, claim_token
             )
             placeholder = f"[IMG:{img_item.image_hash.removeprefix('ph:')[:12]}]"
             l1_buffer.replace_image_placeholder(session_id, placeholder, "")
@@ -1566,7 +1717,7 @@ async def _parse_images_if_related_mode(
     for img_item, result in parse_results:
         if result is None:
             l1_buffer.mark_image_parsed(
-                session_id, img_item.image_hash, ImageParseStatus.FAILED
+                session_id, img_item.image_hash, ImageParseStatus.FAILED, claim_token
             )
             placeholder = f"[IMG:{img_item.image_hash.removeprefix('ph:')[:12]}]"
             l1_buffer.replace_image_placeholder(session_id, placeholder, "")
@@ -1575,7 +1726,7 @@ async def _parse_images_if_related_mode(
         if not result.success:
             logger.warning(f"图片解析失败：{result.error_message}")
             l1_buffer.mark_image_parsed(
-                session_id, img_item.image_hash, ImageParseStatus.FAILED
+                session_id, img_item.image_hash, ImageParseStatus.FAILED, claim_token
             )
             placeholder = f"[IMG:{img_item.image_hash.removeprefix('ph:')[:12]}]"
             l1_buffer.replace_image_placeholder(session_id, placeholder, "")
@@ -1584,7 +1735,7 @@ async def _parse_images_if_related_mode(
         if not result.content:
             logger.debug("图片解析结果为空")
             l1_buffer.mark_image_parsed(
-                session_id, img_item.image_hash, ImageParseStatus.FAILED
+                session_id, img_item.image_hash, ImageParseStatus.FAILED, claim_token
             )
             placeholder = f"[IMG:{img_item.image_hash.removeprefix('ph:')[:12]}]"
             l1_buffer.replace_image_placeholder(session_id, placeholder, "")
@@ -1600,7 +1751,7 @@ async def _parse_images_if_related_mode(
             await cache_manager.set_cache(cache)
 
         l1_buffer.mark_image_parsed(
-            session_id, img_item.image_hash, ImageParseStatus.SUCCESS
+            session_id, img_item.image_hash, ImageParseStatus.SUCCESS, claim_token
         )
 
         placeholder = f"[IMG:{img_item.image_hash.removeprefix('ph:')[:12]}]"

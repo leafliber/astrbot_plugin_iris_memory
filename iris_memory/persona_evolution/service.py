@@ -76,6 +76,9 @@ class PersonaEvolutionService:
         self._publisher = PersonaPublisher(context, storage)
         self._llm_manager = llm_manager
         self._run_locks: Dict[int, asyncio.Lock] = {}
+        self._evolution_semaphore = asyncio.Semaphore(1)
+        self._queued_jobs: set[int] = set()
+        self._scan_lock = asyncio.Lock()
         self._retry_attempts: Dict[int, int] = {}
         self._retry_tasks: Dict[int, asyncio.Task] = {}
 
@@ -140,6 +143,9 @@ class PersonaEvolutionService:
             return False, f"Job 状态为 {job.status}，非 active"
         if self.is_job_running(job.id):
             return False, "Job 有运行中的迭代"
+        if job.retry_not_before and time.time() < job.retry_not_before:
+            remaining = max(0, int(job.retry_not_before - time.time()))
+            return False, f"Provider 退避中，约 {remaining} 秒后可重试"
         count = self._storage.count_samples(
             job.source_group_ids, job.source_user_ids, job.last_sample_cursor
         )
@@ -157,21 +163,25 @@ class PersonaEvolutionService:
         Returns:
             实际启动运行的 Job 数
         """
-        started = 0
-        try:
-            jobs = self._storage.list_jobs()
-        except Exception as e:
-            logger.warning(f"兜底扫描读取 Job 失败：{e}")
+        if self._scan_lock.locked():
             return 0
-        for job in jobs:
+        async with self._scan_lock:
             try:
-                ok, _ = self.check_auto_trigger(job)
-                if ok:
-                    await self.run_job(job.id, TriggerType.AUTO.value)
-                    started += 1
+                jobs = self._storage.list_jobs()
             except Exception as e:
-                logger.warning(f"兜底扫描执行 Job {job.id} 失败：{e}")
-        return started
+                logger.warning(f"兜底扫描读取 Job 失败：{e}")
+                return 0
+            for job in jobs:
+                try:
+                    ok, _ = self.check_auto_trigger(job)
+                    if ok:
+                        # 单次扫描最多执行一个 Job，避免一个周期把所有
+                        # persona 的 A/B/C 阶段连续灌入 Provider。
+                        await self.run_job(job.id, TriggerType.AUTO.value)
+                        return 1
+                except Exception as e:
+                    logger.warning(f"兜底扫描执行 Job {job.id} 失败：{e}")
+            return 0
 
     # ------------------------------------------------------------------
     # 主流程：run_job
@@ -198,13 +208,19 @@ class PersonaEvolutionService:
             "no_change": False,
         }
         lock = self._run_lock(job_id)
-        if lock.locked():
+        if lock.locked() or job_id in self._queued_jobs:
             result["error_code"] = ErrorCode.TRIGGER_CONDITIONS_NOT_MET.value
             result["message"] = "Job 已有运行中的迭代"
             return result
-
-        async with lock:
-            return await self._run_job_locked(job_id, trigger_type, result)
+        self._queued_jobs.add(job_id)
+        try:
+            # 手动与自动运行、不同 persona Job 共用一个全局槽位。LLM
+            # Provider 并发仍由 Governor 二次兜底。
+            async with self._evolution_semaphore:
+                async with lock:
+                    return await self._run_job_locked(job_id, trigger_type, result)
+        finally:
+            self._queued_jobs.discard(job_id)
 
     async def _run_job_locked(
         self, job_id: int, trigger_type: str, result: Dict[str, Any]
@@ -258,6 +274,12 @@ class PersonaEvolutionService:
                     )
             else:
                 # 自动门槛复核（运行锁已持有，不做运行中自检）
+                if job.retry_not_before and time.time() < job.retry_not_before:
+                    remaining = max(0, int(job.retry_not_before - time.time()))
+                    return fail(
+                        ErrorCode.TRIGGER_CONDITIONS_NOT_MET,
+                        f"Provider 退避中，约 {remaining} 秒后可重试",
+                    )
                 if eligible < job.trigger_sample_count:
                     return fail(
                         ErrorCode.TRIGGER_CONDITIONS_NOT_MET,
@@ -540,7 +562,11 @@ class PersonaEvolutionService:
         """解析/校验失败：累计连续失败，达阈值熔断转 paused_error"""
         failures = job.consecutive_failures + 1
         threshold = int(self._cfg("persona_evolution_circuit_breaker_threshold", 3))
-        fields: Dict[str, Any] = {"consecutive_failures": failures}
+        fields: Dict[str, Any] = {
+            "consecutive_failures": failures,
+            "retry_attempt_count": 0,
+            "retry_not_before": None,
+        }
         if failures >= threshold:
             fields["status"] = JobStatus.PAUSED_ERROR.value
             message += f"；连续失败 {failures} 次，已熔断转 paused_error"
@@ -558,16 +584,41 @@ class PersonaEvolutionService:
         失败不推进成功语料游标，也不刷新 24 小时成功冷却。
         """
         intervals = self._retry_intervals_minutes()
-        attempts = self._retry_attempts.get(job.id, 0) + 1
+        attempts = max(
+            int(getattr(job, "retry_attempt_count", 0) or 0),
+            self._retry_attempts.get(job.id, 0),
+        ) + 1
         self._retry_attempts[job.id] = attempts
         if attempts > len(intervals):
-            self._retry_attempts.pop(job.id, None)
+            delay_minutes = intervals[-1]
+            self._storage.update_job(
+                job.id,
+                {
+                    "retry_attempt_count": len(intervals),
+                    "retry_not_before": time.time() + delay_minutes * 60,
+                },
+            )
             return (
                 f"Provider 调用失败，已达最大自动重试次数 {len(intervals)}，"
                 "等待下次触发"
             )
         delay_minutes = intervals[attempts - 1]
+        self._storage.update_job(
+            job.id,
+            {
+                "retry_attempt_count": attempts,
+                "retry_not_before": time.time() + delay_minutes * 60,
+            },
+        )
         self._cancel_retry(job.id)
+        retry_task_limit = max(
+            1, int(self._cfg("persona_evolution_retry_task_limit", 100))
+        )
+        if len(self._retry_tasks) >= retry_task_limit:
+            return (
+                f"Provider 调用失败，已持久化第 {attempts} 次退避；"
+                "进程内重试队列已满，将由周期扫描恢复"
+            )
         self._retry_tasks[job.id] = asyncio.create_task(
             self._retry_later(job.id, delay_minutes * 60, trigger_type),
             name=f"persona_evolution_retry_{job.id}",
@@ -580,6 +631,9 @@ class PersonaEvolutionService:
             await asyncio.sleep(delay_seconds)
             self._retry_tasks.pop(job_id, None)
             logger.info(f"Job {job_id} 退避重试开始")
+            llm_manager = self._get_llm_manager()
+            if llm_manager is not None and hasattr(llm_manager, "record_retry"):
+                llm_manager.record_retry()
             await self.run_job(job_id, trigger_type)
         except asyncio.CancelledError:
             raise
@@ -1170,7 +1224,11 @@ class PersonaEvolutionService:
         此处补齐游标；no_change 路径由本方法一并写冷却）
         """
         cursor = max((s.get("id") or 0 for s in samples), default=0)
-        fields: Dict[str, Any] = {"consecutive_failures": 0}
+        fields: Dict[str, Any] = {
+            "consecutive_failures": 0,
+            "retry_attempt_count": 0,
+            "retry_not_before": None,
+        }
         if cursor > job.last_sample_cursor:
             fields["last_sample_cursor"] = cursor
         latest = self._storage.get_job(job.id)
@@ -1183,7 +1241,11 @@ class PersonaEvolutionService:
     def _advance_cursor_only(self, job: Any, samples: List[Dict[str, Any]]) -> None:
         """手动审批模式生成候选后推进游标（未发布不刷新成功冷却）"""
         cursor = max((s.get("id") or 0 for s in samples), default=0)
-        fields: Dict[str, Any] = {"consecutive_failures": 0}
+        fields: Dict[str, Any] = {
+            "consecutive_failures": 0,
+            "retry_attempt_count": 0,
+            "retry_not_before": None,
+        }
         if cursor > job.last_sample_cursor:
             fields["last_sample_cursor"] = cursor
         self._storage.update_job(job.id, fields)

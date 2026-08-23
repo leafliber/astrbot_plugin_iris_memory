@@ -158,6 +158,7 @@ class TestGroupProfileManager:
         profile = GroupProfile(group_id="group_123")
         tracker = profile.get_update_tracker()
         tracker.last_long_update_time = datetime.now() - timedelta(hours=200)
+        tracker.summary_count_since_long_update = 3
         profile.set_update_tracker(tracker)
 
         with patch("iris_memory.profile.group_profile.get_config") as mock_config:
@@ -168,6 +169,21 @@ class TestGroupProfileManager:
             mock_config.return_value = mock_config_obj
 
             assert manager.should_update_long(profile) is True
+
+    @pytest.mark.asyncio
+    async def test_new_profile_does_not_immediately_run_long_analysis(
+        self, manager, mock_storage
+    ):
+        profile = GroupProfile(group_id="group_123")
+        with patch("iris_memory.profile.group_profile.get_config") as mock_config:
+            mock_config_obj = MagicMock()
+            mock_config_obj.get.side_effect = lambda k, d=None: {
+                "profile_long_update_interval_hours": 168.0,
+                "profile_first_long_min_summaries": 10,
+                "profile_long_min_new_summaries": 3,
+            }.get(k, d)
+            mock_config.return_value = mock_config_obj
+            assert manager.should_update_long(profile) is False
 
     @pytest.mark.asyncio
     async def test_add_long_term_tag(self, manager, mock_storage):

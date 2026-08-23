@@ -26,6 +26,8 @@ v3.0 架构：
 # ruff: noqa: E402
 
 import asyncio
+import hashlib
+import re
 import sys
 import time
 from pathlib import Path
@@ -63,7 +65,7 @@ from iris_memory.core import (
 from iris_memory.tools import register_llm_tools
 from iris_memory.web import register_all_routes
 from iris_memory.llm import LLMManager
-from iris_memory.llm_modules import proactive_reply_module
+from iris_memory.llm_modules import FRAMEWORK_REPLY, proactive_reply_module
 from iris_memory.commands import (
     get_registry,
     execute_command,
@@ -111,6 +113,15 @@ LEGACY_MIGRATION_ENABLED = True
 
 _IRIS_ACTIVE_TIMEOUT = 120
 _UMO_KV_KEY = "iris_reply:group_umo"
+
+_PASSIVE_WATCH_SIGNAL = re.compile(
+    r"[?？]|"
+    r"我(?:会|将|之后|稍后|晚点|等会|回头)|"
+    r"(?:下次|之后|稍后|晚点|有结果|有消息)(?:再|会)?(?:告诉|提醒|联系|确认|回复)|"
+    r"(?:等|等待).{0,16}(?:回复|消息|结果)|"
+    r"\b(?:i(?:'ll| will)|follow up|let you know|remind|check back|waiting for)\b",
+    re.IGNORECASE,
+)
 
 
 def _detect_passive_trigger(event: AstrMessageEvent, req, context: Context) -> None:
@@ -205,6 +216,8 @@ class IrisMemoryPlugin(Star):
             self._reply_in_progress: dict[str, float] = {}
             self._passive_active: dict[str, float] = {}
             self._triggering: dict[str, float] = {}
+            self._passive_watch_last: dict[str, float] = {}
+            self._passive_watch_hash: dict[str, str] = {}
             self._follow_pending: set[str] = set()
             self._group_umo: dict[str, str] = {}
             self._umo_dirty: bool = False
@@ -436,6 +449,8 @@ class IrisMemoryPlugin(Star):
         self._reply_in_progress.clear()
         self._passive_active.clear()
         self._triggering.clear()
+        self._passive_watch_last.clear()
+        self._passive_watch_hash.clear()
         # 记忆侧
         await shutdown_components(self.component_manager)
         logger.info("Iris Memory 整合插件已卸载")
@@ -790,24 +805,48 @@ class IrisMemoryPlugin(Star):
         if hint:
             req.extra_user_content_parts.append(TextPart(text=hint).mark_as_temp())
 
-        # 插话、跟进及白名单被动回复继续走 AstrBot 主管线，在响应钩子中
-        # 交给 LLMManager 统一结算 Token 和调用日志。
+        # 所有 AstrBot 主管线请求也必须取得 Governor lease。此处刻意位于
+        # 查询改写/图片关联解析等预处理之后，避免单并发配置下嵌套申请死锁。
         mode = event.get_extra("iris_mode")
-        if mode in ("chime_in", "follow_up", "passive"):
+        if self._llm_manager:
             provider_id = event.get_extra("iris_llm_provider_id") or ""
             if not provider_id:
                 provider_id = await self._get_provider_id(event) or ""
-            module = proactive_reply_module(mode)
-            await self._llm_manager.record_framework_attempt(module)
-            event.set_extra(
-                "iris_llm_tracking",
-                {
-                    "module": module,
-                    "provider_id": provider_id,
-                    "started_at": time.time(),
-                    "prompt": getattr(req, "prompt", "") or "",
-                },
+            module = (
+                proactive_reply_module(mode)
+                if mode in ("chime_in", "follow_up", "passive")
+                else FRAMEWORK_REPLY
             )
+            lease = await self._llm_manager.acquire_framework_lease(
+                module=module,
+                provider_id=provider_id,
+            )
+            try:
+                # 先把 lease ID 写入事件，确保后续任一步骤抛错时都能在
+                # 当前栈内释放，而不必等待 watchdog 回收。
+                event.set_extra("iris_llm_lease_id", lease.lease_id)
+                await self._llm_manager.record_framework_attempt(module)
+                event.set_extra(
+                    "iris_llm_tracking",
+                    {
+                        "module": module,
+                        "provider_id": provider_id,
+                        "started_at": time.time(),
+                        "prompt": getattr(req, "prompt", "") or "",
+                        "priority": lease.priority.name,
+                        "queue_wait_ms": lease.queue_wait_ms,
+                        "in_flight_at_start": lease.in_flight_at_start,
+                        "queue_depth_at_start": lease.queue_depth_at_start,
+                    },
+                )
+            except Exception:
+                event.set_extra("iris_llm_lease_id", None)
+                await self._llm_manager.release_framework_lease(
+                    lease.lease_id,
+                    provider_id=provider_id,
+                    success=False,
+                )
+                raise
 
     async def _handle_reply_decision(self, event: AstrMessageEvent) -> bool:
         """主动回复统一决策执行点。
@@ -985,6 +1024,21 @@ class IrisMemoryPlugin(Star):
     @filter.on_llm_response()
     async def on_llm_response(self, event: AstrMessageEvent, resp: LLMResponse) -> None:
         tracking = event.get_extra("iris_llm_tracking")
+        lease_id = event.get_extra("iris_llm_lease_id")
+        if lease_id and self._llm_manager:
+            try:
+                await self._llm_manager.release_framework_lease(
+                    lease_id,
+                    provider_id=(tracking or {}).get("provider_id", ""),
+                    success=True,
+                )
+            except Exception as e:
+                # 响应已经产生，租约统计故障不应中断消息回填；Governor
+                # watchdog 仍会兜底回收尚未释放的 framework lease。
+                logger.warning(f"Iris Reply: 主管线 lease 释放失败：{e}")
+            finally:
+                event.set_extra("iris_llm_lease_id", None)
+
         if tracking and self._llm_manager:
             try:
                 await self._llm_manager.record_framework_response(
@@ -993,6 +1047,10 @@ class IrisMemoryPlugin(Star):
                     response=resp,
                     started_at=tracking.get("started_at"),
                     prompt=tracking.get("prompt", ""),
+                    priority=tracking.get("priority", "INTERACTIVE"),
+                    queue_wait_ms=tracking.get("queue_wait_ms", 0),
+                    in_flight_at_start=tracking.get("in_flight_at_start", 0),
+                    queue_depth_at_start=tracking.get("queue_depth_at_start", 0),
                 )
                 event.set_extra("iris_llm_tracking", None)
             except Exception as e:
@@ -1115,8 +1173,53 @@ class IrisMemoryPlugin(Star):
         self, group_id: str, provider_id: str, fallback_sender: str, bot_text: str,
     ) -> None:
         """被动回复后的跟进评估（motive=watch）：只决定是否建立关注锚点。"""
-        if not self._sliding_window.get_messages(group_id):
+        messages = self._sliding_window.get_messages(group_id)
+        if not messages:
             return
+        reply_config = getattr(self, "_reply_config", None)
+        if reply_config is not None and not getattr(
+            reply_config, "passive_watch_enabled", True
+        ):
+            return
+
+        # object.__new__ 构造的兼容测试实例没有这些映射；正常插件实例始终
+        # 存在。门控只影响生产路径，不改变旧对象的错误清理语义。
+        watch_last = getattr(self, "_passive_watch_last", None)
+        watch_hashes = getattr(self, "_passive_watch_hash", None)
+        if isinstance(watch_last, dict) and isinstance(watch_hashes, dict):
+            if not bot_text or not _PASSIVE_WATCH_SIGNAL.search(bot_text):
+                logger.debug(
+                    f"Iris Reply: passive watch local gate skipped group {group_id}"
+                )
+                return
+
+            now = time.monotonic()
+            min_interval = float(self._reply_config.passive_watch_min_interval)
+            if now - watch_last.get(group_id, 0.0) < min_interval:
+                return
+
+            digest_source = "\n".join(
+                [
+                    *(str(getattr(item, "content", "")) for item in messages[-10:]),
+                    bot_text,
+                ]
+            )
+            digest = hashlib.sha256(digest_source.encode("utf-8")).hexdigest()
+            if watch_hashes.get(group_id) == digest:
+                return
+
+            if self._llm_manager:
+                metrics = self._llm_manager.get_governor_metrics()
+                queue_limit = max(1, int(metrics.get("queue_limit", 500)))
+                if int(metrics.get("queue_depth", 0)) >= int(queue_limit * 0.7):
+                    logger.info(
+                        f"Iris Reply: passive watch skipped by backpressure for group {group_id}"
+                    )
+                    return
+
+            # 在调用前记账：失败也遵守冷却，避免后续每条回复立即重新采样。
+            watch_last[group_id] = now
+            watch_hashes[group_id] = digest
 
         req = DecisionRequest(group_id=group_id, wake="message", motive="watch")
         outcome = await self._decision_core.decide(req, self._llm_manager, provider_id)

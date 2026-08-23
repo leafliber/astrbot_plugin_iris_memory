@@ -13,6 +13,7 @@ from iris_memory.core import get_logger
 __all__ = [
     "TaskScheduler",
     "ImageCacheCleanupTask",
+    "BoundedWorkQueue",
 ]
 
 
@@ -25,6 +26,10 @@ def __getattr__(name: str):
         from .cache_cleanup_task import ImageCacheCleanupTask
 
         return ImageCacheCleanupTask
+    elif name == "BoundedWorkQueue":
+        from .work_queue import BoundedWorkQueue
+
+        return BoundedWorkQueue
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 

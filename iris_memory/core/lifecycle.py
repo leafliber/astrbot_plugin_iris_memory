@@ -140,11 +140,16 @@ def create_components(context: "Context", star: "Star") -> Tuple[Component, ...]
 
     # 阶段10: 图片限额管理器
     if config.get("l1_buffer.image_parsing.enable"):
-        from iris_memory.image import ImageQuotaManager, ImageCacheManager
+        from iris_memory.image import (
+            ImageCacheManager,
+            ImageParseCoordinator,
+            ImageQuotaManager,
+        )
 
         components.append(ImageQuotaManager(star))
         components.append(ImageCacheManager(star))
-        logger.debug("已添加 ImageQuotaManager 和 ImageCacheManager 组件")
+        components.append(ImageParseCoordinator())
+        logger.debug("已添加图片配额、缓存和统一协调器组件")
 
     return tuple(components)
 
