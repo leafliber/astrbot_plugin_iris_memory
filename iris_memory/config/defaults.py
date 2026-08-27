@@ -106,9 +106,13 @@ class FeatureToggleConfig:
 
 @dataclass
 class PureAtReplyConfig:
-    """纯 @ 回复接管配置。"""
+    """纯 @ 回复接管配置。
 
-    enable: bool = True
+    默认关闭（与 _conf_schema.json 保持一致）：启用前需先关闭
+    AstrBot 的 empty_mention_waiting，属于需要人工前置条件的开关。
+    """
+
+    enable: bool = False
 
 
 @dataclass

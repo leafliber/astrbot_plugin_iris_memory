@@ -159,7 +159,11 @@ class LearningComponent(Component):
             user_id = adapter.get_user_id(event)
             text = getattr(event, "message_str", "") or ""
             async with self._db_lock:
-                self._collector.on_message(event, session_id, user_id, text)
+                # SQLite 写入下放线程池；asyncio.Lock 保证协程级单写者，
+                # 持锁 await 期间事件循环保持可调度
+                await asyncio.to_thread(
+                    self._collector.on_message, event, session_id, user_id, text
+                )
         except Exception as e:
             logger.warning(f"学习模块消息采集失败：{e}")
 
@@ -179,7 +183,9 @@ class LearningComponent(Component):
             except Exception:
                 pass
             async with self._db_lock:
-                self._collector.on_response(event, resp, str(persona_id))
+                await asyncio.to_thread(
+                    self._collector.on_response, event, resp, str(persona_id)
+                )
             if self._reviewer and self._reviewer.is_batch_full():
                 self._ensure_review_worker()
         except Exception as e:

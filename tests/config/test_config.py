@@ -28,7 +28,8 @@ class TestConfig:
         )
         config = Config({}, hidden_manager, Defaults(), tmp_path)
 
-        assert config.get("extras.pure_at_reply.enable") is True
+        # pure_at_reply 默认关闭，与 _conf_schema.json 一致
+        assert config.get("extras.pure_at_reply.enable") is False
         assert config.get("extras.error_friendly.enable") is True
         assert config.get("extras.markdown_stripper.enable") is True
 
@@ -43,6 +44,76 @@ class TestConfig:
             "error_friendly",
             "markdown_stripper",
         }
+
+    @staticmethod
+    def _flatten_schema(schema: dict) -> dict:
+        """把 schema 的嵌套 items 展平为 {section.key: default}。"""
+        flat: dict = {}
+        for section, body in schema.items():
+            items = body.get("items", {}) if isinstance(body, dict) else {}
+            for key, spec in items.items():
+                if isinstance(spec, dict) and "default" in spec:
+                    flat[f"{section}.{key}"] = spec["default"]
+        return flat
+
+    @staticmethod
+    def _flatten_defaults(defaults) -> dict:
+        """把 Defaults dataclass 展平为 {section.key: default}（不含 hidden）。"""
+        from dataclasses import asdict
+
+        flat: dict = {}
+        for section, values in asdict(defaults).items():
+            if section == "hidden" or not isinstance(values, dict):
+                continue
+            for key, value in values.items():
+                flat[f"{section}.{key}"] = value
+        return flat
+
+    def test_schema_defaults_match_dataclass_defaults(self):
+        """schema 与 Defaults 的同名键默认值必须一致，防止双源漂移。
+
+        AstrBot 会把 schema 默认物化进用户配置，Defaults 是用户配置
+        缺键时的回退——两处不一致会让不同路径拿到相反语义。
+        proactive 分组由 proactive.config._DEFAULTS 单独管理，单独比对。
+        """
+        from iris_memory.proactive.config import _DEFAULTS as reply_defaults
+
+        schema_path = Path(__file__).resolve().parents[2] / "_conf_schema.json"
+        schema_flat = self._flatten_schema(
+            json.loads(schema_path.read_text(encoding="utf-8"))
+        )
+        defaults_flat = self._flatten_defaults(Defaults())
+
+        schema_only = set(schema_flat) - set(defaults_flat) - {
+            "proactive.enabled",
+            "proactive.proactive_enabled",
+            "proactive.stats_enabled",
+            "proactive.provider_id",
+        }
+        assert not schema_only, f"schema 存在 Defaults 未覆盖的键：{schema_only}"
+
+        for key, schema_value in schema_flat.items():
+            if key not in defaults_flat:
+                continue
+            assert schema_value == defaults_flat[key], (
+                f"配置默认值双源分歧：{key} schema={schema_value!r} "
+                f"defaults={defaults_flat[key]!r}"
+            )
+
+        # proactive 分组与 proactive.config._DEFAULTS 对齐
+        assert schema_flat.get("proactive.enabled") == reply_defaults.get("enabled")
+        assert (
+            schema_flat.get("proactive.proactive_enabled")
+            == reply_defaults.get("proactive_enabled")
+        )
+        assert (
+            schema_flat.get("proactive.stats_enabled")
+            == reply_defaults.get("stats_enabled")
+        )
+        assert (
+            schema_flat.get("proactive.provider_id")
+            == reply_defaults.get("provider_id")
+        )
 
     def test_legacy_dream_switches_do_not_map_to_new_stages(self, tmp_path: Path):
         astrbot_config = {

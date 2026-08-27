@@ -21,6 +21,9 @@ from .defaults import HiddenConfig
 
 logger = get_logger("config")
 
+# _coerce_like 的失败哨兵：表示值无法安全收敛为默认值类型
+_UNCOERCIBLE = object()
+
 
 class HiddenConfigManager:
     """隐藏配置管理器
@@ -55,6 +58,8 @@ class HiddenConfigManager:
         self._defaults = defaults
         self._cache = {}
         self._lock = threading.RLock()
+        # 持久化串行锁：保证多次写盘按快照顺序落盘，不会旧覆盖新
+        self._io_lock = threading.Lock()
         self._observers = []
         self._dirty = False
 
@@ -65,7 +70,7 @@ class HiddenConfigManager:
         self._load()
 
     def _load(self) -> None:
-        """从文件加载隐藏配置到缓存"""
+        """从文件加载隐藏配置到缓存（带类型收敛）"""
         with self._lock:
             if not self._path.exists():
                 # 文件不存在，使用默认值
@@ -77,7 +82,7 @@ class HiddenConfigManager:
                     data = json.load(f)
 
                 if isinstance(data, dict):
-                    self._cache = data
+                    self._cache = self._sanitize_loaded(data)
                     logger.info(f"成功加载隐藏配置，共 {len(self._cache)} 项")
                 else:
                     logger.warning("隐藏配置文件格式错误，使用默认值")
@@ -86,6 +91,58 @@ class HiddenConfigManager:
                 logger.warning(f"隐藏配置文件损坏，使用默认值: {e}")
             except Exception as e:
                 logger.error(f"加载隐藏配置失败: {e}")
+
+    def _sanitize_loaded(self, data: Dict[str, object]) -> Dict[str, object]:
+        """对文件加载的值按默认值类型收敛。
+
+        手工编辑或历史遗留文件可能带错误类型（如把 int 写成字符串），
+        原样进入运行时会污染下游算术与布尔判断。已知键按默认值类型
+        收敛，无法安全转换的回退默认值；未知键（如 legacy 迁移写入的
+        外部槽位）按设计原样保留。
+        """
+        defaults = asdict(self._defaults)
+        sanitized: Dict[str, object] = {}
+        for key, value in data.items():
+            if key not in defaults:
+                sanitized[key] = value
+                continue
+            coerced = self._coerce_like(value, defaults[key])
+            if coerced is _UNCOERCIBLE:
+                logger.warning(
+                    f"隐藏配置 {key} 的值 {value!r} 无法转换为 "
+                    f"{type(defaults[key]).__name__}，已回退默认值 {defaults[key]!r}"
+                )
+                continue
+            sanitized[key] = coerced
+        return sanitized
+
+    @staticmethod
+    def _coerce_like(value: object, default: object):
+        """尝试把 value 收敛为 default 的类型；不可转换时返回哨兵。"""
+        if isinstance(default, bool):
+            if isinstance(value, bool):
+                return value
+            return _UNCOERCIBLE
+        if isinstance(default, int):
+            if isinstance(value, bool):
+                return _UNCOERCIBLE
+            if isinstance(value, int):
+                return value
+            if isinstance(value, float) and value.is_integer():
+                return int(value)
+            return _UNCOERCIBLE
+        if isinstance(default, float):
+            if isinstance(value, bool):
+                return _UNCOERCIBLE
+            if isinstance(value, (int, float)):
+                return float(value)
+            return _UNCOERCIBLE
+        if isinstance(default, str):
+            if isinstance(value, str):
+                return value
+            return _UNCOERCIBLE
+        # 复杂类型（list/dict 等）按 JSON 结构原样接受
+        return value
 
     def _persist(self) -> None:
         """持久化隐藏配置到文件"""
@@ -98,20 +155,34 @@ class HiddenConfigManager:
             logger.error(f"持久化隐藏配置失败: {e}")
 
     def _persist_if_dirty(self) -> None:
-        """仅在数据脏时持久化，锁外执行 I/O"""
-        with self._lock:
-            if not self._dirty:
+        """仅在数据脏时持久化，锁外执行 I/O。
+
+        脏标志在写盘成功且期间无新变更后才清除：磁盘满/权限问题导致的
+        写失败会保留脏标志，下次任意变更触发重试，而不是把这次修改
+        永久遗忘在内存里。
+        """
+        with self._io_lock:
+            with self._lock:
+                if not self._dirty:
+                    return
+                data = dict(self._cache)
+
+            try:
+                from iris_memory.utils import atomic_write_json
+
+                atomic_write_json(self._path, data, ensure_ascii=False, indent=2)
+                logger.debug(f"隐藏配置已持久化到 {self._path}")
+            except Exception as e:
+                with self._lock:
+                    self._dirty = True
+                logger.error(f"持久化隐藏配置失败（将在下次变更时重试）: {e}")
                 return
-            data = dict(self._cache)
-            self._dirty = False
 
-        try:
-            from iris_memory.utils import atomic_write_json
-
-            atomic_write_json(self._path, data, ensure_ascii=False, indent=2)
-            logger.debug(f"隐藏配置已持久化到 {self._path}")
-        except Exception as e:
-            logger.error(f"持久化隐藏配置失败: {e}")
+            with self._lock:
+                # 写盘期间又有新变更：保持脏标志，由那次变更自己的
+                # 持久化（在 _io_lock 上排队）负责收尾
+                if self._cache == data:
+                    self._dirty = False
 
     def get(self, key: str) -> Optional[object]:
         """获取隐藏配置值
@@ -274,6 +345,7 @@ class HiddenConfigManager:
     def reset_to_defaults(self) -> None:
         """重置为默认值"""
         with self._lock:
+            old_overrides = dict(self._cache)
             self._cache.clear()
             self._dirty = True
 
@@ -282,10 +354,14 @@ class HiddenConfigManager:
         # 通知所有观察者每个键被重置为新值（默认值）。
         # 此前 reset 不触发观察者，下游组件（如 LLM manager 读取
         # temperature）不会收到变更通知，继续用旧缓存值。
-        for key, value in self._cache.items():
+        for key, value in asdict(self._defaults).items():
+            old_value = old_overrides.get(key)
+            if old_value is None:
+                # 未被覆盖过的键没有实际变化，跳过通知
+                continue
             for observer in self._observers:
                 try:
-                    observer(key, None, value)
+                    observer(key, old_value, value)
                 except Exception as e:
                     logger.warning(f"配置观察者通知失败（reset {key}）：{e}")
 

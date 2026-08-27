@@ -518,7 +518,9 @@ async def search_l3_nodes():
 
     nodes = await l3_adapter.search_nodes(keyword, limit)
 
-    logger.info(f"搜索L3节点成功：关键词='{keyword}', 结果数={len(nodes)}")
+    logger.info(
+        f"搜索L3节点成功：关键词='{keyword[:20]}', 结果数={len(nodes)}"
+    )
 
     return jsonify({"success": True, "nodes": nodes})
 
@@ -630,7 +632,10 @@ async def list_l3_nodes():
     else:
         nodes = await l3_adapter.get_all_nodes(limit, group_id=group_id)
 
-    logger.info(f"获取L3节点列表成功：关键词='{keyword}', group_id={group_id}, 结果数={len(nodes)}")
+    logger.info(
+        f"获取L3节点列表成功：关键词='{keyword[:20]}',"
+        f" group_id={group_id}, 结果数={len(nodes)}"
+    )
 
     return jsonify({"success": True, "nodes": nodes})
 

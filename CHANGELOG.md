@@ -3,6 +3,47 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### ⚠️ 注意
+
+- 本次更新引入 LLM 调用统一治理、L1 总结落盘路径重构与梦境持久化游标（新增 `data/dream/cursor.db`、L1 Outbox SQLite 表），**需要完全重启 AstrBot 才能生效**；首次启动会对 FAISS 索引与 SQLite 做 ID 集对账（一致时零开销，脱同步时自动重嵌入重建）。
+
+### Added
+
+- **LLM 调用统一治理（Governor）**：全部 Provider 调用收敛到统一入口，按模块声明优先级（`llm/policy.py`：交互 > 近线 > 后台），提供全局/Provider 并发上限、Provider RPM 与最小调用间隔、有界等待队列（超限即拒绝并计入背压指标）、等待队列按优先级 + 停留时长老化排序、交互请求预留槽位、连续失败熔断（阈值 + 打开时长可配）。主管线请求在 `on_llm_request` 预处理完成后取得交互租约（framework lease）、`on_llm_response` 结算释放，租约超时由 watchdog 兜底回收；直接调用路径支持同参 singleflight 合并、排队超时与指数退避重试，调用日志含排队耗时/队深/并发快照。治理参数均为隐藏配置（`llm_global_concurrency`、`llm_provider_concurrency`、`llm_provider_rpm`、`llm_queue_limit`、`llm_circuit_*`、`llm_priority_aging_seconds`、`llm_queue_timeout_ms` 等）。
+- **有界工作队列 `BoundedWorkQueue`**（`tasks/work_queue.py`）：固定 worker、全局有界、同 key 任务合并（运行中重复入队只保留最后一次），供 L1 总结、Outbox 回放、图片解析、人格复审共用，后台任务不再无界堆积。
+- **L1 总结落盘重构**：会话总结从消息处理路径移入有界工作队列（`l1_summary_queue_limit`/`l1_summary_worker_count` 隐藏可调）；新增 SQLite 总结 Outbox——总结先落盘、L2 与画像分阶段写入成功后才 rotate 会话队列（`l2_done`/`profile_done` 阶段标记 + 失败退避），进程崩溃后由恢复 Worker 周期重放（`l1_outbox_poll_seconds`），总结不再因 L2/Embedding 瞬时故障丢失；新增 `add_memories_bulk` 批量写入（整批总结条目仅一次 Embedding 请求）。
+- **图片解析协调器 `ImageParseCoordinator`**：替换裸后台并发任务为固定 worker、全局有界（`image_queue_limit`）、单会话串行的统一入口；L1 待解析图片改为原子领取（claim token + 过期回收），钩子与后台任务并发时不再重复解析同一图片；解析调用日志携带 `image_hash`，统计页新增图片 singleflight 验收告警（同一 hash 一分钟内真正进入 Provider 两次即告警，排队超时/缓存命中不误报）。
+- **查询改写治理**：L2 检索前的 LLM 查询改写加入 inflight 上限、同 key singleflight 合并与排队超时（`l2_query_rewrite_queue_timeout_ms`），超限/超时回退原始查询，不再占用会话关键路径。
+- **Dream 单轮硬预算**：新增 `dream_max_llm_calls_per_run`（默认 20，达到立即停止后续 persona/阶段）、`dream_max_runtime_minutes`（默认 20）、`dream_min_call_interval_ms`（默认 500）、`dream_max_groups_per_stage`（默认 5）四个面板键；预算通过 `llm/budget.py` 的 contextvars 预算上下文贯通所有阶段 LLM 调用。
+- **梦境跨轮持久化游标**（`dream/state.py`，存于 `data/dream/cursor.db`）：以 cycle/persona/stage 三元组记录进度——已完成的阶段不因预算耗尽或进程重启而重跑，全部 persona 与全局 L3 维护阶段完成后才推进下一 cycle；按 persona 隔离加工（避免跨人格合并），persona 列表稳定排序保证重启后游标可定位；阶段返回增量未完标记（`has_more`）时保存游标等待下轮续跑。
+- **知识归纳多群合并提取**：单阶段按 `dream_max_groups_per_stage` 取分组，脱敏 opaque 键（g0/g1…）+ 群标签映射组装跨群合并上下文，同实体跨群证据合并为单次 LLM 提取；L3 抽取器支持合并结果写回（按真实群号还原归属）。
+- **主动回复 decision ticket 去重**（`proactive/tickets.py`）：同群同一时刻仅允许一个活动决策，同一事件在 TTL 内至多创建一次 ticket；迟到/重复事件按 ticket_id + event_id 双重校验拒绝，不再出现旧事件清掉新事件的决策状态。
+- **学习审查批次原子领取**：审查批次改 `claim_review_batch` 原子领取（claim token + 过期回收 + 公平选取），审查 Worker 崩溃后待审数据自动回池，不再滞留「已领未审」；人格复审同样入有界队列并持久化审查状态（`claim_persona_review`/`advance_persona_review`），重启后不重复复审已通过的人格。
+
+### Fixed
+
+- **L2 嵌入模型迁移失败不再删除唯一备份**：迁移第 2 步已 rmtree 旧库后导入中途失败（如 Embedding Provider 超时）时，原逻辑会无条件删除备份 JSON，造成记忆永久丢失；现失败路径保留备份并挪入 `data/faiss/migration_backup/`（不再写系统 /tmp，同时消除明文记忆驻留 /tmp 的隐私面）。
+- **FAISS 索引原子落盘 + 损坏自愈 + 启动对账**：`faiss.write_index` 原直接覆盖目标文件，写入中途崩溃会留下截断索引导致下次启动整个 L2 不可用；现改为同目录临时文件 + `os.replace` 原子替换。索引读取失败时改名保留 `.corrupt` 现场、以 SQLite 为事实源全量重嵌入重建；启动时按 `faiss_idx` ID 集精确对账，checkpoint 间隔内崩溃造成的缺向量/脏向量自动重建恢复。
+- **FAISS checkpoint 任务强引用**：`_mark_dirty` 的 fire-and-forget 任务未保存引用，可能被 GC 且 `_checkpointing` 永久卡 True（增量从此不再落盘）；现保存强引用、done callback 复位标志并上报异常，shutdown 落盘整体下放线程池。
+- **查询改写 inflight 僵尸条目泄漏**：等待者被取消而改写任务在飞时，入表项无人清理，积累满 `inflight_limit` 后所有改写被永久拒绝直到重启；现由 done callback 在任务结束后清理。
+- **tiktoken 首次联网下载阻塞事件循环**：启动时后台线程预热 BPE 编码器，预热期间 token 计数临时走字符估算，不再冻结整个 bot 数十秒。
+- **legacy 迁移部分失败不再静默固化为完成**：单模块失败（error/组件不可用）时不写总完成标志，下次启动仅重跑失败模块（已成功模块由 `legacy:migrated:<模块>` 标记跳过，L2 保真导入不产生重复）；迁移备份目录增加完成标记避免重复整目录复制，kv 备份快照改为原子写。
+- **`_db_execute` 游标锁外取数**：全部读路径迁移到锁内完成 fetch 的 `_db_fetchall`/`_db_fetchone`，消除并发写下 `SQL statements in progress` 与不一致快照风险。
+- **hidden_config 写盘失败丢修改**：脏标志改为写盘成功且期间无新变更后才清除，失败保留待重试；加载侧按默认值类型收敛（错误类型回退默认值，外部槽位原样保留）；`reset_to_defaults` 观察者通知此前遍历刚清空的 dict（死代码），现按默认值逐键通知被覆盖键。
+- **SSRF DNS rebinding 收敛**：远程图片下载把校验通过的公网 IP pin 进实际连接（Host 头/SNI/证书校验仍按原主机名），消除「校验时解析公网、连接时重绑内网」的 TOCTOU 窗口。
+- **图片后台兜底任务在插件卸载时取消**：避免任务在组件 shutdown 后继续操作已关闭的 L1/outbox/LLM 适配器。
+- **L3 LIKE 通配符未转义**：8 处 LIKE 查询补 `ESCAPE '\'` 与 `%`/`_`/`\` 转义，`%%%` 不再命中全表，含特殊字符的群号不再有跨群误删风险。
+- **配置默认值双源分歧**：`extras.pure_at_reply.enable` 的 dataclass 默认值与 schema 对齐（均为 false）；新增 schema/Defaults/proactive `_DEFAULTS` 三方默认值一致性守卫测试。
+- 图片协调器会话锁改 `WeakValueDictionary` 弱引用回收，长生命周期进程不再每个会话泄漏一把锁；BoundedWorkQueue 任务失败不再静默吞异常（记 warning + 堆栈）。
+
+### Changed
+
+- 热路径同步 I/O 下放线程池：L2 命中强化访问计数（每次检索命中必经）、L1 outbox 读写、L3 检索/路径扩展/访问计数、学习模块每消息采集与响应配对、pHash/无效图 CPU 计算、图片缓存写盘、L2 存储加载与 FTS 重建，消息处理不再被 SQLite/FAISS/PIL 操作卡住事件循环。
+- 梦境五阶段原生开关与持久化游标联动，阶段完成即时落盘；全局 L3 维护（全图去重/孤儿清理/淘汰）每轮仅执行一次，不再随 persona 数量线性重复。
+- CLAUDE.md 钩子编排说明与 v3.1 实现对齐（注入走 `extra_user_content_parts`，不修改 `contexts`）。
+
 ## [3.1.0] - 2026-08-23
 
 ### ⚠️ 注意

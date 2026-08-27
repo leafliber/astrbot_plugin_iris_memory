@@ -182,8 +182,8 @@ async def migrate_l2(detection: Any, component_manager: Any) -> Dict[str, Any]:
         logger.warning(
             "未安装 chromadb，跳过旧向量库迁移。"
             "旧数据已备份到 legacy_backup/chroma/（不会被删除）。"
-            "如需迁移：在插件环境安装 chromadb 后，删除 KV 标志 "
-            "legacy:migration_done 并重启插件即可重试"
+            "如需迁移：在插件环境安装 chromadb 后重启插件，"
+            "迁移流程会自动重试 L2"
         )
         return stats
 

@@ -13,6 +13,7 @@ Iris Chat Memory - L2 记忆库 FAISS + SQLite 适配器
 
 import asyncio
 import json
+import os
 import sqlite3
 import threading
 from datetime import datetime, timedelta
@@ -126,6 +127,7 @@ class L2MemoryAdapter(Component):
         self._dirty = False
         self._pending_writes = 0
         self._checkpointing = False
+        self._checkpoint_task: Optional["asyncio.Task"] = None
         self._lock = threading.RLock()
         self._init_mode = InitMode.BACKGROUND
         self._last_recovery_attempt: float = 0.0
@@ -267,7 +269,12 @@ class L2MemoryAdapter(Component):
             self._init_error = f"L2 记忆库初始化失败：{e}"
 
     async def _load_existing(self, stored_dim: int) -> None:
-        """加载已有的 FAISS 索引和 SQLite 数据库"""
+        """加载已有的 FAISS 索引和 SQLite 数据库（重 I/O 下放线程执行）"""
+        await asyncio.to_thread(self._open_storage, stored_dim)
+        await self._reconcile_index_with_db()
+
+    def _open_storage(self, stored_dim: int) -> None:
+        """同步打开 SQLite 与 FAISS 存储；索引损坏时降级为空索引待对账重建。"""
         import faiss
 
         db_path = self._persist_dir / "metadata.db"
@@ -276,20 +283,150 @@ class L2MemoryAdapter(Component):
 
         index_path = self._persist_dir / "index.faiss"
         if index_path.exists() and self._count_db() > 0:
-            self._index = faiss.read_index(str(index_path))
-            actual_dim = self._index.d
-            if stored_dim and actual_dim != stored_dim:
-                logger.warning(
-                    f"FAISS 索引维度({actual_dim})与元数据记录({stored_dim})不一致，"
-                    f"以索引为准"
+            try:
+                self._index = faiss.read_index(str(index_path))
+            except Exception as e:
+                # 非原子写入中断（如 checkpoint 途中断电）会留下截断文件。
+                # SQLite 元数据是事实源且完好，改名保留现场后走对账重建。
+                corrupt_path = index_path.with_name(index_path.name + ".corrupt")
+                logger.error(
+                    f"FAISS 索引读取失败（疑似写入中断损坏）：{e}，"
+                    f"已将损坏文件移至 {corrupt_path.name}，将从 SQLite 重建向量"
                 )
-            self._embedding_dimensions = actual_dim
+                try:
+                    index_path.replace(corrupt_path)
+                except OSError:
+                    pass
+                self._index = self._create_index(self._embedding_dimensions)
+            else:
+                actual_dim = self._index.d
+                if stored_dim and actual_dim != stored_dim:
+                    logger.warning(
+                        f"FAISS 索引维度({actual_dim})与元数据记录({stored_dim})不一致，"
+                        f"以索引为准"
+                    )
+                self._embedding_dimensions = actual_dim
         else:
             self._index = self._create_index(self._embedding_dimensions)
 
         # 加载 free-list
         meta = self._load_meta()
         self._free_list = meta.get("free_list", [])
+
+    def _index_ids_unlocked(self) -> set:
+        """读取当前索引的全部向量 ID（需持锁调用）。"""
+        import faiss
+
+        if self._index is None or self._index.ntotal == 0:
+            return set()
+        try:
+            ids = faiss.vector_to_array(self._index.id_map)
+        except AttributeError:
+            # 非 IndexIDMap 包装的理论形态：退化为计数对账
+            return {i for i in range(self._index.ntotal)}
+        return {int(i) for i in ids}
+
+    async def _reconcile_index_with_db(self) -> None:
+        """启动对账：以 SQLite 为唯一事实源，索引 ID 集不一致时全量重建。
+
+        SQLite 走 WAL 即时持久，FAISS 索引依赖 checkpoint 落盘；checkpoint
+        间隔内进程崩溃会使两者脱同步（DB 有行、索引缺向量 → 纯向量检索
+        永久漏召回；反之留下已删条目的脏向量）。对账发现不一致时用当前
+        嵌入模型重嵌入全部 DB 行重建索引；重建失败保持原索引不动，
+        留待下次启动重试。
+        """
+        with self._lock:
+            if self._db is None:
+                return
+            db_ids = {
+                int(row[0])
+                for row in self._db.execute("SELECT faiss_idx FROM memories")
+            }
+            index_ids = self._index_ids_unlocked()
+
+        if db_ids == index_ids:
+            return
+
+        missing = db_ids - index_ids
+        extra = index_ids - db_ids
+        logger.warning(
+            f"FAISS 索引与 SQLite 脱同步（缺 {len(missing)} 条向量、"
+            f"多 {len(extra)} 条脏向量），启动全量重建恢复"
+        )
+
+        rows = await asyncio.to_thread(self._fetch_reconcile_rows)
+        if rows is None:
+            return
+
+        dim = self._embedding_dimensions or (self._index.d if self._index else 0)
+        if not dim:
+            logger.error("对账重建失败：未知嵌入维度")
+            return
+
+        import faiss
+
+        rebuilt = faiss.IndexIDMap(faiss.IndexFlatIP(dim))
+        try:
+            batch = 64
+            for start in range(0, len(rows), batch):
+                chunk = rows[start : start + batch]
+                vectors = await self._embed([content for _, content in chunk])
+                if len(vectors) != len(chunk):
+                    raise RuntimeError(
+                        f"嵌入返回数量不匹配：期望 {len(chunk)}，实际 {len(vectors)}"
+                    )
+                matrix = np.array(vectors, dtype=np.float32)
+                ids = np.array([idx for idx, _ in chunk], dtype=np.int64)
+                rebuilt.add_with_ids(matrix, ids)
+                if start and start % (batch * 10) == 0:
+                    logger.info(f"对账重建进行中：{start}/{len(rows)} 条")
+        except Exception as e:
+            logger.error(f"对账重建失败，保留现有索引待下次启动重试：{e}", exc_info=True)
+            return
+
+        await asyncio.to_thread(self._install_rebuilt_index, rebuilt)
+        logger.info(f"对账重建完成：共 {rebuilt.ntotal} 条向量已恢复")
+
+    def _fetch_reconcile_rows(self) -> Optional[List[tuple]]:
+        """持锁读取对账所需的 (faiss_idx, content) 全量行。"""
+        with self._lock:
+            if self._db is None:
+                return None
+            return self._db.execute(
+                "SELECT faiss_idx, content FROM memories ORDER BY faiss_idx"
+            ).fetchall()
+
+    def _install_rebuilt_index(self, rebuilt) -> None:
+        """持锁安装重建索引并立即持久化（供线程池执行）。"""
+        with self._lock:
+            if self._db is None:
+                return
+            self._index = rebuilt
+            self._free_list = []
+            self._dirty = False
+            self._write_index_atomic(rebuilt, self._persist_dir / "index.faiss")
+            self._save_meta()
+
+    @staticmethod
+    def _write_index_atomic(index, path: Path) -> None:
+        """原子化写 FAISS 索引：先写同目录临时文件再 os.replace 覆盖。
+
+        faiss.write_index 直接覆盖目标文件，写入中途崩溃会留下截断文件；
+        与 atomic_write_json 相同的 tmp + replace 模式保证目标文件
+        任意时刻都是完整内容。
+        """
+        import faiss
+
+        tmp_path = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+        try:
+            faiss.write_index(index, str(tmp_path))
+            os.replace(tmp_path, str(path))
+        except BaseException:
+            try:
+                tmp_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+            raise
 
     async def _detect_dimensions(self) -> int:
         """通过试算检测嵌入维度"""
@@ -510,14 +647,18 @@ class L2MemoryAdapter(Component):
         """关闭数据库连接并保存 FAISS 索引
 
         获取锁后再操作，确保不会有其他线程在使用 FAISS 或 SQLite。
+        全量落盘可能耗时数秒，整体下放线程池避免阻塞事件循环。
         """
+        await asyncio.to_thread(self._shutdown_locked)
+        logger.info("L2 记忆库已关闭")
+
+    def _shutdown_locked(self) -> None:
+        """同步关闭流程（供线程池执行）。"""
         with self._lock:
             if self._dirty and self._index is not None:
                 try:
-                    import faiss
-
-                    faiss.write_index(
-                        self._index, str(self._persist_dir / "index.faiss")
+                    self._write_index_atomic(
+                        self._index, self._persist_dir / "index.faiss"
                     )
                     self._save_meta()
                     logger.info("FAISS 索引已保存")
@@ -537,7 +678,6 @@ class L2MemoryAdapter(Component):
             self._actual_embedding_model = ""
             self._embedding_source = "provider"
             self._reset_state()
-        logger.info("L2 记忆库已关闭")
 
     def _mark_dirty(self) -> None:
         """标记索引已修改；累计写入达到阈值时安排异步落盘。
@@ -561,10 +701,25 @@ class L2MemoryAdapter(Component):
         self._pending_writes = 0
         self._checkpointing = True
         try:
-            asyncio.create_task(asyncio.to_thread(self._checkpoint_locked))
+            # 事件循环对 task 只持弱引用：必须保存强引用，并由当前任务的
+            # done callback 统一复位 _checkpointing，避免旧任务回调覆盖新任务。
+            task = asyncio.create_task(asyncio.to_thread(self._checkpoint_locked))
+            self._checkpoint_task = task
+            task.add_done_callback(self._on_checkpoint_done)
         except RuntimeError:
             # 无运行中的事件循环（如同步测试上下文），退化为等待下次触发
             self._checkpointing = False
+
+    def _on_checkpoint_done(self, task: "asyncio.Task") -> None:
+        """checkpoint 任务收尾：复位标志、清理引用并上报异常。"""
+        if self._checkpoint_task is task:
+            self._checkpointing = False
+            self._checkpoint_task = None
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc is not None:
+            logger.error(f"FAISS checkpoint 任务异常：{exc}")
 
     def _checkpoint_locked(self) -> None:
         """持锁将脏 FAISS 索引落盘（供线程池执行）。"""
@@ -575,18 +730,14 @@ class L2MemoryAdapter(Component):
                     and self._persist_dir is not None
                     and self._dirty
                 ):
-                    import faiss
-
-                    faiss.write_index(
-                        self._index, str(self._persist_dir / "index.faiss")
+                    self._write_index_atomic(
+                        self._index, self._persist_dir / "index.faiss"
                     )
                     self._save_meta()
                     self._dirty = False
                     logger.debug("FAISS 索引已 checkpoint")
         except Exception as e:
             logger.error(f"FAISS checkpoint 失败：{e}")
-        finally:
-            self._checkpointing = False
 
     # ========================================================================
     # 嵌入源初始化
@@ -1095,7 +1246,7 @@ class L2MemoryAdapter(Component):
 
         调用方（retrieve/batch_retrieve）通过 run_in_executor 在线程池中
         调用此方法。使用 RLock 保证 FAISS 和 SQLite 操作的线程安全，
-        同时 RLock 允许 _db_execute 等内部方法重入。
+        同时 RLock 允许 _db_fetchall 等内部方法重入。
         """
         with self._lock:
             if self._index is None or self._db is None:
@@ -1839,39 +1990,52 @@ class L2MemoryAdapter(Component):
         step = float(config.get("l2_hit_reinforcement_step", 0.1))
 
         try:
-            with self._lock:
-                row = self._db.execute(
-                    "SELECT metadata FROM memories WHERE memory_id = ?", (memory_id,)
-                ).fetchone()
-
-                if not row:
-                    logger.warning(f"记忆不存在：{memory_id}")
-                    return False
-
-                metadata = json.loads(row[0])
-                metadata["access_count"] = metadata.get("access_count", 0) + 1
-                metadata["last_access_time"] = datetime.now().isoformat()
-
-                if reinforce:
-                    old = metadata.get("importance", 0.5)
-                    try:
-                        old = float(old)
-                    except (ValueError, TypeError):
-                        old = 0.5
-                    new = round(old + step * (1.0 - old), 4)
-                    metadata["importance"] = new
-                    metadata["importance_level"] = importance_level_for(new)
-
-                self._db.execute(
-                    "UPDATE memories SET metadata = ? WHERE memory_id = ?",
-                    (json.dumps(metadata, ensure_ascii=False), memory_id),
-                )
-                self._db.commit()
-            logger.debug(f"记忆访问更新成功：{memory_id}")
-            return True
+            # SELECT + UPDATE + COMMIT 下放线程池，避免阻塞事件循环
+            updated = await asyncio.to_thread(
+                self._update_access_locked, memory_id, reinforce, step
+            )
+            if updated:
+                logger.debug(f"记忆访问更新成功：{memory_id}")
+            return updated
         except Exception as e:
             logger.error(f"更新记忆访问失败：{e}", exc_info=True)
             return False
+
+    def _update_access_locked(
+        self, memory_id: str, reinforce: bool, step: float
+    ) -> bool:
+        """持锁更新单条记忆的访问计数（供线程池执行）。"""
+        with self._lock:
+            if self._db is None:
+                return False
+            row = self._db.execute(
+                "SELECT metadata FROM memories WHERE memory_id = ?", (memory_id,)
+            ).fetchone()
+
+            if not row:
+                logger.warning(f"记忆不存在：{memory_id}")
+                return False
+
+            metadata = json.loads(row[0])
+            metadata["access_count"] = metadata.get("access_count", 0) + 1
+            metadata["last_access_time"] = datetime.now().isoformat()
+
+            if reinforce:
+                old = metadata.get("importance", 0.5)
+                try:
+                    old = float(old)
+                except (ValueError, TypeError):
+                    old = 0.5
+                new = round(old + step * (1.0 - old), 4)
+                metadata["importance"] = new
+                metadata["importance_level"] = importance_level_for(new)
+
+            self._db.execute(
+                "UPDATE memories SET metadata = ? WHERE memory_id = ?",
+                (json.dumps(metadata, ensure_ascii=False), memory_id),
+            )
+            self._db.commit()
+            return True
 
     async def batch_update_access(self, memory_ids: List[str]) -> int:
         """批量更新记忆访问计数，并按配置做命中强化。
@@ -1894,45 +2058,11 @@ class L2MemoryAdapter(Component):
         reinforce = bool(config.get("l2_enable_hit_reinforcement", True))
         step = float(config.get("l2_hit_reinforcement_step", 0.1))
 
-        now = datetime.now().isoformat()
-
         try:
-            updated = 0
-            with self._lock:
-                if self._db is None:
-                    return 0
-                placeholders = ",".join("?" * len(memory_ids))
-                rows = self._db.execute(
-                    f"SELECT memory_id, metadata FROM memories WHERE memory_id IN ({placeholders})",
-                    memory_ids,
-                ).fetchall()
-
-                for memory_id, metadata_json in rows:
-                    try:
-                        metadata = json.loads(metadata_json)
-                    except (ValueError, TypeError):
-                        continue
-                    metadata["access_count"] = metadata.get("access_count", 0) + 1
-                    metadata["last_access_time"] = now
-
-                    if reinforce:
-                        old = metadata.get("importance", 0.5)
-                        try:
-                            old = float(old)
-                        except (ValueError, TypeError):
-                            old = 0.5
-                        new = round(old + step * (1.0 - old), 4)
-                        metadata["importance"] = new
-                        metadata["importance_level"] = importance_level_for(new)
-
-                    self._db.execute(
-                        "UPDATE memories SET metadata = ? WHERE memory_id = ?",
-                        (json.dumps(metadata, ensure_ascii=False), memory_id),
-                    )
-                    updated += 1
-
-                self._db.commit()
-
+            # 批量 SELECT + UPDATE + COMMIT 下放线程池，避免阻塞事件循环
+            updated = await asyncio.to_thread(
+                self._batch_update_access_locked, list(memory_ids), reinforce, step
+            )
             logger.debug(
                 f"批量更新记忆访问：{updated}/{len(memory_ids)}"
                 f"{'（含命中强化）' if reinforce and updated else ''}"
@@ -1941,6 +2071,48 @@ class L2MemoryAdapter(Component):
         except Exception as e:
             logger.error(f"批量更新记忆访问失败：{e}", exc_info=True)
             return 0
+
+    def _batch_update_access_locked(
+        self, memory_ids: List[str], reinforce: bool, step: float
+    ) -> int:
+        """持锁批量更新访问计数（供线程池执行）。"""
+        now = datetime.now().isoformat()
+        updated = 0
+        with self._lock:
+            if self._db is None:
+                return 0
+            placeholders = ",".join("?" * len(memory_ids))
+            rows = self._db.execute(
+                f"SELECT memory_id, metadata FROM memories WHERE memory_id IN ({placeholders})",
+                memory_ids,
+            ).fetchall()
+
+            for memory_id, metadata_json in rows:
+                try:
+                    metadata = json.loads(metadata_json)
+                except (ValueError, TypeError):
+                    continue
+                metadata["access_count"] = metadata.get("access_count", 0) + 1
+                metadata["last_access_time"] = now
+
+                if reinforce:
+                    old = metadata.get("importance", 0.5)
+                    try:
+                        old = float(old)
+                    except (ValueError, TypeError):
+                        old = 0.5
+                    new = round(old + step * (1.0 - old), 4)
+                    metadata["importance"] = new
+                    metadata["importance_level"] = importance_level_for(new)
+
+                self._db.execute(
+                    "UPDATE memories SET metadata = ? WHERE memory_id = ?",
+                    (json.dumps(metadata, ensure_ascii=False), memory_id),
+                )
+                updated += 1
+
+            self._db.commit()
+            return updated
 
     # ========================================================================
     # 内容与元数据更新
@@ -2179,14 +2351,14 @@ class L2MemoryAdapter(Component):
 
         try:
             if persona_id is not None:
-                rows = self._db_execute(
+                rows = self._db_fetchall(
                     "SELECT memory_id, content, metadata, persona_id FROM memories WHERE persona_id = ?",
                     (persona_id,),
-                ).fetchall()
+                )
             else:
-                rows = self._db_execute(
+                rows = self._db_fetchall(
                     "SELECT memory_id, content, metadata, persona_id FROM memories"
-                ).fetchall()
+                )
 
             return [
                 MemoryEntry(
@@ -2206,9 +2378,9 @@ class L2MemoryAdapter(Component):
         if not self._is_available or not self._db:
             return []
         try:
-            rows = self._db_execute(
+            rows = self._db_fetchall(
                 "SELECT DISTINCT persona_id FROM memories"
-            ).fetchall()
+            )
             return [row[0] for row in rows if row[0]]
         except Exception as e:
             logger.error(f"获取 persona 列表失败：{e}")
@@ -2221,10 +2393,10 @@ class L2MemoryAdapter(Component):
             return []
 
         try:
-            rows = self._db_execute(
+            rows = self._db_fetchall(
                 "SELECT memory_id, content, metadata, persona_id FROM memories WHERE group_id = ? AND persona_id = ?",
                 (group_id, persona_id),
-            ).fetchall()
+            )
 
             return [
                 MemoryEntry(
@@ -2246,10 +2418,10 @@ class L2MemoryAdapter(Component):
             return []
 
         try:
-            rows = self._db_execute(
+            rows = self._db_fetchall(
                 "SELECT memory_id, content, metadata, persona_id FROM memories WHERE user_id = ? AND persona_id = ?",
                 (user_id, persona_id),
-            ).fetchall()
+            )
 
             return [
                 MemoryEntry(
@@ -2870,14 +3042,14 @@ class L2MemoryAdapter(Component):
 
         try:
             if persona_id is not None:
-                row = self._db_execute(
+                row = self._db_fetchone(
                     "SELECT COUNT(*) FROM memories WHERE kg_processed = 0 AND persona_id = ?",
                     (persona_id,),
-                ).fetchone()
+                )
             else:
-                row = self._db_execute(
+                row = self._db_fetchone(
                     "SELECT COUNT(*) FROM memories WHERE kg_processed = 0"
-                ).fetchone()
+                )
             return row[0]
         except Exception as e:
             logger.error(f"获取未处理记忆数量失败: {e}")
@@ -2891,18 +3063,18 @@ class L2MemoryAdapter(Component):
 
         try:
             if persona_id is not None:
-                rows = self._db_execute(
+                rows = self._db_fetchall(
                     "SELECT memory_id, content, metadata, persona_id FROM memories "
                     "WHERE kg_processed = 0 AND persona_id = ? "
                     "ORDER BY timestamp ASC, memory_id ASC LIMIT ?",
                     (persona_id, limit),
-                ).fetchall()
+                )
             else:
-                rows = self._db_execute(
+                rows = self._db_fetchall(
                     "SELECT memory_id, content, metadata, persona_id FROM memories "
                     "WHERE kg_processed = 0 ORDER BY timestamp ASC, memory_id ASC LIMIT ?",
                     (limit,),
-                ).fetchall()
+                )
 
             return [
                 MemoryEntry(
@@ -2957,15 +3129,15 @@ class L2MemoryAdapter(Component):
 
         try:
             if group_id:
-                rows = self._db_execute(
+                rows = self._db_fetchall(
                     "SELECT memory_id, content, metadata, persona_id FROM memories WHERE group_id = ? AND persona_id = ? ORDER BY timestamp DESC LIMIT ?",
                     (group_id, persona_id, limit),
-                ).fetchall()
+                )
             else:
-                rows = self._db_execute(
+                rows = self._db_fetchall(
                     "SELECT memory_id, content, metadata, persona_id FROM memories WHERE persona_id = ? ORDER BY timestamp DESC LIMIT ?",
                     (persona_id, limit),
-                ).fetchall()
+                )
 
             return [
                 MemorySearchResult(
@@ -3022,17 +3194,22 @@ class L2MemoryAdapter(Component):
 
         # 备份文件必须位于 _persist_dir 之外：步骤 2 的 delete_collection() 会
         # rmtree 整个 _persist_dir，若备份落在其中会被一并删除，导致步骤 4
-        # 导入时找不到文件、迁移失败。
+        # 导入时找不到文件、迁移失败。放在持久化目录的兄弟目录（faiss/）
+        # 而非系统 /tmp：/tmp 重启即清空，且明文记忆不应写入插件数据目录之外。
         import os
         import tempfile
 
+        backup_dir = self._persist_dir.parent / "migration_backup"
+        backup_dir.mkdir(parents=True, exist_ok=True)
         backup_fd, backup_name = tempfile.mkstemp(
-            suffix="_migration_backup.json", prefix="iris_l2_"
+            suffix="_migration_backup.json", prefix=f"iris_l2_{self._persona_id}_",
+            dir=str(backup_dir),
         )
         os.close(backup_fd)
         backup_path = Path(backup_name)
         archive_fd, archive_name = tempfile.mkstemp(
-            suffix="_migration_archives.db", prefix="iris_l2_"
+            suffix="_migration_archives.db", prefix=f"iris_l2_{self._persona_id}_",
+            dir=str(backup_dir),
         )
         os.close(archive_fd)
         archive_backup_path = Path(archive_name)
@@ -3148,22 +3325,22 @@ class L2MemoryAdapter(Component):
                         exc_info=True,
                     )
 
-            _cleanup_backups()
+            # 迁移失败时绝不删除备份：旧数据已在步骤 2 被 rmtree，此备份是
+            # 唯一的全量副本。备份位于持久化目录内，重启不会丢失，待问题
+            # 排查后可手动导入或下次成功迁移时自动清理。
+            logger.error(
+                f"迁移失败，已保留全量备份供恢复：{backup_path}、{archive_backup_path}"
+            )
             return False
 
     # ========================================================================
     # 内部辅助
     # ========================================================================
 
-    def _db_execute(self, sql: str, params=()):
-        """线程安全的 DB 执行（用于 SELECT）"""
-        with self._lock:
-            return self._db.execute(sql, params)
-
     def _db_fetchone(self, sql: str, params=()) -> Optional[tuple]:
         """线程安全的 DB 查询：持锁内完成 execute + fetchone，返回数据行。
 
-        与 _db_execute 不同，数据在锁内取出，避免 cursor 在锁外 fetch 时
+        数据在锁内取出，避免 cursor 在锁外 fetch 时
         受并发写影响；适合配合 asyncio.to_thread 把读路径移出事件循环。
         """
         with self._lock:

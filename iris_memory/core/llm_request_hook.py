@@ -161,6 +161,24 @@ def _skip_llm_query_rewrite(text: str) -> bool:
 _IMAGE_QUEUE_TASK_EXTRA = "_iris_image_background_task"
 _IMAGE_BACKGROUND_TASKS: set[asyncio.Task] = set()
 
+
+async def cancel_image_background_tasks() -> None:
+    """取消当前事件循环的关联图片解析兜底任务并等待退出。
+
+    协调器不可用时的兜底路径会把解析任务存入模块级集合；插件卸载时
+    若不取消，任务会在组件 shutdown 之后继续操作已关闭的适配器。
+    """
+    loop = asyncio.get_running_loop()
+    tasks = [
+        task
+        for task in tuple(_IMAGE_BACKGROUND_TASKS)
+        if task.get_loop() is loop and not task.done()
+    ]
+    for task in tasks:
+        task.cancel()
+    if tasks:
+        await asyncio.gather(*tasks, return_exceptions=True)
+
 if TYPE_CHECKING:
     from astrbot.api.event import AstrMessageEvent
     from astrbot.api.provider import ProviderRequest
@@ -701,7 +719,8 @@ async def _collect_l1_context(
     # 与写入侧 message_hook 保持一致，避免不同私聊用户共享空字符串队列
     session_id = adapter.get_session_id(event)
 
-    max_length = cast(int, config.get("l1_buffer.inject_queue_length", 50))
+    # schema hint 承诺「最少 20 条」，此处夹紧保证行为与提示一致
+    max_length = max(20, cast(int, config.get("l1_buffer.inject_queue_length", 50)))
 
     messages = l1_buffer.get_context(session_id, max_length)
     if not messages:
@@ -1015,6 +1034,15 @@ async def _rewrite_query_for_retrieval(
             return None
         task = asyncio.create_task(do_rewrite(), name="iris-l2-query-rewrite")
         _QUERY_REWRITE_INFLIGHT[key] = task
+
+        def _discard_finished(done: asyncio.Task, *, entry_key: str = key) -> None:
+            # 等待者被取消时其 finally 判断 task 未 done 而不入表项弹出，
+            # 由本回调在任务真正结束后清理；否则僵尸条目会一直占用
+            # inflight_limit 配额，直到积累满后永久拒绝新的改写。
+            if _QUERY_REWRITE_INFLIGHT.get(entry_key) is done:
+                _QUERY_REWRITE_INFLIGHT.pop(entry_key, None)
+
+        task.add_done_callback(_discard_finished)
     else:
         record_join = getattr(llm_manager, "record_singleflight_join", None)
         if callable(record_join):

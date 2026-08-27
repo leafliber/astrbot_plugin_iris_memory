@@ -5,6 +5,7 @@ Iris Chat Memory - 图片工具模块
 """
 
 import hashlib
+import asyncio
 import io
 from typing import Optional, Tuple
 
@@ -33,7 +34,8 @@ async def compute_phash(image_data: bytes, hash_size: int = 8) -> Optional[str]:
     """计算图片的感知哈希（pHash）
 
     使用 DCT（离散余弦变换）算法计算感知哈希，
-    相似图片的哈希值汉明距离较小。
+    相似图片的哈希值汉明距离较小。PIL 解码与 DCT 为 CPU 密集
+    操作，下放线程池执行避免阻塞事件循环。
 
     Args:
         image_data: 图片二进制数据
@@ -46,30 +48,34 @@ async def compute_phash(image_data: bytes, hash_size: int = 8) -> Optional[str]:
         return None
 
     try:
-        from PIL import Image
-        import numpy as np
-
-        img = Image.open(io.BytesIO(image_data))
-        img = img.convert("L").resize((hash_size * 4, hash_size * 4), Image.LANCZOS)
-
-        pixels = np.array(img, dtype=np.float64)
-
-        dct_result = _dct2d(pixels)
-
-        dct_low = dct_result[:hash_size, :hash_size]
-
-        med = np.median(dct_low)
-        hash_bits = (dct_low > med).flatten()
-
-        hash_int = 0
-        for bit in hash_bits:
-            hash_int = (hash_int << 1) | int(bit)
-
-        return format(hash_int, f"0{hash_size * hash_size // 4}x")
-
+        return await asyncio.to_thread(_compute_phash_sync, image_data, hash_size)
     except Exception as e:
         logger.debug(f"计算 pHash 失败：{e}")
         return None
+
+
+def _compute_phash_sync(image_data: bytes, hash_size: int = 8) -> Optional[str]:
+    """pHash 计算核心（供线程池执行）。"""
+    from PIL import Image
+    import numpy as np
+
+    img = Image.open(io.BytesIO(image_data))
+    img = img.convert("L").resize((hash_size * 4, hash_size * 4), Image.LANCZOS)
+
+    pixels = np.array(img, dtype=np.float64)
+
+    dct_result = _dct2d(pixels)
+
+    dct_low = dct_result[:hash_size, :hash_size]
+
+    med = np.median(dct_low)
+    hash_bits = (dct_low > med).flatten()
+
+    hash_int = 0
+    for bit in hash_bits:
+        hash_int = (hash_int << 1) | int(bit)
+
+    return format(hash_int, f"0{hash_size * hash_size // 4}x")
 
 
 def _dct2d(matrix):
@@ -143,6 +149,8 @@ async def check_invalid_image(
 ) -> Tuple[bool, str]:
     """检查图片是否为无效图（纯色/过小）
 
+    PIL 解码与统计为 CPU 密集操作，下放线程池执行。
+
     Args:
         image_data: 图片二进制数据
         min_size: 最小图片尺寸（像素），小于此值视为无效
@@ -155,26 +163,36 @@ async def check_invalid_image(
         return False, ""
 
     try:
-        from PIL import Image
-        import numpy as np
-
-        img = Image.open(io.BytesIO(image_data))
-
-        if img.width < min_size or img.height < min_size:
-            return True, f"图片过小：{img.width}x{img.height}"
-
-        gray = img.convert("L")
-        pixels = np.array(gray, dtype=np.float64)
-
-        std_dev = np.std(pixels)
-        if std_dev < std_threshold:
-            return True, f"图片接近纯色：标准差={std_dev:.1f}"
-
-        return False, ""
-
+        return await asyncio.to_thread(
+            _check_invalid_image_sync, image_data, min_size, std_threshold
+        )
     except Exception as e:
         logger.debug(f"无效图检查失败：{e}")
         return False, ""
+
+
+def _check_invalid_image_sync(
+    image_data: bytes,
+    min_size: int = 16,
+    std_threshold: float = 5.0,
+) -> Tuple[bool, str]:
+    """无效图检查核心（供线程池执行）。"""
+    from PIL import Image
+    import numpy as np
+
+    img = Image.open(io.BytesIO(image_data))
+
+    if img.width < min_size or img.height < min_size:
+        return True, f"图片过小：{img.width}x{img.height}"
+
+    gray = img.convert("L")
+    pixels = np.array(gray, dtype=np.float64)
+
+    std_dev = np.std(pixels)
+    if std_dev < std_threshold:
+        return True, f"图片接近纯色：标准差={std_dev:.1f}"
+
+    return False, ""
 
 
 def compute_url_hash(url: str) -> str:

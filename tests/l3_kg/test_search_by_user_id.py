@@ -17,7 +17,7 @@ from iris_memory.l3_kg.models import GraphNode
 @pytest.fixture
 def l3_adapter():
     adapter = L3KGAdapter()
-    adapter._db = sqlite3.connect(":memory:")
+    adapter._db = sqlite3.connect(":memory:", check_same_thread=False)
     adapter._db.row_factory = sqlite3.Row
     adapter._create_schema_unlocked()
     adapter._is_available = True

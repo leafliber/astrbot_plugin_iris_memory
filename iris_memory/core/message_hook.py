@@ -76,6 +76,25 @@ async def _wait_for_image_background_tasks() -> None:
         await asyncio.gather(*tasks, return_exceptions=True)
 
 
+async def cancel_image_background_tasks() -> None:
+    """取消当前事件循环的图片后台兜底任务并等待退出。
+
+    这些任务持有组件引用；插件卸载时若不取消，它们会在组件
+    shutdown 之后继续操作已关闭的 L1/outbox。协调器路径的任务
+    由 ImageParseCoordinator 自身管理，此处只处理兜底集合。
+    """
+    loop = asyncio.get_running_loop()
+    tasks = [
+        task
+        for task in tuple(_IMAGE_BACKGROUND_TASKS)
+        if task.get_loop() is loop and not task.done()
+    ]
+    for task in tasks:
+        task.cancel()
+    if tasks:
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+
 def _get_cached_name(key: str) -> str | None:
     if key in _name_cache:
         _name_cache.move_to_end(key)
@@ -663,9 +682,14 @@ async def _queue_images_to_l1_buffer(
                 raw_hash = image_hash.removeprefix("ph:")
                 ext = detect_image_extension(image_data, image_info.url or "")
                 cache_dir = config.data_dir / "image_cache" / raw_hash[:2]
-                cache_dir.mkdir(parents=True, exist_ok=True)
                 cache_path = cache_dir / f"{raw_hash}{ext}"
-                cache_path.write_bytes(image_data)
+
+                def _write_image_cache() -> None:
+                    cache_dir.mkdir(parents=True, exist_ok=True)
+                    cache_path.write_bytes(image_data)
+
+                # 图片可达数 MB，磁盘写入下放线程池避免阻塞事件循环
+                await asyncio.to_thread(_write_image_cache)
                 image_info.file_path = str(cache_path)
                 logger.debug(f"已缓存图片到本地：{cache_path.name}")
             except Exception as e:

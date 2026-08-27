@@ -3,7 +3,15 @@ Iris Chat Memory - Token 计数工具
 
 优先使用 tiktoken 计算精确 Token 数。
 若 tiktoken 不可用或编码器下载失败，降级为字符估算。
+
+tiktoken 首次使用需从网络同步下载 BPE 文件（约 1-2MB、无内置超时），
+直接发生在事件循环线程会冻结整个 bot。插件启动时应调用
+``warm_up_encoders_async`` 在后台线程完成下载；预热期间计数
+临时使用字符估算，完成后自动恢复精确计数。
 """
+
+import asyncio
+import threading
 
 from iris_memory.core import get_logger
 
@@ -25,6 +33,51 @@ except ImportError:
 # ============================================================================
 
 _encoder_cache: dict = {}
+_warmup_state_lock = threading.Lock()
+_warmup_pending = False
+
+
+def _is_warmup_pending() -> bool:
+    with _warmup_state_lock:
+        return _warmup_pending
+
+
+def _set_warmup_pending(value: bool) -> None:
+    global _warmup_pending
+    with _warmup_state_lock:
+        _warmup_pending = value
+
+
+async def warm_up_encoders_async(
+    encodings: tuple[str, ...] = ("cl100k_base",),
+) -> None:
+    """在后台线程预热 tiktoken 编码器（含首次网络下载）。
+
+    下载完成后（无论成败）恢复正常计数语义；预热期间
+    ``count_tokens`` 使用字符估算，避免事件循环被同步下载阻塞。
+    """
+    _set_warmup_pending(True)
+    try:
+        results = await asyncio.gather(
+            *(
+                asyncio.to_thread(
+                    _try_get_encoder,
+                    name,
+                    allow_during_warmup=True,
+                )
+                for name in encodings
+            ),
+            return_exceptions=True,
+        )
+        for name, result in zip(encodings, results):
+            if isinstance(result, BaseException):
+                logger.warning(
+                    f"tiktoken 编码器 {name} 预热失败：{result}，继续使用字符估算"
+                )
+            elif result is not None:
+                logger.debug(f"tiktoken 编码器 {name} 预热完成")
+    finally:
+        _set_warmup_pending(False)
 
 
 def _estimate_tokens(text: str) -> int:
@@ -36,7 +89,11 @@ def _estimate_tokens(text: str) -> int:
     return len(text) // 2 + 1
 
 
-def _try_get_encoder(encoding_name: str = "cl100k_base"):
+def _try_get_encoder(
+    encoding_name: str = "cl100k_base",
+    *,
+    allow_during_warmup: bool = False,
+):
     """尝试获取编码器，下载失败时降级
 
     tiktoken 首次使用时会从远程下载编码器文件，
@@ -47,6 +104,12 @@ def _try_get_encoder(encoding_name: str = "cl100k_base"):
 
     if encoding_name in _encoder_cache:
         return _encoder_cache.get(encoding_name)
+
+    if _is_warmup_pending() and not allow_during_warmup:
+        # 预热进行中：同步下载可能阻塞事件循环数十秒，先用字符估算过渡。
+        # 预热线程自身通过 allow_during_warmup 绕过此分支；普通调用不缓存
+        # None，预热完成后此键恢复正常的加载/降级语义。
+        return None
 
     try:
         logger.debug(f"初始化编码器：{encoding_name}")

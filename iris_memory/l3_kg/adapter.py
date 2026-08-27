@@ -1,5 +1,6 @@
 """SQLite 图谱适配器"""
 
+import asyncio
 import json
 import sqlite3
 import threading
@@ -11,6 +12,17 @@ from iris_memory.core import Component, InitMode, get_logger
 from .models import GraphEdge, GraphNode
 
 logger = get_logger("l3_kg")
+
+
+def escape_like(value: str) -> str:
+    """转义 LIKE 通配符，配合 SQL 的 ``ESCAPE '\\'`` 子句使用。
+
+    用户关键词中的 % / _ 若不转义会扩大匹配面（如 ``%%%`` 命中全表）；
+    群号/ID 含这些字符时可能造成跨群误删。
+    """
+    return (
+        value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    )
 
 
 async def build_profile_alias_map(profile_storage, persona_id: str = "default") -> Dict[str, List[str]]:
@@ -465,10 +477,29 @@ class L3KGAdapter(Component):
         max_nodes: int = 100,
         max_edges: int = 200,
     ) -> tuple[list[dict], list[dict]]:
-        """BFS 路径扩展检索"""
+        """BFS 路径扩展检索（多层 SQL 查询下放线程池，避免阻塞事件循环）"""
         if not self._is_available:
             return [], []
+        return await asyncio.to_thread(
+            self._expand_from_nodes_sync,
+            node_ids,
+            max_depth,
+            group_id,
+            persona_id,
+            max_nodes,
+            max_edges,
+        )
 
+    def _expand_from_nodes_sync(
+        self,
+        node_ids: list[str],
+        max_depth: int,
+        group_id: Optional[str],
+        persona_id: Optional[str],
+        max_nodes: int,
+        max_edges: int,
+    ) -> tuple[list[dict], list[dict]]:
+        """路径扩展检索核心（供线程池执行）。"""
         try:
             visited = set(node_ids)
             frontier = list(node_ids)
@@ -620,23 +651,26 @@ class L3KGAdapter(Component):
             return [], []
 
     async def update_node_access(self, node_ids: list[str]) -> None:
-        """更新节点访问计数和最后访问时间"""
-        if not self._is_available:
+        """更新节点访问计数和最后访问时间（写库下放线程池）"""
+        if not self._is_available or not node_ids:
             return
-
         try:
-            now = datetime.now().isoformat()
-            with self._db_lock:
-                for node_id in node_ids:
-                    self._db.execute(
-                        """UPDATE nodes SET access_count = access_count + 1,
-                            last_access_time = ? WHERE id = ?""",
-                        (now, node_id),
-                    )
-                self._db.commit()
+            await asyncio.to_thread(self._update_node_access_sync, node_ids)
             logger.debug(f"更新了 {len(node_ids)} 个节点的访问计数")
         except Exception as e:
             logger.error(f"更新节点访问计数失败：{e}")
+
+    def _update_node_access_sync(self, node_ids: list[str]) -> None:
+        """节点访问计数更新核心（供线程池执行）。"""
+        now = datetime.now().isoformat()
+        with self._db_lock:
+            for node_id in node_ids:
+                self._db.execute(
+                    """UPDATE nodes SET access_count = access_count + 1,
+                        last_access_time = ? WHERE id = ?""",
+                    (now, node_id),
+                )
+            self._db.commit()
 
     async def get_stats(self) -> dict:
         """获取图谱统计信息"""
@@ -754,7 +788,7 @@ class L3KGAdapter(Component):
         group_id: Optional[str] = None,
         persona_id: Optional[str] = None,
     ) -> list[dict]:
-        """搜索节点（匹配 name 或 content）
+        """搜索节点（匹配 name 或 content，查询下放线程池）
 
         Args:
             keyword: 搜索关键词
@@ -763,10 +797,24 @@ class L3KGAdapter(Component):
         """
         if not self._is_available:
             return []
+        return await asyncio.to_thread(
+            self._search_nodes_sync, keyword, limit, group_id, persona_id
+        )
 
+    def _search_nodes_sync(
+        self,
+        keyword: str,
+        limit: int,
+        group_id: Optional[str],
+        persona_id: Optional[str],
+    ) -> list[dict]:
+        """节点搜索核心（供线程池执行）。"""
         try:
-            pattern = f"%{keyword}%"
-            conditions = ["(name LIKE ? OR content LIKE ? OR properties LIKE ?)"]
+            pattern = f"%{escape_like(keyword)}%"
+            conditions = [
+                "(name LIKE ? ESCAPE '\\' OR content LIKE ? ESCAPE '\\'"
+                " OR properties LIKE ? ESCAPE '\\')"
+            ]
             params: list = [pattern, pattern, pattern]
             if group_id:
                 conditions.append("group_id = ?")
@@ -815,8 +863,11 @@ class L3KGAdapter(Component):
             return []
 
         try:
-            pattern = f"%{query}%"
-            conditions = ["(name LIKE ? OR content LIKE ? OR properties LIKE ?)"]
+            pattern = f"%{escape_like(query)}%"
+            conditions = [
+                "(name LIKE ? ESCAPE '\\' OR content LIKE ? ESCAPE '\\'"
+                " OR properties LIKE ? ESCAPE '\\')"
+            ]
             params: list = [pattern, pattern, pattern]
 
             if label:
@@ -879,8 +930,9 @@ class L3KGAdapter(Component):
             # 多来源节点，source_memory_id 列仅存逗号连接的完整列表或首条 ID）
             if not row:
                 rows = self._db_fetchall(
-                    "SELECT id, properties FROM nodes WHERE properties LIKE ?",
-                    (f'%"{memory_id}"%',),
+                    "SELECT id, properties FROM nodes"
+                    " WHERE properties LIKE ? ESCAPE '\\'",
+                    (f'%"{escape_like(memory_id)}%"',),
                 )
                 for r in rows:
                     try:
@@ -959,12 +1011,13 @@ class L3KGAdapter(Component):
             node_ids: set[str] = {row["id"] for row in rows}
 
             for mid in memory_ids:
-                pattern = f"%{mid}%"
+                pattern = f"%{escape_like(mid)}%"
                 extra_params: list = [pattern]
                 if persona_id is not None:
                     extra_params.append(persona_id)
                 extra_rows = self._db_fetchall(
-                    "SELECT id, properties FROM nodes WHERE properties LIKE ?"
+                    "SELECT id, properties FROM nodes"
+                    " WHERE properties LIKE ? ESCAPE '\\'"
                     + (" AND persona_id = ?" if persona_id is not None else ""),
                     extra_params,
                 )
@@ -994,7 +1047,7 @@ class L3KGAdapter(Component):
             return []
 
         try:
-            pattern = f"%{keyword}%"
+            pattern = f"%{escape_like(keyword)}%"
             rows = self._db_fetchall(
                 """SELECT e.source_id, e.target_id, e.relation_type, e.confidence,
                           src.name as src_name, src.label as src_label,
@@ -1002,7 +1055,7 @@ class L3KGAdapter(Component):
                    FROM edges e
                    JOIN nodes src ON e.source_id = src.id
                    JOIN nodes tgt ON e.target_id = tgt.id
-                   WHERE e.relation_type LIKE ?
+                   WHERE e.relation_type LIKE ? ESCAPE '\\'
                    LIMIT ?""",
                 (pattern, limit),
             )
@@ -1377,9 +1430,9 @@ class L3KGAdapter(Component):
             where = (
                 "(group_id = ? OR (json_valid(properties) "
                 "AND (',' || json_extract(properties, '$.group_ids') || ',') "
-                "LIKE ?))"
+                "LIKE ? ESCAPE '\\'))"
             )
-            params: list = [group_id, f"%,{group_id},%"]
+            params: list = [group_id, f"%,{escape_like(group_id)},%"]
             if persona_id is not None:
                 where += " AND persona_id = ?"
                 params.append(persona_id)
@@ -1448,7 +1501,7 @@ class L3KGAdapter(Component):
             group_match = (
                 "(group_id = ? OR (json_valid(properties) "
                 "AND (',' || json_extract(properties, '$.group_ids') || ',') "
-                "LIKE ?))"
+                "LIKE ? ESCAPE '\\'))"
             )
             user_match = (
                 "(name = ? OR (json_valid(properties) "
@@ -1459,7 +1512,7 @@ class L3KGAdapter(Component):
             params: list = [user_id, user_id]
             if group_id:
                 conditions.insert(0, group_match)
-                params = [group_id, f"%,{group_id},%", user_id, user_id]
+                params = [group_id, f"%,{escape_like(group_id)},%", user_id, user_id]
 
             if persona_id is not None:
                 conditions.append("persona_id = ?")
@@ -2313,7 +2366,17 @@ class L3KGAdapter(Component):
 
     async def shutdown(self) -> None:
         """关闭数据库连接"""
-        if hasattr(self, "_db") and self._db:
-            self._db.close()
+        # 先阻止新请求进入，再在线程池中等待所有持 _db_lock 的查询/写入
+        # 完成后关闭；避免新增 to_thread 路径与 connection.close() 并发。
+        self._is_available = False
+        await asyncio.to_thread(self._close_db_sync)
         self._reset_state()
         logger.info("SQLite 图谱已关闭")
+
+    def _close_db_sync(self) -> None:
+        """在数据库互斥锁下关闭连接（供线程池执行）。"""
+        with self._db_lock:
+            db = getattr(self, "_db", None)
+            if db is not None:
+                db.close()
+                self._db = None

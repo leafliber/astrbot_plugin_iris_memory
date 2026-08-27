@@ -1,5 +1,6 @@
 """L3 知识图谱适配器测试"""
 
+import asyncio
 import sqlite3
 
 import pytest
@@ -44,9 +45,23 @@ class TestL3KGAdapter:
         assert adapter._is_available
         assert adapter.name == "l3_kg"
 
+    @pytest.mark.asyncio
+    async def test_shutdown_waits_for_inflight_database_operation(self, adapter):
+        """关闭连接必须等待持数据库锁的后台线程操作完成。"""
+        adapter._db_lock.acquire()
+        try:
+            shutdown_task = asyncio.create_task(adapter.shutdown())
+            await asyncio.sleep(0.05)
+            assert not shutdown_task.done()
+        finally:
+            adapter._db_lock.release()
+
+        await asyncio.wait_for(shutdown_task, timeout=2)
+        assert adapter._db is None
+
     def test_old_schema_migrates_persona_columns_to_default(self):
         adapter = L3KGAdapter()
-        adapter._db = sqlite3.connect(":memory:")
+        adapter._db = sqlite3.connect(":memory:", check_same_thread=False)
         adapter._db.row_factory = sqlite3.Row
         adapter._db.executescript("""
             CREATE TABLE nodes (

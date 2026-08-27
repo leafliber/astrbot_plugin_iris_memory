@@ -11,7 +11,10 @@ import time
 from dataclasses import dataclass
 from typing import Awaitable, Callable, Dict, Generic, Hashable, Optional, TypeVar
 
+from iris_memory.core import get_logger
 from iris_memory.llm.policy import CallPriority
+
+logger = get_logger("work_queue")
 
 
 PayloadT = TypeVar("PayloadT")
@@ -148,6 +151,13 @@ class BoundedWorkQueue(Generic[PayloadT]):
                     raise
                 except Exception:
                     self.failure_count += 1
+                    # 静默吞异常会让 L1 总结/outbox/学习复审等后台任务
+                    # 无声消失，至少留下可排查的日志线索
+                    logger.warning(
+                        f"工作队列任务失败：key={item.key},"
+                        f" handler={getattr(self._handler, '__qualname__', self._handler)}",
+                        exc_info=True,
+                    )
                 finally:
                     self._running.discard(item.key)
                     rerun = self._dirty.pop(item.key, None)

@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import threading
 from dataclasses import dataclass
-from typing import Awaitable, Callable, Dict, Optional
+from typing import Awaitable, Callable, Optional
+from weakref import WeakValueDictionary
 
 from iris_memory.config import get_config
 from iris_memory.core import Component, get_logger
@@ -30,7 +32,13 @@ class ImageParseCoordinator(Component):
     def __init__(self) -> None:
         super().__init__()
         self._queue: Optional[BoundedWorkQueue[ImageWork]] = None
-        self._session_locks: Dict[str, asyncio.Lock] = {}
+        # 会话锁用弱值字典：最后一个使用者释放后条目自动回收，
+        # 避免长生命周期进程里每个会话各留一个永不释放的 Lock。
+        # 创建由 _locks_guard 串行化，保证同一 key 拿到同一把锁。
+        self._session_locks: "WeakValueDictionary[str, asyncio.Lock]" = (
+            WeakValueDictionary()
+        )
+        self._locks_guard = threading.Lock()
 
     @property
     def name(self) -> str:
@@ -55,11 +63,20 @@ class ImageParseCoordinator(Component):
                     await work.dependency.wait()
                 else:
                     await asyncio.shield(work.dependency)
-            lock = self._session_locks.setdefault(work.session_id, asyncio.Lock())
+            lock = self._get_session_lock(work.session_id)
             async with lock:
                 await work.runner()
         finally:
             work.completion.set()
+
+    def _get_session_lock(self, session_id: str) -> asyncio.Lock:
+        """取得（或创建）会话锁；调用方持有返回值的强引用直至使用结束。"""
+        with self._locks_guard:
+            lock = self._session_locks.get(session_id)
+            if lock is None:
+                lock = asyncio.Lock()
+                self._session_locks[session_id] = lock
+            return lock
 
     def submit(
         self,

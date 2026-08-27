@@ -156,7 +156,8 @@ class L1Buffer(Component):
 
     def set_component_manager(self, manager: "ComponentManager") -> None:
         self._component_manager = manager
-        self._enqueue_due_outbox_jobs()
+        # 首轮 drain 由下方恢复任务启动后立即执行（避免在同步方法里
+        # 触发协程），此后按 l1_outbox_poll_seconds 周期重扫
         if self._outbox_recovery_task is None or self._outbox_recovery_task.done():
             self._outbox_recovery_task = asyncio.create_task(
                 self._outbox_recovery_loop(), name="iris-l1-outbox-recovery"
@@ -185,11 +186,14 @@ class L1Buffer(Component):
         self._reset_state()
         logger.info("L1 缓冲组件已关闭")
 
-    def _enqueue_due_outbox_jobs(self) -> int:
+    async def _enqueue_due_outbox_jobs(self) -> int:
         if not self._outbox or not self._outbox_work_queue:
             return 0
+        # SQLite 读下放线程池；enqueue_once 需在事件循环线程调用
+        #（内部会创建工作协程）
+        jobs = await asyncio.to_thread(self._outbox.list_due, limit=500)
         enqueued = 0
-        for job in self._outbox.list_due(limit=500):
+        for job in jobs:
             if self._outbox_work_queue.enqueue_once(
                 job.job_id, job.job_id, priority=CallPriority.BACKGROUND
             ):
@@ -199,7 +203,7 @@ class L1Buffer(Component):
     async def _outbox_recovery_loop(self) -> None:
         try:
             while self._is_available:
-                self._enqueue_due_outbox_jobs()
+                await self._enqueue_due_outbox_jobs()
                 poll_seconds = max(
                     1,
                     int(get_config().get("l1_outbox_poll_seconds", 60) or 60),
@@ -211,7 +215,7 @@ class L1Buffer(Component):
     async def _process_outbox_job(self, job_id: str) -> None:
         if not self._outbox:
             return
-        job = self._outbox.get(job_id)
+        job = await asyncio.to_thread(self._outbox.get, job_id)
         if job is None:
             return
         try:
@@ -219,16 +223,18 @@ class L1Buffer(Component):
                 await self._write_summary_to_l2(
                     job.group_id, job.messages, job.summary, raise_errors=True
                 )
-                self._outbox.mark_stage_done(job_id, "l2")
+                await asyncio.to_thread(self._outbox.mark_stage_done, job_id, "l2")
             if not job.profile_done:
                 await self._update_profile_after_summary(
                     job.group_id, job.messages, job.summary, raise_errors=True
                 )
-                self._outbox.mark_stage_done(job_id, "profile")
-            self._outbox.complete(job_id)
+                await asyncio.to_thread(
+                    self._outbox.mark_stage_done, job_id, "profile"
+                )
+            await asyncio.to_thread(self._outbox.complete, job_id)
             logger.info(f"L1 Outbox 写入完成：{job_id}")
         except Exception as exc:
-            self._outbox.fail(job_id, str(exc))
+            await asyncio.to_thread(self._outbox.fail, job_id, str(exc))
             logger.warning(f"L1 Outbox 写入失败，已退避：{job_id}, {exc}")
 
     def _get_or_create_summarizer(self) -> Optional[Summarizer]:
@@ -520,7 +526,9 @@ class L1Buffer(Component):
                     if self._outbox:
                         # 先持久化，再 rotate。崩溃后由恢复 Worker 重放，
                         # L2/Embedding/画像不再占用会话总结锁。
-                        outbox_job_id = self._outbox.enqueue(
+                        # SQLite 写入下放线程池，避免阻塞事件循环
+                        outbox_job_id = await asyncio.to_thread(
+                            self._outbox.enqueue,
                             queue_key=queue_key,
                             group_id=storage_group_id,
                             summary=summary,

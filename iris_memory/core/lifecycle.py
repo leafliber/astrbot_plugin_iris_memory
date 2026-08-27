@@ -368,6 +368,17 @@ async def shutdown_components(component_manager: Optional[ComponentManager]) -> 
             pass
         _background_init_task = None
 
+    # 先取消图片解析兜底任务，避免它们在组件关闭后继续操作
+    # 已 shutdown 的 L1/outbox/LLM 适配器
+    from .llm_request_hook import cancel_image_background_tasks as _cancel_related
+    from .message_hook import cancel_image_background_tasks as _cancel_pipeline
+
+    for cancel in (_cancel_pipeline, _cancel_related):
+        try:
+            await cancel()
+        except Exception as e:
+            logger.debug(f"取消图片后台任务异常（忽略）：{e}")
+
     if not component_manager:
         return
 

@@ -1,14 +1,16 @@
 """图片输入安全边界回归测试。"""
 
+import socket
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import Mock, patch
 
 import httpx
 import pytest
 
 from iris_memory.image import ImageInfo, ImageParser
 from iris_memory.image.security import (
+    _resolve_and_pin,
     fetch_safe_image_bytes,
     local_image_to_data_url,
 )
@@ -67,13 +69,18 @@ async def test_redirect_to_private_address_is_rejected():
             request=request,
         )
 
-    safe_check = AsyncMock(side_effect=[True, False])
+    safe_check = Mock(
+        side_effect=[
+            (("https://images.example/start",), "images.example", "images.example"),
+            None,  # 重定向目标 169.254.169.254 为内网地址，解析即拒绝
+        ]
+    )
     with (
         patch(
             "iris_memory.image.security._create_safe_client",
             return_value=_mock_client(handler),
         ),
-        patch("iris_memory.image.security.is_safe_remote_url", safe_check),
+        patch("iris_memory.image.security._resolve_and_pin", safe_check),
     ):
         result = await fetch_safe_image_bytes("https://images.example/start")
 
@@ -96,13 +103,17 @@ async def test_safe_relative_redirect_is_followed_and_revalidated():
             )
         return httpx.Response(200, content=PNG_BYTES, request=request)
 
-    safe_check = AsyncMock(return_value=True)
+    def _pin(url: str):
+        # 模拟公网解析：pin 后仍指向同一主机
+        return ((url,), "images.example", "images.example")
+
+    safe_check = Mock(side_effect=_pin)
     with (
         patch(
             "iris_memory.image.security._create_safe_client",
             return_value=_mock_client(handler),
         ),
-        patch("iris_memory.image.security.is_safe_remote_url", safe_check),
+        patch("iris_memory.image.security._resolve_and_pin", safe_check),
     ):
         result = await fetch_safe_image_bytes("https://images.example/start")
 
@@ -111,7 +122,7 @@ async def test_safe_relative_redirect_is_followed_and_revalidated():
         "https://images.example/start",
         "https://images.example/final.png",
     ]
-    assert safe_check.await_count == 2
+    assert safe_check.call_count == 2
 
 
 @pytest.mark.asyncio
@@ -130,8 +141,12 @@ async def test_streaming_response_larger_than_limit_is_rejected():
             return_value=_mock_client(handler),
         ),
         patch(
-            "iris_memory.image.security.is_safe_remote_url",
-            new=AsyncMock(return_value=True),
+            "iris_memory.image.security._resolve_and_pin",
+            return_value=(
+                ("https://images.example/large.png",),
+                "images.example",
+                "images.example",
+            ),
         ),
     ):
         result = await fetch_safe_image_bytes(
@@ -139,6 +154,69 @@ async def test_streaming_response_larger_than_limit_is_rejected():
         )
 
     assert result is None
+
+
+def test_resolve_and_pin_preserves_all_safe_addresses():
+    """解析结果按顺序去重保留，不能只 pin 第一个地址。"""
+    infos = [
+        (
+            socket.AF_INET6,
+            socket.SOCK_STREAM,
+            6,
+            "",
+            ("2606:4700:4700::1111", 0, 0, 0),
+        ),
+        (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("1.1.1.1", 0)),
+        (socket.AF_INET, socket.SOCK_DGRAM, 17, "", ("1.1.1.1", 0)),
+    ]
+    with patch("iris_memory.image.security.socket.getaddrinfo", return_value=infos):
+        resolved = _resolve_and_pin("https://images.example/image.png")
+
+    assert resolved == (
+        (
+            "https://[2606:4700:4700::1111]/image.png",
+            "https://1.1.1.1/image.png",
+        ),
+        "images.example",
+        "images.example",
+    )
+
+
+@pytest.mark.asyncio
+async def test_download_falls_back_to_next_safe_address():
+    """首个公网 IP 连接失败时继续尝试同次 DNS 校验得到的下一地址。"""
+    requested_urls: list[str] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        requested_urls.append(str(request.url))
+        if request.url.host == "2606:4700:4700::1111":
+            raise httpx.ConnectError("IPv6 不可达", request=request)
+        assert request.headers["host"] == "images.example"
+        assert request.extensions["sni_hostname"] == "images.example"
+        return httpx.Response(200, content=PNG_BYTES, request=request)
+
+    pinned = (
+        (
+            "https://[2606:4700:4700::1111]/image.png",
+            "https://1.1.1.1/image.png",
+        ),
+        "images.example",
+        "images.example",
+    )
+    with (
+        patch(
+            "iris_memory.image.security._create_safe_client",
+            return_value=_mock_client(handler),
+        ),
+        patch("iris_memory.image.security._resolve_and_pin", return_value=pinned),
+    ):
+        result = await fetch_safe_image_bytes("https://images.example/image.png")
+
+    assert result == (PNG_BYTES, "image/png")
+    assert requested_urls == [
+        "https://[2606:4700:4700::1111]/image.png",
+        "https://1.1.1.1/image.png",
+    ]
 
 
 def test_local_image_requires_real_path_containment_and_valid_magic(tmp_path: Path):

@@ -63,6 +63,7 @@ from iris_memory.core import (
     get_run_log_manager,
 )
 from iris_memory.tools import register_llm_tools
+from iris_memory.utils.token_counter import warm_up_encoders_async
 from iris_memory.web import register_all_routes
 from iris_memory.llm import LLMManager
 from iris_memory.llm_modules import FRAMEWORK_REPLY, proactive_reply_module
@@ -380,6 +381,13 @@ class IrisMemoryPlugin(Star):
     # ========================================================================
 
     async def initialize(self) -> None:
+        # 0. 后台预热 tiktoken 编码器：首次运行需联网下载 BPE 文件，
+        #    放线程池执行，预热期间 token 计数临时走字符估算
+        self._encoder_warmup_task = asyncio.create_task(warm_up_encoders_async())
+        # 让预热协程先设置 pending 标志，再进入其余组件初始化；否则本轮
+        # 事件循环中更早发生的 token 计数仍可能同步触发首次下载。
+        await asyncio.sleep(0)
+
         # 1. 记忆组件初始化
         try:
             await initialize_components(self.component_manager)
@@ -437,6 +445,13 @@ class IrisMemoryPlugin(Star):
     async def terminate(self):
         """插件卸载清理"""
         logger.info("开始关闭插件组件...")
+        warmup = getattr(self, "_encoder_warmup_task", None)
+        if warmup and not warmup.done():
+            warmup.cancel()
+            try:
+                await warmup
+            except asyncio.CancelledError:
+                pass
         # 主动回复侧
         await self._proactive.stop()
         if self._save_task and not self._save_task.done():

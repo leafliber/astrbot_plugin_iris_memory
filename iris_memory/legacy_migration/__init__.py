@@ -28,6 +28,18 @@ logger = get_logger("legacy_migration")
 #: 迁移完成标志 KV 键
 MIGRATION_DONE_KEY = "legacy:migration_done"
 
+#: 单模块迁移成功标记 KV 键前缀（legacy:migrated:l2 等）
+MODULE_DONE_PREFIX = "legacy:migrated:"
+
+#: 备份完成标记文件名（位于备份目录内，用于跳过重复备份）
+BACKUP_MARKER_FILENAME = ".backup_complete"
+
+#: 这些状态表示模块迁移失败/依赖未就绪，下次启动应重试；
+#: 其余状态（ok / skipped_no_data 等）均视为终态
+RETRYABLE_STATUSES = frozenset(
+    {"error", "skipped_adapter_unavailable", "skipped_missing_chromadb"}
+)
+
 #: 旧数据备份目录名（相对插件数据目录）
 BACKUP_DIRNAME = "legacy_backup"
 
@@ -111,25 +123,44 @@ async def _migrate(
     from . import config_migrator, kv_migrator, l2_migrator, l3_migrator, profile_migrator
 
     summary: Dict[str, Any] = {"status": "done", "started_at": datetime.now().isoformat()}
-    summary["l2"] = await _run_isolated(
-        "L2 记忆", l2_migrator.migrate_l2, detection, component_manager
-    )
-    summary["l3"] = await _run_isolated(
-        "L3 图谱", l3_migrator.migrate_l3, detection, component_manager
-    )
-    summary["profile"] = await _run_isolated(
-        "用户画像", profile_migrator.migrate_profiles, detection, component_manager
-    )
-    summary["kv"] = await _run_isolated(
-        "主动回复KV", kv_migrator.migrate_kv, detection, star
-    )
-    summary["config"] = await _run_isolated(
-        "配置", config_migrator.migrate_config, raw_config
-    )
+    modules = [
+        ("l2", "L2 记忆", l2_migrator.migrate_l2, (detection, component_manager)),
+        ("l3", "L3 图谱", l3_migrator.migrate_l3, (detection, component_manager)),
+        ("profile", "用户画像", profile_migrator.migrate_profiles, (detection, component_manager)),
+        ("kv", "主动回复KV", kv_migrator.migrate_kv, (detection, star)),
+        ("config", "配置", config_migrator.migrate_config, (raw_config,)),
+    ]
+    for module_name, label, func, args in modules:
+        if await _module_already_done(star, module_name):
+            summary[module_name] = {"status": "skipped_already_done"}
+            continue
+        summary[module_name] = await _run_isolated(label, func, *args)
+        status = str(summary[module_name].get("status", ""))
+        if status not in RETRYABLE_STATUSES:
+            # 成功或终态跳过：记录模块标记。L2 迁移刻意不做相似度去重，
+            # 重跑会产生重复记忆，必须靠该标记保证只执行一次
+            await _write_module_done(star, module_name, summary[module_name])
 
     # ── 6. 写标志 + 汇总 ──
     summary["finished_at"] = datetime.now().isoformat()
     summary["backup_dir"] = str(backup_dir)
+    retryable = [
+        name
+        for name, result in summary.items()
+        if isinstance(result, dict)
+        and str(result.get("status", "")) in RETRYABLE_STATUSES
+    ]
+    if retryable:
+        # 存在可重试失败：不写总完成标志，下次启动只重跑失败模块
+        #（已成功模块由模块标记跳过），避免部分迁移被静默固化为完成
+        summary["status"] = "incomplete"
+        logger.warning(
+            f"旧版数据迁移未全部完成（{', '.join(retryable)}），"
+            f"下次启动将自动重试失败模块；已成功模块不会重复执行。"
+            f"备份位于 {backup_dir}"
+        )
+        return
+
     await _write_done_flag(star, summary)
     logger.info(
         "旧版数据迁移流程完成："
@@ -140,6 +171,27 @@ async def _migrate(
         f"KV={summary['kv'].get('status')}，配置={summary['config'].get('status')}。"
         f"备份位于 {backup_dir}。如需重跑，请删除 KV 键 {MIGRATION_DONE_KEY} 后重启插件"
     )
+
+
+async def _module_already_done(star: Any, module_name: str) -> bool:
+    """查询单模块是否已成功迁移（KV 读取失败按未完成处理）"""
+    try:
+        return bool(await star.get_kv_data(MODULE_DONE_PREFIX + module_name, None))
+    except Exception:
+        return False
+
+
+async def _write_module_done(star: Any, module_name: str, result: Dict[str, Any]) -> None:
+    """记录单模块迁移成功标记"""
+    try:
+        await star.put_kv_data(
+            MODULE_DONE_PREFIX + module_name,
+            {"status": result.get("status"), "at": datetime.now().isoformat()},
+        )
+    except Exception as e:
+        # 标记写失败仅影响下次是否重跑该模块；模块自身的幂等性
+        #（L3 同名合并、画像/KV 已存在跳过）兜底，L2 例外已记日志提醒
+        logger.warning(f"写入模块迁移标记失败（{module_name}）：{e}")
 
 
 async def _run_isolated(
@@ -194,6 +246,9 @@ async def _wait_for_components(component_manager: Any) -> None:
 def _backup_legacy_data(data_dir: Path, detection: LegacyDetection) -> Path:
     """把旧数据整体复制到 legacy_backup/（只复制，永不删除原始数据）
 
+    已完成过一次完整备份（存在标记文件）时直接返回，避免模块重试期间
+    每次启动都重复整目录复制。
+
     Returns:
         备份目录路径
 
@@ -201,6 +256,9 @@ def _backup_legacy_data(data_dir: Path, detection: LegacyDetection) -> Path:
         Exception: 备份失败（调用方应中止迁移）
     """
     backup_dir = data_dir / BACKUP_DIRNAME
+    if (backup_dir / BACKUP_MARKER_FILENAME).exists():
+        logger.debug(f"旧数据备份已存在，跳过重复备份：{backup_dir}")
+        return backup_dir
     backed_up = False
 
     if detection.chroma_dir is not None:
@@ -222,7 +280,7 @@ def _backup_legacy_data(data_dir: Path, detection: LegacyDetection) -> Path:
         backed_up = True
         logger.info(f"已备份旧知识图谱数据库：{detection.kg_db_path}")
 
-    # 旧 KV 值与旧配置快照一并落盘备份
+    # 旧 KV 值与旧配置快照一并落盘备份（原子写，避免中断留下半截 JSON）
     if detection.kv_keys or detection.config_keys:
         backup_dir.mkdir(parents=True, exist_ok=True)
         snapshot = {
@@ -231,8 +289,12 @@ def _backup_legacy_data(data_dir: Path, detection: LegacyDetection) -> Path:
             "config_keys": detection.config_keys,
         }
         target = backup_dir / KV_BACKUP_FILENAME
-        with open(target, "w", encoding="utf-8") as f:
-            json.dump(snapshot, f, ensure_ascii=False, indent=2, default=str)
+        from iris_memory.utils import atomic_write_text
+
+        atomic_write_text(
+            target,
+            json.dumps(snapshot, ensure_ascii=False, indent=2, default=str),
+        )
         backed_up = True
         logger.info(f"已备份旧 KV/配置快照：{target}")
 
@@ -240,4 +302,8 @@ def _backup_legacy_data(data_dir: Path, detection: LegacyDetection) -> Path:
         # 理论上不会发生（has_anything 为真才进入），兜底建目录
         backup_dir.mkdir(parents=True, exist_ok=True)
 
+    # 标记整体备份完成（放在最后：任何一步抛异常都不会留下标记）
+    (backup_dir / BACKUP_MARKER_FILENAME).write_text(
+        datetime.now().isoformat(), encoding="utf-8"
+    )
     return backup_dir

@@ -12,7 +12,7 @@ import ipaddress
 import socket
 from pathlib import Path
 from typing import Optional
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin, urlparse, urlunparse
 
 import httpx
 
@@ -70,6 +70,81 @@ async def is_safe_remote_url(url: str) -> bool:
     return await asyncio.to_thread(_host_all_global, parsed.hostname)
 
 
+def _resolve_and_pin(url: str) -> Optional[tuple[tuple[str, ...], str, str]]:
+    """解析并校验 URL 主机，返回 ``(pinned_urls, host_header, sni_hostname)``。
+
+    所有解析地址均须为公网地址；pinned_urls 保留解析顺序并逐个用于
+    直连，既消除 DNS rebinding TOCTOU 窗口，也保留双栈/多 A 记录的
+    故障转移能力。Host 头与 TLS SNI/证书校验仍按原主机名进行。
+
+    Returns:
+        无法解析、含非全局地址或协议不合法时返回 None。
+    """
+    try:
+        parsed = urlparse(url)
+    except Exception:
+        return None
+    if parsed.scheme not in ("http", "https") or not parsed.hostname:
+        return None
+
+    host = parsed.hostname
+    try:
+        literal = ipaddress.ip_address(host)
+        candidates = [literal] if literal.is_global else []
+    except ValueError:
+        try:
+            infos = socket.getaddrinfo(host, None)
+        except OSError:
+            return None
+        candidates = []
+        for info in infos:
+            try:
+                address = ipaddress.ip_address(info[4][0])
+            except (ValueError, IndexError):
+                return None
+            candidates.append(address)
+
+    # 任一解析记录非全局地址即整体拒绝，防止多 A 记录混入内网地址
+    if not candidates or not all(address.is_global for address in candidates):
+        return None
+
+    try:
+        port = parsed.port
+    except ValueError:
+        return None
+
+    # getaddrinfo 常会为不同 socket type 返回重复地址；按解析顺序去重，
+    # 连接失败时依次尝试下一候选，避免首个 AAAA 不可达时误判整站不可用。
+    pinned_urls: list[str] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        ip_str = str(candidate)
+        if ip_str in seen:
+            continue
+        seen.add(ip_str)
+        if ":" in ip_str:
+            netloc = f"[{ip_str}]" if port is None else f"[{ip_str}]:{port}"
+        else:
+            netloc = ip_str if port is None else f"{ip_str}:{port}"
+        pinned_urls.append(
+            urlunparse(
+                (
+                    parsed.scheme,
+                    netloc,
+                    parsed.path,
+                    parsed.params,
+                    parsed.query,
+                    parsed.fragment,
+                )
+            )
+        )
+
+    host_header = f"[{host}]" if ":" in host else host
+    if port is not None:
+        host_header = f"{host_header}:{port}"
+    return tuple(pinned_urls), host_header, host
+
+
 class _GlobalOnlyTransport(httpx.AsyncBaseTransport):
     """在每次实际请求交给网络栈前重新执行公网地址校验。"""
 
@@ -115,20 +190,45 @@ async def fetch_safe_image_bytes(
     try:
         async with _create_safe_client(timeout) as client:
             for redirect_count in range(max_redirects + 1):
-                if not await is_safe_remote_url(current_url):
+                pinned = await asyncio.to_thread(_resolve_and_pin, current_url)
+                if pinned is None:
                     logger.warning(
-                        f"图片 URL 主机不安全（内网/保留地址），拒绝下载："
+                        f"图片 URL 主机不安全（内网/保留地址或无法解析），拒绝下载："
                         f"{current_url[:80]}"
                     )
                     return None
+                pinned_urls, host_header, sni_host = pinned
 
-                async with client.stream("GET", current_url) as response:
+                # 用已校验的 IP 依次直连；Host 头与 SNI 保留原主机名，
+                # 证书校验同样按原主机名进行。仅连接/传输错误尝试下一 IP，
+                # 一旦收到 HTTP 响应便交给下方状态码逻辑处理。
+                response: Optional[httpx.Response] = None
+                last_error: Optional[httpx.RequestError] = None
+                for pinned_url in pinned_urls:
+                    request = client.build_request("GET", pinned_url)
+                    request.headers["Host"] = host_header
+                    request.extensions["sni_hostname"] = sni_host
+                    try:
+                        response = await client.send(request, stream=True)
+                        break
+                    except httpx.RequestError as e:
+                        last_error = e
+
+                if response is None:
+                    logger.debug(
+                        f"图片所有安全解析地址均连接失败：{current_url[:80]}，"
+                        f"最后错误：{last_error}"
+                    )
+                    return None
+                try:
                     if response.status_code in _REDIRECT_STATUSES:
                         location = response.headers.get("location")
                         if not location or redirect_count >= max_redirects:
                             logger.debug("图片重定向缺少 Location 或跳数超限")
                             return None
-                        current_url = urljoin(str(response.url), location)
+                        # 用原始（非 pin 后的）URL 解析相对重定向，
+                        # 保留域名信息供下一跳重新校验与 pin
+                        current_url = urljoin(current_url, location)
                         continue
 
                     if response.status_code >= 400:
@@ -161,6 +261,8 @@ async def fetch_safe_image_bytes(
                         logger.debug("远程响应不是受支持的图片格式")
                         return None
                     return content, mime
+                finally:
+                    await response.aclose()
     except Exception as e:
         logger.debug(f"安全下载图片失败：{e}")
     return None

@@ -1,5 +1,10 @@
 """Token 计数工具测试"""
 
+from types import SimpleNamespace
+
+import pytest
+
+from iris_memory.utils import token_counter
 from iris_memory.utils.token_counter import (
     _TIKTOKEN_AVAILABLE,
     count_tokens,
@@ -40,6 +45,35 @@ class TestTokenCounter:
         encoder1 = get_encoder("cl100k_base")
         encoder2 = get_encoder("cl100k_base")
         assert encoder1 is encoder2
+
+    @pytest.mark.asyncio
+    async def test_warmup_loads_encoder_while_regular_calls_degrade(
+        self, monkeypatch
+    ):
+        """预热线程必须真正加载；pending 期间普通同步调用仍快速降级。"""
+        sentinel = object()
+        calls: list[str] = []
+
+        def get_encoding(name: str):
+            calls.append(name)
+            return sentinel
+
+        fake_tiktoken = SimpleNamespace(get_encoding=get_encoding)
+        monkeypatch.setattr(token_counter, "_TIKTOKEN_AVAILABLE", True)
+        monkeypatch.setattr(token_counter, "tiktoken", fake_tiktoken)
+        monkeypatch.setattr(token_counter, "_encoder_cache", {})
+
+        token_counter._set_warmup_pending(True)
+        try:
+            assert token_counter.get_encoder("cl100k_base") is None
+            assert calls == []
+        finally:
+            token_counter._set_warmup_pending(False)
+
+        await token_counter.warm_up_encoders_async(("cl100k_base",))
+
+        assert calls == ["cl100k_base"]
+        assert token_counter.get_encoder("cl100k_base") is sentinel
 
     def test_count_messages_tokens_empty(self):
         """测试空消息列表"""

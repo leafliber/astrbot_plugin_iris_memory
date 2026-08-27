@@ -13,6 +13,7 @@ from iris_memory.legacy_migration import (
     BACKUP_DIRNAME,
     KV_BACKUP_FILENAME,
     MIGRATION_DONE_KEY,
+    l2_migrator,
     l3_migrator,
     migrate_if_needed,
 )
@@ -68,17 +69,13 @@ class TestFullFlow:
 
         await migrate_if_needed(Mock(), star, tmp_path, component_manager)
 
-        # ── 完成标志 ──
-        flag = star.kv.get(MIGRATION_DONE_KEY)
-        assert flag is not None
-        assert flag["status"] == "done"
-        assert set(flag.keys()) >= {"l2", "l3", "profile", "kv", "config", "backup_dir"}
-
-        # chromadb 缺失 → L2 跳过，但不影响其他迁移器
-        assert flag["l2"]["status"] == "skipped_missing_chromadb"
-        assert flag["l3"]["status"] == "ok"
-        assert flag["profile"]["status"] == "ok"
-        assert flag["config"]["status"] == "ok"
+        # chromadb 缺失属于可重试状态：不写总完成/L2 模块标志，
+        # 其他模块照常完成并写模块标志。
+        assert MIGRATION_DONE_KEY not in star.kv
+        assert f"{legacy_migration.MODULE_DONE_PREFIX}l2" not in star.kv
+        for module in ("l3", "profile", "kv", "config"):
+            marker = star.kv[f"{legacy_migration.MODULE_DONE_PREFIX}{module}"]
+            assert marker["status"] == "ok"
 
         # ── 备份创建 ──
         backup_dir = tmp_path / BACKUP_DIRNAME
@@ -109,6 +106,24 @@ class TestFullFlow:
         # ── 等待后台组件被调用 ──
         assert component_manager.wait_calls
 
+        # 安装 chromadb 后的下一次启动只重跑 L2，并最终写总完成标志。
+        l2_calls = 0
+
+        async def successful_l2(*args):
+            nonlocal l2_calls
+            l2_calls += 1
+            return {"status": "ok", "imported": 3}
+
+        monkeypatch.setattr(l2_migrator, "migrate_l2", successful_l2)
+        await migrate_if_needed(Mock(), star, tmp_path, component_manager)
+
+        flag = star.kv.get(MIGRATION_DONE_KEY)
+        assert flag is not None
+        assert flag["status"] == "done"
+        assert flag["l2"]["status"] == "ok"
+        assert flag["l3"]["status"] == "skipped_already_done"
+        assert l2_calls == 1
+
     @pytest.mark.asyncio
     async def test_no_legacy_data_writes_flag(self, tmp_path, star, component_manager):
         init_config(FakeUserConfig(), tmp_path)
@@ -135,7 +150,7 @@ class TestIdempotency:
         nodes_after_first = len(l3.nodes)
         whitelist_after_first = list(star.kv["iris_reply:whitelist"])
 
-        # 第二次运行：整体跳过，各存储无变化
+        # 第二次运行：只重试仍缺依赖的 L2，已完成存储无变化
         await migrate_if_needed(Mock(), star, tmp_path, component_manager)
         assert len(l3.nodes) == nodes_after_first
         assert star.kv["iris_reply:whitelist"] == whitelist_after_first
@@ -162,6 +177,8 @@ class TestFailureIsolation:
     ):
         _prepare_legacy_env(tmp_path, star)
         monkeypatch.setitem(sys.modules, "chromadb", None)
+        original_migrate_l2 = l2_migrator.migrate_l2
+        original_migrate_l3 = l3_migrator.migrate_l3
 
         async def exploding_migrate_l3(*args):
             raise RuntimeError("L3 迁移器爆炸")
@@ -170,14 +187,32 @@ class TestFailureIsolation:
 
         await migrate_if_needed(Mock(), star, tmp_path, component_manager)
 
+        # 单模块失败：不写总完成标志，下次启动重试失败模块
+        assert MIGRATION_DONE_KEY not in star.kv
+        # 失败模块没有成功标记（会被重试）
+        assert f"{legacy_migration.MODULE_DONE_PREFIX}l3" not in star.kv
+        # 其他迁移器不受影响，且已记录成功标记（不会重复执行）
+        for module in ("profile", "kv", "config"):
+            assert f"{legacy_migration.MODULE_DONE_PREFIX}{module}" in star.kv
+        assert star.kv["iris_reply:whitelist"] == ["g100", "g200"]
+
+        # 重试路径：L3 与缺依赖的 L2 恢复后重跑，随后写总完成标志
+        async def successful_l2(*args):
+            return {"status": "ok", "imported": 1}
+
+        monkeypatch.setattr(l2_migrator, "migrate_l2", successful_l2)
+        monkeypatch.setattr(
+            l3_migrator,
+            "migrate_l3",
+            original_migrate_l3,
+        )
+        await migrate_if_needed(Mock(), star, tmp_path, component_manager)
         flag = star.kv.get(MIGRATION_DONE_KEY)
         assert flag is not None
-        assert flag["l3"]["status"] == "error"
-        assert "爆炸" in flag["l3"]["error"]
-        # 其他迁移器不受影响
-        assert flag["profile"]["status"] == "ok"
-        assert flag["kv"]["status"] == "ok"
-        assert star.kv["iris_reply:whitelist"] == ["g100", "g200"]
+        assert flag["l3"]["status"] == "ok"
+        assert flag["profile"]["status"] == "skipped_already_done"
+
+        monkeypatch.setattr(l2_migrator, "migrate_l2", original_migrate_l2)
 
 
 class TestBackupFailure:
