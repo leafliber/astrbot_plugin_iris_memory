@@ -1,6 +1,6 @@
 """表达模式规则提取测试"""
 
-from iris_memory.learning import expression
+from astrbot_plugin_iris_memory.iris_memory.learning import expression
 
 
 class TestClassifyScene:

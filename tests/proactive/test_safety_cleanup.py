@@ -5,21 +5,21 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from iris_memory.proactive.admin import AdminCommands
-from iris_memory.proactive.api import register_web_apis
-from iris_memory.proactive.config import ConfigManager
-from iris_memory.proactive.decision import (
+from astrbot_plugin_iris_memory.iris_memory.proactive.admin import AdminCommands
+from astrbot_plugin_iris_memory.iris_memory.proactive.api import register_web_apis
+from astrbot_plugin_iris_memory.iris_memory.proactive.config import ConfigManager
+from astrbot_plugin_iris_memory.iris_memory.proactive.decision import (
     INPUT_SAFETY_COOLDOWN_MINUTES,
     DecisionCore,
     DecisionRequest,
 )
-from iris_memory.proactive.perception import (
+from astrbot_plugin_iris_memory.iris_memory.proactive.perception import (
     ContextPackager,
     SlidingWindow,
     WindowMessage,
 )
-from iris_memory.proactive.proactive import ProactiveEngine
-from iris_memory.proactive.state import GroupState, StateManager
+from astrbot_plugin_iris_memory.iris_memory.proactive.proactive import ProactiveEngine
+from astrbot_plugin_iris_memory.iris_memory.proactive.state import GroupState, StateManager
 
 GID = "g1"
 
@@ -102,7 +102,7 @@ class TestCoreSafetyCleanup:
 class TestRuntimeSafetyPaths:
     @pytest.mark.asyncio
     async def test_message_decision_1026_purges_and_persists(self, nm_config):
-        from main import IrisMemoryPlugin
+        from astrbot_plugin_iris_memory.main import IrisMemoryPlugin
 
         _, state, window, _, core = _components(nm_config)
         state.set_observation(GID, "疑似观察")
@@ -143,7 +143,7 @@ class TestRuntimeSafetyPaths:
 
     @pytest.mark.asyncio
     async def test_other_provider_error_keeps_context(self, nm_config):
-        from main import IrisMemoryPlugin
+        from astrbot_plugin_iris_memory.main import IrisMemoryPlugin
 
         _, state, window, _, core = _components(nm_config)
         state.set_observation(GID, "应保留的观察")
@@ -179,7 +179,7 @@ class TestRuntimeSafetyPaths:
 
     @pytest.mark.asyncio
     async def test_passive_watch_1026_does_not_restore_fallback_anchor(self, nm_config):
-        from main import IrisMemoryPlugin
+        from astrbot_plugin_iris_memory.main import IrisMemoryPlugin
 
         _, state, window, _, core = _components(nm_config)
         state.set_observation(GID, "疑似观察")
@@ -260,7 +260,7 @@ class TestRuntimeSafetyPaths:
 class TestResetPaths:
     @pytest.mark.asyncio
     async def test_admin_reset_also_clears_sliding_window(self, nm_config):
-        from main import IrisMemoryPlugin
+        from astrbot_plugin_iris_memory.main import IrisMemoryPlugin
 
         _, state, window, _, _ = _components(nm_config)
         state.set_observation(GID, "旧观察")

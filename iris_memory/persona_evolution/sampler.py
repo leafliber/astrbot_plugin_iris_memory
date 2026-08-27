@@ -13,7 +13,7 @@ Iris Chat Memory - 人格自迭代均衡抽样器
 from collections import defaultdict
 from typing import Any, Dict, List, Optional
 
-from iris_memory.core import get_logger
+from ..core import get_logger
 
 logger = get_logger("persona_evolution.sampler")
 

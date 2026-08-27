@@ -16,7 +16,7 @@ from urllib.parse import urljoin, urlparse, urlunparse
 
 import httpx
 
-from iris_memory.core import get_logger
+from ..core import get_logger
 
 logger = get_logger("image.security")
 

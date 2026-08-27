@@ -4,13 +4,13 @@ import asyncio
 
 import pytest
 
-from iris_memory.llm.governor import (
+from astrbot_plugin_iris_memory.iris_memory.llm.governor import (
     GovernorSettings,
     LLMCircuitOpenError,
     LLMCallGovernor,
     LLMQueueFullError,
 )
-from iris_memory.llm.policy import CallPriority
+from astrbot_plugin_iris_memory.iris_memory.llm.policy import CallPriority
 
 
 @pytest.mark.asyncio

@@ -5,9 +5,9 @@ from pathlib import Path
 from unittest.mock import AsyncMock, Mock, patch
 from datetime import datetime
 
-from iris_memory.l1_buffer import L1Buffer, ContextMessage
-from iris_memory.l1_buffer.models import SegmentedMessageQueue
-from iris_memory.config import init_config
+from astrbot_plugin_iris_memory.iris_memory.l1_buffer import L1Buffer, ContextMessage
+from astrbot_plugin_iris_memory.iris_memory.l1_buffer.models import SegmentedMessageQueue
+from astrbot_plugin_iris_memory.iris_memory.config import init_config
 
 
 @pytest.fixture
@@ -44,7 +44,7 @@ class TestL1Buffer:
     @pytest.mark.asyncio
     async def test_initialize_disabled(self, mock_config):
         """测试禁用状态初始化"""
-        with patch("iris_memory.l1_buffer.buffer.get_config") as mock_get_config:
+        with patch("astrbot_plugin_iris_memory.iris_memory.l1_buffer.buffer.get_config") as mock_get_config:
             mock_get_config.return_value.get = Mock(
                 side_effect=lambda key, default=None: {"l1_buffer.enable": False}.get(
                     key, default
@@ -89,7 +89,7 @@ class TestL1Buffer:
     @pytest.mark.asyncio
     async def test_add_message_too_large(self, mock_config):
         """测试添加超大消息"""
-        with patch("iris_memory.l1_buffer.buffer.get_config") as mock_get_config:
+        with patch("astrbot_plugin_iris_memory.iris_memory.l1_buffer.buffer.get_config") as mock_get_config:
             mock_get_config.return_value.get = Mock(
                 side_effect=lambda key, default=None: {
                     "l1_buffer.enable": True,
@@ -118,7 +118,7 @@ class TestL1Buffer:
     @pytest.mark.asyncio
     async def test_add_message_disabled(self, mock_config):
         """测试禁用时添加消息"""
-        with patch("iris_memory.l1_buffer.buffer.get_config") as mock_get_config:
+        with patch("astrbot_plugin_iris_memory.iris_memory.l1_buffer.buffer.get_config") as mock_get_config:
             mock_get_config.return_value.get = Mock(
                 side_effect=lambda key, default=None: {"l1_buffer.enable": False}.get(
                     key, default
@@ -188,7 +188,7 @@ class TestL1Buffer:
         L1 不受 enable_group_memory_isolation 配置影响，始终分群存储。
         该配置仅控制 L2/L3 的查询是否带群 ID 条件。
         """
-        with patch("iris_memory.l1_buffer.buffer.get_config") as mock_get_config:
+        with patch("astrbot_plugin_iris_memory.iris_memory.l1_buffer.buffer.get_config") as mock_get_config:
             mock_get_config.return_value.get = Mock(
                 side_effect=lambda key, default=None: {
                     "l1_buffer.enable": True,
@@ -280,7 +280,7 @@ class TestEmptySummarySegmentPreservation:
     @pytest.mark.asyncio
     async def test_empty_summary_first_failure_preserves_segment_2(self, mock_config):
         """首次空总结失败：segment_2 保留，不 rotate"""
-        with patch("iris_memory.l1_buffer.buffer.get_config") as mock_get_config:
+        with patch("astrbot_plugin_iris_memory.iris_memory.l1_buffer.buffer.get_config") as mock_get_config:
             mock_get_config.return_value.get = Mock(
                 side_effect=lambda key, default=None: {
                     "l1_buffer.enable": True,
@@ -303,7 +303,7 @@ class TestEmptySummarySegmentPreservation:
     @pytest.mark.asyncio
     async def test_empty_summary_second_failure_clears_segment_2(self, mock_config):
         """第二次空总结失败（达阈值）：清除 segment_2 并重置计数"""
-        with patch("iris_memory.l1_buffer.buffer.get_config") as mock_get_config:
+        with patch("astrbot_plugin_iris_memory.iris_memory.l1_buffer.buffer.get_config") as mock_get_config:
             mock_get_config.return_value.get = Mock(
                 side_effect=lambda key, default=None: {
                     "l1_buffer.enable": True,
@@ -321,7 +321,7 @@ class TestEmptySummarySegmentPreservation:
     @pytest.mark.asyncio
     async def test_successful_summary_rotates(self, mock_config):
         """对照：成功总结后正常 rotate，segment_2 清空"""
-        with patch("iris_memory.l1_buffer.buffer.get_config") as mock_get_config:
+        with patch("astrbot_plugin_iris_memory.iris_memory.l1_buffer.buffer.get_config") as mock_get_config:
             mock_get_config.return_value.get = Mock(
                 side_effect=lambda key, default=None: {
                     "l1_buffer.enable": True,
@@ -345,7 +345,7 @@ class TestEmptySummarySegmentPreservation:
         取尾入 L1-3 并清空。已写入 L2 的旧消息被保留为 L1-3，下轮再次参与
         总结，产生重复 L2 记忆；新消息也被误移除。
         """
-        with patch("iris_memory.l1_buffer.buffer.get_config") as mock_get_config:
+        with patch("astrbot_plugin_iris_memory.iris_memory.l1_buffer.buffer.get_config") as mock_get_config:
             mock_get_config.return_value.get = Mock(
                 side_effect=lambda key, default=None: {
                     "l1_buffer.enable": True,
@@ -379,7 +379,7 @@ class TestRotateAfterSummarySnapshot:
 
     def test_snapshot_mode_preserves_new_messages(self):
         """快照模式：仅移除快照中的消息，保留新消息"""
-        from iris_memory.l1_buffer.models import SegmentedMessageQueue
+        from astrbot_plugin_iris_memory.iris_memory.l1_buffer.models import SegmentedMessageQueue
 
         queue = SegmentedMessageQueue(group_id="g1")
         old_msgs = [_make_msg(content=f"旧消息{i}", token_count=5) for i in range(3)]
@@ -405,7 +405,7 @@ class TestRotateAfterSummarySnapshot:
 
     def test_legacy_mode_clears_all(self):
         """旧模式（不传快照）：清空整个 segment_2（向后兼容）"""
-        from iris_memory.l1_buffer.models import SegmentedMessageQueue
+        from astrbot_plugin_iris_memory.iris_memory.l1_buffer.models import SegmentedMessageQueue
 
         queue = SegmentedMessageQueue(group_id="g1")
         for i in range(3):
@@ -852,7 +852,7 @@ class TestPrivateSessionQueues:
     @pytest.mark.asyncio
     async def test_private_summary_uses_empty_group_id_for_storage(self, mock_config):
         """私聊队列总结写入 L2/画像时使用空群 ID（保持既有归属行为）"""
-        with patch("iris_memory.l1_buffer.buffer.get_config") as mock_get_config:
+        with patch("astrbot_plugin_iris_memory.iris_memory.l1_buffer.buffer.get_config") as mock_get_config:
             mock_get_config.return_value.get = Mock(
                 side_effect=lambda key, default=None: {
                     "l1_buffer.enable": True,

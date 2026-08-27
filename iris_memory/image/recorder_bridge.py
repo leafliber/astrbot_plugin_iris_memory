@@ -8,7 +8,7 @@ Iris Chat Memory - Message Recorder 桥接模块
 from pathlib import Path
 from typing import Any, Optional, TYPE_CHECKING
 
-from iris_memory.core import get_logger
+from ..core import get_logger
 from .security import local_image_to_data_url
 
 if TYPE_CHECKING:

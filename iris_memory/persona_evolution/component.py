@@ -17,8 +17,8 @@ LLM 调用一律在该锁外 await（learning 模式）。
 import asyncio
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
-from iris_memory.config import get_config
-from iris_memory.core import (
+from ..config import get_config
+from ..core import (
     Component,
     InitMode,
     get_component_manager,

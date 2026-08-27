@@ -10,11 +10,11 @@ import pytest
 from pathlib import Path
 from unittest.mock import Mock, AsyncMock, patch, MagicMock
 
-from iris_memory.core.components import ComponentManager
-from iris_memory.core.lifecycle import initialize_components, _inject_component_manager
-from iris_memory.l1_buffer import L1Buffer
-from iris_memory.llm.manager import LLMManager
-from iris_memory.config import init_config
+from astrbot_plugin_iris_memory.iris_memory.core.components import ComponentManager
+from astrbot_plugin_iris_memory.iris_memory.core.lifecycle import initialize_components, _inject_component_manager
+from astrbot_plugin_iris_memory.iris_memory.l1_buffer import L1Buffer
+from astrbot_plugin_iris_memory.iris_memory.llm.manager import LLMManager
+from astrbot_plugin_iris_memory.iris_memory.config import init_config
 
 
 class TestLifecycleIntegration:
@@ -71,7 +71,7 @@ class TestLifecycleIntegration:
 
         验证：LLMManager 应该最先初始化，然后是其他组件
         """
-        with patch("iris_memory.llm.manager.get_config") as mock_get_config:
+        with patch("astrbot_plugin_iris_memory.iris_memory.llm.manager.get_config") as mock_get_config:
             mock_get_config.return_value = mock_config
 
             # 创建组件实例
@@ -115,7 +115,7 @@ class TestLifecycleIntegration:
 
         验证修复：初始化完成后应该注入 ComponentManager 到 L1Buffer
         """
-        with patch("iris_memory.llm.manager.get_config") as mock_get_config:
+        with patch("astrbot_plugin_iris_memory.iris_memory.llm.manager.get_config") as mock_get_config:
             mock_get_config.return_value = mock_config
 
             # 创建组件
@@ -145,7 +145,7 @@ class TestLifecycleIntegration:
         2. 注入 ComponentManager
         3. L1Buffer 可以获取 LLMManager
         """
-        with patch("iris_memory.llm.manager.get_config") as mock_get_config:
+        with patch("astrbot_plugin_iris_memory.iris_memory.llm.manager.get_config") as mock_get_config:
             mock_get_config.return_value = mock_config
 
             # 创建组件
@@ -179,7 +179,7 @@ class TestLifecycleIntegration:
 
         多次注入应该不会出错
         """
-        with patch("iris_memory.llm.manager.get_config") as mock_get_config:
+        with patch("astrbot_plugin_iris_memory.iris_memory.llm.manager.get_config") as mock_get_config:
             mock_get_config.return_value = mock_config
 
             l1_buffer = L1Buffer()
@@ -217,7 +217,7 @@ class TestLifecycleIntegration:
 
         验证：L1Buffer 依赖 LLMManager，但初始化时 LLMManager 已经可用
         """
-        with patch("iris_memory.llm.manager.get_config") as mock_get_config:
+        with patch("astrbot_plugin_iris_memory.iris_memory.llm.manager.get_config") as mock_get_config:
             mock_get_config.return_value = mock_config
 
             llm_manager = LLMManager(mock_context, mock_storage)

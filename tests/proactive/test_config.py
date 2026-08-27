@@ -5,7 +5,7 @@
 
 import pytest
 
-from iris_memory.proactive.config import ConfigManager
+from astrbot_plugin_iris_memory.iris_memory.proactive.config import ConfigManager
 
 
 class TestDefaults:

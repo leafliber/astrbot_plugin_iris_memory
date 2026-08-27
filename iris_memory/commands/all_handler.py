@@ -6,12 +6,12 @@ Iris Chat Memory - All 指令处理器
 
 from typing import Optional, TYPE_CHECKING
 
-from iris_memory.core import get_logger, get_component_manager
-from iris_memory.l1_buffer.buffer import L1Buffer
-from iris_memory.l2_memory.adapter import L2MemoryAdapter
-from iris_memory.l3_kg.adapter import L3KGAdapter
-from iris_memory.profile.storage import ProfileStorage
-from iris_memory.platform import get_adapter
+from ..core import get_logger, get_component_manager
+from ..l1_buffer.buffer import L1Buffer
+from ..l2_memory.adapter import L2MemoryAdapter
+from ..l3_kg.adapter import L3KGAdapter
+from ..profile.storage import ProfileStorage
+from ..platform import get_adapter
 from .base import CommandHandler, CommandResult, ParsedArgs, DeleteScope
 
 if TYPE_CHECKING:
@@ -92,7 +92,7 @@ class AllCommandHandler(CommandHandler):
 
         # 群/用户级清除需在当前 persona 命名空间内执行；
         # --all 范围保持跨 persona 全清语义
-        from iris_memory.core.persona import resolve_persona
+        from ..core.persona import resolve_persona
 
         persona_id = await resolve_persona(manager, event)
 

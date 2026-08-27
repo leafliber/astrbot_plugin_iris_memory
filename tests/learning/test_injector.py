@@ -4,8 +4,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from iris_memory.learning.injector import build_learning_context
-from iris_memory.learning.jargon import JargonLearner
+from astrbot_plugin_iris_memory.iris_memory.learning.injector import build_learning_context
+from astrbot_plugin_iris_memory.iris_memory.learning.jargon import JargonLearner
 
 
 def _event(text=""):
@@ -19,7 +19,7 @@ def _patch_adapter():
     adapter = MagicMock()
     adapter.get_session_id.return_value = "sess1"
     adapter.get_group_id.return_value = "g1"
-    return patch("iris_memory.learning.injector.get_adapter", return_value=adapter)
+    return patch("astrbot_plugin_iris_memory.iris_memory.learning.injector.get_adapter", return_value=adapter)
 
 
 def _seed_approved(storage):
@@ -120,7 +120,7 @@ class TestTruncation:
         """整体超预算时按 few_shot → pattern → jargon 顺序裁剪"""
         # 用字符数代替 token 估算，便于精确控制预算
         monkeypatch.setattr(
-            "iris_memory.learning.injector.count_tokens", lambda t: len(t)
+            "astrbot_plugin_iris_memory.iris_memory.learning.injector.count_tokens", lambda t: len(t)
         )
         _seed_approved(storage)
         config.set_hidden("learning_inject_max_tokens", 60)
@@ -141,7 +141,7 @@ class TestTruncation:
     @pytest.mark.asyncio
     async def test_budget_trim_to_jargon_only(self, config, storage, monkeypatch):
         monkeypatch.setattr(
-            "iris_memory.learning.injector.count_tokens", lambda t: len(t)
+            "astrbot_plugin_iris_memory.iris_memory.learning.injector.count_tokens", lambda t: len(t)
         )
         _seed_approved(storage)
         config.set_hidden("learning_inject_max_tokens", 40)
@@ -158,7 +158,7 @@ class TestTruncation:
     @pytest.mark.asyncio
     async def test_budget_exceeded_returns_empty(self, config, storage, monkeypatch):
         monkeypatch.setattr(
-            "iris_memory.learning.injector.count_tokens", lambda t: len(t)
+            "astrbot_plugin_iris_memory.iris_memory.learning.injector.count_tokens", lambda t: len(t)
         )
         _seed_approved(storage)
         config.set_hidden("learning_inject_max_tokens", 1)  # 连 header 都放不下

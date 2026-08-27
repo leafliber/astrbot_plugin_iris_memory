@@ -12,7 +12,7 @@ PruningPhase 遗忘清洗测试
 import pytest
 from unittest.mock import Mock, AsyncMock, patch
 
-from iris_memory.dream.pruning import PruningPhase
+from astrbot_plugin_iris_memory.iris_memory.dream.pruning import PruningPhase
 
 
 def _mock_config():
@@ -47,7 +47,7 @@ class TestPruningPhase:
         l3 = None
         llm = None
 
-        with patch("iris_memory.dream.pruning.get_config", return_value=_mock_config()):
+        with patch("astrbot_plugin_iris_memory.iris_memory.dream.pruning.get_config", return_value=_mock_config()):
             result = await phase.execute(l2, l3, llm)
 
         assert result["l2_evicted"] == 0
@@ -64,14 +64,14 @@ class TestPruningPhase:
         l3.is_available = False
         llm = None
 
-        with patch("iris_memory.dream.pruning.get_config", return_value=_mock_config()):
+        with patch("astrbot_plugin_iris_memory.iris_memory.dream.pruning.get_config", return_value=_mock_config()):
             result = await phase.execute(l2, l3, llm)
 
         assert result["l2_evicted"] == 0
 
     @pytest.mark.asyncio
     async def test_llm_confirm_eviction_disabled(self, phase):
-        with patch("iris_memory.dream.pruning.get_config") as mock_config:
+        with patch("astrbot_plugin_iris_memory.iris_memory.dream.pruning.get_config") as mock_config:
             mock_config_instance = Mock()
             mock_config_instance.get = Mock(
                 side_effect=lambda key, default=None: {
@@ -89,7 +89,7 @@ class TestPruningPhase:
 
     @pytest.mark.asyncio
     async def test_llm_confirm_eviction_no_llm_defaults_to_keep(self, phase):
-        with patch("iris_memory.dream.pruning.get_config") as mock_config:
+        with patch("astrbot_plugin_iris_memory.iris_memory.dream.pruning.get_config") as mock_config:
             mock_config_instance = Mock()
             mock_config_instance.get = Mock(
                 side_effect=lambda key, default=None: {
@@ -105,7 +105,7 @@ class TestPruningPhase:
 
     @pytest.mark.asyncio
     async def test_llm_confirm_eviction_llm_failure_defaults_to_keep(self, phase):
-        with patch("iris_memory.dream.pruning.get_config") as mock_config:
+        with patch("astrbot_plugin_iris_memory.iris_memory.dream.pruning.get_config") as mock_config:
             mock_config_instance = Mock()
             mock_config_instance.get = Mock(
                 side_effect=lambda key, default=None: {
@@ -126,7 +126,7 @@ class TestPruningPhase:
 
     @pytest.mark.asyncio
     async def test_llm_confirm_eviction_high_score_auto_confirm(self, phase):
-        with patch("iris_memory.dream.pruning.get_config") as mock_config:
+        with patch("astrbot_plugin_iris_memory.iris_memory.dream.pruning.get_config") as mock_config:
             mock_config_instance = Mock()
             mock_config_instance.get = Mock(
                 side_effect=lambda key, default=None: {
@@ -162,7 +162,7 @@ class TestPruningPhase:
             return_value='{"forget": ["id1"], "keep": ["id2"]}'
         )
 
-        with patch("iris_memory.dream.pruning.get_config", return_value=config):
+        with patch("astrbot_plugin_iris_memory.iris_memory.dream.pruning.get_config", return_value=config):
             result = await phase._llm_confirm_eviction(
                 [("id1", "低价值一", 0.1), ("id2", "低价值二", 0.1)], llm
             )
@@ -186,7 +186,7 @@ class TestPruningPhase:
         entry.confidence = 0.9
         entry.metadata = {"confidence": 0.9}
 
-        with patch("iris_memory.dream.pruning.get_config", return_value=_mock_config()):
+        with patch("astrbot_plugin_iris_memory.iris_memory.dream.pruning.get_config", return_value=_mock_config()):
             result = await phase.execute(l2, l3, llm, entries=[entry])
 
         assert result["l2_low_confidence_marked"] == 0

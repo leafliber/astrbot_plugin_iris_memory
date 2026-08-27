@@ -2,8 +2,8 @@
 
 import pytest
 
-from iris_memory.legacy_migration.detector import LegacyDetection
-from iris_memory.legacy_migration.kv_migrator import (
+from astrbot_plugin_iris_memory.iris_memory.legacy_migration.detector import LegacyDetection
+from astrbot_plugin_iris_memory.iris_memory.legacy_migration.kv_migrator import (
     NEW_WHITELIST_KEY,
     migrate_kv,
 )

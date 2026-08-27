@@ -9,10 +9,10 @@ import pytest
 from pathlib import Path
 from unittest.mock import Mock, AsyncMock, patch, MagicMock
 
-from iris_memory.l1_buffer import L1Buffer
-from iris_memory.core.components import ComponentManager
-from iris_memory.llm.manager import LLMManager
-from iris_memory.config import init_config
+from astrbot_plugin_iris_memory.iris_memory.l1_buffer import L1Buffer
+from astrbot_plugin_iris_memory.iris_memory.core.components import ComponentManager
+from astrbot_plugin_iris_memory.iris_memory.llm.manager import LLMManager
+from astrbot_plugin_iris_memory.iris_memory.config import init_config
 
 
 class TestL1BufferDelayedInit:
@@ -141,7 +141,7 @@ class TestL1BufferDelayedInit:
     @pytest.mark.asyncio
     async def test_provider_config_saved_on_init(self, mock_config):
         """测试 Provider 配置在初始化时保存"""
-        with patch("iris_memory.l1_buffer.buffer.get_config") as mock_get_config:
+        with patch("astrbot_plugin_iris_memory.iris_memory.l1_buffer.buffer.get_config") as mock_get_config:
             mock_get_config.return_value.get = Mock(
                 side_effect=lambda key, default=None: {
                     "l1_buffer.enable": True,

@@ -8,7 +8,7 @@ import asyncio
 from typing import Optional, Tuple, TYPE_CHECKING
 from datetime import datetime
 
-from iris_memory.core import get_logger, ComponentManager, Component
+from ..core import get_logger, ComponentManager, Component
 
 if TYPE_CHECKING:
     from astrbot.api.star import Context, Star
@@ -71,40 +71,40 @@ def create_components(context: "Context", star: "Star") -> Tuple[Component, ...]
     Returns:
         组件元组
     """
-    from iris_memory.config import get_config
+    from ..config import get_config
 
     config = get_config()
     components = []
 
     # 阶段5: LLM 管理器（最先创建，其他组件可能依赖）
-    from iris_memory.llm import LLMManager
+    from ..llm import LLMManager
 
     components.append(LLMManager(context, star))
     logger.debug("已添加 LLMManager 组件")
 
     # 阶段1: Persona 解析器（其他组件在运行时经 component_manager 取用）
-    from iris_memory.core import PersonaResolver
+    from ..core import PersonaResolver
 
     components.append(PersonaResolver(context))
     logger.debug("已添加 PersonaResolver 组件")
 
     # 阶段2: L1 消息缓冲
     if config.get("l1_buffer.enable"):
-        from iris_memory.l1_buffer import L1Buffer
+        from ..l1_buffer import L1Buffer
 
         components.append(L1Buffer())
         logger.debug("已添加 L1Buffer 组件")
 
     # 阶段2.5: 学习模块（后台初始化，依赖 LLMManager 做审查/推断）
     if config.get("learning.enable"):
-        from iris_memory.learning import LearningComponent
+        from ..learning import LearningComponent
 
         components.append(LearningComponent(context))
         logger.debug("已添加 LearningComponent 组件")
 
     # 阶段2.6: 人格自迭代（后台初始化，独立语料池与状态机）
     if config.get("persona_evolution.enable"):
-        from iris_memory.persona_evolution import PersonaEvolutionComponent
+        from ..persona_evolution import PersonaEvolutionComponent
 
         components.append(PersonaEvolutionComponent(context))
         logger.debug("已添加 PersonaEvolutionComponent 组件")
@@ -112,7 +112,7 @@ def create_components(context: "Context", star: "Star") -> Tuple[Component, ...]
     # 阶段3: L2 记忆库
     if config.get("l2_memory.enable"):
         # 延迟导入，避免循环依赖
-        from iris_memory.l2_memory import L2MemoryAdapter
+        from ..l2_memory import L2MemoryAdapter
 
         # persona_id 在请求时由 PersonaResolver 解析，不再在构造期固化
         components.append(L2MemoryAdapter(context=context))
@@ -120,27 +120,27 @@ def create_components(context: "Context", star: "Star") -> Tuple[Component, ...]
 
     # 阶段4: L3 知识图谱
     if config.get("l3_kg.enable"):
-        from iris_memory.l3_kg import L3KGAdapter
+        from ..l3_kg import L3KGAdapter
 
         components.append(L3KGAdapter())
         logger.debug("已添加 L3KGAdapter 组件")
 
     # 阶段6: 定时任务调度器
-    from iris_memory.tasks import TaskScheduler
+    from ..tasks import TaskScheduler
 
     components.append(TaskScheduler())
     logger.debug("已添加 TaskScheduler 组件")
 
     # 阶段9: 画像存储
     if config.get("profile.enable"):
-        from iris_memory.profile import ProfileStorage
+        from ..profile import ProfileStorage
 
         components.append(ProfileStorage(star))
         logger.debug("已添加 ProfileStorage 组件")
 
     # 阶段10: 图片限额管理器
     if config.get("l1_buffer.image_parsing.enable"):
-        from iris_memory.image import (
+        from ..image import (
             ImageCacheManager,
             ImageParseCoordinator,
             ImageQuotaManager,
@@ -251,8 +251,8 @@ def _start_scheduled_tasks_immediate(component_manager: ComponentManager) -> Non
     Args:
         component_manager: 组件管理器实例
     """
-    from iris_memory.config import get_config
-    from iris_memory.tasks import ImageCacheCleanupTask
+    from ..config import get_config
+    from ..tasks import ImageCacheCleanupTask
 
     scheduler = component_manager.get_component("scheduler")
     if not scheduler or not scheduler.is_available:
@@ -280,8 +280,8 @@ async def _start_scheduled_tasks_deferred(component_manager: ComponentManager) -
     Args:
         component_manager: 组件管理器实例
     """
-    from iris_memory.config import get_config
-    from iris_memory.dream import DreamTask
+    from ..config import get_config
+    from ..dream import DreamTask
 
     scheduler = component_manager.get_component("scheduler")
     if not scheduler or not scheduler.is_available:

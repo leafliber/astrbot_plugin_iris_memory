@@ -6,10 +6,10 @@ from unittest.mock import Mock
 
 import pytest
 
-import iris_memory.legacy_migration as legacy_migration
-from iris_memory.config import init_config
-from iris_memory.config.config import reset_config
-from iris_memory.legacy_migration import (
+import astrbot_plugin_iris_memory.iris_memory.legacy_migration as legacy_migration
+from astrbot_plugin_iris_memory.iris_memory.config import init_config
+from astrbot_plugin_iris_memory.iris_memory.config.config import reset_config
+from astrbot_plugin_iris_memory.iris_memory.legacy_migration import (
     BACKUP_DIRNAME,
     KV_BACKUP_FILENAME,
     MIGRATION_DONE_KEY,

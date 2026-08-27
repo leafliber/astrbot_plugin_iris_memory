@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from iris_memory.core import get_logger
+from ..core import get_logger
 
 logger = get_logger("legacy_migration")
 

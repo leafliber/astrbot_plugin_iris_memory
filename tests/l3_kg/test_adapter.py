@@ -10,8 +10,8 @@ import tempfile
 import shutil
 from unittest.mock import Mock, patch
 
-from iris_memory.l3_kg import GraphNode, GraphEdge, L3KGAdapter
-from iris_memory.config import init_config
+from astrbot_plugin_iris_memory.iris_memory.l3_kg import GraphNode, GraphEdge, L3KGAdapter
+from astrbot_plugin_iris_memory.iris_memory.config import init_config
 
 
 class TestL3KGAdapter:
@@ -923,7 +923,7 @@ class TestBuildProfileAliasMap:
     async def test_builds_map_from_profiles(self):
         from unittest.mock import AsyncMock
 
-        from iris_memory.l3_kg import build_profile_alias_map
+        from astrbot_plugin_iris_memory.iris_memory.l3_kg import build_profile_alias_map
 
         profile = Mock()
         profile.user_name = "小张"
@@ -950,7 +950,7 @@ class TestBuildProfileAliasMap:
 
     @pytest.mark.asyncio
     async def test_degrades_to_empty_on_error(self):
-        from iris_memory.l3_kg import build_profile_alias_map
+        from astrbot_plugin_iris_memory.iris_memory.l3_kg import build_profile_alias_map
 
         storage = Mock()
         storage.list_all_users = Mock(side_effect=RuntimeError("boom"))

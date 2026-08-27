@@ -11,12 +11,12 @@ Iris Chat Memory - 通用平台适配器
 
 from typing import Any, List, TYPE_CHECKING
 
-from iris_memory.core import get_logger
-from iris_memory.platform.base import PlatformAdapter, ReplyInfo
+from ..core import get_logger
+from ..platform.base import PlatformAdapter, ReplyInfo
 
 if TYPE_CHECKING:
     from astrbot.api.event import AstrMessageEvent
-    from iris_memory.image.models import ImageInfo
+    from ..image.models import ImageInfo
 
 logger = get_logger("platform.generic")
 

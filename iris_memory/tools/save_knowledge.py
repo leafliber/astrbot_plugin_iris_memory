@@ -5,9 +5,9 @@ from pydantic.dataclasses import dataclass
 from astrbot.core.agent.tool import FunctionTool, ToolExecResult
 from astrbot.core.agent.run_context import ContextWrapper
 from astrbot.core.astr_agent_context import AstrAgentContext
-from iris_memory.core import get_logger, get_component_manager
-from iris_memory.l3_kg import GraphNode, GraphEdge
-from iris_memory.l3_kg.adapter import L3KGAdapter
+from ..core import get_logger, get_component_manager
+from ..l3_kg import GraphNode, GraphEdge
+from ..l3_kg.adapter import L3KGAdapter
 
 logger = get_logger("tools")
 
@@ -97,7 +97,7 @@ class SaveKnowledgeTool(FunctionTool[AstrAgentContext]):
             nodes = kwargs.get("nodes", [])
             edges = kwargs.get("edges", [])
 
-            from iris_memory.utils import sanitize_input
+            from ..utils import sanitize_input
 
             for node_data in nodes:
                 if "content" in node_data:
@@ -127,13 +127,13 @@ class SaveKnowledgeTool(FunctionTool[AstrAgentContext]):
             # 解析群聊上下文：始终将知识节点绑定到来源群，
             # 检索侧根据 enable_group_memory_isolation 决定是否跨群共享
             event = context.context.event
-            from iris_memory.platform import get_adapter
+            from ..platform import get_adapter
 
             adapter = get_adapter(event)
             group_id = adapter.get_group_id(event)
             event_user_id = adapter.get_user_id(event)
             event_user_name = adapter.get_user_name(event) or ""
-            from iris_memory.core.persona import resolve_persona
+            from ..core.persona import resolve_persona
 
             persona_id = await resolve_persona(component_manager, event)
 

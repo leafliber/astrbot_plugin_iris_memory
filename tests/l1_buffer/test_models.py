@@ -1,7 +1,7 @@
 """L1 数据模型测试"""
 
 from datetime import datetime
-from iris_memory.l1_buffer.models import (
+from astrbot_plugin_iris_memory.iris_memory.l1_buffer.models import (
     ContextMessage,
     SegmentedMessageQueue,
     MessageQueue,

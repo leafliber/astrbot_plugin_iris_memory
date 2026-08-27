@@ -9,10 +9,10 @@ import time
 
 import pytest
 
-from iris_memory.proactive.config import ConfigManager
-from iris_memory.proactive.perception import WindowMessage
-from iris_memory.proactive.signals import SignalGate
-from iris_memory.proactive.state import StateManager
+from astrbot_plugin_iris_memory.iris_memory.proactive.config import ConfigManager
+from astrbot_plugin_iris_memory.iris_memory.proactive.perception import WindowMessage
+from astrbot_plugin_iris_memory.iris_memory.proactive.signals import SignalGate
+from astrbot_plugin_iris_memory.iris_memory.proactive.state import StateManager
 
 # 永不命中的静音时段：start_mins == end_mins → start <= current < start 恒为 False
 NEVER_MUTE = {"start_hour": 0, "start_minute": 0, "end_hour": 0, "end_minute": 0}

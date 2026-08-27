@@ -9,8 +9,8 @@ from unittest.mock import Mock
 from astrbot.api.message_components import At, Plain
 
 from tests.platform.fakes import make_qq_event
-from iris_memory.commands.base import ParsedArgs
-from iris_memory.commands.parser import CommandParser
+from astrbot_plugin_iris_memory.iris_memory.commands.base import ParsedArgs
+from astrbot_plugin_iris_memory.iris_memory.commands.parser import CommandParser
 
 
 class TestParseAtForms:

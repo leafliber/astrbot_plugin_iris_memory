@@ -5,11 +5,11 @@ from types import SimpleNamespace
 import pytest
 from quart import Quart
 
-from iris_memory.config import init_config
-from iris_memory.config.config import reset_config
-from iris_memory.learning.storage import LearningStorage
-from iris_memory.persona_evolution import PersonaEvolutionStorage
-from iris_memory.web.routes import manage_routes
+from astrbot_plugin_iris_memory.iris_memory.config import init_config
+from astrbot_plugin_iris_memory.iris_memory.config.config import reset_config
+from astrbot_plugin_iris_memory.iris_memory.learning.storage import LearningStorage
+from astrbot_plugin_iris_memory.iris_memory.persona_evolution import PersonaEvolutionStorage
+from astrbot_plugin_iris_memory.iris_memory.web.routes import manage_routes
 from tests.persona_evolution.conftest import make_job, seed_samples
 
 

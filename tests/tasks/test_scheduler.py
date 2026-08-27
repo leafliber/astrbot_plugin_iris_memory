@@ -12,7 +12,7 @@ import pytest
 import asyncio
 from unittest.mock import Mock, AsyncMock, patch
 
-from iris_memory.tasks.scheduler import TaskScheduler
+from astrbot_plugin_iris_memory.iris_memory.tasks.scheduler import TaskScheduler
 
 
 class TestTaskScheduler:
@@ -101,7 +101,7 @@ class TestTaskScheduler:
             nonlocal call_count
             call_count += 1
 
-        with patch("iris_memory.tasks.scheduler.random.uniform", return_value=0.0):
+        with patch("astrbot_plugin_iris_memory.iris_memory.tasks.scheduler.random.uniform", return_value=0.0):
             scheduler.register_periodic_task(
                 task_name="test_task", coro_func=task_func, interval_hours=0.001
             )
@@ -123,7 +123,7 @@ class TestTaskScheduler:
             nonlocal running_during_execution
             running_during_execution = scheduler.is_task_running("test_task")
 
-        with patch("iris_memory.tasks.scheduler.random.uniform", return_value=0.0):
+        with patch("astrbot_plugin_iris_memory.iris_memory.tasks.scheduler.random.uniform", return_value=0.0):
             scheduler.register_periodic_task(
                 task_name="test_task", coro_func=long_task, interval_hours=100
             )
@@ -162,7 +162,7 @@ class TestTaskScheduler:
         async def failing_task():
             raise RuntimeError("Test error")
 
-        with patch("iris_memory.tasks.scheduler.random.uniform", return_value=0.0):
+        with patch("astrbot_plugin_iris_memory.iris_memory.tasks.scheduler.random.uniform", return_value=0.0):
             scheduler.register_periodic_task(
                 task_name="failing_task", coro_func=failing_task, interval_hours=0.001
             )
@@ -216,7 +216,7 @@ class TestTaskScheduler:
     @pytest.mark.asyncio
     async def test_set_component_manager(self, scheduler):
         """测试设置组件管理器"""
-        from iris_memory.core import ComponentManager
+        from astrbot_plugin_iris_memory.iris_memory.core import ComponentManager
 
         # 创建模拟组件管理器
         mock_manager = Mock(spec=ComponentManager)
@@ -242,7 +242,7 @@ class TestTaskScheduler:
             nonlocal task2_calls
             task2_calls += 1
 
-        with patch("iris_memory.tasks.scheduler.random.uniform", return_value=0.0):
+        with patch("astrbot_plugin_iris_memory.iris_memory.tasks.scheduler.random.uniform", return_value=0.0):
             scheduler.register_periodic_task("task1", task_func1, 0.001)
             scheduler.register_periodic_task("task2", task_func2, 0.001)
 
@@ -270,7 +270,7 @@ class TestTaskScheduler:
         expected_delay_seconds = delay_hours * 3600
 
         with patch(
-            "iris_memory.tasks.scheduler.random.uniform", return_value=delay_hours
+            "astrbot_plugin_iris_memory.iris_memory.tasks.scheduler.random.uniform", return_value=delay_hours
         ):
             start_time = asyncio.get_event_loop().time()
             scheduler.register_periodic_task(

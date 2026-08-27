@@ -14,9 +14,9 @@ from collections.abc import Sequence
 
 from astrbot.core.agent.tool import FunctionTool
 
-from iris_memory.core import get_logger
-from iris_memory.proactive.state import StateManager
-from iris_memory.proactive.tools import ToolContext
+from ..core import get_logger
+from ..proactive.state import StateManager
+from ..proactive.tools import ToolContext
 
 from .correct_memory import CorrectMemoryTool
 from .get_profile import GetProfileTool

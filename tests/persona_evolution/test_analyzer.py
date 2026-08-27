@@ -4,12 +4,12 @@ import asyncio
 
 import pytest
 
-from iris_memory.persona_evolution.analyzer import (
+from astrbot_plugin_iris_memory.iris_memory.persona_evolution.analyzer import (
     StyleAnalyzer,
     extract_json_object,
     parse_style_profile,
 )
-from iris_memory.persona_evolution.models import ErrorCode
+from astrbot_plugin_iris_memory.iris_memory.persona_evolution.models import ErrorCode
 
 from .fakes import ANALYSIS_MODULE, FakeLLMManager, good_analysis_json
 

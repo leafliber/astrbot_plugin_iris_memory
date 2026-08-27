@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from iris_memory.config.defaults import Defaults
+from astrbot_plugin_iris_memory.iris_memory.config.defaults import Defaults
 
 SCHEMA_PATH = Path(__file__).parent.parent.parent / "_conf_schema.json"
 
@@ -89,14 +89,14 @@ class TestLifecycleGuard:
     """create_components 按 persona_evolution.enable 守卫"""
 
     def test_component_registered_when_enabled(self, config):
-        from iris_memory.core.lifecycle import create_components
+        from astrbot_plugin_iris_memory.iris_memory.core.lifecycle import create_components
 
         components = create_components(MagicMock(), MagicMock())
         names = [c.name for c in components]
         assert "persona_evolution" in names
 
     def test_component_not_registered_when_disabled(self, disabled_config):
-        from iris_memory.core.lifecycle import create_components
+        from astrbot_plugin_iris_memory.iris_memory.core.lifecycle import create_components
 
         components = create_components(MagicMock(), MagicMock())
         names = [c.name for c in components]
@@ -115,7 +115,7 @@ class TestMessageHookBypass:
 
     @pytest.mark.asyncio
     async def test_bypass_calls_on_message(self, config):
-        from iris_memory.core.message_hook import handle_user_message
+        from astrbot_plugin_iris_memory.iris_memory.core.message_hook import handle_user_message
 
         component = MagicMock()
         component.on_message = AsyncMock()
@@ -127,7 +127,7 @@ class TestMessageHookBypass:
     @pytest.mark.asyncio
     async def test_bypass_skips_unavailable(self, config):
         """组件未注册/未就绪时不报错"""
-        from iris_memory.core.message_hook import handle_user_message
+        from astrbot_plugin_iris_memory.iris_memory.core.message_hook import handle_user_message
 
         event = MagicMock()
         event.message_str = ""
@@ -136,7 +136,7 @@ class TestMessageHookBypass:
     @pytest.mark.asyncio
     async def test_bypass_isolates_exception(self, config):
         """采集异常被隔离，不影响主流程"""
-        from iris_memory.core.message_hook import handle_user_message
+        from astrbot_plugin_iris_memory.iris_memory.core.message_hook import handle_user_message
 
         component = MagicMock()
         component.on_message = AsyncMock(side_effect=RuntimeError("采集炸了"))

@@ -5,8 +5,8 @@ import types
 
 import pytest
 
-from iris_memory.legacy_migration.detector import LegacyDetection
-from iris_memory.legacy_migration.l2_migrator import (
+from astrbot_plugin_iris_memory.iris_memory.legacy_migration.detector import LegacyDetection
+from astrbot_plugin_iris_memory.iris_memory.legacy_migration.l2_migrator import (
     BATCH_SIZE,
     map_legacy_metadata,
     migrate_l2,

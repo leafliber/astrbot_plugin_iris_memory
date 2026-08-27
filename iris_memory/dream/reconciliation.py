@@ -3,9 +3,9 @@
 import random
 from typing import Dict, Optional, cast
 
-from iris_memory.config import get_config
-from iris_memory.core import get_logger
-from iris_memory.l2_memory.models import MemoryEntry
+from ..config import get_config
+from ..core import get_logger
+from ..l2_memory.models import MemoryEntry
 
 from .consolidation import ConsolidationPhase, UnionFind
 from .contradiction import ContradictionPhase

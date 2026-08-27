@@ -6,10 +6,10 @@
 
 import pytest
 from unittest.mock import Mock
-from iris_memory.platform.base import ReplyInfo
-from iris_memory.platform.cron import CronAdapter
-from iris_memory.platform.factory import get_adapter
-from iris_memory.platform.generic import GenericAdapter
+from astrbot_plugin_iris_memory.iris_memory.platform.base import ReplyInfo
+from astrbot_plugin_iris_memory.iris_memory.platform.cron import CronAdapter
+from astrbot_plugin_iris_memory.iris_memory.platform.factory import get_adapter
+from astrbot_plugin_iris_memory.iris_memory.platform.generic import GenericAdapter
 
 
 class TestCronAdapterGroupSession:

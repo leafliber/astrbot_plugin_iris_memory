@@ -14,12 +14,12 @@ import hashlib
 import inspect
 from typing import List, Optional, cast
 
-from iris_memory.core import get_logger
-from iris_memory.config import get_config
-from iris_memory.l2_memory.adapter import L2MemoryAdapter
-from iris_memory.l3_kg.adapter import L3KGAdapter
-from iris_memory.llm.manager import LLMManager
-from iris_memory.llm_modules import DREAM_KNOWLEDGE_INDUCTION
+from ..core import get_logger
+from ..config import get_config
+from ..l2_memory.adapter import L2MemoryAdapter
+from ..l3_kg.adapter import L3KGAdapter
+from ..llm.manager import LLMManager
+from ..llm_modules import DREAM_KNOWLEDGE_INDUCTION
 
 logger = get_logger("dream.knowledge_extract")
 
@@ -100,7 +100,7 @@ class KnowledgeExtractPhase:
             f"按群聊分组：{len(groups)} 个组，共 {len(unprocessed_memories)} 条记忆"
         )
 
-        from iris_memory.l3_kg import EntityExtractor
+        from ..l3_kg import EntityExtractor
 
         extractor = EntityExtractor(llm, module=DREAM_KNOWLEDGE_INDUCTION)
 
@@ -281,7 +281,7 @@ class KnowledgeExtractPhase:
 
         if component_manager is not None and user_ids:
             try:
-                from iris_memory.profile.storage import ProfileStorage
+                from ..profile.storage import ProfileStorage
 
                 profile_storage = component_manager.get_component("profile")
                 if profile_storage and getattr(

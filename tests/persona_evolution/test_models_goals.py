@@ -1,6 +1,6 @@
 """人格自迭代数据模型与目标预设测试"""
 
-from iris_memory.persona_evolution import (
+from astrbot_plugin_iris_memory.iris_memory.persona_evolution import (
     ApprovalMode,
     EditMode,
     ErrorCode,
@@ -9,7 +9,7 @@ from iris_memory.persona_evolution import (
     RunStatus,
     TriggerType,
 )
-from iris_memory.persona_evolution.goals import (
+from astrbot_plugin_iris_memory.iris_memory.persona_evolution.goals import (
     GOAL_PRESET_VERSION,
     GOAL_PRESETS,
     build_goal_snapshot,

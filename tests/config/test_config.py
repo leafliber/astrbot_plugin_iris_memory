@@ -2,9 +2,9 @@
 
 import json
 from pathlib import Path
-from iris_memory.config import Config, init_config, get_config
-from iris_memory.config.hidden_config import HiddenConfigManager
-from iris_memory.config.defaults import Defaults, HiddenConfig
+from astrbot_plugin_iris_memory.iris_memory.config import Config, init_config, get_config
+from astrbot_plugin_iris_memory.iris_memory.config.hidden_config import HiddenConfigManager
+from astrbot_plugin_iris_memory.iris_memory.config.defaults import Defaults, HiddenConfig
 
 
 class TestConfig:
@@ -76,7 +76,7 @@ class TestConfig:
         缺键时的回退——两处不一致会让不同路径拿到相反语义。
         proactive 分组由 proactive.config._DEFAULTS 单独管理，单独比对。
         """
-        from iris_memory.proactive.config import _DEFAULTS as reply_defaults
+        from astrbot_plugin_iris_memory.iris_memory.proactive.config import _DEFAULTS as reply_defaults
 
         schema_path = Path(__file__).resolve().parents[2] / "_conf_schema.json"
         schema_flat = self._flatten_schema(

@@ -10,16 +10,16 @@ Iris Chat Memory - 学习模块指令处理器
 
 from typing import Optional, TYPE_CHECKING
 
-from iris_memory.core import get_logger, get_component_manager
-from iris_memory.learning import LearningComponent
-from iris_memory.learning.storage import (
+from ..core import get_logger, get_component_manager
+from ..learning import LearningComponent
+from ..learning.storage import (
     STATUS_ACTIVE,
     STATUS_DORMANT,
     STATUS_APPROVED,
     STATUS_DISABLED,
     STATUS_PENDING,
 )
-from iris_memory.platform import get_adapter
+from ..platform import get_adapter
 from .base import CommandHandler, CommandResult, ParsedArgs, DeleteScope
 
 if TYPE_CHECKING:
@@ -238,7 +238,7 @@ class LearningCommandHandler(CommandHandler):
         group_id = adapter.get_group_id(event) or ""
         user_id = adapter.get_user_id(event) or ""
 
-        from iris_memory.core.persona import resolve_persona
+        from ..core.persona import resolve_persona
 
         manager = get_component_manager()
         persona_id = await resolve_persona(manager, event)

@@ -2,9 +2,9 @@
 
 from typing import Optional
 
-from iris_memory.l2_memory.adapter import L2MemoryAdapter
-from iris_memory.l3_kg.adapter import L3KGAdapter
-from iris_memory.llm.manager import LLMManager
+from ..l2_memory.adapter import L2MemoryAdapter
+from ..l3_kg.adapter import L3KGAdapter
+from ..llm.manager import LLMManager
 
 
 class KnowledgeInductionPhase:

@@ -9,7 +9,7 @@ Iris Chat Memory - 梦境模块
 5. Global L3 Maintenance: 每轮一次全局图谱维护
 """
 
-from iris_memory.core import get_logger
+from ..core import get_logger
 
 __all__ = [
     "DreamTask",

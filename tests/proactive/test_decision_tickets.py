@@ -2,7 +2,7 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from iris_memory.proactive.tickets import DecisionTicketRegistry
+from astrbot_plugin_iris_memory.iris_memory.proactive.tickets import DecisionTicketRegistry
 
 
 def test_ticket_registry_dedupes_event_and_checks_owner():
@@ -27,7 +27,7 @@ def test_ticket_registry_recovers_stale_active_ticket():
 
 @pytest.mark.asyncio
 async def test_stale_event_cannot_consume_newer_group_ticket():
-    from main import IrisMemoryPlugin
+    from astrbot_plugin_iris_memory.main import IrisMemoryPlugin
 
     plugin = object.__new__(IrisMemoryPlugin)
     plugin._triggering = {"g1": 1.0}

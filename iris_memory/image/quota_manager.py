@@ -8,9 +8,9 @@ from datetime import datetime, date
 from typing import TYPE_CHECKING
 import asyncio
 
-from iris_memory.core import Component, get_logger
-from iris_memory.core.storage import KVStorage
-from iris_memory.config import get_config
+from ..core import Component, get_logger
+from ..core.storage import KVStorage
+from ..config import get_config
 from .models import QuotaStatus
 
 if TYPE_CHECKING:

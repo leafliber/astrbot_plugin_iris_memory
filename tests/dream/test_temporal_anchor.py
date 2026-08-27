@@ -11,9 +11,9 @@ TemporalAnchorPhase 时间锚定测试
 import pytest
 from datetime import datetime
 from unittest.mock import Mock, AsyncMock, patch
-from iris_memory.l2_memory.models import MemoryEntry
+from astrbot_plugin_iris_memory.iris_memory.l2_memory.models import MemoryEntry
 
-from iris_memory.dream.temporal_anchor import (
+from astrbot_plugin_iris_memory.iris_memory.dream.temporal_anchor import (
     TemporalAnchorPhase,
     _RELATIVE_TIME_PATTERN,
     _resolve_relative_time,
@@ -83,7 +83,7 @@ class TestTemporalAnchorPhase:
         llm = None
 
         with patch(
-            "iris_memory.dream.temporal_anchor.get_config", return_value=_mock_config()
+            "astrbot_plugin_iris_memory.iris_memory.dream.temporal_anchor.get_config", return_value=_mock_config()
         ):
             result = await phase.execute(l2, l3, llm)
 
@@ -111,7 +111,7 @@ class TestTemporalAnchorPhase:
         llm.generate_direct = AsyncMock()
 
         with patch(
-            "iris_memory.dream.temporal_anchor.get_config", return_value=_mock_config()
+            "astrbot_plugin_iris_memory.iris_memory.dream.temporal_anchor.get_config", return_value=_mock_config()
         ):
             result = await phase.execute(l2, None, llm)
 

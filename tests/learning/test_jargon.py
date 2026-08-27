@@ -6,12 +6,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from iris_memory.learning.collector import LearningCollector, clean_text
-from iris_memory.learning.jargon import CandidateExtractor, JargonLearner
-from iris_memory.learning.jargon.models import CandidateCluster
-from iris_memory.learning.jargon.reviewer import JargonReviewer
-from iris_memory.learning.jargon_clustering import cluster_candidate_items
-from iris_memory.learning.reviewer import LearningReviewer
+from astrbot_plugin_iris_memory.iris_memory.learning.collector import LearningCollector, clean_text
+from astrbot_plugin_iris_memory.iris_memory.learning.jargon import CandidateExtractor, JargonLearner
+from astrbot_plugin_iris_memory.iris_memory.learning.jargon.models import CandidateCluster
+from astrbot_plugin_iris_memory.iris_memory.learning.jargon.reviewer import JargonReviewer
+from astrbot_plugin_iris_memory.iris_memory.learning.jargon_clustering import cluster_candidate_items
+from astrbot_plugin_iris_memory.iris_memory.learning.reviewer import LearningReviewer
 
 
 def _make(storage):
@@ -78,7 +78,7 @@ class TestCollector:
 
     def test_self_message_filtered(self, config, storage):
         jargon, collector = _make(storage)
-        with patch("iris_memory.learning.collector.get_adapter") as adapter:
+        with patch("astrbot_plugin_iris_memory.iris_memory.learning.collector.get_adapter") as adapter:
             adapter.return_value.get_group_id.return_value = "g1"
             collector.on_message(self._event("u1"), "g1", "u1", "绝绝子")
         assert storage.get_jargon_candidate_snapshots(14) == []

@@ -5,7 +5,7 @@ import time
 
 import pytest
 
-from iris_memory.learning.storage import LearningStorage
+from astrbot_plugin_iris_memory.iris_memory.learning.storage import LearningStorage
 
 
 class TestSchemaAndCommonTables:

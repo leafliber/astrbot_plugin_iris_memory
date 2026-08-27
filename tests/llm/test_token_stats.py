@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from iris_memory.llm.token_stats import TokenUsage, TokenStatsManager
+from astrbot_plugin_iris_memory.iris_memory.llm.token_stats import TokenUsage, TokenStatsManager
 
 
 class TestTokenUsage:

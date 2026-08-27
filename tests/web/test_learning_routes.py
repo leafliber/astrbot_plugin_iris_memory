@@ -2,7 +2,7 @@
 
 import pytest
 
-from iris_memory.web.routes.learning import (
+from astrbot_plugin_iris_memory.iris_memory.web.routes.learning import (
     MAX_PAGE_SIZE,
     parse_pagination,
     validate_table,
@@ -86,15 +86,15 @@ class TestAugmentDisabledComponents:
 
     @pytest.fixture
     def config(self, tmp_path):
-        from iris_memory.config import init_config
-        from iris_memory.config.config import reset_config
+        from astrbot_plugin_iris_memory.iris_memory.config import init_config
+        from astrbot_plugin_iris_memory.iris_memory.config.config import reset_config
 
         cfg = init_config({}, tmp_path)
         yield cfg
         reset_config()
 
     def test_adds_disabled_entry_for_unregistered(self, config):
-        from iris_memory.web.routes.stats import _augment_disabled_components
+        from astrbot_plugin_iris_memory.iris_memory.web.routes.stats import _augment_disabled_components
 
         states = _augment_disabled_components({})
         # learning.enable 默认 false 且组件未注册 → 补报 disabled
@@ -102,16 +102,16 @@ class TestAugmentDisabledComponents:
         assert states["learning"]["error_type"] == "disabled"
 
     def test_keeps_registered_state(self, config):
-        from iris_memory.web.routes.stats import _augment_disabled_components
+        from astrbot_plugin_iris_memory.iris_memory.web.routes.stats import _augment_disabled_components
 
         existing = {"learning": {"status": "available", "error": None, "error_type": None}}
         states = _augment_disabled_components(existing)
         assert states["learning"]["status"] == "available"
 
     def test_enabled_component_not_augmented(self, tmp_path):
-        from iris_memory.config import init_config
-        from iris_memory.config.config import reset_config
-        from iris_memory.web.routes.stats import _augment_disabled_components
+        from astrbot_plugin_iris_memory.iris_memory.config import init_config
+        from astrbot_plugin_iris_memory.iris_memory.config.config import reset_config
+        from astrbot_plugin_iris_memory.iris_memory.web.routes.stats import _augment_disabled_components
 
         init_config({"learning": {"enable": True}}, tmp_path)
         try:

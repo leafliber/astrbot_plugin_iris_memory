@@ -6,7 +6,7 @@ import pytest
 
 from .conftest import make_adapter, make_event
 
-ADAPTER_PATH = "iris_memory.persona_evolution.collector.get_adapter"
+ADAPTER_PATH = "astrbot_plugin_iris_memory.iris_memory.persona_evolution.collector.get_adapter"
 
 
 async def _collect(collector, event, adapter):
@@ -217,7 +217,7 @@ class TestDedupe:
         first = await _collect(collector, make_event(message_id=None), adapter)
         assert first is not None
         # 换新采集器实例（清空内存短时窗口），仍被内容哈希去重
-        from iris_memory.persona_evolution.collector import PersonaCollector
+        from astrbot_plugin_iris_memory.iris_memory.persona_evolution.collector import PersonaCollector
 
         second_collector = PersonaCollector(storage)
         second = await _collect(second_collector, make_event(message_id=None), adapter)

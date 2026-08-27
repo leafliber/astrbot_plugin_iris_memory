@@ -1,11 +1,11 @@
 """批量 LLM 暗语鉴别。"""
 
 import json
-from iris_memory.llm_modules import LEARNING_JARGON_REVIEW
+from ...llm_modules import LEARNING_JARGON_REVIEW
 import re
 from typing import Any, List, Optional
 
-from iris_memory.core import get_logger
+from ...core import get_logger
 from .models import CandidateCluster, ReviewVerdict
 
 logger = get_logger("learning.jargon.reviewer")

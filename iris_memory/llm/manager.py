@@ -18,9 +18,9 @@ import asyncio
 import uuid
 import time
 
-from iris_memory.core import Component, get_logger, get_run_log_manager
-from iris_memory.core.storage import KVStorage
-from iris_memory.config import get_config
+from ..core import Component, get_logger, get_run_log_manager
+from ..core.storage import KVStorage
+from ..config import get_config
 from .token_stats import TokenStatsManager
 from .call_log import CallLog
 from .governor import (

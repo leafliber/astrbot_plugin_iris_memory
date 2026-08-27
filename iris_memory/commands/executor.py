@@ -6,7 +6,7 @@ Iris Chat Memory - 指令执行器
 
 from typing import Optional, TYPE_CHECKING
 
-from iris_memory.core import get_logger
+from ..core import get_logger
 from .parser import CommandParser
 from .registry import get_registry
 from .base import CommandResult

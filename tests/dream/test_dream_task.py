@@ -11,7 +11,7 @@ DreamTask 梦境任务测试
 import pytest
 from unittest.mock import AsyncMock, Mock, patch
 
-from iris_memory.dream.dream_task import (
+from astrbot_plugin_iris_memory.iris_memory.dream.dream_task import (
     DreamTask,
     DreamReport,
     DreamPhaseReport,
@@ -19,7 +19,7 @@ from iris_memory.dream.dream_task import (
     _PHASE_CONFIG_KEYS,
     _PHASES_THAT_MUTATE_ENTRIES,
 )
-from iris_memory.dream.state import DreamCursorStore
+from astrbot_plugin_iris_memory.iris_memory.dream.state import DreamCursorStore
 
 
 class TestDreamReport:
@@ -143,7 +143,7 @@ class TestDreamTask:
 
     @pytest.mark.asyncio
     async def test_execute_dream_disabled(self, dream_task):
-        with patch("iris_memory.dream.dream_task.get_config") as mock_config:
+        with patch("astrbot_plugin_iris_memory.iris_memory.dream.dream_task.get_config") as mock_config:
             mock_config_instance = Mock()
             mock_config_instance.get = Mock(return_value=False)
             mock_config.return_value = mock_config_instance
@@ -157,7 +157,7 @@ class TestDreamTask:
     async def test_execute_l2_unavailable(self, dream_task, mock_component_manager):
         mock_component_manager.get_component = Mock(return_value=None)
 
-        with patch("iris_memory.dream.dream_task.get_config") as mock_config:
+        with patch("astrbot_plugin_iris_memory.iris_memory.dream.dream_task.get_config") as mock_config:
             mock_config_instance = Mock()
             mock_config_instance.get = Mock(
                 side_effect=lambda key, default=None: {
@@ -189,7 +189,7 @@ class TestDreamTask:
             )
         )
 
-        with patch("iris_memory.dream.dream_task.get_config") as mock_config:
+        with patch("astrbot_plugin_iris_memory.iris_memory.dream.dream_task.get_config") as mock_config:
             config = Mock()
             config.get = Mock(
                 side_effect=lambda key, default=None: {
@@ -220,7 +220,7 @@ class TestDreamTask:
         ]
         dream_task._run_phase = AsyncMock(side_effect=phase_reports)
 
-        with patch("iris_memory.dream.dream_task.get_config") as mock_config:
+        with patch("astrbot_plugin_iris_memory.iris_memory.dream.dream_task.get_config") as mock_config:
             config = Mock()
             config.get = Mock(return_value=True)
             mock_config.return_value = config
@@ -240,7 +240,7 @@ class TestDreamTask:
                 DreamPhaseReport("pruning", True, True, 1),
             ]
         )
-        with patch("iris_memory.dream.dream_task.get_config") as mock_config:
+        with patch("astrbot_plugin_iris_memory.iris_memory.dream.dream_task.get_config") as mock_config:
             config = Mock()
             config.get = Mock(return_value=True)
             mock_config.return_value = config

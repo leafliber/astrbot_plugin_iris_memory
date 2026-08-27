@@ -13,8 +13,8 @@ from pathlib import Path
 from typing import Any, Dict
 
 from quart import jsonify, request
-from iris_memory.config import get_config
-from iris_memory.core import get_logger
+from ...config import get_config
+from ...core import get_logger
 
 logger = get_logger("web.ui_preferences")
 

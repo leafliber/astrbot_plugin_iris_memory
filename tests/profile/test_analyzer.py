@@ -4,12 +4,12 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 import json
 
-from iris_memory.profile.analyzer import (
+from astrbot_plugin_iris_memory.iris_memory.profile.analyzer import (
     ProfileAnalyzer,
     _slim_profile_dict,
     _truncate_messages,
 )
-from iris_memory.profile.models import UpdateTier
+from astrbot_plugin_iris_memory.iris_memory.profile.models import UpdateTier
 
 
 class TestProfileAnalyzer:
@@ -158,7 +158,7 @@ class TestProfileAnalyzer:
             }.get(key, default)
         )
 
-        with patch("iris_memory.profile.analyzer.get_config", return_value=mock_config):
+        with patch("astrbot_plugin_iris_memory.iris_memory.profile.analyzer.get_config", return_value=mock_config):
             await analyzer.analyze_group_profile(messages, current_profile)
 
         mock_llm_manager.generate_direct.assert_called_once()
@@ -268,7 +268,7 @@ class TestFavorabilityDeltaInPrompt:
                 "profile_max_messages_for_user_analysis": 30,
             }.get(key, default)
         )
-        with patch("iris_memory.profile.analyzer.get_config", return_value=mock_config):
+        with patch("astrbot_plugin_iris_memory.iris_memory.profile.analyzer.get_config", return_value=mock_config):
             prompt = analyzer._build_user_analysis_prompt(["消息"], {}, UpdateTier.MID)
         assert "favorability_delta" in prompt
 
@@ -282,7 +282,7 @@ class TestFavorabilityDeltaInPrompt:
                 "profile_max_messages_for_user_analysis": 30,
             }.get(key, default)
         )
-        with patch("iris_memory.profile.analyzer.get_config", return_value=mock_config):
+        with patch("astrbot_plugin_iris_memory.iris_memory.profile.analyzer.get_config", return_value=mock_config):
             prompt = analyzer._build_user_analysis_prompt(["消息"], {}, UpdateTier.MID)
         assert "favorability_delta" not in prompt
 
@@ -296,7 +296,7 @@ class TestFavorabilityDeltaInPrompt:
                 "profile_max_messages_for_user_analysis": 30,
             }.get(key, default)
         )
-        with patch("iris_memory.profile.analyzer.get_config", return_value=mock_config):
+        with patch("astrbot_plugin_iris_memory.iris_memory.profile.analyzer.get_config", return_value=mock_config):
             prompt = analyzer._build_user_analysis_prompt(["消息"], {}, UpdateTier.LONG)
         assert "favorability_delta" not in prompt
 
@@ -310,7 +310,7 @@ class TestFavorabilityDeltaInPrompt:
                 "profile_max_messages_for_user_analysis": 30,
             }.get(key, default)
         )
-        with patch("iris_memory.profile.analyzer.get_config", return_value=mock_config):
+        with patch("astrbot_plugin_iris_memory.iris_memory.profile.analyzer.get_config", return_value=mock_config):
             prompt = analyzer._build_user_analysis_prompt(
                 ["消息"], {}, UpdateTier.MID, combined=True
             )

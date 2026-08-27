@@ -10,9 +10,9 @@ Iris Chat Memory - 学习采集与配对
 import re
 from typing import Optional, TYPE_CHECKING
 
-from iris_memory.core import get_logger
-from iris_memory.platform import get_adapter
-from iris_memory.utils.token_counter import count_tokens
+from ..core import get_logger
+from ..platform import get_adapter
+from ..utils.token_counter import count_tokens
 from . import expression
 from .jargon import JargonLearner
 from .reviewer import LearningReviewer

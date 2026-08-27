@@ -10,9 +10,9 @@ from typing import Dict, TYPE_CHECKING
 from collections import defaultdict
 import asyncio
 
-from iris_memory.core import get_logger
-from iris_memory.core.storage import KVStorage
-from iris_memory.llm_modules import ALL_LLM_MODULES
+from ..core import get_logger
+from ..core.storage import KVStorage
+from ..llm_modules import ALL_LLM_MODULES
 
 if TYPE_CHECKING:
     pass

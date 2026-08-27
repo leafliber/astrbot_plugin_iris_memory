@@ -14,13 +14,13 @@ import json
 from datetime import datetime
 
 from quart import jsonify, request, Response
-from iris_memory.core import get_component_manager, get_logger
-from iris_memory.l2_memory.io import MemoryExporter, MemoryImporter
-from iris_memory.l2_memory.adapter import L2MemoryAdapter
-from iris_memory.l3_kg.adapter import L3KGAdapter
-from iris_memory.profile.storage import ProfileStorage
-from iris_memory.learning import LearningComponent
-from iris_memory.persona_evolution import PersonaEvolutionComponent
+from ...core import get_component_manager, get_logger
+from ...l2_memory.io import MemoryExporter, MemoryImporter
+from ...l2_memory.adapter import L2MemoryAdapter
+from ...l3_kg.adapter import L3KGAdapter
+from ...profile.storage import ProfileStorage
+from ...learning import LearningComponent
+from ...persona_evolution import PersonaEvolutionComponent
 
 logger = get_logger("web.data")
 
@@ -107,7 +107,7 @@ async def import_l2_memory():
         else:
             return jsonify({"success": False, "error": "无法识别的导入数据格式"}), 400
 
-        from iris_memory.l2_memory.models import MemoryEntry
+        from ...l2_memory.models import MemoryEntry
 
         entries = []
         for entry_data in entries_data:
@@ -480,7 +480,7 @@ async def import_all():
                         if isinstance(l2_data, dict)
                         else l2_data
                     )
-                    from iris_memory.l2_memory.models import MemoryEntry
+                    from ...l2_memory.models import MemoryEntry
 
                     entries = [MemoryEntry.from_dict(e) for e in entries_data]
                     stats = await importer.import_entries(

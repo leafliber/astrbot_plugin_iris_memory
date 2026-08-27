@@ -2,8 +2,8 @@
 
 import pytest
 
-from iris_memory.config.config import reset_config
-from iris_memory.legacy_migration.config_migrator import (
+from astrbot_plugin_iris_memory.iris_memory.config.config import reset_config
+from astrbot_plugin_iris_memory.iris_memory.legacy_migration.config_migrator import (
     HIDDEN_SUGGESTIONS_KEY,
     migrate_config,
 )
@@ -70,7 +70,7 @@ class TestDirectWrite:
 
     def test_auxiliary_sections_are_detected_for_regrouping(self):
         """原独立辅助配置段会被识别并迁入 extras。"""
-        from iris_memory.legacy_migration.detector import detect_legacy_config_keys
+        from astrbot_plugin_iris_memory.iris_memory.legacy_migration.detector import detect_legacy_config_keys
 
         raw = {"error_friendly": {"enable": False}, "markdown_stripper": {"enable": False}}
         assert detect_legacy_config_keys(raw) == [
@@ -144,7 +144,7 @@ class TestHiddenFallback:
     """持久化失败 → hidden_config.json + 用户可见建议"""
 
     def test_save_failure_fallback(self, tmp_path):
-        from iris_memory.config import get_config, init_config
+        from astrbot_plugin_iris_memory.iris_memory.config import get_config, init_config
 
         raw = _old_config(save_raises=True)
         init_config(raw, tmp_path)
@@ -161,7 +161,7 @@ class TestHiddenFallback:
 
     def test_plain_dict_fallback(self, tmp_path):
         """普通 dict 无 save_config → 同样走 hidden 回退"""
-        from iris_memory.config import get_config, init_config
+        from astrbot_plugin_iris_memory.iris_memory.config import get_config, init_config
 
         init_config(FakeUserConfig(), tmp_path)
 

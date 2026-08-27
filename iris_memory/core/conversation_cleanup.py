@@ -21,13 +21,13 @@ L1/L2/L3 记忆系统控制，避免内置对话历史与插件记忆系统冲�
 
 from typing import TYPE_CHECKING
 
-from iris_memory.core import get_logger
+from ..core import get_logger
 
 if TYPE_CHECKING:
     from astrbot.api.event import AstrMessageEvent
     from astrbot.api.provider import LLMResponse, ProviderRequest
     from astrbot.api.star import Context
-    from iris_memory.core.components import ComponentManager
+    from ..core.components import ComponentManager
 
 logger = get_logger("conversation_cleanup")
 
@@ -55,7 +55,7 @@ async def handle_pre_request_cleanup(
         context: AstrBot 插件上下文
         component_manager: 组件管理器实例
     """
-    from iris_memory.config import get_config
+    from ..config import get_config
 
     config = get_config()
 
@@ -96,7 +96,7 @@ async def handle_agent_done(
         context: AstrBot 插件上下文
         component_manager: 组件管理器实例
     """
-    from iris_memory.config import get_config
+    from ..config import get_config
 
     config = get_config()
 

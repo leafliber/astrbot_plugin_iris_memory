@@ -12,7 +12,7 @@ Iris Chat Memory - 输入清理模块
 
 import re
 
-from iris_memory.core import get_logger
+from ..core import get_logger
 
 logger = get_logger("utils.input_sanitizer")
 
@@ -75,7 +75,7 @@ def sanitize_input(text: str, source: str = "unknown") -> str:
     if not text:
         return text
 
-    from iris_memory.config import get_config
+    from ..config import get_config
 
     config = get_config()
 

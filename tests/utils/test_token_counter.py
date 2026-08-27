@@ -4,8 +4,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from iris_memory.utils import token_counter
-from iris_memory.utils.token_counter import (
+from astrbot_plugin_iris_memory.iris_memory.utils import token_counter
+from astrbot_plugin_iris_memory.iris_memory.utils.token_counter import (
     _TIKTOKEN_AVAILABLE,
     count_tokens,
     get_encoder,

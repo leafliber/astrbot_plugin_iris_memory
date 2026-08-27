@@ -36,8 +36,8 @@ import sqlite3
 from datetime import datetime
 from typing import Any, Dict, Optional, Tuple
 
-from iris_memory.core import get_logger
-from iris_memory.l3_kg.models import GraphEdge, GraphNode
+from ..core import get_logger
+from ..l3_kg.models import GraphEdge, GraphNode
 
 logger = get_logger("legacy_migration")
 

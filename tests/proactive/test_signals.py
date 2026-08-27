@@ -7,9 +7,9 @@
 import time
 from unittest.mock import Mock, patch
 
-from iris_memory.proactive.perception import Gatekeeper
-from iris_memory.proactive.signals import SignalGate
-from iris_memory.proactive.state import GroupState, StateManager
+from astrbot_plugin_iris_memory.iris_memory.proactive.perception import Gatekeeper
+from astrbot_plugin_iris_memory.iris_memory.proactive.signals import SignalGate
+from astrbot_plugin_iris_memory.iris_memory.proactive.state import GroupState, StateManager
 
 GID = "g1"
 
@@ -115,14 +115,14 @@ class TestTimerGate:
         _, st, gate = self._timer_gate(nm_config)
         old = make_msg(timestamp=time.time() - 1900)
         self._prime_hazard(st)
-        with patch("iris_memory.proactive.state.random.random", return_value=0.0):
+        with patch("astrbot_plugin_iris_memory.iris_memory.proactive.state.random.random", return_value=0.0):
             assert gate.evaluate_timer(GID, [old]) == "initiate"
 
     def test_same_eligible_state_can_probabilistically_skip(self, nm_config, make_msg):
         _, st, gate = self._timer_gate(nm_config)
         old = make_msg(timestamp=time.time() - 1900)
         self._prime_hazard(st)
-        with patch("iris_memory.proactive.state.random.random", return_value=1.0):
+        with patch("astrbot_plugin_iris_memory.iris_memory.proactive.state.random.random", return_value=1.0):
             assert gate.evaluate_timer(GID, [old]) is None
 
     def test_hard_quiet_floor_blocks(self, nm_config, make_msg):
@@ -178,19 +178,19 @@ class TestTimerGate:
         # 超过最小间隔后放行
         st.get_state(GID).last_initiate_time = time.time() - 3700
         self._prime_hazard(st)
-        with patch("iris_memory.proactive.state.random.random", return_value=0.0):
+        with patch("astrbot_plugin_iris_memory.iris_memory.proactive.state.random.random", return_value=0.0):
             assert gate.evaluate_timer(GID, [old]) == "initiate"
 
     def test_drift_increases_hazard(self, nm_config, make_msg):
         _, st, gate = self._timer_gate(nm_config, {"proactive_drift_delay": 5})
         quiet = make_msg(timestamp=time.time() - 1900)
         self._prime_hazard(st)
-        with patch("iris_memory.proactive.state.random.random", return_value=1.0):
+        with patch("astrbot_plugin_iris_memory.iris_memory.proactive.state.random.random", return_value=1.0):
             gate.evaluate_timer(GID, [quiet])
         base = st.get_state(GID).initiate_hazard_probability
         st.get_state(GID).last_drift_time = time.time() - 100
         self._prime_hazard(st)
-        with patch("iris_memory.proactive.state.random.random", return_value=1.0):
+        with patch("astrbot_plugin_iris_memory.iris_memory.proactive.state.random.random", return_value=1.0):
             gate.evaluate_timer(GID, [quiet])
         assert st.get_state(GID).initiate_hazard_probability > base
 

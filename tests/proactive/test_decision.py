@@ -10,14 +10,14 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from iris_memory.proactive.decision import (
+from astrbot_plugin_iris_memory.iris_memory.proactive.decision import (
     DecisionCore,
     DecisionRequest,
     build_anchor_block,
     classify_decision_error,
 )
-from iris_memory.proactive.perception import ContextPackager, SlidingWindow
-from iris_memory.proactive.state import StateManager, ThreadAnchor
+from astrbot_plugin_iris_memory.iris_memory.proactive.perception import ContextPackager, SlidingWindow
+from astrbot_plugin_iris_memory.iris_memory.proactive.state import StateManager, ThreadAnchor
 
 GID = "g1"
 
@@ -158,7 +158,7 @@ class TestTokenTruncation:
 
 
 def _msg(name, uid, content):
-    from iris_memory.proactive.perception import WindowMessage
+    from astrbot_plugin_iris_memory.iris_memory.proactive.perception import WindowMessage
 
     return WindowMessage(
         sender_id=uid,
@@ -270,7 +270,7 @@ class TestDecide:
 
     @pytest.mark.asyncio
     async def test_1026_is_non_retryable_and_records_dynamic_sources(self, nm_config):
-        from iris_memory.core.run_log import (
+        from astrbot_plugin_iris_memory.iris_memory.core.run_log import (
             get_run_log_manager,
             reset_run_log_manager,
         )

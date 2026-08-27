@@ -7,9 +7,9 @@
 """
 
 from quart import jsonify, request
-from iris_memory.core import get_component_manager, get_logger
-from iris_memory.profile.models import profile_to_dict
-from iris_memory.profile.storage import ProfileStorage
+from ...core import get_component_manager, get_logger
+from ...profile.models import profile_to_dict
+from ...profile.storage import ProfileStorage
 from typing import Any, Optional, Tuple
 import os
 

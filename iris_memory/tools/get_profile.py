@@ -5,11 +5,11 @@ from pydantic.dataclasses import dataclass
 from astrbot.core.agent.tool import FunctionTool, ToolExecResult
 from astrbot.core.agent.run_context import ContextWrapper
 from astrbot.core.astr_agent_context import AstrAgentContext
-from iris_memory.core import get_logger, get_component_manager
-from iris_memory.config import get_config
-from iris_memory.profile import UserProfileManager, GroupProfileManager
-from iris_memory.profile.models import UserProfile, GroupProfile
-from iris_memory.profile.storage import ProfileStorage
+from ..core import get_logger, get_component_manager
+from ..config import get_config
+from ..profile import UserProfileManager, GroupProfileManager
+from ..profile.models import UserProfile, GroupProfile
+from ..profile.storage import ProfileStorage
 
 logger = get_logger("tools")
 
@@ -54,7 +54,7 @@ class GetProfileTool(FunctionTool[AstrAgentContext]):
             target_id = kwargs.get("target_id", "").strip()
 
             event = context.context.event
-            from iris_memory.platform import get_adapter
+            from ..platform import get_adapter
 
             adapter = get_adapter(event)
 
@@ -90,7 +90,7 @@ class GetProfileTool(FunctionTool[AstrAgentContext]):
             else "default"
         )
 
-        from iris_memory.core.persona import resolve_persona
+        from ..core.persona import resolve_persona
 
         manager = get_component_manager()
         persona_id = await resolve_persona(manager, event)
@@ -117,7 +117,7 @@ class GetProfileTool(FunctionTool[AstrAgentContext]):
         if not profile_storage or not profile_storage.is_available:
             return "画像系统未启用或不可用。"
 
-        from iris_memory.core.persona import resolve_persona
+        from ..core.persona import resolve_persona
 
         manager = get_component_manager()
         persona_id = await resolve_persona(manager, event)

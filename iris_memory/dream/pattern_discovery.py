@@ -19,13 +19,13 @@ from collections import defaultdict
 from datetime import datetime
 from typing import Dict, List, Optional, cast
 
-from iris_memory.core import get_logger
-from iris_memory.llm_modules import DREAM_PATTERN_DISCOVERY
-from iris_memory.config import get_config
-from iris_memory.l2_memory.adapter import L2MemoryAdapter
-from iris_memory.l3_kg.adapter import L3KGAdapter
-from iris_memory.llm.manager import LLMManager
-from iris_memory.l3_kg.models import GraphNode, GraphEdge
+from ..core import get_logger
+from ..llm_modules import DREAM_PATTERN_DISCOVERY
+from ..config import get_config
+from ..l2_memory.adapter import L2MemoryAdapter
+from ..l3_kg.adapter import L3KGAdapter
+from ..llm.manager import LLMManager
+from ..l3_kg.models import GraphNode, GraphEdge
 
 logger = get_logger("dream.pattern_discovery")
 

@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock
 import pytest
 from quart import Quart
 
-from iris_memory.web.routes import memory as memory_routes
+from astrbot_plugin_iris_memory.iris_memory.web.routes import memory as memory_routes
 
 PREFIX = "/astrbot_plugin_iris_memory/memory"
 

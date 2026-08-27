@@ -17,7 +17,7 @@ import time
 from dataclasses import dataclass
 from typing import Any, Dict, Optional, Tuple
 
-from iris_memory.core import get_logger
+from ..core import get_logger
 from .models import ErrorCode, EvolutionJob, PersonaRevision, RevisionStatus
 
 logger = get_logger("persona_evolution.publisher")

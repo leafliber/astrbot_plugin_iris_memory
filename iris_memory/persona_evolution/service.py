@@ -22,8 +22,8 @@ import asyncio
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
-from iris_memory.config import get_config
-from iris_memory.core import get_component_manager, get_logger
+from ..config import get_config
+from ..core import get_component_manager, get_logger
 from .analyzer import StyleAnalyzer
 from .generator import CandidateGenerator
 from .goals import build_goal_snapshot

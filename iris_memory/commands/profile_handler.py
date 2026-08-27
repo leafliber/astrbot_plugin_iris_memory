@@ -6,9 +6,9 @@ Iris Chat Memory - Profile 指令处理器
 
 from typing import Optional, TYPE_CHECKING
 
-from iris_memory.core import get_logger, get_component_manager
-from iris_memory.profile.storage import ProfileStorage
-from iris_memory.platform import get_adapter
+from ..core import get_logger, get_component_manager
+from ..profile.storage import ProfileStorage
+from ..platform import get_adapter
 from .base import CommandHandler, CommandResult, ParsedArgs, DeleteScope
 
 if TYPE_CHECKING:

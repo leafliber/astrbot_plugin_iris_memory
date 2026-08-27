@@ -179,7 +179,7 @@ class CommandParser:
         Returns:
             (user_id, error_message)
         """
-        from iris_memory.platform import get_adapter
+        from ..platform import get_adapter
 
         if args.target_user_id:
             return args.target_user_id, None

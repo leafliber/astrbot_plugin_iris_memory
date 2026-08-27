@@ -8,10 +8,10 @@ from dataclasses import dataclass
 from typing import Awaitable, Callable, Optional
 from weakref import WeakValueDictionary
 
-from iris_memory.config import get_config
-from iris_memory.core import Component, get_logger
-from iris_memory.llm.policy import CallPriority
-from iris_memory.tasks.work_queue import BoundedWorkQueue
+from ..config import get_config
+from ..core import Component, get_logger
+from ..llm.policy import CallPriority
+from ..tasks.work_queue import BoundedWorkQueue
 
 
 logger = get_logger("image.coordinator")

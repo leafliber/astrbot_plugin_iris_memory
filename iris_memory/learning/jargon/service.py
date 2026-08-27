@@ -6,9 +6,9 @@ from collections import defaultdict
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from iris_memory.config import get_config
-from iris_memory.core import get_logger
-from iris_memory.learning.storage import LearningStorage
+from ...config import get_config
+from ...core import get_logger
+from ...learning.storage import LearningStorage
 from .extractor import CandidateExtractor
 from .models import CandidateCluster, ReviewVerdict
 from .reviewer import JargonReviewer

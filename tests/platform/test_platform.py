@@ -6,14 +6,14 @@ from unittest.mock import Mock, AsyncMock
 from astrbot.api.message_components import At, AtAll, Plain, Reply
 
 from tests.platform.fakes import make_qq_event
-from iris_memory.platform.base import (
+from astrbot_plugin_iris_memory.iris_memory.platform.base import (
     PlatformAdapter,
     ReplyInfo,
     UnsupportedPlatformError,
 )
-from iris_memory.platform.factory import get_adapter
-from iris_memory.platform.generic import GenericAdapter
-from iris_memory.platform.qq import OneBot11Adapter
+from astrbot_plugin_iris_memory.iris_memory.platform.factory import get_adapter
+from astrbot_plugin_iris_memory.iris_memory.platform.generic import GenericAdapter
+from astrbot_plugin_iris_memory.iris_memory.platform.qq import OneBot11Adapter
 
 
 class TestReplyInfo:

@@ -11,10 +11,10 @@ few-shot 对话样例，组装 `## 群聊用语与表达风格` 分小节文本�
 
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
-from iris_memory.config import get_config
-from iris_memory.core import get_logger
-from iris_memory.platform import get_adapter
-from iris_memory.utils.token_counter import count_tokens
+from ..config import get_config
+from ..core import get_logger
+from ..platform import get_adapter
+from ..utils.token_counter import count_tokens
 from .storage import LearningStorage
 from .jargon import JargonLearner
 

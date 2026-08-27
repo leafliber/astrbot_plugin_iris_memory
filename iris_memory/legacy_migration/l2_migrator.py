@@ -28,7 +28,7 @@
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
-from iris_memory.core import get_logger
+from ..core import get_logger
 
 logger = get_logger("legacy_migration")
 
@@ -205,8 +205,8 @@ async def migrate_l2(detection: Any, component_manager: Any) -> Dict[str, Any]:
 
         # MemoryImporter.import_entries 经 adapter.add_memory 写入，
         # 嵌入由新 L2 管线自动重算（旧向量不复用）
-        from iris_memory.l2_memory.io import MemoryImporter
-        from iris_memory.l2_memory.models import MemoryEntry
+        from ..l2_memory.io import MemoryImporter
+        from ..l2_memory.models import MemoryEntry
 
         importer = MemoryImporter(adapter)
         processed = 0

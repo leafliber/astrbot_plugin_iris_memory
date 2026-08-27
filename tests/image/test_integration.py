@@ -6,8 +6,8 @@
 import pytest
 from unittest.mock import Mock, AsyncMock, patch
 
-from iris_memory.image import ImageInfo, ParseResult
-from iris_memory.core.message_hook import (
+from astrbot_plugin_iris_memory.iris_memory.image import ImageInfo, ParseResult
+from astrbot_plugin_iris_memory.iris_memory.core.message_hook import (
     _wait_for_image_background_tasks,
     handle_user_message,
 )
@@ -116,10 +116,10 @@ class TestImageParsingIntegration:
         mock_adapter.get_images = Mock(return_value=images)
 
         with (
-            patch("iris_memory.config.get_config") as mock_get_config,
-            patch("iris_memory.platform.get_adapter") as mock_get_adapter,
+            patch("astrbot_plugin_iris_memory.iris_memory.config.get_config") as mock_get_config,
+            patch("astrbot_plugin_iris_memory.iris_memory.platform.get_adapter") as mock_get_adapter,
             patch(
-                "iris_memory.image.ImageParser._fetch_image_data_url",
+                "astrbot_plugin_iris_memory.iris_memory.image.ImageParser._fetch_image_data_url",
                 new_callable=AsyncMock,
                 return_value="data:image/jpeg;base64,bW9jaw==",
             ),
@@ -162,8 +162,8 @@ class TestImageParsingIntegration:
     ):
         """测试 related 模式下不解析图片"""
         with (
-            patch("iris_memory.config.get_config") as mock_get_config,
-            patch("iris_memory.platform.get_adapter") as mock_get_adapter,
+            patch("astrbot_plugin_iris_memory.iris_memory.config.get_config") as mock_get_config,
+            patch("astrbot_plugin_iris_memory.iris_memory.platform.get_adapter") as mock_get_adapter,
         ):
             # 配置 mock
             mock_config = Mock()
@@ -194,8 +194,8 @@ class TestImageParsingIntegration:
     ):
         """测试禁用图片解析"""
         with (
-            patch("iris_memory.config.get_config") as mock_get_config,
-            patch("iris_memory.platform.get_adapter") as mock_get_adapter,
+            patch("astrbot_plugin_iris_memory.iris_memory.config.get_config") as mock_get_config,
+            patch("astrbot_plugin_iris_memory.iris_memory.platform.get_adapter") as mock_get_adapter,
         ):
             # 配置 mock
             mock_config = Mock()
@@ -228,8 +228,8 @@ class TestImageParsingIntegration:
         mock_quota_manager.check_quota = AsyncMock(return_value=False)
 
         with (
-            patch("iris_memory.config.get_config") as mock_get_config,
-            patch("iris_memory.platform.get_adapter") as mock_get_adapter,
+            patch("astrbot_plugin_iris_memory.iris_memory.config.get_config") as mock_get_config,
+            patch("astrbot_plugin_iris_memory.iris_memory.platform.get_adapter") as mock_get_adapter,
         ):
             # 配置 mock
             mock_config = Mock()
@@ -266,8 +266,8 @@ class TestImageParsingIntegration:
         mock_adapter.get_images = Mock(return_value=images)
 
         with (
-            patch("iris_memory.config.get_config") as mock_get_config,
-            patch("iris_memory.platform.get_adapter") as mock_get_adapter,
+            patch("astrbot_plugin_iris_memory.iris_memory.config.get_config") as mock_get_config,
+            patch("astrbot_plugin_iris_memory.iris_memory.platform.get_adapter") as mock_get_adapter,
         ):
             mock_config = Mock()
             mock_config.get = Mock(
@@ -299,8 +299,8 @@ class TestImageParsingIntegration:
         mock_adapter.get_images = Mock(return_value=images)
 
         with (
-            patch("iris_memory.config.get_config") as mock_get_config,
-            patch("iris_memory.platform.get_adapter") as mock_get_adapter,
+            patch("astrbot_plugin_iris_memory.iris_memory.config.get_config") as mock_get_config,
+            patch("astrbot_plugin_iris_memory.iris_memory.platform.get_adapter") as mock_get_adapter,
         ):
             mock_config = Mock()
             mock_config.get = Mock(
@@ -346,10 +346,10 @@ class TestImageParsingIntegration:
         )
 
         with (
-            patch("iris_memory.config.get_config") as mock_get_config,
-            patch("iris_memory.platform.get_adapter") as mock_get_adapter,
+            patch("astrbot_plugin_iris_memory.iris_memory.config.get_config") as mock_get_config,
+            patch("astrbot_plugin_iris_memory.iris_memory.platform.get_adapter") as mock_get_adapter,
             patch(
-                "iris_memory.image.ImageParser._fetch_image_data_url",
+                "astrbot_plugin_iris_memory.iris_memory.image.ImageParser._fetch_image_data_url",
                 new_callable=AsyncMock,
                 return_value="data:image/jpeg;base64,bW9jaw==",
             ),
@@ -390,8 +390,8 @@ class TestImageParsingIntegration:
         mock_adapter.get_images = Mock(return_value=[])
 
         with (
-            patch("iris_memory.config.get_config") as mock_get_config,
-            patch("iris_memory.platform.get_adapter") as mock_get_adapter,
+            patch("astrbot_plugin_iris_memory.iris_memory.config.get_config") as mock_get_config,
+            patch("astrbot_plugin_iris_memory.iris_memory.platform.get_adapter") as mock_get_adapter,
         ):
             # 配置 mock
             mock_config = Mock()
@@ -430,10 +430,10 @@ class TestImageParsingIntegration:
         mock_adapter.get_images = Mock(return_value=images)
 
         with (
-            patch("iris_memory.config.get_config") as mock_get_config,
-            patch("iris_memory.platform.get_adapter") as mock_get_adapter,
+            patch("astrbot_plugin_iris_memory.iris_memory.config.get_config") as mock_get_config,
+            patch("astrbot_plugin_iris_memory.iris_memory.platform.get_adapter") as mock_get_adapter,
             patch(
-                "iris_memory.image.ImageParser._fetch_image_data_url",
+                "astrbot_plugin_iris_memory.iris_memory.image.ImageParser._fetch_image_data_url",
                 new_callable=AsyncMock,
                 return_value="data:image/jpeg;base64,bW9jaw==",
             ),
@@ -468,9 +468,9 @@ class TestImageParsingIntegration:
         mock_adapter.get_images = Mock(return_value=images)
 
         with (
-            patch("iris_memory.config.get_config") as mock_get_config,
-            patch("iris_memory.platform.get_adapter") as mock_get_adapter,
-            patch("iris_memory.image.ImageParser") as MockImageParser,
+            patch("astrbot_plugin_iris_memory.iris_memory.config.get_config") as mock_get_config,
+            patch("astrbot_plugin_iris_memory.iris_memory.platform.get_adapter") as mock_get_adapter,
+            patch("astrbot_plugin_iris_memory.iris_memory.image.ImageParser") as MockImageParser,
         ):
             # 配置 mock
             mock_config = Mock()

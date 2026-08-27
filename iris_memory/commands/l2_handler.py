@@ -6,9 +6,9 @@ Iris Chat Memory - L2 指令处理器
 
 from typing import Optional, TYPE_CHECKING
 
-from iris_memory.core import get_logger, get_component_manager
-from iris_memory.l2_memory.adapter import L2MemoryAdapter
-from iris_memory.platform import get_adapter
+from ..core import get_logger, get_component_manager
+from ..l2_memory.adapter import L2MemoryAdapter
+from ..platform import get_adapter
 from .base import CommandHandler, CommandResult, ParsedArgs, DeleteScope
 
 if TYPE_CHECKING:
@@ -103,7 +103,7 @@ class L2CommandHandler(CommandHandler):
         current_user_id = adapter.get_user_id(event)
         # 清除操作需在当前 persona 命名空间内执行，否则非 default
         # persona 的记忆无法被命中（隔离未启用时 resolve 返回 default）
-        from iris_memory.core.persona import resolve_persona
+        from ..core.persona import resolve_persona
 
         persona_id = await resolve_persona(manager, event)
 

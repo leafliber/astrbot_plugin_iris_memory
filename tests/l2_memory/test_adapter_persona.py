@@ -8,8 +8,8 @@ from unittest.mock import AsyncMock, Mock, patch
 import numpy as np
 import pytest
 
-from iris_memory.l2_memory.adapter import L2MemoryAdapter
-from iris_memory.l2_memory.io import MemoryExporter, MemoryImporter
+from astrbot_plugin_iris_memory.iris_memory.l2_memory.adapter import L2MemoryAdapter
+from astrbot_plugin_iris_memory.iris_memory.l2_memory.io import MemoryExporter, MemoryImporter
 
 
 @pytest.fixture

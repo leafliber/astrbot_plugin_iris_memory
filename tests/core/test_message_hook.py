@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from contextlib import ExitStack
 from datetime import datetime
 
-from iris_memory.core.message_hook import (
+from astrbot_plugin_iris_memory.iris_memory.core.message_hook import (
     _schedule_image_pipeline,
     _wait_for_image_background_tasks,
     handle_user_message,
@@ -16,30 +16,30 @@ from iris_memory.core.message_hook import (
     _parse_images_if_enabled,
     _queue_images_to_l1_buffer,
 )
-from iris_memory.image import ImageParseStatus
-from iris_memory.image.models import ImageInfo, ImageQueueItem, ParseResult
-from iris_memory.l1_buffer.models import ContextMessage
-from iris_memory.platform.base import ReplyInfo
+from astrbot_plugin_iris_memory.iris_memory.image import ImageParseStatus
+from astrbot_plugin_iris_memory.iris_memory.image.models import ImageInfo, ImageQueueItem, ParseResult
+from astrbot_plugin_iris_memory.iris_memory.l1_buffer.models import ContextMessage
+from astrbot_plugin_iris_memory.iris_memory.platform.base import ReplyInfo
 
 
 def _patch_handle_deps(adapter=None):
     patches = [
-        patch("iris_memory.utils.sanitize_input", side_effect=lambda x, **kw: x),
+        patch("astrbot_plugin_iris_memory.iris_memory.utils.sanitize_input", side_effect=lambda x, **kw: x),
         patch(
-            "iris_memory.core.message_hook._update_profile_names",
+            "astrbot_plugin_iris_memory.iris_memory.core.message_hook._update_profile_names",
             new_callable=AsyncMock,
         ),
         patch(
-            "iris_memory.core.message_hook._queue_images_to_l1_buffer",
+            "astrbot_plugin_iris_memory.iris_memory.core.message_hook._queue_images_to_l1_buffer",
             new_callable=AsyncMock,
         ),
         patch(
-            "iris_memory.core.message_hook._parse_images_if_enabled",
+            "astrbot_plugin_iris_memory.iris_memory.core.message_hook._parse_images_if_enabled",
             new_callable=AsyncMock,
         ),
     ]
     if adapter:
-        patches.append(patch("iris_memory.platform.get_adapter", return_value=adapter))
+        patches.append(patch("astrbot_plugin_iris_memory.iris_memory.platform.get_adapter", return_value=adapter))
     return patches
 
 
@@ -242,14 +242,14 @@ class TestImageBackgroundPipeline:
         event = MagicMock()
         with (
             patch(
-                "iris_memory.core.message_hook._queue_images_to_l1_buffer",
+                "astrbot_plugin_iris_memory.iris_memory.core.message_hook._queue_images_to_l1_buffer",
                 side_effect=slow_queue,
             ),
             patch(
-                "iris_memory.core.message_hook._parse_images_if_enabled",
+                "astrbot_plugin_iris_memory.iris_memory.core.message_hook._parse_images_if_enabled",
                 side_effect=parse_all,
             ),
-            patch("iris_memory.core.message_hook._record_image_pipeline_timing"),
+            patch("astrbot_plugin_iris_memory.iris_memory.core.message_hook._record_image_pipeline_timing"),
         ):
             _schedule_image_pipeline(event, MagicMock())
             await asyncio.wait_for(queue_started.wait(), timeout=1)
@@ -281,7 +281,7 @@ class TestUpdateL1Buffer:
         adapter.get_session_id.return_value = "group123"
         adapter.get_user_id.return_value = "user456"
 
-        with patch("iris_memory.platform.get_adapter", return_value=adapter):
+        with patch("astrbot_plugin_iris_memory.iris_memory.platform.get_adapter", return_value=adapter):
             await update_l1_buffer(event, component_manager, "user", "你好")
 
         buffer.add_message.assert_called_once_with(
@@ -310,7 +310,7 @@ class TestUpdateL1Buffer:
         adapter.get_session_id.return_value = "group123"
         adapter.get_user_id.return_value = "user456"
 
-        with patch("iris_memory.platform.get_adapter", return_value=adapter):
+        with patch("astrbot_plugin_iris_memory.iris_memory.platform.get_adapter", return_value=adapter):
             await update_l1_buffer(event, component_manager, "assistant", "你好！")
 
         buffer.add_message.assert_called_once_with(
@@ -826,11 +826,11 @@ class TestParseImagesAllModeIndexAlignment:
         ) = _build_all_mode_deps([img_nourl, img_url], parse_results)
 
         with (
-            patch("iris_memory.config.get_config", return_value=config),
-            patch("iris_memory.platform.get_adapter", return_value=adapter),
-            patch("iris_memory.image.ImageParser") as MockParser,
+            patch("astrbot_plugin_iris_memory.iris_memory.config.get_config", return_value=config),
+            patch("astrbot_plugin_iris_memory.iris_memory.platform.get_adapter", return_value=adapter),
+            patch("astrbot_plugin_iris_memory.iris_memory.image.ImageParser") as MockParser,
             patch(
-                "iris_memory.image.recorder_bridge.get_recorder_bridge",
+                "astrbot_plugin_iris_memory.iris_memory.image.recorder_bridge.get_recorder_bridge",
                 return_value=None,
             ),
         ):
@@ -880,11 +880,11 @@ class TestParseImagesAllModeIndexAlignment:
         ) = _build_all_mode_deps([img1, img2], parse_results)
 
         with (
-            patch("iris_memory.config.get_config", return_value=config),
-            patch("iris_memory.platform.get_adapter", return_value=adapter),
-            patch("iris_memory.image.ImageParser") as MockParser,
+            patch("astrbot_plugin_iris_memory.iris_memory.config.get_config", return_value=config),
+            patch("astrbot_plugin_iris_memory.iris_memory.platform.get_adapter", return_value=adapter),
+            patch("astrbot_plugin_iris_memory.iris_memory.image.ImageParser") as MockParser,
             patch(
-                "iris_memory.image.recorder_bridge.get_recorder_bridge",
+                "astrbot_plugin_iris_memory.iris_memory.image.recorder_bridge.get_recorder_bridge",
                 return_value=None,
             ),
         ):
@@ -911,11 +911,11 @@ class TestParseImagesAllModeIndexAlignment:
         ) = _build_all_mode_deps([img1, img2], parse_results=[])
 
         with (
-            patch("iris_memory.config.get_config", return_value=config),
-            patch("iris_memory.platform.get_adapter", return_value=adapter),
-            patch("iris_memory.image.ImageParser") as MockParser,
+            patch("astrbot_plugin_iris_memory.iris_memory.config.get_config", return_value=config),
+            patch("astrbot_plugin_iris_memory.iris_memory.platform.get_adapter", return_value=adapter),
+            patch("astrbot_plugin_iris_memory.iris_memory.image.ImageParser") as MockParser,
             patch(
-                "iris_memory.image.recorder_bridge.get_recorder_bridge",
+                "astrbot_plugin_iris_memory.iris_memory.image.recorder_bridge.get_recorder_bridge",
                 return_value=None,
             ),
         ):
@@ -981,18 +981,18 @@ class TestQueueImagesPersonaId:
         }.get(name)
 
         with (
-            patch("iris_memory.config.get_config", return_value=config),
-            patch("iris_memory.platform.get_adapter", return_value=adapter),
+            patch("astrbot_plugin_iris_memory.iris_memory.config.get_config", return_value=config),
+            patch("astrbot_plugin_iris_memory.iris_memory.platform.get_adapter", return_value=adapter),
             patch(
-                "iris_memory.core.persona.resolve_persona",
+                "astrbot_plugin_iris_memory.iris_memory.core.persona.resolve_persona",
                 new=AsyncMock(return_value="yuki"),
             ),
             patch(
-                "iris_memory.image.image_utils.compute_image_hash",
+                "astrbot_plugin_iris_memory.iris_memory.image.image_utils.compute_image_hash",
                 new=AsyncMock(return_value="testhash123456"),
             ),
             patch(
-                "iris_memory.image.security.fetch_safe_image_bytes",
+                "astrbot_plugin_iris_memory.iris_memory.image.security.fetch_safe_image_bytes",
                 new=AsyncMock(return_value=None),
             ),
         ):
@@ -1047,18 +1047,18 @@ class TestQueueImagesPersonaId:
         }.get(name)
 
         with (
-            patch("iris_memory.config.get_config", return_value=config),
-            patch("iris_memory.platform.get_adapter", return_value=adapter),
+            patch("astrbot_plugin_iris_memory.iris_memory.config.get_config", return_value=config),
+            patch("astrbot_plugin_iris_memory.iris_memory.platform.get_adapter", return_value=adapter),
             patch(
-                "iris_memory.core.persona.resolve_persona",
+                "astrbot_plugin_iris_memory.iris_memory.core.persona.resolve_persona",
                 new=AsyncMock(return_value="yuki"),
             ),
             patch(
-                "iris_memory.image.image_utils.compute_image_hash",
+                "astrbot_plugin_iris_memory.iris_memory.image.image_utils.compute_image_hash",
                 new=AsyncMock(return_value="testhash123456"),
             ),
             patch(
-                "iris_memory.image.security.fetch_safe_image_bytes",
+                "astrbot_plugin_iris_memory.iris_memory.image.security.fetch_safe_image_bytes",
                 new=AsyncMock(return_value=None),
             ),
         ):

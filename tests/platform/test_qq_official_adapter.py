@@ -14,9 +14,9 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from iris_memory.platform import get_adapter
-from iris_memory.platform.factory import GenericAdapter
-from iris_memory.platform.qq_official import QQOfficialAdapter
+from astrbot_plugin_iris_memory.iris_memory.platform import get_adapter
+from astrbot_plugin_iris_memory.iris_memory.platform.factory import GenericAdapter
+from astrbot_plugin_iris_memory.iris_memory.platform.qq_official import QQOfficialAdapter
 
 from .fakes import (
     QQ_OFFICIAL_SCENE_C2C,

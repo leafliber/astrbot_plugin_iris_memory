@@ -13,7 +13,7 @@ tiktoken 首次使用需从网络同步下载 BPE 文件（约 1-2MB、无内置
 import asyncio
 import threading
 
-from iris_memory.core import get_logger
+from ..core import get_logger
 
 logger = get_logger("token_counter")
 

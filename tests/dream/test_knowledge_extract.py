@@ -11,8 +11,8 @@ KnowledgeExtractPhase 知识提取测试
 import pytest
 from unittest.mock import Mock, AsyncMock, patch
 
-from iris_memory.dream.knowledge_extract import KnowledgeExtractPhase
-from iris_memory.l2_memory.models import MemoryEntry
+from astrbot_plugin_iris_memory.iris_memory.dream.knowledge_extract import KnowledgeExtractPhase
+from astrbot_plugin_iris_memory.iris_memory.l2_memory.models import MemoryEntry
 
 
 def _mock_config():
@@ -41,7 +41,7 @@ class TestKnowledgeExtractPhase:
         llm = Mock()
 
         with patch(
-            "iris_memory.dream.knowledge_extract.get_config",
+            "astrbot_plugin_iris_memory.iris_memory.dream.knowledge_extract.get_config",
             return_value=_mock_config(),
         ):
             result = await phase.execute(l2, l3, llm)
@@ -58,7 +58,7 @@ class TestKnowledgeExtractPhase:
         llm = None
 
         with patch(
-            "iris_memory.dream.knowledge_extract.get_config",
+            "astrbot_plugin_iris_memory.iris_memory.dream.knowledge_extract.get_config",
             return_value=_mock_config(),
         ):
             result = await phase.execute(l2, l3, llm)
@@ -76,7 +76,7 @@ class TestKnowledgeExtractPhase:
         llm = Mock()
 
         with patch(
-            "iris_memory.dream.knowledge_extract.get_config",
+            "astrbot_plugin_iris_memory.iris_memory.dream.knowledge_extract.get_config",
             return_value=_mock_config(),
         ):
             result = await phase.execute(l2, l3, llm)
@@ -91,8 +91,8 @@ class TestKnowledgeExtractPhase:
         导致 L3 写入全失败的记忆被永久跳过无法重试。
         修复后仅当至少一条节点/边写入成功时才标记。
         """
-        from iris_memory.l2_memory.models import MemoryEntry
-        from iris_memory.l3_kg.models import GraphNode, GraphEdge, ExtractionResult
+        from astrbot_plugin_iris_memory.iris_memory.l2_memory.models import MemoryEntry
+        from astrbot_plugin_iris_memory.iris_memory.l3_kg.models import GraphNode, GraphEdge, ExtractionResult
 
         # 构造一条未处理记忆
         mem = MemoryEntry(
@@ -123,10 +123,10 @@ class TestKnowledgeExtractPhase:
         fake_result = ExtractionResult(nodes=[node], edges=[edge])
 
         with patch(
-            "iris_memory.dream.knowledge_extract.get_config",
+            "astrbot_plugin_iris_memory.iris_memory.dream.knowledge_extract.get_config",
             return_value=_mock_config(),
         ):
-            with patch("iris_memory.l3_kg.EntityExtractor") as MockExtractor:
+            with patch("astrbot_plugin_iris_memory.iris_memory.l3_kg.EntityExtractor") as MockExtractor:
                 MockExtractor.return_value.extract_from_memories = AsyncMock(
                     return_value=fake_result
                 )
@@ -145,7 +145,7 @@ class TestKnowledgeExtractPhase:
     @pytest.mark.asyncio
     async def test_build_user_aliases_from_metadata(self, phase):
         """从 L2 metadata 的 user_id + user_name 构建别名映射"""
-        from iris_memory.l2_memory.models import MemoryEntry
+        from astrbot_plugin_iris_memory.iris_memory.l2_memory.models import MemoryEntry
 
         memories = [
             MemoryEntry(
@@ -170,8 +170,8 @@ class TestKnowledgeExtractPhase:
     @pytest.mark.asyncio
     async def test_build_user_aliases_enriches_from_profile(self, phase):
         """有 component_manager 时，用画像 user_name + historical_names 补充"""
-        from iris_memory.l2_memory.models import MemoryEntry
-        from iris_memory.profile.storage import ProfileStorage
+        from astrbot_plugin_iris_memory.iris_memory.l2_memory.models import MemoryEntry
+        from astrbot_plugin_iris_memory.iris_memory.profile.storage import ProfileStorage
 
         memories = [
             MemoryEntry(
@@ -191,7 +191,7 @@ class TestKnowledgeExtractPhase:
         cm.get_component = Mock(return_value=profile_storage)
 
         with patch(
-            "iris_memory.dream.knowledge_extract.get_config",
+            "astrbot_plugin_iris_memory.iris_memory.dream.knowledge_extract.get_config",
             return_value=_mock_config(),
         ):
             aliases = await phase._build_user_aliases(
@@ -203,7 +203,7 @@ class TestKnowledgeExtractPhase:
     @pytest.mark.asyncio
     async def test_build_user_aliases_degrades_without_component_manager(self, phase):
         """未传 component_manager 时退化为仅 metadata，不报错"""
-        from iris_memory.l2_memory.models import MemoryEntry
+        from astrbot_plugin_iris_memory.iris_memory.l2_memory.models import MemoryEntry
 
         memories = [
             MemoryEntry(
@@ -220,7 +220,7 @@ class TestKnowledgeExtractPhase:
     @pytest.mark.asyncio
     async def test_build_user_aliases_degrades_on_profile_error(self, phase):
         """画像读取异常时退化为仅 metadata，不中断"""
-        from iris_memory.l2_memory.models import MemoryEntry
+        from astrbot_plugin_iris_memory.iris_memory.l2_memory.models import MemoryEntry
 
         memories = [
             MemoryEntry(
@@ -232,7 +232,7 @@ class TestKnowledgeExtractPhase:
         cm.get_component = Mock(side_effect=RuntimeError("boom"))
 
         with patch(
-            "iris_memory.dream.knowledge_extract.get_config",
+            "astrbot_plugin_iris_memory.iris_memory.dream.knowledge_extract.get_config",
             return_value=_mock_config(),
         ):
             aliases = await phase._build_user_aliases(
@@ -244,8 +244,8 @@ class TestKnowledgeExtractPhase:
     @pytest.mark.asyncio
     async def test_execute_injects_user_aliases(self, phase):
         """execute 应将构建的 user_aliases 注入提取 context"""
-        from iris_memory.l2_memory.models import MemoryEntry
-        from iris_memory.l3_kg.models import ExtractionResult
+        from astrbot_plugin_iris_memory.iris_memory.l2_memory.models import MemoryEntry
+        from astrbot_plugin_iris_memory.iris_memory.l3_kg.models import ExtractionResult
 
         mem = MemoryEntry(
             id="m1",
@@ -273,10 +273,10 @@ class TestKnowledgeExtractPhase:
             return ExtractionResult()
 
         with patch(
-            "iris_memory.dream.knowledge_extract.get_config",
+            "astrbot_plugin_iris_memory.iris_memory.dream.knowledge_extract.get_config",
             return_value=_mock_config(),
         ):
-            with patch("iris_memory.l3_kg.EntityExtractor") as MockExtractor:
+            with patch("astrbot_plugin_iris_memory.iris_memory.l3_kg.EntityExtractor") as MockExtractor:
                 MockExtractor.return_value.extract_from_memories = AsyncMock(
                     side_effect=fake_extract
                 )
@@ -331,10 +331,10 @@ class TestKnowledgeExtractPhase:
         )
 
         with patch(
-            "iris_memory.dream.knowledge_extract.get_config",
+            "astrbot_plugin_iris_memory.iris_memory.dream.knowledge_extract.get_config",
             return_value=_mock_config(),
         ), patch(
-            "iris_memory.l3_kg.extractor.get_config",
+            "astrbot_plugin_iris_memory.iris_memory.l3_kg.extractor.get_config",
             return_value=_mock_config(),
         ):
             result = await phase.execute(l2, l3, llm)

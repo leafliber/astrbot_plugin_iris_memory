@@ -3,8 +3,8 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock, Mock
 
-from iris_memory.profile.storage import ProfileStorage
-from iris_memory.profile.models import GroupProfile, UserProfile
+from astrbot_plugin_iris_memory.iris_memory.profile.storage import ProfileStorage
+from astrbot_plugin_iris_memory.iris_memory.profile.models import GroupProfile, UserProfile
 
 
 def _make_storage(isolation_on: bool):
@@ -29,7 +29,7 @@ class TestPersonaNormalization:
     async def test_isolation_off_forces_default_even_if_persona_passed(self):
         storage, cfg = _make_storage(isolation_on=False)
         with pytest.MonkeyPatch().context() as m:
-            m.setattr("iris_memory.profile.storage.get_config", lambda: cfg)
+            m.setattr("astrbot_plugin_iris_memory.iris_memory.profile.storage.get_config", lambda: cfg)
             await storage.save_group_profile(
                 GroupProfile(group_id="g1"), persona_id="yuki"
             )
@@ -41,7 +41,7 @@ class TestPersonaNormalization:
     async def test_isolation_on_uses_passed_persona(self):
         storage, cfg = _make_storage(isolation_on=True)
         with pytest.MonkeyPatch().context() as m:
-            m.setattr("iris_memory.profile.storage.get_config", lambda: cfg)
+            m.setattr("astrbot_plugin_iris_memory.iris_memory.profile.storage.get_config", lambda: cfg)
             await storage.save_group_profile(
                 GroupProfile(group_id="g1"), persona_id="yuki"
             )
@@ -59,7 +59,7 @@ class TestReadWriteSymmetry:
     async def test_group_profile_save_get_same_key(self):
         storage, cfg = _make_storage(isolation_on=True)
         with pytest.MonkeyPatch().context() as m:
-            m.setattr("iris_memory.profile.storage.get_config", lambda: cfg)
+            m.setattr("astrbot_plugin_iris_memory.iris_memory.profile.storage.get_config", lambda: cfg)
             await storage.save_group_profile(
                 GroupProfile(group_id="g1", group_name="群1"), persona_id="yuki"
             )
@@ -73,7 +73,7 @@ class TestReadWriteSymmetry:
     async def test_user_profile_save_get_same_key(self):
         storage, cfg = _make_storage(isolation_on=True)
         with pytest.MonkeyPatch().context() as m:
-            m.setattr("iris_memory.profile.storage.get_config", lambda: cfg)
+            m.setattr("astrbot_plugin_iris_memory.iris_memory.profile.storage.get_config", lambda: cfg)
             await storage.save_user_profile(
                 UserProfile(user_id="u1"), group_id="g1", persona_id="yuki"
             )
@@ -86,7 +86,7 @@ class TestReadWriteSymmetry:
     async def test_different_personas_use_different_keys(self):
         storage, cfg = _make_storage(isolation_on=True)
         with pytest.MonkeyPatch().context() as m:
-            m.setattr("iris_memory.profile.storage.get_config", lambda: cfg)
+            m.setattr("astrbot_plugin_iris_memory.iris_memory.profile.storage.get_config", lambda: cfg)
             await storage.save_user_profile(
                 UserProfile(user_id="u1"), group_id="g1", persona_id="yuki"
             )

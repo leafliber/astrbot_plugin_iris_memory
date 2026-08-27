@@ -16,13 +16,13 @@ from datetime import datetime
 import json
 from typing import List, Optional, cast
 
-from iris_memory.core import get_logger
-from iris_memory.llm_modules import DREAM_PRUNING_CONFIRM
-from iris_memory.config import get_config
-from iris_memory.l2_memory.adapter import L2MemoryAdapter
-from iris_memory.l3_kg.adapter import L3KGAdapter
-from iris_memory.llm.manager import LLMManager
-from iris_memory.utils.forgetting import (
+from ..core import get_logger
+from ..llm_modules import DREAM_PRUNING_CONFIRM
+from ..config import get_config
+from ..l2_memory.adapter import L2MemoryAdapter
+from ..l3_kg.adapter import L3KGAdapter
+from ..llm.manager import LLMManager
+from ..utils.forgetting import (
     calculate_forgetting_score,
     should_evict,
     calculate_kg_forgetting_score,

@@ -20,14 +20,14 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from quart import Response, jsonify, request
 
-from iris_memory.core import get_component_manager, get_logger
-from iris_memory.persona_evolution import PersonaEvolutionComponent
-from iris_memory.persona_evolution.goals import (
+from ...core import get_component_manager, get_logger
+from ...persona_evolution import PersonaEvolutionComponent
+from ...persona_evolution.goals import (
     CUSTOM_PRESET_ID,
     GOAL_PRESETS,
     list_goal_presets,
 )
-from iris_memory.persona_evolution.models import (
+from ...persona_evolution.models import (
     ApprovalMode,
     EditMode,
     ErrorCode,

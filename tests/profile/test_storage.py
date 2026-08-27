@@ -4,8 +4,8 @@ import pytest
 from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock
 
-from iris_memory.profile.storage import ProfileStorage
-from iris_memory.profile.models import GroupProfile, UserProfile
+from astrbot_plugin_iris_memory.iris_memory.profile.storage import ProfileStorage
+from astrbot_plugin_iris_memory.iris_memory.profile.models import GroupProfile, UserProfile
 
 
 class TestProfileStorage:

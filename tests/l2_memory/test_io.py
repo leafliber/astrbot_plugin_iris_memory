@@ -7,7 +7,7 @@ from unittest.mock import Mock, AsyncMock
 import json
 import tempfile
 
-from iris_memory.l2_memory.io import (
+from astrbot_plugin_iris_memory.iris_memory.l2_memory.io import (
     MemoryExporter,
     MemoryImporter,
     ExportStats,
@@ -16,8 +16,8 @@ from iris_memory.l2_memory.io import (
     export_memories,
     import_memories,
 )
-from iris_memory.l2_memory.models import MemoryEntry
-from iris_memory.l2_memory.adapter import L2MemoryAdapter
+from astrbot_plugin_iris_memory.iris_memory.l2_memory.models import MemoryEntry
+from astrbot_plugin_iris_memory.iris_memory.l2_memory.adapter import L2MemoryAdapter
 
 
 class TestExportStats:

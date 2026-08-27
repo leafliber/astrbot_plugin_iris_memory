@@ -11,11 +11,11 @@ import pytest
 from pathlib import Path
 from unittest.mock import Mock, AsyncMock, patch, MagicMock
 
-from iris_memory.l1_buffer import L1Buffer
-from iris_memory.llm.manager import LLMManager
-from iris_memory.core.components import ComponentManager
-from iris_memory.core.lifecycle import initialize_components
-from iris_memory.config import init_config
+from astrbot_plugin_iris_memory.iris_memory.l1_buffer import L1Buffer
+from astrbot_plugin_iris_memory.iris_memory.llm.manager import LLMManager
+from astrbot_plugin_iris_memory.iris_memory.core.components import ComponentManager
+from astrbot_plugin_iris_memory.iris_memory.core.lifecycle import initialize_components
+from astrbot_plugin_iris_memory.iris_memory.config import init_config
 
 
 class TestMessageToSummaryFlow:
@@ -81,8 +81,8 @@ class TestMessageToSummaryFlow:
         5. 验证 Token 统计
         """
         with (
-            patch("iris_memory.llm.manager.get_config") as mock_get_config,
-            patch("iris_memory.l1_buffer.buffer.get_config") as mock_buffer_config,
+            patch("astrbot_plugin_iris_memory.iris_memory.llm.manager.get_config") as mock_get_config,
+            patch("astrbot_plugin_iris_memory.iris_memory.l1_buffer.buffer.get_config") as mock_buffer_config,
         ):
             mock_get_config.return_value = mock_config
             mock_buffer_config.return_value = mock_config
@@ -157,8 +157,8 @@ class TestMessageToSummaryFlow:
         3. 总结互不干扰
         """
         with (
-            patch("iris_memory.llm.manager.get_config") as mock_get_config,
-            patch("iris_memory.l1_buffer.buffer.get_config") as mock_buffer_config,
+            patch("astrbot_plugin_iris_memory.iris_memory.llm.manager.get_config") as mock_get_config,
+            patch("astrbot_plugin_iris_memory.iris_memory.l1_buffer.buffer.get_config") as mock_buffer_config,
         ):
             mock_get_config.return_value = mock_config
             mock_buffer_config.return_value = mock_config
@@ -199,8 +199,8 @@ class TestMessageToSummaryFlow:
         2. 正常消息正常处理
         """
         with (
-            patch("iris_memory.llm.manager.get_config") as mock_get_config,
-            patch("iris_memory.l1_buffer.buffer.get_config") as mock_buffer_config,
+            patch("astrbot_plugin_iris_memory.iris_memory.llm.manager.get_config") as mock_get_config,
+            patch("astrbot_plugin_iris_memory.iris_memory.l1_buffer.buffer.get_config") as mock_buffer_config,
         ):
             # 配置较小的消息限制
             def config_side_effect(key, default=None):
@@ -251,7 +251,7 @@ class TestMessageToSummaryFlow:
         2. L1Buffer 仍然可以正常工作
         3. 总结功能优雅降级
         """
-        with patch("iris_memory.l1_buffer.buffer.get_config") as mock_buffer_config:
+        with patch("astrbot_plugin_iris_memory.iris_memory.l1_buffer.buffer.get_config") as mock_buffer_config:
             mock_buffer_config.return_value = mock_config
 
             # 不创建 LLMManager

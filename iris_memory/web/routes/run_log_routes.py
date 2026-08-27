@@ -7,8 +7,8 @@
 """
 
 from quart import jsonify, request
-from iris_memory.core import get_logger, get_run_log_manager
-from iris_memory.core.run_log import LOG_TYPES, TYPE_LABELS
+from ...core import get_logger, get_run_log_manager
+from ...core.run_log import LOG_TYPES, TYPE_LABELS
 
 logger = get_logger("web.run_log")
 

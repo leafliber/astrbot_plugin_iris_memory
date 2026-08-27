@@ -1,7 +1,7 @@
 """L2 数据模型测试"""
 
 from datetime import datetime
-from iris_memory.l2_memory.models import MemoryEntry, MemorySearchResult
+from astrbot_plugin_iris_memory.iris_memory.l2_memory.models import MemoryEntry, MemorySearchResult
 
 
 class TestMemoryEntry:

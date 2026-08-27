@@ -23,9 +23,9 @@ import uuid
 
 import numpy as np
 
-from iris_memory.core import Component, get_logger, InitMode
-from iris_memory.config import get_config
-from iris_memory.utils import atomic_write_json
+from ..core import Component, get_logger, InitMode
+from ..config import get_config
+from ..utils import atomic_write_json
 from .models import MemoryEntry, MemorySearchResult
 
 logger = get_logger("l2_memory.adapter")

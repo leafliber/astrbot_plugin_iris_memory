@@ -15,9 +15,9 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from iris_memory.config import init_config
-from iris_memory.config.config import reset_config
-from iris_memory.l2_memory.adapter import L2MemoryAdapter
+from astrbot_plugin_iris_memory.iris_memory.config import init_config
+from astrbot_plugin_iris_memory.iris_memory.config.config import reset_config
+from astrbot_plugin_iris_memory.iris_memory.l2_memory.adapter import L2MemoryAdapter
 
 DIM = 8
 
@@ -31,7 +31,7 @@ def _reset_iris_config():
 @pytest.fixture
 def adapter(tmp_path: Path) -> L2MemoryAdapter:
     """带真实 SQLite 与真实 FAISS 的最小可用适配器。"""
-    from iris_memory.config import get_config
+    from astrbot_plugin_iris_memory.iris_memory.config import get_config
 
     init_config(
         {
@@ -255,7 +255,7 @@ class TestMigrationBackupPreservation:
         adapter._save_meta()
 
         with patch(
-            "iris_memory.l2_memory.io.MemoryImporter.import_from_file",
+            "astrbot_plugin_iris_memory.iris_memory.l2_memory.io.MemoryImporter.import_from_file",
             new=AsyncMock(side_effect=RuntimeError("Embedding Provider 超时")),
         ):
             ok = await adapter._migrate_on_model_change("new-model", DIM)
@@ -290,8 +290,8 @@ class TestDbFetchallDiscipline:
 
 class TestHiddenConfigResilience:
     def test_dirty_flag_restored_when_persist_fails(self, tmp_path: Path):
-        from iris_memory.config.hidden_config import HiddenConfigManager
-        from iris_memory.config.defaults import HiddenConfig
+        from astrbot_plugin_iris_memory.iris_memory.config.hidden_config import HiddenConfigManager
+        from astrbot_plugin_iris_memory.iris_memory.config.defaults import HiddenConfig
 
         manager = HiddenConfigManager(
             tmp_path / "hidden_config.json", HiddenConfig()
@@ -299,7 +299,7 @@ class TestHiddenConfigResilience:
         manager.set("llm_provider_rpm", 99)
         # 第一次写盘成功后再次制造失败场景
         with patch(
-            "iris_memory.utils.persistence.atomic_write_text",
+            "astrbot_plugin_iris_memory.iris_memory.utils.persistence.atomic_write_text",
             side_effect=OSError("磁盘满"),
         ):
             manager.set("llm_provider_rpm", 99)
@@ -311,8 +311,8 @@ class TestHiddenConfigResilience:
         assert data["llm_provider_rpm"] == 60
 
     def test_load_sanitizes_wrong_types(self, tmp_path: Path):
-        from iris_memory.config.hidden_config import HiddenConfigManager
-        from iris_memory.config.defaults import HiddenConfig
+        from astrbot_plugin_iris_memory.iris_memory.config.hidden_config import HiddenConfigManager
+        from astrbot_plugin_iris_memory.iris_memory.config.defaults import HiddenConfig
 
         defaults = HiddenConfig()
         int_key = next(
@@ -332,8 +332,8 @@ class TestHiddenConfigResilience:
         assert manager.get("__foreign__") == {"ok": 1}
 
     def test_reset_to_defaults_notifies_observers(self, tmp_path: Path):
-        from iris_memory.config.hidden_config import HiddenConfigManager
-        from iris_memory.config.defaults import HiddenConfig
+        from astrbot_plugin_iris_memory.iris_memory.config.hidden_config import HiddenConfigManager
+        from astrbot_plugin_iris_memory.iris_memory.config.defaults import HiddenConfig
 
         manager = HiddenConfigManager(
             tmp_path / "hidden_config.json", HiddenConfig()
@@ -355,7 +355,7 @@ class TestHiddenConfigResilience:
 class TestQueryRewriteInflightCleanup:
     @pytest.mark.asyncio
     async def test_cancelled_waiter_does_not_leak_inflight_entry(self):
-        from iris_memory.core import llm_request_hook as hook
+        from astrbot_plugin_iris_memory.iris_memory.core import llm_request_hook as hook
 
         hook._QUERY_REWRITE_INFLIGHT.clear()
         release = asyncio.Event()
@@ -402,7 +402,7 @@ class TestL3LikeEscaping:
     async def test_wildcard_keyword_does_not_match_everything(self, tmp_path: Path):
         import sqlite3 as sq
 
-        from iris_memory.l3_kg.adapter import L3KGAdapter
+        from astrbot_plugin_iris_memory.iris_memory.l3_kg.adapter import L3KGAdapter
 
         init_config({"l3_kg": {"enable": True}}, tmp_path)
         adapter = L3KGAdapter()

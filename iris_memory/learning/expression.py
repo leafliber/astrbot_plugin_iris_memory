@@ -11,7 +11,7 @@ Iris Chat Memory - 表达模式提取（规则，零 LLM）
 import re
 from typing import List
 
-from iris_memory.core import get_logger
+from ..core import get_logger
 from .storage import LearningStorage
 
 logger = get_logger("learning.expression")

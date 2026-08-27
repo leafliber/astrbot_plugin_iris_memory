@@ -10,8 +10,8 @@ import json
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
-from iris_memory.core import get_logger
-from iris_memory.llm_modules import LEARNING_PERSONA_REVIEW
+from ..core import get_logger
+from ..llm_modules import LEARNING_PERSONA_REVIEW
 
 logger = get_logger("learning.persona_reviewer")
 

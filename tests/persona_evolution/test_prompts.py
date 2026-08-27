@@ -1,6 +1,6 @@
 """三阶段提示词安全约束测试（文档 §2.5/§9）"""
 
-from iris_memory.persona_evolution.prompts import (
+from astrbot_plugin_iris_memory.iris_memory.persona_evolution.prompts import (
     build_analysis_prompt,
     build_generation_prompt,
     build_review_prompt,

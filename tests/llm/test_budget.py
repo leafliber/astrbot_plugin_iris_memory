@@ -2,7 +2,7 @@ import asyncio
 
 import pytest
 
-from iris_memory.llm.budget import LLMCallBudget, LLMCallBudgetExceeded
+from astrbot_plugin_iris_memory.iris_memory.llm.budget import LLMCallBudget, LLMCallBudgetExceeded
 
 
 @pytest.mark.asyncio

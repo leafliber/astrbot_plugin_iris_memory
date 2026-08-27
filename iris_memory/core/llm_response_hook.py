@@ -6,13 +6,13 @@ LLM 响应钩子处理模块
 
 from typing import TYPE_CHECKING, cast
 
-from iris_memory.core import get_logger
+from ..core import get_logger
 
 if TYPE_CHECKING:
     from astrbot.api.event import AstrMessageEvent
     from astrbot.api.provider import LLMResponse
-    from iris_memory.core.components import ComponentManager
-    from iris_memory.l1_buffer import L1Buffer
+    from ..core.components import ComponentManager
+    from ..l1_buffer import L1Buffer
 
 logger = get_logger("llm_response_hook")
 
@@ -31,8 +31,8 @@ async def handle_llm_response(
         resp: LLM 响应对象
         component_manager: 组件管理器实例
     """
-    from iris_memory.platform import get_adapter
-    from iris_memory.core.persona import resolve_persona
+    from ..platform import get_adapter
+    from ..core.persona import resolve_persona
 
     # 提取助手响应内容
     assistant_msg = resp.completion_text

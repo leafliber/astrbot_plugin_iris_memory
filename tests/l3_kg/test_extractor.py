@@ -6,13 +6,13 @@ from pathlib import Path
 import tempfile
 import shutil
 
-from iris_memory.l3_kg import (
+from astrbot_plugin_iris_memory.iris_memory.l3_kg import (
     EntityExtractor,
     GraphNode,
     GraphEdge,
     ExtractionResult,
 )
-from iris_memory.config import init_config
+from astrbot_plugin_iris_memory.iris_memory.config import init_config
 
 
 class TestEntityExtractor:

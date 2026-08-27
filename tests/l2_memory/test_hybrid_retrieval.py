@@ -8,8 +8,8 @@ from unittest.mock import Mock, AsyncMock, patch
 import numpy as np
 import pytest
 
-from iris_memory.l2_memory.adapter import L2MemoryAdapter
-from iris_memory.l2_memory.models import MemoryEntry, MemorySearchResult
+from astrbot_plugin_iris_memory.iris_memory.l2_memory.adapter import L2MemoryAdapter
+from astrbot_plugin_iris_memory.iris_memory.l2_memory.models import MemoryEntry, MemorySearchResult
 
 
 @pytest.fixture
@@ -228,7 +228,7 @@ class TestHybridRetrieve:
         adapter._search_with_vector = Mock(return_value=[vec_result])
 
         with patch(
-            "iris_memory.l2_memory.adapter.get_config", return_value=mock_config
+            "astrbot_plugin_iris_memory.iris_memory.l2_memory.adapter.get_config", return_value=mock_config
         ):
             results = await adapter.retrieve_hybrid(
                 "天气很好", top_k=10, relevance_threshold=0.0
@@ -248,7 +248,7 @@ class TestHybridRetrieve:
         adapter._search_with_vector = Mock(return_value=[low])
 
         with patch(
-            "iris_memory.l2_memory.adapter.get_config", return_value=mock_config
+            "astrbot_plugin_iris_memory.iris_memory.l2_memory.adapter.get_config", return_value=mock_config
         ):
             results = await adapter.retrieve_hybrid(
                 "阈值过滤测试的记忆甲", top_k=10, relevance_threshold=0.5
@@ -265,7 +265,7 @@ class TestHybridRetrieve:
         adapter._embed = AsyncMock(side_effect=RuntimeError("embedding unavailable"))
 
         with patch(
-            "iris_memory.l2_memory.adapter.get_config", return_value=mock_config
+            "astrbot_plugin_iris_memory.iris_memory.l2_memory.adapter.get_config", return_value=mock_config
         ):
             results = await adapter.retrieve_hybrid("关键词降级", top_k=10)
 
@@ -283,7 +283,7 @@ class TestHybridRetrieve:
         adapter._search_with_keyword = Mock(side_effect=RuntimeError("fts unavailable"))
 
         with patch(
-            "iris_memory.l2_memory.adapter.get_config", return_value=mock_config
+            "astrbot_plugin_iris_memory.iris_memory.l2_memory.adapter.get_config", return_value=mock_config
         ):
             results = await adapter.retrieve_hybrid("任意查询", top_k=10)
 
@@ -311,7 +311,7 @@ class TestHybridRetrieve:
         adapter._search_with_vector = Mock(return_value=[])
 
         with patch(
-            "iris_memory.l2_memory.adapter.get_config", return_value=mock_config
+            "astrbot_plugin_iris_memory.iris_memory.l2_memory.adapter.get_config", return_value=mock_config
         ):
             payload = await adapter.retrieve_debug("苹果记忆", top_k=5)
 
@@ -348,7 +348,7 @@ class TestHitReinforcement:
             adapter._db.commit()
 
         with patch(
-            "iris_memory.l2_memory.adapter.get_config",
+            "astrbot_plugin_iris_memory.iris_memory.l2_memory.adapter.get_config",
             return_value=self._config(True, step=0.5),
         ):
             await adapter.batch_update_access([mid])
@@ -368,7 +368,7 @@ class TestHitReinforcement:
     async def test_reinforcement_is_asymptotic(self, adapter):
         mid = await adapter.add_memory("渐近自限测试的记忆乙", metadata={})
         with patch(
-            "iris_memory.l2_memory.adapter.get_config",
+            "astrbot_plugin_iris_memory.iris_memory.l2_memory.adapter.get_config",
             return_value=self._config(True, step=0.5),
         ):
             for _ in range(5):
@@ -395,7 +395,7 @@ class TestHitReinforcement:
             adapter._db.commit()
 
         with patch(
-            "iris_memory.l2_memory.adapter.get_config",
+            "astrbot_plugin_iris_memory.iris_memory.l2_memory.adapter.get_config",
             return_value=self._config(False),
         ):
             await adapter.batch_update_access([mid])
@@ -506,7 +506,7 @@ class TestArchiveAndRestore:
             adapter._db.commit()
 
         with patch(
-            "iris_memory.l2_memory.adapter.get_config", return_value=self._config()
+            "astrbot_plugin_iris_memory.iris_memory.l2_memory.adapter.get_config", return_value=self._config()
         ):
             removed = await adapter.purge_expired_archives()
 
@@ -673,7 +673,7 @@ class TestGlobalScope:
         )
 
         with patch(
-            "iris_memory.l2_memory.adapter.get_config", return_value=config
+            "astrbot_plugin_iris_memory.iris_memory.l2_memory.adapter.get_config", return_value=config
         ):
             demoted = adapter._apply_global_demotion(
                 [make("mem_g", "global"), make("mem_l", "group")]

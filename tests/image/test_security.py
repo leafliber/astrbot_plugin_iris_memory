@@ -8,13 +8,13 @@ from unittest.mock import Mock, patch
 import httpx
 import pytest
 
-from iris_memory.image import ImageInfo, ImageParser
-from iris_memory.image.security import (
+from astrbot_plugin_iris_memory.iris_memory.image import ImageInfo, ImageParser
+from astrbot_plugin_iris_memory.iris_memory.image.security import (
     _resolve_and_pin,
     fetch_safe_image_bytes,
     local_image_to_data_url,
 )
-from iris_memory.l1_buffer.buffer import L1Buffer
+from astrbot_plugin_iris_memory.iris_memory.l1_buffer.buffer import L1Buffer
 
 
 PNG_BYTES = b"\x89PNG\r\n\x1a\n" + b"test-image-data"
@@ -47,7 +47,7 @@ async def test_ssrf_literal_loopback_is_rejected_before_request():
         return httpx.Response(200, content=PNG_BYTES, request=request)
 
     with patch(
-        "iris_memory.image.security._create_safe_client",
+        "astrbot_plugin_iris_memory.iris_memory.image.security._create_safe_client",
         return_value=_mock_client(handler),
     ):
         result = await fetch_safe_image_bytes("http://127.0.0.1/private.png")
@@ -77,10 +77,10 @@ async def test_redirect_to_private_address_is_rejected():
     )
     with (
         patch(
-            "iris_memory.image.security._create_safe_client",
+            "astrbot_plugin_iris_memory.iris_memory.image.security._create_safe_client",
             return_value=_mock_client(handler),
         ),
-        patch("iris_memory.image.security._resolve_and_pin", safe_check),
+        patch("astrbot_plugin_iris_memory.iris_memory.image.security._resolve_and_pin", safe_check),
     ):
         result = await fetch_safe_image_bytes("https://images.example/start")
 
@@ -110,10 +110,10 @@ async def test_safe_relative_redirect_is_followed_and_revalidated():
     safe_check = Mock(side_effect=_pin)
     with (
         patch(
-            "iris_memory.image.security._create_safe_client",
+            "astrbot_plugin_iris_memory.iris_memory.image.security._create_safe_client",
             return_value=_mock_client(handler),
         ),
-        patch("iris_memory.image.security._resolve_and_pin", safe_check),
+        patch("astrbot_plugin_iris_memory.iris_memory.image.security._resolve_and_pin", safe_check),
     ):
         result = await fetch_safe_image_bytes("https://images.example/start")
 
@@ -137,11 +137,11 @@ async def test_streaming_response_larger_than_limit_is_rejected():
 
     with (
         patch(
-            "iris_memory.image.security._create_safe_client",
+            "astrbot_plugin_iris_memory.iris_memory.image.security._create_safe_client",
             return_value=_mock_client(handler),
         ),
         patch(
-            "iris_memory.image.security._resolve_and_pin",
+            "astrbot_plugin_iris_memory.iris_memory.image.security._resolve_and_pin",
             return_value=(
                 ("https://images.example/large.png",),
                 "images.example",
@@ -169,7 +169,7 @@ def test_resolve_and_pin_preserves_all_safe_addresses():
         (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("1.1.1.1", 0)),
         (socket.AF_INET, socket.SOCK_DGRAM, 17, "", ("1.1.1.1", 0)),
     ]
-    with patch("iris_memory.image.security.socket.getaddrinfo", return_value=infos):
+    with patch("astrbot_plugin_iris_memory.iris_memory.image.security.socket.getaddrinfo", return_value=infos):
         resolved = _resolve_and_pin("https://images.example/image.png")
 
     assert resolved == (
@@ -205,10 +205,10 @@ async def test_download_falls_back_to_next_safe_address():
     )
     with (
         patch(
-            "iris_memory.image.security._create_safe_client",
+            "astrbot_plugin_iris_memory.iris_memory.image.security._create_safe_client",
             return_value=_mock_client(handler),
         ),
-        patch("iris_memory.image.security._resolve_and_pin", return_value=pinned),
+        patch("astrbot_plugin_iris_memory.iris_memory.image.security._resolve_and_pin", return_value=pinned),
     ):
         result = await fetch_safe_image_bytes("https://images.example/image.png")
 
@@ -247,7 +247,7 @@ async def test_parser_rejects_untrusted_absolute_file_path(tmp_path: Path):
     parser = ImageParser(Mock())
 
     with patch(
-        "iris_memory.config.get_config",
+        "astrbot_plugin_iris_memory.iris_memory.config.get_config",
         return_value=SimpleNamespace(data_dir=data_dir),
     ):
         result = await parser._resolve_image_url(ImageInfo(file_path=str(outside)))
@@ -276,7 +276,7 @@ def test_cleanup_only_deletes_files_inside_configured_cache(tmp_path: Path):
         SimpleNamespace(image_info=ImageInfo(file_path=str(symlink_escape))),
     ]
     with patch(
-        "iris_memory.l1_buffer.buffer.get_config",
+        "astrbot_plugin_iris_memory.iris_memory.l1_buffer.buffer.get_config",
         return_value=SimpleNamespace(data_dir=data_dir),
     ):
         L1Buffer._cleanup_image_cache_files(items)

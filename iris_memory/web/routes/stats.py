@@ -9,11 +9,11 @@
 """
 
 from quart import jsonify, request
-from iris_memory.core import get_component_manager, get_logger, get_uptime
-from iris_memory.llm.manager import LLMManager
-from iris_memory.l1_buffer.buffer import L1Buffer
-from iris_memory.l2_memory.adapter import L2MemoryAdapter
-from iris_memory.l3_kg.adapter import L3KGAdapter
+from ...core import get_component_manager, get_logger, get_uptime
+from ...llm.manager import LLMManager
+from ...l1_buffer.buffer import L1Buffer
+from ...l2_memory.adapter import L2MemoryAdapter
+from ...l3_kg.adapter import L3KGAdapter
 from typing import Dict, Any
 from datetime import datetime
 import time
@@ -61,7 +61,7 @@ def _augment_disabled_components(component_states: Dict[str, Any]) -> Dict[str, 
     未注册组件此前在状态中缺失，页面会停在"等待初始化"遮罩。
     """
     try:
-        from iris_memory.config import get_config
+        from ...config import get_config
 
         config = get_config()
     except Exception:
@@ -204,7 +204,7 @@ async def get_system_stats():
 def _governor_alerts(metrics: Dict[str, Any], recent_calls: list[dict]) -> list[dict]:
     """Build a read-only alert snapshot from current Governor/call-log state."""
 
-    from iris_memory.config import get_config
+    from ...config import get_config
 
     alerts: list[dict] = []
     rpm_limit = int(get_config().get("llm_provider_rpm", 30) or 0)
@@ -320,7 +320,7 @@ async def get_llm_governance_stats():
 async def get_isolation_status():
     """返回三类隔离开关的当前值，供前端展示状态徽章"""
     try:
-        from iris_memory.config import get_config
+        from ...config import get_config
 
         config = get_config()
         status = {

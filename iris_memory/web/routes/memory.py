@@ -8,12 +8,12 @@
 """
 
 from quart import jsonify, request
-from iris_memory.core import get_component_manager, get_logger
-from iris_memory.l1_buffer.buffer import L1Buffer
-from iris_memory.l2_memory.adapter import L2MemoryAdapter
-from iris_memory.l3_kg.adapter import L3KGAdapter
-from iris_memory.platform.base import PRIVATE_SESSION_PREFIX
-from iris_memory.profile.storage import ProfileStorage
+from ...core import get_component_manager, get_logger
+from ...l1_buffer.buffer import L1Buffer
+from ...l2_memory.adapter import L2MemoryAdapter
+from ...l3_kg.adapter import L3KGAdapter
+from ...platform.base import PRIVATE_SESSION_PREFIX
+from ...profile.storage import ProfileStorage
 
 logger = get_logger("web.memory")
 
@@ -359,7 +359,7 @@ async def list_l1_queues():
     profile_storage = manager.get_component("profile", ProfileStorage)
     if profile_storage and profile_storage.is_available:
         try:
-            from iris_memory.profile import GroupProfileManager
+            from ...profile import GroupProfileManager
 
             group_manager = GroupProfileManager(profile_storage)
             for q in queues:

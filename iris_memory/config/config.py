@@ -16,7 +16,7 @@ from typing import Callable, Dict, Optional
 
 from astrbot.api import AstrBotConfig
 
-from iris_memory.core import get_logger
+from ..core import get_logger
 
 from .defaults import Defaults
 from .hidden_config import HiddenConfigManager

@@ -2,8 +2,8 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
-from iris_memory.dream.reconciliation import ReconciliationPhase
-from iris_memory.l2_memory.models import MemoryEntry, MemorySearchResult
+from astrbot_plugin_iris_memory.iris_memory.dream.reconciliation import ReconciliationPhase
+from astrbot_plugin_iris_memory.iris_memory.l2_memory.models import MemoryEntry, MemorySearchResult
 
 
 def _config():
@@ -63,7 +63,7 @@ async def test_reconciliation_reuses_one_neighbor_scan_for_both_policies():
     )
 
     with patch(
-        "iris_memory.dream.reconciliation.get_config", return_value=_config()
+        "astrbot_plugin_iris_memory.iris_memory.dream.reconciliation.get_config", return_value=_config()
     ):
         details = await ReconciliationPhase().execute(
             l2, None, llm, entries=entries, persona_id="default"

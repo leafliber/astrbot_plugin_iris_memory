@@ -19,10 +19,10 @@ from datetime import datetime
 from typing import Any, Dict, Optional, TYPE_CHECKING, cast
 import math
 
-from iris_memory.config import get_config
+from ..config import get_config
 
 if TYPE_CHECKING:
-    from iris_memory.l2_memory.models import MemoryEntry
+    from ..l2_memory.models import MemoryEntry
 
 
 # ============================================================================

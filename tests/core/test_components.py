@@ -1,7 +1,7 @@
 """组件管理器测试"""
 
 import pytest
-from iris_memory.core.components import (
+from astrbot_plugin_iris_memory.iris_memory.core.components import (
     Component,
     ComponentManager,
     SystemStatus,

@@ -6,11 +6,11 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
-from iris_memory.proactive.decision import DecisionCore
-from iris_memory.proactive.perception import ContextPackager, SlidingWindow, WindowMessage
-from iris_memory.proactive.proactive import ProactiveEngine
-from iris_memory.proactive.signals import SignalGate
-from iris_memory.proactive.state import StateManager
+from astrbot_plugin_iris_memory.iris_memory.proactive.decision import DecisionCore
+from astrbot_plugin_iris_memory.iris_memory.proactive.perception import ContextPackager, SlidingWindow, WindowMessage
+from astrbot_plugin_iris_memory.iris_memory.proactive.proactive import ProactiveEngine
+from astrbot_plugin_iris_memory.iris_memory.proactive.signals import SignalGate
+from astrbot_plugin_iris_memory.iris_memory.proactive.state import StateManager
 
 
 GID = "g1"
@@ -58,7 +58,7 @@ class TestIndependentScheduling:
     def test_human_message_replaces_old_candidate_with_independent_jitter(self, nm_config):
         engine, state, _, _ = _engine(nm_config)
         now = time.time()
-        with patch("iris_memory.proactive.proactive.random.uniform", return_value=123.4):
+        with patch("astrbot_plugin_iris_memory.iris_memory.proactive.proactive.random.uniform", return_value=123.4):
             engine.notify_human_message(GID, now)
 
         data = state.get_state(GID)
@@ -71,7 +71,7 @@ class TestIndependentScheduling:
         now = time.time()
         state.is_muted = lambda: True
         state.seconds_until_unmuted = lambda _now=None: 3600.0
-        with patch("iris_memory.proactive.proactive.random.uniform", return_value=1800.0):
+        with patch("astrbot_plugin_iris_memory.iris_memory.proactive.proactive.random.uniform", return_value=1800.0):
             when = engine._schedule_group(GID, now=now)
         assert when == pytest.approx(now + 3600 + 1800)
 

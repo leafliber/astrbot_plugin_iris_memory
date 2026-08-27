@@ -45,21 +45,21 @@ Iris Chat Memory - 平台接口统一管理模块
 """
 
 # 导出公共 API
-from iris_memory.platform.base import (
+from ..platform.base import (
     ForwardMessage,
     PlatformAdapter,
     ReplyInfo,
     UnsupportedPlatformError,
 )
-from iris_memory.platform.cron import CronAdapter
-from iris_memory.platform.factory import (
+from ..platform.cron import CronAdapter
+from ..platform.factory import (
     get_adapter,
     get_supported_platforms,
     register_adapter,
 )
-from iris_memory.platform.generic import GenericAdapter
-from iris_memory.platform.qq import OneBot11Adapter
-from iris_memory.platform.qq_official import QQOfficialAdapter
+from ..platform.generic import GenericAdapter
+from ..platform.qq import OneBot11Adapter
+from ..platform.qq_official import QQOfficialAdapter
 
 
 __all__ = [

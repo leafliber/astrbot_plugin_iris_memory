@@ -2,8 +2,8 @@
 
 import pytest
 from unittest.mock import Mock
-from iris_memory.platform.generic import GenericAdapter
-from iris_memory.platform.base import ReplyInfo
+from astrbot_plugin_iris_memory.iris_memory.platform.generic import GenericAdapter
+from astrbot_plugin_iris_memory.iris_memory.platform.base import ReplyInfo
 
 
 class TestGenericAdapterCore:

@@ -9,11 +9,11 @@ bot 的这类发起消息因此不会进入 L1 缓冲。本模块在直发成功
 
 from typing import TYPE_CHECKING, cast
 
-from iris_memory.core import get_logger
+from ..core import get_logger
 
 if TYPE_CHECKING:
-    from iris_memory.core.components import ComponentManager
-    from iris_memory.l1_buffer import L1Buffer
+    from ..core.components import ComponentManager
+    from ..l1_buffer import L1Buffer
 
 logger = get_logger("initiate_backfill")
 

@@ -1,7 +1,7 @@
 """L3 知识图谱数据模型测试"""
 
 from datetime import datetime
-from iris_memory.l3_kg import (
+from astrbot_plugin_iris_memory.iris_memory.l3_kg import (
     GraphNode,
     GraphEdge,
     ExtractionResult,

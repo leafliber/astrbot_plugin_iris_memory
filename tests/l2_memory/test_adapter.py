@@ -7,7 +7,7 @@ from unittest.mock import Mock, AsyncMock, patch
 import numpy as np
 import pytest
 
-from iris_memory.l2_memory.adapter import L2MemoryAdapter
+from astrbot_plugin_iris_memory.iris_memory.l2_memory.adapter import L2MemoryAdapter
 
 
 class TestL2MemoryAdapter:
@@ -93,7 +93,7 @@ class TestL2MemoryAdapter:
         )
 
         with patch(
-            "iris_memory.l2_memory.adapter.get_config", return_value=mock_config
+            "astrbot_plugin_iris_memory.iris_memory.l2_memory.adapter.get_config", return_value=mock_config
         ):
             adapter = L2MemoryAdapter()
             await adapter.initialize()
@@ -187,7 +187,7 @@ class TestL2MemoryAdapter:
         adapter._search_with_vector = Mock(return_value=[])
 
         with patch(
-            "iris_memory.l2_memory.adapter.get_config", return_value=mock_config
+            "astrbot_plugin_iris_memory.iris_memory.l2_memory.adapter.get_config", return_value=mock_config
         ):
             results = await adapter.retrieve("测试查询", group_id="group_123", top_k=5)
             assert isinstance(results, list)
@@ -213,7 +213,7 @@ class TestL2MemoryAdapter:
         )
 
         with patch(
-            "iris_memory.l2_memory.adapter.get_config", return_value=mock_config
+            "astrbot_plugin_iris_memory.iris_memory.l2_memory.adapter.get_config", return_value=mock_config
         ):
             adapter = L2MemoryAdapter()
             adapter._is_available = True
@@ -363,7 +363,7 @@ class TestL2MemoryAdapter:
         assert memory_id is not None
 
         with patch(
-            "iris_memory.l2_memory.adapter.get_config", return_value=mock_config
+            "astrbot_plugin_iris_memory.iris_memory.l2_memory.adapter.get_config", return_value=mock_config
         ):
             result = await adapter.update_access(memory_id)
         assert result
@@ -373,7 +373,7 @@ class TestL2MemoryAdapter:
         """测试更新不存在的记忆"""
         adapter = mock_faiss_adapter
         with patch(
-            "iris_memory.l2_memory.adapter.get_config", return_value=mock_config
+            "astrbot_plugin_iris_memory.iris_memory.l2_memory.adapter.get_config", return_value=mock_config
         ):
             result = await adapter.update_access("mem_nonexistent")
         assert not result
@@ -602,7 +602,7 @@ class TestL2MemoryAdapter:
 
         embed_mock.reset_mock()
         with patch(
-            "iris_memory.l2_memory.adapter.get_config", return_value=mock_config
+            "astrbot_plugin_iris_memory.iris_memory.l2_memory.adapter.get_config", return_value=mock_config
         ):
             results = await adapter.batch_retrieve_by_ids(
                 [mid1, mid2, "mem_not_exist"]
@@ -632,7 +632,7 @@ class TestL2MemoryAdapter:
         adapter = mock_faiss_adapter
         adapter._index.ntotal = 0
         with patch(
-            "iris_memory.l2_memory.adapter.get_config", return_value=mock_config
+            "astrbot_plugin_iris_memory.iris_memory.l2_memory.adapter.get_config", return_value=mock_config
         ):
             results = await adapter.batch_retrieve_by_ids(["mem_a"])
         assert results == [[]]

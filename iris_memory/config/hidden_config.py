@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Callable, Dict, List, Optional
 from dataclasses import asdict
 
-from iris_memory.core import get_logger
+from ..core import get_logger
 
 from .defaults import HiddenConfig
 
@@ -147,7 +147,7 @@ class HiddenConfigManager:
     def _persist(self) -> None:
         """持久化隐藏配置到文件"""
         try:
-            from iris_memory.utils import atomic_write_json
+            from ..utils import atomic_write_json
 
             atomic_write_json(self._path, self._cache, ensure_ascii=False, indent=2)
             logger.debug(f"隐藏配置已持久化到 {self._path}")
@@ -168,7 +168,7 @@ class HiddenConfigManager:
                 data = dict(self._cache)
 
             try:
-                from iris_memory.utils import atomic_write_json
+                from ..utils import atomic_write_json
 
                 atomic_write_json(self._path, data, ensure_ascii=False, indent=2)
                 logger.debug(f"隐藏配置已持久化到 {self._path}")

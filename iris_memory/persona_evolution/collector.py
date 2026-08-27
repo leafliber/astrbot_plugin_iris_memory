@@ -15,9 +15,9 @@ import re
 import time
 from typing import Optional, TYPE_CHECKING
 
-from iris_memory.core import get_logger
-from iris_memory.platform import get_adapter
-from iris_memory.utils.input_sanitizer import is_injection_attempt
+from ..core import get_logger
+from ..platform import get_adapter
+from ..utils.input_sanitizer import is_injection_attempt
 from .storage import PersonaEvolutionStorage
 
 if TYPE_CHECKING:

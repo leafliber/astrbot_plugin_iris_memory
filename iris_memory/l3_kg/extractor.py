@@ -1,9 +1,9 @@
 """实体和关系提取器"""
 
 from typing import Dict, List, Optional
-from iris_memory.core import get_logger
-from iris_memory.config import get_config
-from iris_memory.llm_modules import L3_KG_EXTRACTION
+from ..core import get_logger
+from ..config import get_config
+from ..llm_modules import L3_KG_EXTRACTION
 from .models import (
     GraphNode,
     GraphEdge,
@@ -13,7 +13,7 @@ from .models import (
     RELATION_TYPE_WHITELIST,
     RELATION_TYPE_DESCRIPTIONS,
 )
-from iris_memory.l2_memory import MemoryEntry
+from ..l2_memory import MemoryEntry
 import json
 
 logger = get_logger("l3_kg")

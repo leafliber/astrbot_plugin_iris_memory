@@ -4,15 +4,15 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from iris_memory.commands.all_handler import AllCommandHandler
-from iris_memory.commands.l2_handler import L2CommandHandler
-from iris_memory.commands.l3_handler import L3CommandHandler
-from iris_memory.commands.base import ParsedArgs
+from astrbot_plugin_iris_memory.iris_memory.commands.all_handler import AllCommandHandler
+from astrbot_plugin_iris_memory.iris_memory.commands.l2_handler import L2CommandHandler
+from astrbot_plugin_iris_memory.iris_memory.commands.l3_handler import L3CommandHandler
+from astrbot_plugin_iris_memory.iris_memory.commands.base import ParsedArgs
 
 
 def _make_manager(persona_id: str = "default"):
     """构建 Mock 组件管理器:返回 AsyncMock 的 L2/L3 适配器与 persona 解析"""
-    from iris_memory.core.persona import PersonaResolver
+    from astrbot_plugin_iris_memory.iris_memory.core.persona import PersonaResolver
 
     l2 = Mock()
     l2.is_available = True
@@ -60,11 +60,11 @@ class TestL2HandlerClearPersona:
         manager, l2, _ = _make_manager(persona_id="persona_b")
         event, adapter = _make_event()
         monkeypatch.setattr(
-            "iris_memory.commands.l2_handler.get_component_manager",
+            "astrbot_plugin_iris_memory.iris_memory.commands.l2_handler.get_component_manager",
             lambda: manager,
         )
         monkeypatch.setattr(
-            "iris_memory.commands.l2_handler.get_adapter",
+            "astrbot_plugin_iris_memory.iris_memory.commands.l2_handler.get_adapter",
             lambda e: adapter,
         )
 
@@ -81,11 +81,11 @@ class TestL2HandlerClearPersona:
         manager, l2, _ = _make_manager(persona_id="persona_b")
         event, adapter = _make_event()
         monkeypatch.setattr(
-            "iris_memory.commands.l2_handler.get_component_manager",
+            "astrbot_plugin_iris_memory.iris_memory.commands.l2_handler.get_component_manager",
             lambda: manager,
         )
         monkeypatch.setattr(
-            "iris_memory.commands.l2_handler.get_adapter",
+            "astrbot_plugin_iris_memory.iris_memory.commands.l2_handler.get_adapter",
             lambda e: adapter,
         )
 
@@ -103,11 +103,11 @@ class TestL3HandlerClearPersona:
         manager, _, l3 = _make_manager(persona_id="persona_b")
         event, adapter = _make_event()
         monkeypatch.setattr(
-            "iris_memory.commands.l3_handler.get_component_manager",
+            "astrbot_plugin_iris_memory.iris_memory.commands.l3_handler.get_component_manager",
             lambda: manager,
         )
         monkeypatch.setattr(
-            "iris_memory.commands.l3_handler.get_adapter",
+            "astrbot_plugin_iris_memory.iris_memory.commands.l3_handler.get_adapter",
             lambda e: adapter,
         )
 
@@ -126,11 +126,11 @@ class TestAllHandlerClearPersona:
         manager, l2, l3 = _make_manager(persona_id="persona_b")
         event, adapter = _make_event()
         monkeypatch.setattr(
-            "iris_memory.commands.all_handler.get_component_manager",
+            "astrbot_plugin_iris_memory.iris_memory.commands.all_handler.get_component_manager",
             lambda: manager,
         )
         monkeypatch.setattr(
-            "iris_memory.commands.all_handler.get_adapter",
+            "astrbot_plugin_iris_memory.iris_memory.commands.all_handler.get_adapter",
             lambda e: adapter,
         )
 

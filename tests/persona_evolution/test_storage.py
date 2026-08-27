@@ -5,8 +5,8 @@ import time
 
 import pytest
 
-from iris_memory.persona_evolution import EvolutionJob
-from iris_memory.persona_evolution.storage import (
+from astrbot_plugin_iris_memory.iris_memory.persona_evolution import EvolutionJob
+from astrbot_plugin_iris_memory.iris_memory.persona_evolution.storage import (
     SCHEMA_VERSION,
     PersonaEvolutionStorage,
 )
@@ -56,7 +56,7 @@ class TestSchema:
 
     def test_migration_failure_rolls_back(self, tmp_path, monkeypatch):
         """迁移 SQL 出错时回滚并抛出（由组件降级），user_version 不变"""
-        from iris_memory.persona_evolution import storage as storage_mod
+        from astrbot_plugin_iris_memory.iris_memory.persona_evolution import storage as storage_mod
 
         monkeypatch.setitem(
             storage_mod._MIGRATIONS, 0, "THIS IS NOT VALID SQL AT ALL;"

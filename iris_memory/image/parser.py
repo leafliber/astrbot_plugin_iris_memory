@@ -10,9 +10,9 @@ import base64
 import re
 from typing import List, Optional, TYPE_CHECKING
 
-from iris_memory.core import get_logger
+from ..core import get_logger
 from .models import ImageInfo, ParseResult
-from iris_memory.llm_modules import IMAGE_PARSING
+from ..llm_modules import IMAGE_PARSING
 from .recorder_bridge import MessageRecorderBridge
 from .security import (
     fetch_safe_image_bytes,
@@ -21,7 +21,7 @@ from .security import (
 )
 
 if TYPE_CHECKING:
-    from iris_memory.llm.manager import LLMManager
+    from ..llm.manager import LLMManager
 
 logger = get_logger("image")
 
@@ -93,7 +93,7 @@ class ImageParser:
             file_path = Path(image_info.file_path)
             if file_path.is_absolute():
                 # 平台消息中的绝对路径不可信，只允许读取本插件生成的图片缓存。
-                from iris_memory.config import get_config
+                from ..config import get_config
 
                 try:
                     cache_root = get_config().data_dir / "image_cache"

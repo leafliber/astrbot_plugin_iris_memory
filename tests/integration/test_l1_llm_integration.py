@@ -10,10 +10,10 @@ import pytest
 from pathlib import Path
 from unittest.mock import Mock, AsyncMock, patch, MagicMock
 
-from iris_memory.l1_buffer import L1Buffer
-from iris_memory.llm.manager import LLMManager
-from iris_memory.core.components import ComponentManager
-from iris_memory.config import init_config
+from astrbot_plugin_iris_memory.iris_memory.l1_buffer import L1Buffer
+from astrbot_plugin_iris_memory.iris_memory.llm.manager import LLMManager
+from astrbot_plugin_iris_memory.iris_memory.core.components import ComponentManager
+from astrbot_plugin_iris_memory.iris_memory.config import init_config
 
 
 class TestL1LLMIntegration:
@@ -74,8 +74,8 @@ class TestL1LLMIntegration:
         4. Token 统计记录
         """
         with (
-            patch("iris_memory.llm.manager.get_config") as mock_get_config,
-            patch("iris_memory.l1_buffer.buffer.get_config") as mock_buffer_config,
+            patch("astrbot_plugin_iris_memory.iris_memory.llm.manager.get_config") as mock_get_config,
+            patch("astrbot_plugin_iris_memory.iris_memory.l1_buffer.buffer.get_config") as mock_buffer_config,
         ):
             mock_get_config.return_value = mock_config
             mock_buffer_config.return_value = mock_config
@@ -112,7 +112,7 @@ class TestL1LLMIntegration:
 
         验证：LLMManager 调用后 Token 统计正确记录
         """
-        with patch("iris_memory.llm.manager.get_config") as mock_get_config:
+        with patch("astrbot_plugin_iris_memory.iris_memory.llm.manager.get_config") as mock_get_config:
             mock_get_config.return_value = mock_config
 
             llm_manager = LLMManager(mock_context, mock_storage)
@@ -133,7 +133,7 @@ class TestL1LLMIntegration:
 
         验证：LLMManager 调用后日志正确记录
         """
-        with patch("iris_memory.llm.manager.get_config") as mock_get_config:
+        with patch("astrbot_plugin_iris_memory.iris_memory.llm.manager.get_config") as mock_get_config:
             mock_get_config.return_value = mock_config
 
             llm_manager = LLMManager(mock_context, mock_storage)
@@ -161,7 +161,7 @@ class TestL1LLMIntegration:
         # Mock llm_generate 抛出异常
         mock_context.llm_generate = AsyncMock(side_effect=Exception("API Error"))
 
-        with patch("iris_memory.llm.manager.get_config") as mock_get_config:
+        with patch("astrbot_plugin_iris_memory.iris_memory.llm.manager.get_config") as mock_get_config:
             mock_get_config.return_value = mock_config
 
             llm_manager = LLMManager(mock_context, mock_storage)
@@ -185,7 +185,7 @@ class TestL1LLMIntegration:
 
         验证：多次调用正确累积 Token 统计
         """
-        with patch("iris_memory.llm.manager.get_config") as mock_get_config:
+        with patch("astrbot_plugin_iris_memory.iris_memory.llm.manager.get_config") as mock_get_config:
             mock_get_config.return_value = mock_config
 
             llm_manager = LLMManager(mock_context, mock_storage)
@@ -215,7 +215,7 @@ class TestL1LLMIntegration:
 
         验证：Provider 参数正确传递
         """
-        with patch("iris_memory.llm.manager.get_config") as mock_get_config:
+        with patch("astrbot_plugin_iris_memory.iris_memory.llm.manager.get_config") as mock_get_config:
             mock_get_config.return_value = mock_config
 
             llm_manager = LLMManager(mock_context, mock_storage)
@@ -239,8 +239,8 @@ class TestL1LLMIntegration:
         验证：总结完成后队列被清空
         """
         with (
-            patch("iris_memory.llm.manager.get_config") as mock_get_config,
-            patch("iris_memory.l1_buffer.buffer.get_config") as mock_buffer_config,
+            patch("astrbot_plugin_iris_memory.iris_memory.llm.manager.get_config") as mock_get_config,
+            patch("astrbot_plugin_iris_memory.iris_memory.l1_buffer.buffer.get_config") as mock_buffer_config,
         ):
             mock_get_config.return_value = mock_config
             mock_buffer_config.return_value = mock_config

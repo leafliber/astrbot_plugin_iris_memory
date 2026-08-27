@@ -1,6 +1,6 @@
 """画像数据模型测试"""
 
-from iris_memory.profile.models import (
+from astrbot_plugin_iris_memory.iris_memory.profile.models import (
     GroupProfile,
     UserProfile,
     profile_to_dict,
@@ -295,7 +295,7 @@ class TestFavorabilityLevel:
 
     def test_favorability_in_field_tiers_is_mid(self):
         """favorability 字段层级为 MID"""
-        from iris_memory.profile.models import USER_FIELD_TIERS, UpdateTier
+        from astrbot_plugin_iris_memory.iris_memory.profile.models import USER_FIELD_TIERS, UpdateTier
 
         assert USER_FIELD_TIERS.get("favorability") == UpdateTier.MID
 

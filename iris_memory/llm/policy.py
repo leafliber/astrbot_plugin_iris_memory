@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from enum import IntEnum
 
-from iris_memory.llm_modules import (
+from ..llm_modules import (
     DREAM_CONSOLIDATION,
     DREAM_CONTRADICTION,
     DREAM_KNOWLEDGE_INDUCTION,

@@ -6,8 +6,8 @@ from pydantic.dataclasses import dataclass
 from astrbot.core.agent.tool import FunctionTool, ToolExecResult
 from astrbot.core.agent.run_context import ContextWrapper
 from astrbot.core.astr_agent_context import AstrAgentContext
-from iris_memory.core import get_logger, get_component_manager
-from iris_memory.l2_memory.adapter import L2MemoryAdapter
+from ..core import get_logger, get_component_manager
+from ..l2_memory.adapter import L2MemoryAdapter
 
 logger = get_logger("tools")
 
@@ -105,7 +105,7 @@ class SaveMemoryTool(FunctionTool[AstrAgentContext]):
             if scope not in ("group", "global"):
                 scope = "group"
 
-            from iris_memory.utils import sanitize_input
+            from ..utils import sanitize_input
 
             content = sanitize_input(content, source="tool:save_memory")
 
@@ -113,7 +113,7 @@ class SaveMemoryTool(FunctionTool[AstrAgentContext]):
             event = context.context.event
 
             # 使用Platform适配器获取上下文
-            from iris_memory.platform import get_adapter
+            from ..platform import get_adapter
 
             adapter = get_adapter(event)
             user_id = adapter.get_user_id(event)
@@ -146,13 +146,13 @@ class SaveMemoryTool(FunctionTool[AstrAgentContext]):
             if not l2_adapter or not l2_adapter.is_available:
                 return "L2记忆库当前不可用"
 
-            from iris_memory.core.persona import resolve_persona
+            from ..core.persona import resolve_persona
 
             persona_id = await resolve_persona(manager, event)
 
             now = datetime.now().isoformat()
 
-            from iris_memory.l1_buffer.summarizer import importance_to_float
+            from ..l1_buffer.summarizer import importance_to_float
 
             metadata = {
                 "user_id": user_id,

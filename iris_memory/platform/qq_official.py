@@ -27,12 +27,12 @@ from typing import Any, List, TYPE_CHECKING
 
 from astrbot.api.message_components import At, Image, Plain, Reply
 
-from iris_memory.core import get_logger
-from iris_memory.platform.base import PlatformAdapter, ReplyInfo
+from ..core import get_logger
+from ..platform.base import PlatformAdapter, ReplyInfo
 
 if TYPE_CHECKING:
     from astrbot.api.event import AstrMessageEvent
-    from iris_memory.image.models import ImageInfo
+    from ..image.models import ImageInfo
 
 logger = get_logger("platform.qq_official")
 
@@ -359,7 +359,7 @@ class QQOfficialAdapter(PlatformAdapter):
         Returns:
             图片信息列表
         """
-        from iris_memory.image.models import ImageInfo
+        from ..image.models import ImageInfo
 
         images: List["ImageInfo"] = []
         message_id = self._clean_id(getattr(event.message_obj, "message_id", None))
@@ -392,7 +392,7 @@ class QQOfficialAdapter(PlatformAdapter):
         self, component: Any, source: str, message_id: str
     ) -> "ImageInfo | None":
         """把链上 Image 组件转为 ImageInfo（url 缺失时返回 None）"""
-        from iris_memory.image.models import ImageInfo
+        from ..image.models import ImageInfo
 
         url = str(getattr(component, "url", None) or getattr(component, "file", None) or "")
         if not url:

@@ -7,7 +7,7 @@ import asyncio
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from iris_memory.llm.manager import LLMManager
+from astrbot_plugin_iris_memory.iris_memory.llm.manager import LLMManager
 
 
 class TestLLMManager:
@@ -35,7 +35,7 @@ class TestLLMManager:
 
     @pytest.fixture
     def mock_config(self):
-        with patch("iris_memory.llm.manager.get_config") as mock:
+        with patch("astrbot_plugin_iris_memory.iris_memory.llm.manager.get_config") as mock:
             config = MagicMock()
             config.get = MagicMock(return_value=100)
             mock.return_value = config
@@ -246,7 +246,7 @@ class TestLLMManager:
     @pytest.mark.asyncio
     async def test_generate_direct_timeout(self, mock_context, mock_storage):
         """provider 卡住时，generate_direct 在配置超时后抛 TimeoutError"""
-        with patch("iris_memory.llm.manager.get_config") as mock_cfg:
+        with patch("astrbot_plugin_iris_memory.iris_memory.llm.manager.get_config") as mock_cfg:
             mock_cfg.return_value.get.side_effect = self._timeout_config()
 
             manager = LLMManager(mock_context, mock_storage)
@@ -270,7 +270,7 @@ class TestLLMManager:
     @pytest.mark.asyncio
     async def test_generate_timeout(self, mock_context, mock_storage):
         """provider 卡住时，generate 同样在配置超时后抛 TimeoutError"""
-        with patch("iris_memory.llm.manager.get_config") as mock_cfg:
+        with patch("astrbot_plugin_iris_memory.iris_memory.llm.manager.get_config") as mock_cfg:
             mock_cfg.return_value.get.side_effect = self._timeout_config()
 
             manager = LLMManager(mock_context, mock_storage)
@@ -287,7 +287,7 @@ class TestLLMManager:
     @pytest.mark.asyncio
     async def test_generate_direct_timeout_disabled(self, mock_context, mock_storage):
         """timeout=0（显式禁用）时不超时，调用正常完成"""
-        with patch("iris_memory.llm.manager.get_config") as mock_cfg:
+        with patch("astrbot_plugin_iris_memory.iris_memory.llm.manager.get_config") as mock_cfg:
             mock_cfg.return_value.get.side_effect = self._timeout_config()
 
             manager = LLMManager(mock_context, mock_storage)
@@ -313,7 +313,7 @@ class TestLLMManager:
     async def test_generate_direct_records_provider_metadata(
         self, mock_context, mock_storage
     ):
-        with patch("iris_memory.llm.manager.get_config") as mock_cfg:
+        with patch("astrbot_plugin_iris_memory.iris_memory.llm.manager.get_config") as mock_cfg:
             mock_cfg.return_value.get.side_effect = self._timeout_config()
             manager = LLMManager(mock_context, mock_storage)
             await manager.initialize()
@@ -344,7 +344,7 @@ class TestLLMManager:
         self, mock_context, mock_storage
     ):
         """显式 timeout 参数覆盖全局配置"""
-        with patch("iris_memory.llm.manager.get_config") as mock_cfg:
+        with patch("astrbot_plugin_iris_memory.iris_memory.llm.manager.get_config") as mock_cfg:
             mock_cfg.return_value.get.side_effect = lambda key, default=None: {
                 "call_log_max_entries": 100,
                 "llm_call_timeout_ms": 60000,

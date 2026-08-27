@@ -4,9 +4,9 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from iris_memory.commands.base import ParsedArgs
-from iris_memory.commands.learning_handler import LearningCommandHandler
-from iris_memory.learning.storage import LearningStorage
+from astrbot_plugin_iris_memory.iris_memory.commands.base import ParsedArgs
+from astrbot_plugin_iris_memory.iris_memory.commands.learning_handler import LearningCommandHandler
+from astrbot_plugin_iris_memory.iris_memory.learning.storage import LearningStorage
 
 
 @pytest.fixture
@@ -22,7 +22,7 @@ def learning_env(tmp_path, monkeypatch):
     manager.get_component = Mock(return_value=component)
 
     monkeypatch.setattr(
-        "iris_memory.commands.learning_handler.get_component_manager",
+        "astrbot_plugin_iris_memory.iris_memory.commands.learning_handler.get_component_manager",
         lambda: manager,
     )
 
@@ -30,11 +30,11 @@ def learning_env(tmp_path, monkeypatch):
     adapter.get_group_id = Mock(return_value="group_1")
     adapter.get_user_id = Mock(return_value="user_1")
     monkeypatch.setattr(
-        "iris_memory.commands.learning_handler.get_adapter",
+        "astrbot_plugin_iris_memory.iris_memory.commands.learning_handler.get_adapter",
         Mock(return_value=adapter),
     )
 
-    import iris_memory.core.persona as persona_mod
+    import astrbot_plugin_iris_memory.iris_memory.core.persona as persona_mod
 
     monkeypatch.setattr(
         persona_mod, "resolve_persona", AsyncMock(return_value="default")

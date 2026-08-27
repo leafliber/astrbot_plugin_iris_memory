@@ -8,7 +8,7 @@ Iris Chat Memory - 定时任务模块
 注意：DreamTask 已迁移至 iris_memory.dream 顶层包。
 """
 
-from iris_memory.core import get_logger
+from ..core import get_logger
 
 __all__ = [
     "TaskScheduler",

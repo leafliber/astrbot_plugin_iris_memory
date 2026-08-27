@@ -3,8 +3,8 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from iris_memory.image.models import ImageParseStatus, ImageQueueItem
-from iris_memory.l1_buffer.buffer import L1Buffer
+from astrbot_plugin_iris_memory.iris_memory.image.models import ImageParseStatus, ImageQueueItem
+from astrbot_plugin_iris_memory.iris_memory.l1_buffer.buffer import L1Buffer
 
 
 @pytest.mark.asyncio

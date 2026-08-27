@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
-from iris_memory.core.llm_request_hook import (
+from astrbot_plugin_iris_memory.iris_memory.core.llm_request_hook import (
     _QUERY_REWRITE_CACHE,
     _QUERY_REWRITE_INFLIGHT,
     _rewrite_query_for_retrieval,
@@ -35,7 +35,7 @@ def clear_rewrite_state():
 async def test_common_preference_question_uses_local_rewrite():
     component_manager = Mock()
 
-    with patch("iris_memory.config.get_config", return_value=_config()):
+    with patch("astrbot_plugin_iris_memory.iris_memory.config.get_config", return_value=_config()):
         result = await _rewrite_query_for_retrieval(
             "你还记得我喜欢什么吗？", component_manager, "persona-a"
         )
@@ -55,7 +55,7 @@ async def test_identical_queries_join_singleflight_and_cache():
     component_manager.get_component.return_value = llm
     query = "你还记得我上次提到的项目截止日期吗？"
 
-    with patch("iris_memory.config.get_config", return_value=_config()):
+    with patch("astrbot_plugin_iris_memory.iris_memory.config.get_config", return_value=_config()):
         results = await asyncio.gather(
             *(
                 _rewrite_query_for_retrieval(query, component_manager, "persona-a")

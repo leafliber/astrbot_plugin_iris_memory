@@ -4,12 +4,12 @@ import json
 
 import pytest
 
-from iris_memory.persona_evolution.generator import (
+from astrbot_plugin_iris_memory.iris_memory.persona_evolution.generator import (
     CandidateGenerator,
     parse_generation,
 )
-from iris_memory.persona_evolution.models import ErrorCode
-from iris_memory.persona_evolution.reviewer import (
+from astrbot_plugin_iris_memory.iris_memory.persona_evolution.models import ErrorCode
+from astrbot_plugin_iris_memory.iris_memory.persona_evolution.reviewer import (
     DEFAULT_THRESHOLDS,
     PromptReviewer,
     parse_review,

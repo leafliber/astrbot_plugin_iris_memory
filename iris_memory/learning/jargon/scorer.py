@@ -4,8 +4,8 @@ import math
 from collections import Counter
 from typing import Any, Dict, List
 
-from iris_memory.config import get_config
-from iris_memory.learning.jargon_clustering import (
+from ...config import get_config
+from ...learning.jargon_clustering import (
     cluster_candidate_items,
     select_candidate_representative,
 )

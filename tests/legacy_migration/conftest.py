@@ -1,15 +1,10 @@
 """legacy_migration 测试共享配置与测试替身"""
 
 import sqlite3
-import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import pytest
-
-project_root = Path(__file__).parent.parent.parent
-if str(project_root) not in sys.path:
-    sys.path.insert(0, str(project_root))
 
 
 # ============================================================================
@@ -295,8 +290,8 @@ def component_manager(
 @pytest.fixture
 def iris_config(tmp_path: Path):
     """初始化 iris 配置系统（测试后重置全局单例）"""
-    from iris_memory.config import init_config
-    from iris_memory.config.config import reset_config
+    from astrbot_plugin_iris_memory.iris_memory.config import init_config
+    from astrbot_plugin_iris_memory.iris_memory.config.config import reset_config
 
     config = init_config(FakeUserConfig(), tmp_path)
     yield config

@@ -4,12 +4,12 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 from datetime import datetime, timedelta
 
-from iris_memory.profile.group_profile import GroupProfileManager
-from iris_memory.profile.models import (
+from astrbot_plugin_iris_memory.iris_memory.profile.group_profile import GroupProfileManager
+from astrbot_plugin_iris_memory.iris_memory.profile.models import (
     GroupProfile,
     UpdateTier,
 )
-from iris_memory.profile.storage import ProfileStorage
+from astrbot_plugin_iris_memory.iris_memory.profile.storage import ProfileStorage
 
 
 class TestGroupProfileManager:
@@ -125,7 +125,7 @@ class TestGroupProfileManager:
         tracker.last_mid_update_time = datetime.now() - timedelta(hours=25)
         profile.set_update_tracker(tracker)
 
-        with patch("iris_memory.profile.group_profile.get_config") as mock_config:
+        with patch("astrbot_plugin_iris_memory.iris_memory.profile.group_profile.get_config") as mock_config:
             mock_config_obj = MagicMock()
             mock_config_obj.get.side_effect = lambda k, d=None: {
                 "profile_mid_update_interval_summaries": 5,
@@ -143,7 +143,7 @@ class TestGroupProfileManager:
         tracker.last_mid_update_time = datetime.now() - timedelta(hours=1)
         profile.set_update_tracker(tracker)
 
-        with patch("iris_memory.profile.group_profile.get_config") as mock_config:
+        with patch("astrbot_plugin_iris_memory.iris_memory.profile.group_profile.get_config") as mock_config:
             mock_config_obj = MagicMock()
             mock_config_obj.get.side_effect = lambda k, d=None: {
                 "profile_mid_update_interval_summaries": 5,
@@ -161,7 +161,7 @@ class TestGroupProfileManager:
         tracker.summary_count_since_long_update = 3
         profile.set_update_tracker(tracker)
 
-        with patch("iris_memory.profile.group_profile.get_config") as mock_config:
+        with patch("astrbot_plugin_iris_memory.iris_memory.profile.group_profile.get_config") as mock_config:
             mock_config_obj = MagicMock()
             mock_config_obj.get.side_effect = lambda k, d=None: {
                 "profile_long_update_interval_hours": 168.0,
@@ -175,7 +175,7 @@ class TestGroupProfileManager:
         self, manager, mock_storage
     ):
         profile = GroupProfile(group_id="group_123")
-        with patch("iris_memory.profile.group_profile.get_config") as mock_config:
+        with patch("astrbot_plugin_iris_memory.iris_memory.profile.group_profile.get_config") as mock_config:
             mock_config_obj = MagicMock()
             mock_config_obj.get.side_effect = lambda k, d=None: {
                 "profile_long_update_interval_hours": 168.0,

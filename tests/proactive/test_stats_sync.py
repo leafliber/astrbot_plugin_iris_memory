@@ -8,8 +8,8 @@
 import inspect
 import time
 
-from iris_memory.proactive.api import group_state_summary, sync_stats_group_state
-from iris_memory.proactive.stats import StatsCollector
+from astrbot_plugin_iris_memory.iris_memory.proactive.api import group_state_summary, sync_stats_group_state
+from astrbot_plugin_iris_memory.iris_memory.proactive.stats import StatsCollector
 
 GID = "g1"
 

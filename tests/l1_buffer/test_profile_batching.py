@@ -3,12 +3,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from iris_memory.l1_buffer.buffer import L1Buffer
-from iris_memory.l1_buffer.models import ContextMessage
-from iris_memory.llm.manager import LLMManager
-from iris_memory.profile.analyzer import ProfileAnalyzer
-from iris_memory.profile.models import GroupProfile, UserProfile
-from iris_memory.profile.storage import ProfileStorage
+from astrbot_plugin_iris_memory.iris_memory.l1_buffer.buffer import L1Buffer
+from astrbot_plugin_iris_memory.iris_memory.l1_buffer.models import ContextMessage
+from astrbot_plugin_iris_memory.iris_memory.llm.manager import LLMManager
+from astrbot_plugin_iris_memory.iris_memory.profile.analyzer import ProfileAnalyzer
+from astrbot_plugin_iris_memory.iris_memory.profile.models import GroupProfile, UserProfile
+from astrbot_plugin_iris_memory.iris_memory.profile.storage import ProfileStorage
 
 
 @pytest.mark.asyncio
@@ -74,9 +74,9 @@ async def test_forty_users_are_analyzed_in_five_profile_batches():
     }.get(key, default)
 
     with (
-        patch("iris_memory.l1_buffer.buffer.get_config", return_value=config),
-        patch("iris_memory.profile.GroupProfileManager", return_value=group_manager),
-        patch("iris_memory.profile.UserProfileManager", return_value=user_manager),
+        patch("astrbot_plugin_iris_memory.iris_memory.l1_buffer.buffer.get_config", return_value=config),
+        patch("astrbot_plugin_iris_memory.iris_memory.profile.GroupProfileManager", return_value=group_manager),
+        patch("astrbot_plugin_iris_memory.iris_memory.profile.UserProfileManager", return_value=user_manager),
         patch.object(ProfileAnalyzer, "analyze_profiles_batch", analyze),
     ):
         await buffer._update_profile_after_summary(

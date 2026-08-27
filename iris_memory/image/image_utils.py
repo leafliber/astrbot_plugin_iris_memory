@@ -9,7 +9,7 @@ import asyncio
 import io
 from typing import Optional, Tuple
 
-from iris_memory.core import get_logger
+from ..core import get_logger
 
 logger = get_logger("image.utils")
 

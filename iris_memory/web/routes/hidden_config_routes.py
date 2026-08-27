@@ -17,9 +17,9 @@ from dataclasses import asdict, fields
 from typing import Dict, Any, List
 
 from quart import jsonify, request
-from iris_memory.config import get_config
-from iris_memory.config.defaults import HiddenConfig
-from iris_memory.core import get_logger
+from ...config import get_config
+from ...config.defaults import HiddenConfig
+from ...core import get_logger
 
 logger = get_logger("web.hidden_config")
 

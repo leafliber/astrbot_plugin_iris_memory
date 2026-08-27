@@ -7,7 +7,7 @@ from datetime import datetime
 import pytest
 from quart import Quart
 
-from iris_memory.web.routes import stats as stats_routes
+from astrbot_plugin_iris_memory.iris_memory.web.routes import stats as stats_routes
 
 
 class _ComponentManager:
@@ -86,7 +86,7 @@ async def test_llm_governance_endpoint_exposes_metrics_and_alerts(monkeypatch):
         lambda: _ComponentManager(llm_manager),
     )
     monkeypatch.setattr(
-        "iris_memory.config.get_config",
+        "astrbot_plugin_iris_memory.iris_memory.config.get_config",
         lambda: SimpleNamespace(get=lambda key, default=None: 30),
     )
     app = Quart(__name__)
@@ -110,7 +110,7 @@ async def test_llm_governance_endpoint_exposes_metrics_and_alerts(monkeypatch):
 
 def test_duplicate_real_image_provider_calls_raise_alert(monkeypatch):
     monkeypatch.setattr(
-        "iris_memory.config.get_config",
+        "astrbot_plugin_iris_memory.iris_memory.config.get_config",
         lambda: SimpleNamespace(get=lambda key, default=None: 30),
     )
     now = datetime.now().isoformat()

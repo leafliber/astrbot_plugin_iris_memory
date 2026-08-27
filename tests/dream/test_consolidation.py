@@ -11,7 +11,7 @@ ConsolidationPhase 合并重复项测试
 import pytest
 from unittest.mock import Mock, AsyncMock, patch
 
-from iris_memory.dream.consolidation import ConsolidationPhase
+from astrbot_plugin_iris_memory.iris_memory.dream.consolidation import ConsolidationPhase
 
 
 def _mock_config():
@@ -41,7 +41,7 @@ class TestConsolidationPhase:
         llm = None
 
         with patch(
-            "iris_memory.dream.consolidation.get_config", return_value=_mock_config()
+            "astrbot_plugin_iris_memory.iris_memory.dream.consolidation.get_config", return_value=_mock_config()
         ):
             result = await phase.execute(l2, l3, llm)
 
@@ -57,7 +57,7 @@ class TestConsolidationPhase:
         llm = Mock()
 
         with patch(
-            "iris_memory.dream.consolidation.get_config", return_value=_mock_config()
+            "astrbot_plugin_iris_memory.iris_memory.dream.consolidation.get_config", return_value=_mock_config()
         ):
             result = await phase.execute(l2, l3, llm)
 
@@ -72,7 +72,7 @@ class TestConsolidationPhase:
         llm = None
 
         with patch(
-            "iris_memory.dream.consolidation.get_config", return_value=_mock_config()
+            "astrbot_plugin_iris_memory.iris_memory.dream.consolidation.get_config", return_value=_mock_config()
         ):
             result = await phase.execute(l2, l3, llm)
 

@@ -4,9 +4,9 @@ import sqlite3
 
 import pytest
 
-from iris_memory.persona_evolution import PersonaEvolutionStorage
-from iris_memory.persona_evolution.storage import SCHEMA_VERSION
-from iris_memory.persona_evolution.models import (
+from astrbot_plugin_iris_memory.iris_memory.persona_evolution import PersonaEvolutionStorage
+from astrbot_plugin_iris_memory.iris_memory.persona_evolution.storage import SCHEMA_VERSION
+from astrbot_plugin_iris_memory.iris_memory.persona_evolution.models import (
     ErrorCode,
     EvolutionJob,
     JobStatus,
@@ -14,7 +14,7 @@ from iris_memory.persona_evolution.models import (
     RevisionStatus,
     TriggerType,
 )
-from iris_memory.persona_evolution.publisher import (
+from astrbot_plugin_iris_memory.iris_memory.persona_evolution.publisher import (
     MANAGED_BLOCK_BEGIN,
     MANAGED_BLOCK_END,
     append_managed_block,
@@ -584,7 +584,7 @@ class TestSchemaV2Migration:
     """schema v1 → 当前版本迁移（含 decision_reason 与 retry 状态）"""
 
     def test_migrates_v1_to_v2(self, tmp_path):
-        from iris_memory.persona_evolution.storage import _SCHEMA_V1
+        from astrbot_plugin_iris_memory.iris_memory.persona_evolution.storage import _SCHEMA_V1
 
         db_path = tmp_path / "pe.db"
         conn = sqlite3.connect(db_path)

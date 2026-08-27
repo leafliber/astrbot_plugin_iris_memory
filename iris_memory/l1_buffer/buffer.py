@@ -18,21 +18,21 @@ from datetime import datetime
 import asyncio
 import re
 
-from iris_memory.core import Component, get_logger
-from iris_memory.config import get_config
-from iris_memory.platform.base import PRIVATE_SESSION_PREFIX
-from iris_memory.llm.policy import CallPriority
-from iris_memory.tasks.work_queue import BoundedWorkQueue
-from iris_memory.utils import count_tokens
+from ..core import Component, get_logger
+from ..config import get_config
+from ..platform.base import PRIVATE_SESSION_PREFIX
+from ..llm.policy import CallPriority
+from ..tasks.work_queue import BoundedWorkQueue
+from ..utils import count_tokens
 from .models import ContextMessage, SegmentedMessageQueue
 from .outbox import SummaryOutbox
 from .summarizer import Summarizer
 
 if TYPE_CHECKING:
-    from iris_memory.core.components import ComponentManager
-    from iris_memory.profile import GroupProfileManager, UserProfileManager
-    from iris_memory.profile.storage import ProfileStorage
-    from iris_memory.profile.models import UserProfile
+    from ..core.components import ComponentManager
+    from ..profile import GroupProfileManager, UserProfileManager
+    from ..profile.storage import ProfileStorage
+    from ..profile.models import UserProfile
 
 logger = get_logger("buffer")
 
@@ -245,7 +245,7 @@ class L1Buffer(Component):
             logger.warning("ComponentManager 未设置，无法创建 Summarizer")
             return None
 
-        from iris_memory.llm import LLMManager
+        from ..llm import LLMManager
 
         llm_manager = self._component_manager.get_component("llm_manager")
 
@@ -628,8 +628,8 @@ class L1Buffer(Component):
             return
 
         try:
-            from iris_memory.profile import GroupProfileManager, UserProfileManager
-            from iris_memory.profile.storage import ProfileStorage
+            from ..profile import GroupProfileManager, UserProfileManager
+            from ..profile.storage import ProfileStorage
 
             assert isinstance(profile_storage, ProfileStorage)
 
@@ -661,9 +661,9 @@ class L1Buffer(Component):
             group_profile_obj = await group_manager.get_or_create(group_id, persona_id)
             group_should_mid = group_manager.should_update_mid(group_profile_obj)
             group_should_long = group_manager.should_update_long(group_profile_obj)
-            from iris_memory.llm import LLMManager
-            from iris_memory.profile import ProfileAnalyzer
-            from iris_memory.profile.models import profile_to_dict
+            from ..llm import LLMManager
+            from ..profile import ProfileAnalyzer
+            from ..profile.models import profile_to_dict
 
             llm_manager = self._component_manager.get_component("llm_manager")
             if not llm_manager or not llm_manager.is_available:
@@ -772,7 +772,7 @@ class L1Buffer(Component):
         group_manager: "GroupProfileManager",
         persona_id: str,
     ) -> None:
-        from iris_memory.profile.models import UpdateTier
+        from ..profile.models import UpdateTier
 
         if tier in {"mid", "combined"}:
             await group_manager.update_from_analysis(
@@ -805,7 +805,7 @@ class L1Buffer(Component):
         user_manager: "UserProfileManager",
         persona_id: str,
     ) -> None:
-        from iris_memory.profile.models import UpdateTier
+        from ..profile.models import UpdateTier
 
         if tier in {"mid", "combined"}:
             await user_manager.update_from_analysis(
@@ -856,14 +856,14 @@ class L1Buffer(Component):
             return
 
         try:
-            from iris_memory.llm import LLMManager
-            from iris_memory.profile import ProfileAnalyzer
-            from iris_memory.profile.models import UpdateTier
+            from ..llm import LLMManager
+            from ..profile import ProfileAnalyzer
+            from ..profile.models import UpdateTier
 
             assert isinstance(llm_manager, LLMManager)
             analyzer = ProfileAnalyzer(llm_manager)
             group_profile_obj = await group_manager.get_or_create(group_id, persona_id)
-            from iris_memory.profile.models import profile_to_dict
+            from ..profile.models import profile_to_dict
 
             current_profile_dict = profile_to_dict(group_profile_obj)
 
@@ -901,14 +901,14 @@ class L1Buffer(Component):
             return
 
         try:
-            from iris_memory.llm import LLMManager
-            from iris_memory.profile import ProfileAnalyzer
-            from iris_memory.profile.models import UpdateTier
+            from ..llm import LLMManager
+            from ..profile import ProfileAnalyzer
+            from ..profile.models import UpdateTier
 
             assert isinstance(llm_manager, LLMManager)
             analyzer = ProfileAnalyzer(llm_manager)
             group_profile_obj = await group_manager.get_or_create(group_id, persona_id)
-            from iris_memory.profile.models import profile_to_dict
+            from ..profile.models import profile_to_dict
 
             current_profile_dict = profile_to_dict(group_profile_obj)
 
@@ -949,9 +949,9 @@ class L1Buffer(Component):
             return
 
         try:
-            from iris_memory.llm import LLMManager
-            from iris_memory.profile import ProfileAnalyzer
-            from iris_memory.profile.models import UpdateTier, profile_to_dict
+            from ..llm import LLMManager
+            from ..profile import ProfileAnalyzer
+            from ..profile.models import UpdateTier, profile_to_dict
 
             assert isinstance(llm_manager, LLMManager)
             analyzer = ProfileAnalyzer(llm_manager)
@@ -998,9 +998,9 @@ class L1Buffer(Component):
             return
 
         try:
-            from iris_memory.llm import LLMManager
-            from iris_memory.profile import ProfileAnalyzer
-            from iris_memory.profile.models import UpdateTier, profile_to_dict
+            from ..llm import LLMManager
+            from ..profile import ProfileAnalyzer
+            from ..profile.models import UpdateTier, profile_to_dict
 
             assert isinstance(llm_manager, LLMManager)
             analyzer = ProfileAnalyzer(llm_manager)
@@ -1050,9 +1050,9 @@ class L1Buffer(Component):
             return
 
         try:
-            from iris_memory.llm import LLMManager
-            from iris_memory.profile import ProfileAnalyzer
-            from iris_memory.profile.models import UpdateTier, profile_to_dict
+            from ..llm import LLMManager
+            from ..profile import ProfileAnalyzer
+            from ..profile.models import UpdateTier, profile_to_dict
 
             assert isinstance(llm_manager, LLMManager)
             analyzer = ProfileAnalyzer(llm_manager)
@@ -1120,9 +1120,9 @@ class L1Buffer(Component):
             return
 
         try:
-            from iris_memory.llm import LLMManager
-            from iris_memory.profile import ProfileAnalyzer
-            from iris_memory.profile.models import UpdateTier, profile_to_dict
+            from ..llm import LLMManager
+            from ..profile import ProfileAnalyzer
+            from ..profile.models import UpdateTier, profile_to_dict
 
             assert isinstance(llm_manager, LLMManager)
             analyzer = ProfileAnalyzer(llm_manager)
@@ -1190,7 +1190,7 @@ class L1Buffer(Component):
             return None
 
         try:
-            from iris_memory.l2_memory import MemoryRetriever
+            from ..l2_memory import MemoryRetriever
             from .summarizer import (
                 parse_summary_response,
                 confidence_to_float,
@@ -1667,7 +1667,7 @@ class L1Buffer(Component):
         images = self._image_queues[queue_key]
 
         if only_pending:
-            from iris_memory.image import ImageParseStatus
+            from ..image import ImageParseStatus
 
             images = [img for img in images if img.status == ImageParseStatus.PENDING]
 
@@ -1686,7 +1686,7 @@ class L1Buffer(Component):
     ) -> List[Any]:
         """原子领取待解析图片，并回收超时的 PROCESSING 项。"""
 
-        from iris_memory.image import ImageParseStatus
+        from ..image import ImageParseStatus
 
         if not claim_token or limit <= 0:
             return []
@@ -1730,7 +1730,7 @@ class L1Buffer(Component):
         status: Any,
         claim_token: str = "",
     ) -> bool:
-        from iris_memory.image import ImageParseStatus
+        from ..image import ImageParseStatus
 
         queue_key = self._get_queue_key(group_id)
 
@@ -1767,7 +1767,7 @@ class L1Buffer(Component):
     ) -> bool:
         """仅由当前持有者释放领取，供配额不足/可重试失败使用。"""
 
-        from iris_memory.image import ImageParseStatus
+        from ..image import ImageParseStatus
 
         queue_key = self._get_queue_key(group_id)
         for img in self._image_queues.get(queue_key, []):
@@ -1840,7 +1840,7 @@ class L1Buffer(Component):
         if queue_key not in self._image_queues:
             return None
 
-        from iris_memory.image import ImageParseStatus
+        from ..image import ImageParseStatus
 
         images = self._image_queues[queue_key]
         pending_count = sum(

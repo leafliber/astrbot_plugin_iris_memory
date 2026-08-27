@@ -4,7 +4,7 @@ import pytest
 from unittest.mock import Mock, AsyncMock, patch
 from datetime import date
 
-from iris_memory.image import ImageQuotaManager
+from astrbot_plugin_iris_memory.iris_memory.image import ImageQuotaManager
 
 
 class TestImageQuotaManager:
@@ -26,7 +26,7 @@ class TestImageQuotaManager:
     @pytest.mark.asyncio
     async def test_initialize_disabled(self, mock_context):
         """测试禁用状态初始化"""
-        with patch("iris_memory.image.quota_manager.get_config") as mock_get_config:
+        with patch("astrbot_plugin_iris_memory.iris_memory.image.quota_manager.get_config") as mock_get_config:
             mock_config = Mock()
             mock_config.get = Mock(
                 side_effect=lambda key: {"l1_buffer.image_parsing.enable": False}.get(
@@ -43,7 +43,7 @@ class TestImageQuotaManager:
     @pytest.mark.asyncio
     async def test_initialize_success(self, quota_manager, mock_context):
         """测试成功初始化"""
-        with patch("iris_memory.image.quota_manager.get_config") as mock_get_config:
+        with patch("astrbot_plugin_iris_memory.iris_memory.image.quota_manager.get_config") as mock_get_config:
             mock_config = Mock()
             mock_config.get = Mock(
                 side_effect=lambda key, default=None: {
@@ -72,7 +72,7 @@ class TestImageQuotaManager:
         }
         mock_context.get_kv_data = AsyncMock(return_value=stored_data)
 
-        with patch("iris_memory.image.quota_manager.get_config") as mock_get_config:
+        with patch("astrbot_plugin_iris_memory.iris_memory.image.quota_manager.get_config") as mock_get_config:
             mock_config = Mock()
             mock_config.get = Mock(
                 side_effect=lambda key, default=None: {
@@ -93,7 +93,7 @@ class TestImageQuotaManager:
     @pytest.mark.asyncio
     async def test_check_quota_success(self, quota_manager, mock_context):
         """测试检查配额（充足）"""
-        with patch("iris_memory.image.quota_manager.get_config") as mock_get_config:
+        with patch("astrbot_plugin_iris_memory.iris_memory.image.quota_manager.get_config") as mock_get_config:
             mock_config = Mock()
             mock_config.get = Mock(
                 side_effect=lambda key, default=None: {
@@ -119,7 +119,7 @@ class TestImageQuotaManager:
         }
         mock_context.get_kv_data = AsyncMock(return_value=stored_data)
 
-        with patch("iris_memory.image.quota_manager.get_config") as mock_get_config:
+        with patch("astrbot_plugin_iris_memory.iris_memory.image.quota_manager.get_config") as mock_get_config:
             mock_config = Mock()
             mock_config.get = Mock(
                 side_effect=lambda key, default=None: {
@@ -137,7 +137,7 @@ class TestImageQuotaManager:
     @pytest.mark.asyncio
     async def test_use_quota_success(self, quota_manager, mock_context):
         """测试使用配额成功"""
-        with patch("iris_memory.image.quota_manager.get_config") as mock_get_config:
+        with patch("astrbot_plugin_iris_memory.iris_memory.image.quota_manager.get_config") as mock_get_config:
             mock_config = Mock()
             mock_config.get = Mock(
                 side_effect=lambda key, default=None: {
@@ -167,7 +167,7 @@ class TestImageQuotaManager:
         }
         mock_context.get_kv_data = AsyncMock(return_value=stored_data)
 
-        with patch("iris_memory.image.quota_manager.get_config") as mock_get_config:
+        with patch("astrbot_plugin_iris_memory.iris_memory.image.quota_manager.get_config") as mock_get_config:
             mock_config = Mock()
             mock_config.get = Mock(
                 side_effect=lambda key, default=None: {
@@ -186,7 +186,7 @@ class TestImageQuotaManager:
     @pytest.mark.asyncio
     async def test_reset_quota(self, quota_manager, mock_context):
         """测试重置配额"""
-        with patch("iris_memory.image.quota_manager.get_config") as mock_get_config:
+        with patch("astrbot_plugin_iris_memory.iris_memory.image.quota_manager.get_config") as mock_get_config:
             mock_config = Mock()
             mock_config.get = Mock(
                 side_effect=lambda key, default=None: {
@@ -222,7 +222,7 @@ class TestImageQuotaManager:
         }
         mock_context.get_kv_data = AsyncMock(return_value=stored_data)
 
-        with patch("iris_memory.image.quota_manager.get_config") as mock_get_config:
+        with patch("astrbot_plugin_iris_memory.iris_memory.image.quota_manager.get_config") as mock_get_config:
             mock_config = Mock()
             mock_config.get = Mock(
                 side_effect=lambda key, default=None: {
@@ -232,7 +232,7 @@ class TestImageQuotaManager:
             )
             mock_get_config.return_value = mock_config
 
-            with patch("iris_memory.image.quota_manager.date") as mock_date:
+            with patch("astrbot_plugin_iris_memory.iris_memory.image.quota_manager.date") as mock_date:
                 # 模拟今天是 2026-03-29
                 mock_date.today.return_value = date(2026, 3, 29)
 
@@ -250,7 +250,7 @@ class TestImageQuotaManager:
     @pytest.mark.asyncio
     async def test_shutdown(self, quota_manager, mock_context):
         """测试关闭"""
-        with patch("iris_memory.image.quota_manager.get_config") as mock_get_config:
+        with patch("astrbot_plugin_iris_memory.iris_memory.image.quota_manager.get_config") as mock_get_config:
             mock_config = Mock()
             mock_config.get = Mock(
                 side_effect=lambda key, default=None: {
@@ -286,7 +286,7 @@ class TestImageQuotaManager:
         }
         mock_context.get_kv_data = AsyncMock(return_value=stored_data)
 
-        with patch("iris_memory.image.quota_manager.get_config") as mock_get_config:
+        with patch("astrbot_plugin_iris_memory.iris_memory.image.quota_manager.get_config") as mock_get_config:
             mock_config = Mock()
             mock_config.get = Mock(
                 side_effect=lambda key, default=None: {
@@ -296,7 +296,7 @@ class TestImageQuotaManager:
             )
             mock_get_config.return_value = mock_config
 
-            with patch("iris_memory.image.quota_manager.date") as mock_date:
+            with patch("astrbot_plugin_iris_memory.iris_memory.image.quota_manager.date") as mock_date:
                 # init 时是 3-28（不触发重置）
                 mock_date.today.return_value = date(2026, 3, 28)
                 manager = ImageQuotaManager(mock_context)
@@ -334,7 +334,7 @@ class TestImageQuotaManager:
         }
         mock_context.get_kv_data = AsyncMock(return_value=stored_data)
 
-        with patch("iris_memory.image.quota_manager.get_config") as mock_get_config:
+        with patch("astrbot_plugin_iris_memory.iris_memory.image.quota_manager.get_config") as mock_get_config:
             mock_config = Mock()
             mock_config.get = Mock(
                 side_effect=lambda key, default=None: {
@@ -344,7 +344,7 @@ class TestImageQuotaManager:
             )
             mock_get_config.return_value = mock_config
 
-            with patch("iris_memory.image.quota_manager.date") as mock_date:
+            with patch("astrbot_plugin_iris_memory.iris_memory.image.quota_manager.date") as mock_date:
                 mock_date.today.return_value = date(2026, 3, 28)
                 manager = ImageQuotaManager(mock_context)
                 await manager.initialize()

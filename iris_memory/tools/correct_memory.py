@@ -6,9 +6,9 @@ from pydantic.dataclasses import dataclass
 from astrbot.core.agent.tool import FunctionTool, ToolExecResult
 from astrbot.core.agent.run_context import ContextWrapper
 from astrbot.core.astr_agent_context import AstrAgentContext
-from iris_memory.core import get_logger, get_component_manager
-from iris_memory.l2_memory.adapter import L2MemoryAdapter
-from iris_memory.l3_kg.adapter import L3KGAdapter
+from ..core import get_logger, get_component_manager
+from ..l2_memory.adapter import L2MemoryAdapter
+from ..l3_kg.adapter import L3KGAdapter
 
 logger = get_logger("tools")
 
@@ -57,13 +57,13 @@ class CorrectMemoryTool(FunctionTool[AstrAgentContext]):
             if not all([memory_id, correction, reason]):
                 return "参数不完整：需要提供 memory_id、correction 和 reason"
 
-            from iris_memory.utils import sanitize_input
+            from ..utils import sanitize_input
 
             correction = sanitize_input(correction, source="tool:correct_memory")
             reason = sanitize_input(reason, source="tool:correct_memory")
 
             event = context.context.event
-            from iris_memory.platform import get_adapter
+            from ..platform import get_adapter
 
             adapter = get_adapter(event)
             user_id = adapter.get_user_id(event)
@@ -76,7 +76,7 @@ class CorrectMemoryTool(FunctionTool[AstrAgentContext]):
             if not l2_adapter or not l2_adapter._is_available:
                 return "L2记忆库当前不可用"
 
-            from iris_memory.core.persona import resolve_persona
+            from ..core.persona import resolve_persona
 
             persona_id = await resolve_persona(manager, event)
 
@@ -88,7 +88,7 @@ class CorrectMemoryTool(FunctionTool[AstrAgentContext]):
             original_content = original_entry.content
 
             # 群聊隔离校验：开启群记忆隔离时仅允许修正本群记忆，防止跨群越权改写
-            from iris_memory.config import get_config
+            from ..config import get_config
 
             config = get_config()
             if (

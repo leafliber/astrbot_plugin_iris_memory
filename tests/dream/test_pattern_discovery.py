@@ -11,8 +11,8 @@ PatternDiscoveryPhase 模式挖掘测试
 import pytest
 from unittest.mock import Mock, AsyncMock, patch
 
-from iris_memory.dream.pattern_discovery import PatternDiscoveryPhase
-from iris_memory.l2_memory.models import MemoryEntry
+from astrbot_plugin_iris_memory.iris_memory.dream.pattern_discovery import PatternDiscoveryPhase
+from astrbot_plugin_iris_memory.iris_memory.l2_memory.models import MemoryEntry
 
 
 def _mock_config():
@@ -40,7 +40,7 @@ class TestPatternDiscoveryPhase:
         llm = None
 
         with patch(
-            "iris_memory.dream.pattern_discovery.get_config",
+            "astrbot_plugin_iris_memory.iris_memory.dream.pattern_discovery.get_config",
             return_value=_mock_config(),
         ):
             result = await phase.execute(l2, l3, llm)
@@ -57,7 +57,7 @@ class TestPatternDiscoveryPhase:
         llm = Mock()
 
         with patch(
-            "iris_memory.dream.pattern_discovery.get_config",
+            "astrbot_plugin_iris_memory.iris_memory.dream.pattern_discovery.get_config",
             return_value=_mock_config(),
         ):
             result = await phase.execute(l2, l3, llm)
@@ -77,7 +77,7 @@ class TestPatternDiscoveryPhase:
         llm.generate_direct = AsyncMock(return_value="NONE")
 
         with patch(
-            "iris_memory.dream.pattern_discovery.get_config",
+            "astrbot_plugin_iris_memory.iris_memory.dream.pattern_discovery.get_config",
             return_value=_mock_config(),
         ):
             first = await phase.execute(l2, None, llm, entries=entries)
@@ -139,7 +139,7 @@ CONFIDENCE: medium"""
         assert patterns[0].get("person", "") == ""
 
     def test_type_to_relation_mapping(self):
-        from iris_memory.dream.pattern_discovery import _TYPE_TO_RELATION
+        from astrbot_plugin_iris_memory.iris_memory.dream.pattern_discovery import _TYPE_TO_RELATION
 
         assert _TYPE_TO_RELATION["Trait"] == "HAS_TRAIT"
         assert _TYPE_TO_RELATION["Preference"] == "HAS_PREFERENCE"

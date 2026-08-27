@@ -6,14 +6,14 @@ Iris Chat Memory - L2 记忆检索器
 
 from typing import List, Optional, Dict, Any, TYPE_CHECKING
 
-from iris_memory.core import get_logger, ComponentManager
-from iris_memory.config import get_config
-from iris_memory.utils import count_tokens
+from ..core import get_logger, ComponentManager
+from ..config import get_config
+from ..utils import count_tokens
 from .models import MemorySearchResult
 from .adapter import L2MemoryAdapter
 
 if TYPE_CHECKING:
-    from iris_memory.llm.manager import LLMManager
+    from ..llm.manager import LLMManager
 
 logger = get_logger("l2_memory.retriever")
 

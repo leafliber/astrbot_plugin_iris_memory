@@ -11,8 +11,8 @@ import time
 from dataclasses import dataclass
 from typing import Awaitable, Callable, Dict, Generic, Hashable, Optional, TypeVar
 
-from iris_memory.core import get_logger
-from iris_memory.llm.policy import CallPriority
+from ..core import get_logger
+from ..llm.policy import CallPriority
 
 logger = get_logger("work_queue")
 

@@ -4,7 +4,7 @@ import pytest
 from datetime import datetime, timedelta
 from unittest.mock import Mock, patch
 
-from iris_memory.utils.forgetting import (
+from astrbot_plugin_iris_memory.iris_memory.utils.forgetting import (
     calculate_recency,
     calculate_frequency,
     calculate_confidence,
@@ -12,7 +12,7 @@ from iris_memory.utils.forgetting import (
     calculate_forgetting_score,
     should_evict,
 )
-from iris_memory.l2_memory.models import MemoryEntry
+from astrbot_plugin_iris_memory.iris_memory.l2_memory.models import MemoryEntry
 
 
 class TestCalculateRecency:
@@ -148,7 +148,7 @@ class TestCalculateForgettingScore:
             },
         )
 
-        with patch("iris_memory.utils.forgetting.get_config", return_value=mock_config):
+        with patch("astrbot_plugin_iris_memory.iris_memory.utils.forgetting.get_config", return_value=mock_config):
             score = calculate_forgetting_score(entry)
 
             assert score > 0.7
@@ -165,7 +165,7 @@ class TestCalculateForgettingScore:
             },
         )
 
-        with patch("iris_memory.utils.forgetting.get_config", return_value=mock_config):
+        with patch("astrbot_plugin_iris_memory.iris_memory.utils.forgetting.get_config", return_value=mock_config):
             score = calculate_forgetting_score(entry)
 
             assert score < 0.5
@@ -189,7 +189,7 @@ class TestCalculateForgettingScore:
             "w4": 0.1,
         }
 
-        with patch("iris_memory.utils.forgetting.get_config", return_value=mock_config):
+        with patch("astrbot_plugin_iris_memory.iris_memory.utils.forgetting.get_config", return_value=mock_config):
             score = calculate_forgetting_score(entry, weights=weights)
 
             assert 0 < score <= 1.0
@@ -209,7 +209,7 @@ class TestCalculateForgettingScore:
                 },
             )
 
-        with patch("iris_memory.utils.forgetting.get_config", return_value=mock_config):
+        with patch("astrbot_plugin_iris_memory.iris_memory.utils.forgetting.get_config", return_value=mock_config):
             high = calculate_forgetting_score(make_entry(0.8))
             low = calculate_forgetting_score(make_entry(0.2))
 
@@ -229,7 +229,7 @@ class TestCalculateForgettingScore:
 
         assert entry.importance == 0.5
 
-        with patch("iris_memory.utils.forgetting.get_config", return_value=mock_config):
+        with patch("astrbot_plugin_iris_memory.iris_memory.utils.forgetting.get_config", return_value=mock_config):
             score = calculate_forgetting_score(entry)
 
         assert 0 < score <= 1.0
@@ -262,7 +262,7 @@ class TestShouldEvict:
             },
         )
 
-        with patch("iris_memory.utils.forgetting.get_config", return_value=mock_config):
+        with patch("astrbot_plugin_iris_memory.iris_memory.utils.forgetting.get_config", return_value=mock_config):
             result = should_evict(entry, threshold=0.3, retention_days=30)
 
             assert result
@@ -279,7 +279,7 @@ class TestShouldEvict:
             },
         )
 
-        with patch("iris_memory.utils.forgetting.get_config", return_value=mock_config):
+        with patch("astrbot_plugin_iris_memory.iris_memory.utils.forgetting.get_config", return_value=mock_config):
             result = should_evict(entry, threshold=0.3, retention_days=30)
 
             assert not result
@@ -296,7 +296,7 @@ class TestShouldEvict:
             },
         )
 
-        with patch("iris_memory.utils.forgetting.get_config", return_value=mock_config):
+        with patch("astrbot_plugin_iris_memory.iris_memory.utils.forgetting.get_config", return_value=mock_config):
             result = should_evict(entry, threshold=0.3, retention_days=30)
 
             # 虽然分数低，但在保留期内，不应淘汰
@@ -310,7 +310,7 @@ class TestShouldEvict:
             metadata={"access_count": 0, "confidence": 0.1},
         )
 
-        with patch("iris_memory.utils.forgetting.get_config", return_value=mock_config):
+        with patch("astrbot_plugin_iris_memory.iris_memory.utils.forgetting.get_config", return_value=mock_config):
             result = should_evict(entry, threshold=0.3, retention_days=30)
 
             # 无访问记录且分数低，应该淘汰
@@ -331,9 +331,9 @@ class TestShouldEvict:
             metadata={"access_count": 0, "confidence": 0.4},
         )
 
-        with patch("iris_memory.utils.forgetting.get_config", return_value=mock_config):
+        with patch("astrbot_plugin_iris_memory.iris_memory.utils.forgetting.get_config", return_value=mock_config):
             with patch(
-                "iris_memory.utils.forgetting.calculate_forgetting_score",
+                "astrbot_plugin_iris_memory.iris_memory.utils.forgetting.calculate_forgetting_score",
                 return_value=0.4,
             ):
                 # 0.4 >= immediate_threshold(0.1)，不触发立即淘汰
@@ -351,9 +351,9 @@ class TestShouldEvict:
             metadata={"access_count": 0, "confidence": 0.4},
         )
 
-        with patch("iris_memory.utils.forgetting.get_config", return_value=mock_config):
+        with patch("astrbot_plugin_iris_memory.iris_memory.utils.forgetting.get_config", return_value=mock_config):
             with patch(
-                "iris_memory.utils.forgetting.calculate_forgetting_score",
+                "astrbot_plugin_iris_memory.iris_memory.utils.forgetting.calculate_forgetting_score",
                 return_value=0.4,
             ):
                 # 不传 threshold → 使用配置值 0.3，0.4 >= 0.3 → 不淘汰
@@ -390,9 +390,9 @@ class TestShouldEvict:
             },
         )
 
-        with patch("iris_memory.utils.forgetting.get_config", return_value=mock_config):
+        with patch("astrbot_plugin_iris_memory.iris_memory.utils.forgetting.get_config", return_value=mock_config):
             with patch(
-                "iris_memory.utils.forgetting.calculate_forgetting_score",
+                "astrbot_plugin_iris_memory.iris_memory.utils.forgetting.calculate_forgetting_score",
                 return_value=0.34,
             ):
                 # 正常记忆：0.34 >= 0.3，不淘汰

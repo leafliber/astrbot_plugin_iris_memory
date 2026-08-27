@@ -12,7 +12,7 @@ from unittest.mock import Mock, AsyncMock
 import numpy as np
 import pytest
 
-from iris_memory.l2_memory.adapter import L2MemoryAdapter
+from astrbot_plugin_iris_memory.iris_memory.l2_memory.adapter import L2MemoryAdapter
 
 
 def _make_adapter() -> L2MemoryAdapter:

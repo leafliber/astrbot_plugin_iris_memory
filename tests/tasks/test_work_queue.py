@@ -2,8 +2,8 @@ import asyncio
 
 import pytest
 
-from iris_memory.llm.policy import CallPriority
-from iris_memory.tasks.work_queue import BoundedWorkQueue
+from astrbot_plugin_iris_memory.iris_memory.llm.policy import CallPriority
+from astrbot_plugin_iris_memory.iris_memory.tasks.work_queue import BoundedWorkQueue
 
 
 @pytest.mark.asyncio

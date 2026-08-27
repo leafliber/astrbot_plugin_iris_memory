@@ -2,13 +2,13 @@
 
 import pytest
 
-from iris_memory.legacy_migration.detector import LegacyDetection
-from iris_memory.legacy_migration.profile_migrator import (
+from astrbot_plugin_iris_memory.iris_memory.legacy_migration.detector import LegacyDetection
+from astrbot_plugin_iris_memory.iris_memory.legacy_migration.profile_migrator import (
     DEFAULT_FAVORABILITY,
     map_legacy_persona,
     migrate_profiles,
 )
-from iris_memory.profile.models import UserProfile
+from astrbot_plugin_iris_memory.iris_memory.profile.models import UserProfile
 
 
 def _detection(personas):

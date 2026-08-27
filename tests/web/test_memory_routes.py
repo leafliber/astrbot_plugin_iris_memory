@@ -3,8 +3,8 @@
 from datetime import datetime
 from unittest.mock import Mock
 
-from iris_memory.l1_buffer import ContextMessage
-from iris_memory.web.routes.memory import get_private_queue_display
+from astrbot_plugin_iris_memory.iris_memory.l1_buffer import ContextMessage
+from astrbot_plugin_iris_memory.iris_memory.web.routes.memory import get_private_queue_display
 
 
 def _make_msg(role: str, content: str, metadata: dict | None = None) -> ContextMessage:

@@ -22,7 +22,7 @@ import json
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from iris_memory.core import get_logger
+from ..core import get_logger
 
 logger = get_logger("legacy_migration")
 
@@ -264,7 +264,7 @@ def _try_persist_user_config(raw_config: dict) -> bool:
 def _write_hidden_suggestions(writes: List[Tuple[str, str, Any]]) -> None:
     """将迁移建议写入 hidden_config.json"""
     try:
-        from iris_memory.config import get_config
+        from ..config import get_config
 
         config = get_config()
     except Exception as e:

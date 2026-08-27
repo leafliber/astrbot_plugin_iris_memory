@@ -2,7 +2,7 @@
 
 import pytest
 from unittest.mock import Mock
-from iris_memory.tools import CorrectMemoryTool
+from astrbot_plugin_iris_memory.iris_memory.tools import CorrectMemoryTool
 
 
 @pytest.fixture
@@ -46,13 +46,13 @@ async def test_correct_memory_l2_unavailable(tool, mock_context, monkeypatch):
     mock_manager.get_component = Mock(return_value=mock_l2)
 
     monkeypatch.setattr(
-        "iris_memory.platform.get_adapter", Mock(return_value=mock_adapter)
+        "astrbot_plugin_iris_memory.iris_memory.platform.get_adapter", Mock(return_value=mock_adapter)
     )
     monkeypatch.setattr(
-        "iris_memory.tools.correct_memory.get_component_manager",
+        "astrbot_plugin_iris_memory.iris_memory.tools.correct_memory.get_component_manager",
         Mock(return_value=mock_manager),
     )
-    monkeypatch.setattr("iris_memory.utils.sanitize_input", lambda x, source="": x)
+    monkeypatch.setattr("astrbot_plugin_iris_memory.iris_memory.utils.sanitize_input", lambda x, source="": x)
 
     result = await tool.call(
         mock_context, memory_id="mem_123", correction="修正内容", reason="修正原因"

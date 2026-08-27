@@ -8,8 +8,8 @@ import tempfile
 import shutil
 import asyncio
 
-from iris_memory.l3_kg import GraphRetriever, GraphNode, GraphEdge, L3KGAdapter
-from iris_memory.config import init_config
+from astrbot_plugin_iris_memory.iris_memory.l3_kg import GraphRetriever, GraphNode, GraphEdge, L3KGAdapter
+from astrbot_plugin_iris_memory.iris_memory.config import init_config
 
 
 class TestGraphRetriever:

@@ -5,11 +5,11 @@ from unittest.mock import patch
 
 import pytest
 
-from iris_memory.persona_evolution import EvolutionJob, PersonaEvolutionComponent
+from astrbot_plugin_iris_memory.iris_memory.persona_evolution import EvolutionJob, PersonaEvolutionComponent
 
 from .conftest import insert_sample, make_adapter, make_event
 
-ADAPTER_PATH = "iris_memory.persona_evolution.collector.get_adapter"
+ADAPTER_PATH = "astrbot_plugin_iris_memory.iris_memory.persona_evolution.collector.get_adapter"
 
 
 class TestInitialize:
@@ -39,7 +39,7 @@ class TestInitialize:
     async def test_init_failure_degrades(self, config, monkeypatch):
         """初始化失败置 _init_error 降级，不抛出"""
         monkeypatch.setattr(
-            "iris_memory.persona_evolution.component.PersonaEvolutionStorage.init_schema",
+            "astrbot_plugin_iris_memory.iris_memory.persona_evolution.component.PersonaEvolutionStorage.init_schema",
             lambda self: (_ for _ in ()).throw(RuntimeError("磁盘只读")),
         )
         comp = PersonaEvolutionComponent()

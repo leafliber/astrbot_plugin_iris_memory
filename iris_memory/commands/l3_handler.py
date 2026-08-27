@@ -6,9 +6,9 @@ Iris Chat Memory - L3 指令处理器
 
 from typing import Optional, TYPE_CHECKING
 
-from iris_memory.core import get_logger, get_component_manager
-from iris_memory.l3_kg.adapter import L3KGAdapter
-from iris_memory.platform import get_adapter
+from ..core import get_logger, get_component_manager
+from ..l3_kg.adapter import L3KGAdapter
+from ..platform import get_adapter
 from .base import CommandHandler, CommandResult, ParsedArgs, DeleteScope
 
 if TYPE_CHECKING:
@@ -99,8 +99,8 @@ class L3CommandHandler(CommandHandler):
 
         # 画像别名映射：昵称命名且无 user_id 标记的存量 Person 节点
         # 按映射吸收合并或补打标记，修复按用户 ID 搜索/删除不命中的数据
-        from iris_memory.l3_kg.adapter import build_profile_alias_map
-        from iris_memory.profile.storage import ProfileStorage
+        from ..l3_kg.adapter import build_profile_alias_map
+        from ..profile.storage import ProfileStorage
 
         profile_storage = manager.get_component("profile", ProfileStorage)
         alias_map = None
@@ -145,7 +145,7 @@ class L3CommandHandler(CommandHandler):
         group_id = adapter.get_group_id(event)
         current_user_id = adapter.get_user_id(event)
         # 清除操作需在当前 persona 命名空间内执行（隔离未启用时为 default）
-        from iris_memory.core.persona import resolve_persona
+        from ..core.persona import resolve_persona
 
         persona_id = await resolve_persona(manager, event)
 

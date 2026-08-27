@@ -25,7 +25,7 @@ from .budget import (
     current_llm_call_budget,
     use_llm_call_budget,
 )
-from iris_memory.llm_modules import ALL_LLM_MODULES
+from ..llm_modules import ALL_LLM_MODULES
 
 __all__ = [
     # 协议接口

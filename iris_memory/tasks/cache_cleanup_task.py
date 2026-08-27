@@ -10,12 +10,12 @@ Features:
 
 from typing import TYPE_CHECKING
 
-from iris_memory.core import get_logger
-from iris_memory.config import get_config
-from iris_memory.image.cache_manager import ImageCacheManager
+from ..core import get_logger
+from ..config import get_config
+from ..image.cache_manager import ImageCacheManager
 
 if TYPE_CHECKING:
-    from iris_memory.core import ComponentManager
+    from ..core import ComponentManager
 
 logger = get_logger("tasks.cache_cleanup")
 

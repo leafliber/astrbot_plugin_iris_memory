@@ -3,7 +3,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from iris_memory.image.coordinator import ImageParseCoordinator
+from astrbot_plugin_iris_memory.iris_memory.image.coordinator import ImageParseCoordinator
 
 
 @pytest.mark.asyncio
@@ -14,7 +14,7 @@ async def test_global_image_workers_and_per_session_serialization():
         "image_max_concurrent_parse": 2,
     }.get(key, default)
     coordinator = ImageParseCoordinator()
-    with patch("iris_memory.image.coordinator.get_config", return_value=config):
+    with patch("astrbot_plugin_iris_memory.iris_memory.image.coordinator.get_config", return_value=config):
         await coordinator.initialize()
 
     active = 0

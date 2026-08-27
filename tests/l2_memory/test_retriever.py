@@ -3,10 +3,10 @@
 import pytest
 from unittest.mock import Mock, AsyncMock, patch
 
-from iris_memory.l2_memory.retriever import MemoryRetriever
-from iris_memory.l2_memory.models import MemoryEntry, MemorySearchResult
-from iris_memory.l2_memory.adapter import L2MemoryAdapter
-from iris_memory.core.components import ComponentManager
+from astrbot_plugin_iris_memory.iris_memory.l2_memory.retriever import MemoryRetriever
+from astrbot_plugin_iris_memory.iris_memory.l2_memory.models import MemoryEntry, MemorySearchResult
+from astrbot_plugin_iris_memory.iris_memory.l2_memory.adapter import L2MemoryAdapter
+from astrbot_plugin_iris_memory.iris_memory.core.components import ComponentManager
 
 
 class TestMemoryRetriever:
@@ -57,7 +57,7 @@ class TestMemoryRetriever:
         mock_adapter.retrieve = AsyncMock(return_value=[result])
 
         with patch(
-            "iris_memory.l2_memory.retriever.get_config", return_value=mock_config
+            "astrbot_plugin_iris_memory.iris_memory.l2_memory.retriever.get_config", return_value=mock_config
         ):
             retriever = MemoryRetriever(mock_manager)
             results = await retriever.retrieve("喜欢吃什么", group_id="group_123")
@@ -72,7 +72,7 @@ class TestMemoryRetriever:
         manager.get_component = Mock(return_value=None)
 
         with patch(
-            "iris_memory.l2_memory.retriever.get_config", return_value=mock_config
+            "astrbot_plugin_iris_memory.iris_memory.l2_memory.retriever.get_config", return_value=mock_config
         ):
             retriever = MemoryRetriever(manager)
             results = await retriever.retrieve("测试查询")
@@ -92,7 +92,7 @@ class TestMemoryRetriever:
         )
 
         with patch(
-            "iris_memory.l2_memory.retriever.get_config", return_value=mock_config
+            "astrbot_plugin_iris_memory.iris_memory.l2_memory.retriever.get_config", return_value=mock_config
         ):
             retriever = MemoryRetriever(mock_manager)
             await retriever.retrieve("测试查询", group_id="group_123")
@@ -116,7 +116,7 @@ class TestMemoryRetriever:
         )
 
         with patch(
-            "iris_memory.l2_memory.retriever.get_config", return_value=mock_config
+            "astrbot_plugin_iris_memory.iris_memory.l2_memory.retriever.get_config", return_value=mock_config
         ):
             retriever = MemoryRetriever(mock_manager)
             await retriever.retrieve("测试查询", group_id="group_123")
@@ -174,7 +174,7 @@ class TestMemoryRetriever:
         mock_adapter.retrieve = AsyncMock(return_value=results)
 
         with patch(
-            "iris_memory.l2_memory.retriever.get_config", return_value=mock_config
+            "astrbot_plugin_iris_memory.iris_memory.l2_memory.retriever.get_config", return_value=mock_config
         ):
             retriever = MemoryRetriever(mock_manager)
             context = await retriever.retrieve_for_context(
@@ -193,7 +193,7 @@ class TestMemoryRetriever:
         mock_adapter.retrieve = AsyncMock(return_value=[])
 
         with patch(
-            "iris_memory.l2_memory.retriever.get_config", return_value=mock_config
+            "astrbot_plugin_iris_memory.iris_memory.l2_memory.retriever.get_config", return_value=mock_config
         ):
             retriever = MemoryRetriever(mock_manager)
             context = await retriever.retrieve_for_context("测试查询")
@@ -234,7 +234,7 @@ class TestHybridRouting:
         adapter.retrieve = AsyncMock(return_value=[])
 
         with patch(
-            "iris_memory.l2_memory.retriever.get_config",
+            "astrbot_plugin_iris_memory.iris_memory.l2_memory.retriever.get_config",
             return_value=self._config(True),
         ):
             retriever = MemoryRetriever(manager)
@@ -258,7 +258,7 @@ class TestHybridRouting:
         adapter.retrieve_hybrid = AsyncMock(return_value=[])
 
         with patch(
-            "iris_memory.l2_memory.retriever.get_config",
+            "astrbot_plugin_iris_memory.iris_memory.l2_memory.retriever.get_config",
             return_value=self._config(False),
         ):
             retriever = MemoryRetriever(manager)

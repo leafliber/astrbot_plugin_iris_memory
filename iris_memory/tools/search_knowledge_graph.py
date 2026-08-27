@@ -5,8 +5,8 @@ from pydantic.dataclasses import dataclass
 from astrbot.core.agent.tool import FunctionTool, ToolExecResult
 from astrbot.core.agent.run_context import ContextWrapper
 from astrbot.core.astr_agent_context import AstrAgentContext
-from iris_memory.core import get_logger, get_component_manager
-from iris_memory.l3_kg.adapter import L3KGAdapter
+from ..core import get_logger, get_component_manager
+from ..l3_kg.adapter import L3KGAdapter
 
 logger = get_logger("tools")
 
@@ -59,17 +59,17 @@ class SearchKnowledgeGraphTool(FunctionTool[AstrAgentContext]):
             if not query:
                 return "搜索关键词不能为空"
 
-            from iris_memory.utils import sanitize_input
+            from ..utils import sanitize_input
 
             query = sanitize_input(query, source="tool:search_knowledge_graph")
 
             event = context.context.event
-            from iris_memory.platform import get_adapter
+            from ..platform import get_adapter
 
             adapter = get_adapter(event)
             group_id = adapter.get_group_id(event)
 
-            from iris_memory.config import get_config
+            from ..config import get_config
 
             config = get_config()
             if not config.get("isolation_config.enable_group_memory_isolation"):
@@ -77,7 +77,7 @@ class SearchKnowledgeGraphTool(FunctionTool[AstrAgentContext]):
 
             manager = get_component_manager()
             l3_adapter = manager.get_component("l3_kg", L3KGAdapter)
-            from iris_memory.core.persona import resolve_persona
+            from ..core.persona import resolve_persona
 
             persona_id = await resolve_persona(manager, event)
 

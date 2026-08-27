@@ -9,7 +9,7 @@ Iris Chat Memory - 人格自迭代目标预设
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
-from iris_memory.core import get_logger
+from ..core import get_logger
 
 logger = get_logger("persona_evolution.goals")
 

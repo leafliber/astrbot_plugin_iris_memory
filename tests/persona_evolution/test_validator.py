@@ -1,14 +1,14 @@
 """确定性发布闸门测试（文档 §10 全部 12 条，逐条正反用例）"""
 
-from iris_memory.persona_evolution.models import EditMode, ErrorCode, EvolutionJob
-from iris_memory.persona_evolution.publisher import (
+from astrbot_plugin_iris_memory.iris_memory.persona_evolution.models import EditMode, ErrorCode, EvolutionJob
+from astrbot_plugin_iris_memory.iris_memory.persona_evolution.publisher import (
     MANAGED_BLOCK_BEGIN,
     MANAGED_BLOCK_END,
     append_managed_block,
     persona_hash,
     split_managed_block,
 )
-from iris_memory.persona_evolution.validator import validate_candidate
+from astrbot_plugin_iris_memory.iris_memory.persona_evolution.validator import validate_candidate
 
 BASE = f"你是 Iris，一个群聊助手。\n\n{MANAGED_BLOCK_BEGIN}\n旧风格\n{MANAGED_BLOCK_END}\n"
 CANDIDATE = f"你是 Iris，一个群聊助手。\n\n{MANAGED_BLOCK_BEGIN}\n新风格：短句为主\n{MANAGED_BLOCK_END}\n"

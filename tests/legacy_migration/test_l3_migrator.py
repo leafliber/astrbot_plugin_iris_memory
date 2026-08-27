@@ -4,13 +4,13 @@ import json
 
 import pytest
 
-from iris_memory.legacy_migration.detector import LegacyDetection
-from iris_memory.legacy_migration.l3_migrator import (
+from astrbot_plugin_iris_memory.iris_memory.legacy_migration.detector import LegacyDetection
+from astrbot_plugin_iris_memory.iris_memory.legacy_migration.l3_migrator import (
     map_legacy_edge,
     map_legacy_node,
     migrate_l3,
 )
-from iris_memory.l3_kg.models import GraphNode
+from astrbot_plugin_iris_memory.iris_memory.l3_kg.models import GraphNode
 
 from .conftest import make_legacy_kg_db
 

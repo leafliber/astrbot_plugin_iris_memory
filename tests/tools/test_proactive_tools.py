@@ -9,10 +9,10 @@ from unittest.mock import Mock
 import pytest
 from astrbot.core.agent.run_context import ContextWrapper
 
-from iris_memory.proactive.config import ConfigManager
-from iris_memory.proactive.state import StateManager
-from iris_memory.proactive.tools import ToolContext
-from iris_memory.tools import AddFollowUpTool, EndFollowUpTool, SetCooldownTool
+from astrbot_plugin_iris_memory.iris_memory.proactive.config import ConfigManager
+from astrbot_plugin_iris_memory.iris_memory.proactive.state import StateManager
+from astrbot_plugin_iris_memory.iris_memory.proactive.tools import ToolContext
+from astrbot_plugin_iris_memory.iris_memory.tools import AddFollowUpTool, EndFollowUpTool, SetCooldownTool
 
 
 @pytest.fixture

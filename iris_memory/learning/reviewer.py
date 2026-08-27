@@ -14,9 +14,9 @@ import json
 import re
 from typing import Any, Dict, List
 
-from iris_memory.config import get_config
-from iris_memory.core import get_logger
-from iris_memory.llm_modules import LEARNING_DIALOGUE_REVIEW
+from ..config import get_config
+from ..core import get_logger
+from ..llm_modules import LEARNING_DIALOGUE_REVIEW
 from .storage import (
     LearningStorage,
     STATUS_APPROVED,

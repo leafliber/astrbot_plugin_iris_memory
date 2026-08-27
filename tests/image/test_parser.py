@@ -3,7 +3,7 @@
 import pytest
 from unittest.mock import Mock, AsyncMock
 
-from iris_memory.image import ImageParser, ImageInfo
+from astrbot_plugin_iris_memory.iris_memory.image import ImageParser, ImageInfo
 
 
 class TestImageParser:

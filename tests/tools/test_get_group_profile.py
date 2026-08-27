@@ -2,7 +2,7 @@
 
 import pytest
 from unittest.mock import Mock, AsyncMock
-from iris_memory.tools import GetProfileTool
+from astrbot_plugin_iris_memory.iris_memory.tools import GetProfileTool
 
 
 @pytest.fixture
@@ -46,18 +46,18 @@ async def test_get_group_profile(tool, mock_context, monkeypatch):
     mock_group_manager.get_or_create = AsyncMock(return_value=mock_profile)
 
     monkeypatch.setattr(
-        "iris_memory.platform.get_adapter", Mock(return_value=mock_adapter)
+        "astrbot_plugin_iris_memory.iris_memory.platform.get_adapter", Mock(return_value=mock_adapter)
     )
     monkeypatch.setattr(
-        "iris_memory.tools.get_profile.get_component_manager",
+        "astrbot_plugin_iris_memory.iris_memory.tools.get_profile.get_component_manager",
         Mock(return_value=Mock(get_component=Mock(return_value=mock_profile_storage))),
     )
     monkeypatch.setattr(
-        "iris_memory.tools.get_profile.GroupProfileManager",
+        "astrbot_plugin_iris_memory.iris_memory.tools.get_profile.GroupProfileManager",
         Mock(return_value=mock_group_manager),
     )
     monkeypatch.setattr(
-        "iris_memory.tools.get_profile.get_config",
+        "astrbot_plugin_iris_memory.iris_memory.tools.get_profile.get_config",
         Mock(return_value=Mock(get=Mock(return_value=False))),
     )
 
@@ -72,7 +72,7 @@ async def test_get_group_profile_no_id(tool, mock_context, monkeypatch):
     mock_adapter.get_group_id = Mock(return_value=None)
 
     monkeypatch.setattr(
-        "iris_memory.platform.get_adapter", Mock(return_value=mock_adapter)
+        "astrbot_plugin_iris_memory.iris_memory.platform.get_adapter", Mock(return_value=mock_adapter)
     )
 
     result = await tool.call(mock_context, target_type="group")

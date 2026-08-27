@@ -20,12 +20,12 @@ Iris Chat Memory - 平台适配器工厂
 import threading
 from typing import TYPE_CHECKING
 
-from iris_memory.core import get_logger
-from iris_memory.platform.base import PlatformAdapter
-from iris_memory.platform.cron import CronAdapter
-from iris_memory.platform.generic import GenericAdapter
-from iris_memory.platform.qq import OneBot11Adapter
-from iris_memory.platform.qq_official import QQOfficialAdapter
+from ..core import get_logger
+from ..platform.base import PlatformAdapter
+from ..platform.cron import CronAdapter
+from ..platform.generic import GenericAdapter
+from ..platform.qq import OneBot11Adapter
+from ..platform.qq_official import QQOfficialAdapter
 
 if TYPE_CHECKING:
     from astrbot.api.event import AstrMessageEvent

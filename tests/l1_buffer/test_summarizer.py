@@ -5,8 +5,8 @@ import pytest
 from unittest.mock import Mock, AsyncMock, patch
 from datetime import datetime
 
-from iris_memory.l1_buffer import Summarizer, SegmentedMessageQueue, ContextMessage
-from iris_memory.l1_buffer.summarizer import (
+from astrbot_plugin_iris_memory.iris_memory.l1_buffer import Summarizer, SegmentedMessageQueue, ContextMessage
+from astrbot_plugin_iris_memory.iris_memory.l1_buffer.summarizer import (
     parse_summary_response,
     confidence_to_float,
     importance_to_float,
@@ -69,7 +69,7 @@ class TestSummarizer:
         assert summarizer.provider == "gpt-4o-mini"
 
     def test_should_summarize_when_full(self, mock_queue):
-        with patch("iris_memory.l1_buffer.summarizer.get_config") as mock_get_config:
+        with patch("astrbot_plugin_iris_memory.iris_memory.l1_buffer.summarizer.get_config") as mock_get_config:
             mock_config = Mock()
             mock_config.get = Mock(
                 side_effect=lambda key, default=None: {
@@ -83,7 +83,7 @@ class TestSummarizer:
             assert summarizer.should_summarize(mock_queue)
 
     def test_should_summarize_by_tokens(self, mock_queue):
-        with patch("iris_memory.l1_buffer.summarizer.get_config") as mock_get_config:
+        with patch("astrbot_plugin_iris_memory.iris_memory.l1_buffer.summarizer.get_config") as mock_get_config:
             mock_config = Mock()
             mock_config.get = Mock(
                 side_effect=lambda key, default=None: {
@@ -114,7 +114,7 @@ class TestSummarizer:
                 )
             )
 
-        with patch("iris_memory.l1_buffer.summarizer.get_config") as mock_get_config:
+        with patch("astrbot_plugin_iris_memory.iris_memory.l1_buffer.summarizer.get_config") as mock_get_config:
             mock_config = Mock()
             mock_config.get = Mock(
                 side_effect=lambda key, default=None: {

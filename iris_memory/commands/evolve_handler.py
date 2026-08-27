@@ -14,8 +14,8 @@ Job 创建、复杂过滤与 Diff 查看以 Web UI 为主（文档 §18）。
 import time
 from typing import Optional, TYPE_CHECKING
 
-from iris_memory.core import get_logger, get_component_manager
-from iris_memory.persona_evolution import PersonaEvolutionComponent
+from ..core import get_logger, get_component_manager
+from ..persona_evolution import PersonaEvolutionComponent
 from .base import CommandHandler, CommandResult, ParsedArgs
 
 if TYPE_CHECKING:

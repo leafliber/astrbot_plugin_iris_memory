@@ -1,6 +1,6 @@
 """人格自迭代均衡抽样器测试（文档 §7.4）"""
 
-from iris_memory.persona_evolution.sampler import stratified_sample
+from astrbot_plugin_iris_memory.iris_memory.persona_evolution.sampler import stratified_sample
 
 
 def _samples(group_user_counts: dict[tuple[str, str], int], start_id: int = 1):

@@ -22,23 +22,13 @@ v3.0 架构：
   initiate 直发（context.send_message）→ 手动记账 + 回填 L1
 """
 
-# iris_memory 必须在 sys.path 插入后再导入，故 import 不在文件顶部
-# ruff: noqa: E402
-
 import asyncio
 import hashlib
 import re
-import sys
 import time
-from pathlib import Path
 from typing import Any, Optional
 
-# 模块导入支持
-plugin_root = Path(__file__).parent
-if str(plugin_root) not in sys.path:
-    sys.path.insert(0, str(plugin_root))
-
-from iris_memory.config import init_config, Config
+from .iris_memory.config import init_config, Config
 
 from astrbot.api import AstrBotConfig
 from astrbot.api.event import filter, AstrMessageEvent
@@ -47,7 +37,7 @@ from astrbot.api.star import Context, Star, StarTools
 from astrbot.core.agent.message import TextPart
 from astrbot.core.provider.entities import LLMResponse, ProviderRequest
 
-from iris_memory.core import (
+from .iris_memory.core import (
     ComponentManager,
     get_logger,
     create_components,
@@ -62,12 +52,12 @@ from iris_memory.core import (
     set_component_manager,
     get_run_log_manager,
 )
-from iris_memory.tools import register_llm_tools
-from iris_memory.utils.token_counter import warm_up_encoders_async
-from iris_memory.web import register_all_routes
-from iris_memory.llm import LLMManager
-from iris_memory.llm_modules import FRAMEWORK_REPLY, proactive_reply_module
-from iris_memory.commands import (
+from .iris_memory.tools import register_llm_tools
+from .iris_memory.utils.token_counter import warm_up_encoders_async
+from .iris_memory.web import register_all_routes
+from .iris_memory.llm import LLMManager
+from .iris_memory.llm_modules import FRAMEWORK_REPLY, proactive_reply_module
+from .iris_memory.commands import (
     get_registry,
     execute_command,
     L1CommandHandler,
@@ -78,33 +68,33 @@ from iris_memory.commands import (
     LearningCommandHandler,
     EvolutionCommandHandler,
 )
-from iris_memory.proactive.admin import AdminCommands
-from iris_memory.proactive.api import (
+from .iris_memory.proactive.admin import AdminCommands
+from .iris_memory.proactive.api import (
     register_web_apis as register_reply_web_apis,
     sync_stats_group_state,
 )
-from iris_memory.proactive.config import ConfigManager as ReplyConfigManager
-from iris_memory.proactive.decision import (
+from .iris_memory.proactive.config import ConfigManager as ReplyConfigManager
+from .iris_memory.proactive.decision import (
     INPUT_SAFETY_COOLDOWN_MINUTES,
     DecisionCore,
     DecisionRequest,
     SafetyCleanupResult,
 )
-from iris_memory.proactive.perception import (
+from .iris_memory.proactive.perception import (
     ContextPackager,
     Gatekeeper,
     SlidingWindow,
     WindowMessage,
 )
-from iris_memory.proactive.prompts import SPEAK_HINTS
-from iris_memory.proactive.proactive import ProactiveEngine
-from iris_memory.proactive.signals import SignalGate
-from iris_memory.proactive.state import StateManager
-from iris_memory.proactive.stats import StatsCollector
-from iris_memory.proactive.tickets import DecisionTicketRegistry
-from iris_memory.proactive.time_hint import resolve_datetime_reminder
-from iris_memory.proactive.tools import ToolContext
-from iris_memory.extras import ErrorFriendlyProcessor, MarkdownStripper
+from .iris_memory.proactive.prompts import SPEAK_HINTS
+from .iris_memory.proactive.proactive import ProactiveEngine
+from .iris_memory.proactive.signals import SignalGate
+from .iris_memory.proactive.state import StateManager
+from .iris_memory.proactive.stats import StatsCollector
+from .iris_memory.proactive.tickets import DecisionTicketRegistry
+from .iris_memory.proactive.time_hint import resolve_datetime_reminder
+from .iris_memory.proactive.tools import ToolContext
+from .iris_memory.extras import ErrorFriendlyProcessor, MarkdownStripper
 
 logger = get_logger("main")
 
@@ -183,7 +173,7 @@ class IrisMemoryPlugin(Star):
 
             set_component_manager(self.component_manager)
 
-            from iris_memory.image.recorder_bridge import init_recorder_bridge
+            from .iris_memory.image.recorder_bridge import init_recorder_bridge
 
             init_recorder_bridge(context)
 
@@ -295,7 +285,7 @@ class IrisMemoryPlugin(Star):
             if cfg.get("platform_settings", {}).get("empty_mention_waiting", True):
                 return False
 
-            from iris_memory.platform import get_adapter
+            from .iris_memory.platform import get_adapter
 
             adapter = get_adapter(event)
             buffer = self.component_manager.get_available_component("l1_buffer")
@@ -397,7 +387,7 @@ class IrisMemoryPlugin(Star):
         # 2. 旧版（v2.x）数据自动迁移（独立模块，失败不阻断启动）
         if LEGACY_MIGRATION_ENABLED:
             try:
-                from iris_memory.legacy_migration import migrate_if_needed
+                from .iris_memory.legacy_migration import migrate_if_needed
 
                 await migrate_if_needed(
                     self.context, self, StarTools.get_data_dir(), self.component_manager

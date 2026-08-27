@@ -4,7 +4,7 @@
 旧字段名兼容、完全非法输入，以及 action/cooldown 等字段的规范化。
 """
 
-from iris_memory.proactive.parser import extract_json, parse_decision
+from astrbot_plugin_iris_memory.iris_memory.proactive.parser import extract_json, parse_decision
 
 
 class TestExtractJson:

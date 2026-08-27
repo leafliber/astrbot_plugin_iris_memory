@@ -6,10 +6,10 @@ from pydantic.dataclasses import dataclass
 from astrbot.core.agent.tool import FunctionTool, ToolExecResult
 from astrbot.core.agent.run_context import ContextWrapper
 from astrbot.core.astr_agent_context import AstrAgentContext
-from iris_memory.core import get_logger, get_component_manager
-from iris_memory.l2_memory import MemorySearchResult
-from iris_memory.l2_memory.adapter import L2MemoryAdapter
-from iris_memory.l3_kg.adapter import L3KGAdapter
+from ..core import get_logger, get_component_manager
+from ..l2_memory import MemorySearchResult
+from ..l2_memory.adapter import L2MemoryAdapter
+from ..l3_kg.adapter import L3KGAdapter
 
 logger = get_logger("tools")
 
@@ -62,18 +62,18 @@ class SearchMemoryTool(FunctionTool[AstrAgentContext]):
             if not query:
                 return "查询内容不能为空"
 
-            from iris_memory.utils import sanitize_input
+            from ..utils import sanitize_input
 
             query = sanitize_input(query, source="tool:search_memory")
 
             event = context.context.event
-            from iris_memory.platform import get_adapter
+            from ..platform import get_adapter
 
             adapter = get_adapter(event)
             user_id = adapter.get_user_id(event)
             group_id = adapter.get_group_id(event)
 
-            from iris_memory.config import get_config
+            from ..config import get_config
 
             config = get_config()
             if not config.get("isolation_config.enable_group_memory_isolation"):
@@ -85,7 +85,7 @@ class SearchMemoryTool(FunctionTool[AstrAgentContext]):
             if not l2_adapter or not l2_adapter._is_available:
                 return "L2记忆库当前不可用"
 
-            from iris_memory.core.persona import resolve_persona
+            from ..core.persona import resolve_persona
 
             persona_id = await resolve_persona(manager, event)
 
@@ -136,7 +136,7 @@ class SearchMemoryTool(FunctionTool[AstrAgentContext]):
             if not l3_adapter or not l3_adapter._is_available:
                 return ""
 
-            from iris_memory.l3_kg import GraphRetriever
+            from ..l3_kg import GraphRetriever
 
             retriever = GraphRetriever(l3_adapter)
 

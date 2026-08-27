@@ -1,6 +1,6 @@
 """图片解析数据模型测试"""
 
-from iris_memory.image.models import ImageInfo, ParseResult, QuotaStatus, MessageImages
+from astrbot_plugin_iris_memory.iris_memory.image.models import ImageInfo, ParseResult, QuotaStatus, MessageImages
 
 
 class TestImageInfo:

@@ -7,8 +7,8 @@ Iris Chat Memory - 用户画像管理器
 
 from typing import List, Optional, Dict
 
-from iris_memory.core import get_logger
-from iris_memory.config import get_config
+from ..core import get_logger
+from ..config import get_config
 from .storage import ProfileStorage, profile_lock
 from .models import (
     UserProfile,

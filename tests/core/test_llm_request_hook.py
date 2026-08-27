@@ -7,8 +7,8 @@ from unittest.mock import MagicMock, patch, AsyncMock
 from contextlib import ExitStack
 from datetime import datetime
 
-from iris_memory.l1_buffer.models import ContextMessage
-from iris_memory.core.llm_request_hook import (
+from astrbot_plugin_iris_memory.iris_memory.l1_buffer.models import ContextMessage
+from astrbot_plugin_iris_memory.iris_memory.core.llm_request_hook import (
     _build_image_map,
     _collect_l1_context,
     _get_inline_image_desc,
@@ -16,7 +16,7 @@ from iris_memory.core.llm_request_hook import (
     _inject_to_extra_user_content_parts,
     preprocess_llm_request,
 )
-from iris_memory.core.event_extras import L1_CURRENT_EVENT_RECORD_COUNT
+from astrbot_plugin_iris_memory.iris_memory.core.event_extras import L1_CURRENT_EVENT_RECORD_COUNT
 
 
 def _make_msg(role, content, source="user1", metadata=None, token_count=1):
@@ -40,15 +40,15 @@ def _make_component_manager(buffer=None):
     return cm
 
 
-_ADAPTER_PATCH = "iris_memory.platform.get_adapter"
-_COLLECT_PROFILE_PATCH = "iris_memory.core.llm_request_hook._collect_user_profile"
-_COLLECT_L1_PATCH = "iris_memory.core.llm_request_hook._collect_l1_context"
-_COLLECT_L2_PATCH = "iris_memory.core.llm_request_hook._collect_l2_memory"
-_COLLECT_L3_PATCH = "iris_memory.core.llm_request_hook._collect_l3_knowledge_graph"
-_PARSE_IMAGES_PATCH = "iris_memory.core.llm_request_hook._parse_images_if_related_mode"
-_BUILD_IMAGE_MAP_PATCH = "iris_memory.core.llm_request_hook._build_image_map"
-_LOG_CONTEXT_PATCH = "iris_memory.core.llm_request_hook._log_final_context"
-_GET_CONFIG_PATCH = "iris_memory.config.get_config"
+_ADAPTER_PATCH = "astrbot_plugin_iris_memory.iris_memory.platform.get_adapter"
+_COLLECT_PROFILE_PATCH = "astrbot_plugin_iris_memory.iris_memory.core.llm_request_hook._collect_user_profile"
+_COLLECT_L1_PATCH = "astrbot_plugin_iris_memory.iris_memory.core.llm_request_hook._collect_l1_context"
+_COLLECT_L2_PATCH = "astrbot_plugin_iris_memory.iris_memory.core.llm_request_hook._collect_l2_memory"
+_COLLECT_L3_PATCH = "astrbot_plugin_iris_memory.iris_memory.core.llm_request_hook._collect_l3_knowledge_graph"
+_PARSE_IMAGES_PATCH = "astrbot_plugin_iris_memory.iris_memory.core.llm_request_hook._parse_images_if_related_mode"
+_BUILD_IMAGE_MAP_PATCH = "astrbot_plugin_iris_memory.iris_memory.core.llm_request_hook._build_image_map"
+_LOG_CONTEXT_PATCH = "astrbot_plugin_iris_memory.iris_memory.core.llm_request_hook._log_final_context"
+_GET_CONFIG_PATCH = "astrbot_plugin_iris_memory.iris_memory.config.get_config"
 
 
 def _default_config():
@@ -150,10 +150,10 @@ class TestParallelCollection:
             patch(_COLLECT_L2_PATCH, side_effect=collect_l2),
             patch(_COLLECT_L3_PATCH, side_effect=collect_l3),
             patch(
-                "iris_memory.core.llm_request_hook._collect_learning",
+                "astrbot_plugin_iris_memory.iris_memory.core.llm_request_hook._collect_learning",
                 side_effect=collect_learning,
             ),
-            patch("iris_memory.core.llm_request_hook._record_injection_log", record_log),
+            patch("astrbot_plugin_iris_memory.iris_memory.core.llm_request_hook._record_injection_log", record_log),
             patch(_LOG_CONTEXT_PATCH),
         ):
             await asyncio.wait_for(preprocess_llm_request(event, req, cm), timeout=1)
@@ -257,7 +257,7 @@ class TestBuildImageMap:
 
     @pytest.mark.asyncio
     async def test_build_image_map_with_cached_images(self):
-        from iris_memory.image import ImageParseStatus
+        from astrbot_plugin_iris_memory.iris_memory.image import ImageParseStatus
         from datetime import datetime
 
         img_item = MagicMock()
@@ -286,7 +286,7 @@ class TestBuildImageMap:
 
     @pytest.mark.asyncio
     async def test_build_image_map_skips_non_success(self):
-        from iris_memory.image import ImageParseStatus
+        from astrbot_plugin_iris_memory.iris_memory.image import ImageParseStatus
 
         img_item = MagicMock()
         img_item.status = ImageParseStatus.PENDING
@@ -304,7 +304,7 @@ class TestBuildImageMap:
 
     @pytest.mark.asyncio
     async def test_build_image_map_fallback_to_timestamp_key(self):
-        from iris_memory.image import ImageParseStatus
+        from astrbot_plugin_iris_memory.iris_memory.image import ImageParseStatus
         from datetime import datetime
 
         ts = datetime(2025, 1, 1, 10, 30)
@@ -970,8 +970,8 @@ class TestParseImagesTimeout:
     @pytest.mark.asyncio
     async def test_parse_timeout_marks_failed_and_does_not_block(self):
         """provider 卡死时，整体超时后函数返回不阻塞，未完成图片标记失败"""
-        from iris_memory.core.llm_request_hook import _parse_images_if_related_mode
-        from iris_memory.image import ImageParseStatus
+        from astrbot_plugin_iris_memory.iris_memory.core.llm_request_hook import _parse_images_if_related_mode
+        from astrbot_plugin_iris_memory.iris_memory.image import ImageParseStatus
 
         def config_get(key, default=None):
             return {
@@ -1031,11 +1031,11 @@ class TestParseImagesTimeout:
             await asyncio.sleep(10)
 
         with (
-            patch("iris_memory.config.get_config") as mock_cfg,
-            patch("iris_memory.platform.get_adapter", return_value=adapter),
-            patch("iris_memory.image.ImageParser") as mock_parser_cls,
+            patch("astrbot_plugin_iris_memory.iris_memory.config.get_config") as mock_cfg,
+            patch("astrbot_plugin_iris_memory.iris_memory.platform.get_adapter", return_value=adapter),
+            patch("astrbot_plugin_iris_memory.iris_memory.image.ImageParser") as mock_parser_cls,
             patch(
-                "iris_memory.image.recorder_bridge.get_recorder_bridge",
+                "astrbot_plugin_iris_memory.iris_memory.image.recorder_bridge.get_recorder_bridge",
                 return_value=None,
             ),
         ):
@@ -1065,7 +1065,7 @@ class TestFaultIsolation:
     @pytest.mark.asyncio
     async def test_l1_failure_does_not_block_l2_injection(self):
         """_collect_l1_context 异常时 L2 上下文仍被注入"""
-        from iris_memory.core.llm_request_hook import preprocess_llm_request
+        from astrbot_plugin_iris_memory.iris_memory.core.llm_request_hook import preprocess_llm_request
 
         config = MagicMock()
         config.get = MagicMock(
@@ -1103,8 +1103,8 @@ class TestFaultIsolation:
         }.get(name)
 
         with (
-            patch("iris_memory.config.get_config", return_value=config),
-            patch("iris_memory.platform.get_adapter") as mock_adapter,
+            patch("astrbot_plugin_iris_memory.iris_memory.config.get_config", return_value=config),
+            patch("astrbot_plugin_iris_memory.iris_memory.platform.get_adapter") as mock_adapter,
         ):
             mock_adapter.return_value.get_group_id.return_value = "g1"
             mock_adapter.return_value.get_user_id.return_value = "u1"

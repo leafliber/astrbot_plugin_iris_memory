@@ -14,10 +14,10 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from quart import jsonify, request
 
-from iris_memory.config import get_config
-from iris_memory.core import get_component_manager, get_logger
-from iris_memory.learning import LearningComponent
-from iris_memory.learning.storage import (
+from ...config import get_config
+from ...core import get_component_manager, get_logger
+from ...learning import LearningComponent
+from ...learning.storage import (
     _TABLES,
     _VALID_STATUSES,
 )

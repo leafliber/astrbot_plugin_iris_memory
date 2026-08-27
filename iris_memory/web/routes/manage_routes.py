@@ -12,14 +12,14 @@
 """
 
 from quart import jsonify, request
-from iris_memory.core import get_component_manager, get_logger
-from iris_memory.l1_buffer.buffer import L1Buffer
-from iris_memory.l2_memory.adapter import L2MemoryAdapter
-from iris_memory.l3_kg.adapter import L3KGAdapter
-from iris_memory.profile.storage import ProfileStorage
-from iris_memory.learning import LearningComponent
-from iris_memory.persona_evolution import PersonaEvolutionComponent
-from iris_memory.tasks.scheduler import TaskScheduler
+from ...core import get_component_manager, get_logger
+from ...l1_buffer.buffer import L1Buffer
+from ...l2_memory.adapter import L2MemoryAdapter
+from ...l3_kg.adapter import L3KGAdapter
+from ...profile.storage import ProfileStorage
+from ...learning import LearningComponent
+from ...persona_evolution import PersonaEvolutionComponent
+from ...tasks.scheduler import TaskScheduler
 
 logger = get_logger("web.manage")
 
@@ -143,7 +143,7 @@ async def merge_l3_duplicates():
         # 与命令入口（iris_mem l3 merge）对齐：按 user_id 合并分裂的
         # Person 节点，并用画像别名映射修复存量无标记昵称节点
         try:
-            from iris_memory.l3_kg.adapter import build_profile_alias_map
+            from ...l3_kg.adapter import build_profile_alias_map
 
             profile_storage = manager.get_component("profile", ProfileStorage)
             alias_map = None
@@ -306,12 +306,12 @@ async def trigger_task():
 
         async def _run_task():
             if task_name == "dream":
-                from iris_memory.dream import DreamTask
+                from ...dream import DreamTask
 
                 task = DreamTask(manager)
                 await task.execute()
             elif task_name == "cache_cleanup":
-                from iris_memory.tasks import ImageCacheCleanupTask
+                from ...tasks import ImageCacheCleanupTask
 
                 task = ImageCacheCleanupTask(manager)
                 await task.execute()

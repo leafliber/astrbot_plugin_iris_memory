@@ -2,8 +2,8 @@
 
 import pytest
 from unittest.mock import Mock, AsyncMock
-from iris_memory.tools import SearchMemoryTool
-from iris_memory.l2_memory import MemoryEntry, MemorySearchResult
+from astrbot_plugin_iris_memory.iris_memory.tools import SearchMemoryTool
+from astrbot_plugin_iris_memory.iris_memory.l2_memory import MemoryEntry, MemorySearchResult
 
 
 @pytest.fixture
@@ -50,11 +50,11 @@ async def test_search_memory_success(tool, mock_context, monkeypatch):
     mock_manager.get_component = Mock(return_value=mock_l2)
 
     monkeypatch.setattr(
-        "iris_memory.platform.get_adapter", Mock(return_value=mock_adapter)
+        "astrbot_plugin_iris_memory.iris_memory.platform.get_adapter", Mock(return_value=mock_adapter)
     )
-    monkeypatch.setattr("iris_memory.config.get_config", Mock(return_value=mock_config))
+    monkeypatch.setattr("astrbot_plugin_iris_memory.iris_memory.config.get_config", Mock(return_value=mock_config))
     monkeypatch.setattr(
-        "iris_memory.tools.search_memory.get_component_manager",
+        "astrbot_plugin_iris_memory.iris_memory.tools.search_memory.get_component_manager",
         Mock(return_value=mock_manager),
     )
 
@@ -87,11 +87,11 @@ async def test_search_memory_no_results(tool, mock_context, monkeypatch):
     mock_manager.get_component = Mock(return_value=mock_l2)
 
     monkeypatch.setattr(
-        "iris_memory.platform.get_adapter", Mock(return_value=mock_adapter)
+        "astrbot_plugin_iris_memory.iris_memory.platform.get_adapter", Mock(return_value=mock_adapter)
     )
-    monkeypatch.setattr("iris_memory.config.get_config", Mock(return_value=mock_config))
+    monkeypatch.setattr("astrbot_plugin_iris_memory.iris_memory.config.get_config", Mock(return_value=mock_config))
     monkeypatch.setattr(
-        "iris_memory.tools.search_memory.get_component_manager",
+        "astrbot_plugin_iris_memory.iris_memory.tools.search_memory.get_component_manager",
         Mock(return_value=mock_manager),
     )
 

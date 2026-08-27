@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from astrbot.api.event import AstrMessageEvent
-    from iris_memory.image.models import ImageInfo
+    from ..image.models import ImageInfo
 
 
 @dataclass

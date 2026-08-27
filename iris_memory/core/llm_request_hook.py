@@ -34,9 +34,9 @@ from collections import OrderedDict
 from collections.abc import Awaitable
 from typing import TYPE_CHECKING, Any, List, Optional, cast
 
-from iris_memory.core import get_logger
-from iris_memory.core.event_extras import L1_CURRENT_EVENT_RECORD_COUNT
-from iris_memory.llm_modules import L2_QUERY_REWRITE
+from ..core import get_logger
+from ..core.event_extras import L1_CURRENT_EVENT_RECORD_COUNT
+from ..llm_modules import L2_QUERY_REWRITE
 
 
 async def _claim_pending_images_compat(
@@ -182,11 +182,11 @@ async def cancel_image_background_tasks() -> None:
 if TYPE_CHECKING:
     from astrbot.api.event import AstrMessageEvent
     from astrbot.api.provider import ProviderRequest
-    from iris_memory.core.components import ComponentManager
-    from iris_memory.l1_buffer import L1Buffer
-    from iris_memory.l1_buffer.models import ContextMessage
-    from iris_memory.l2_memory.models import MemorySearchResult
-    from iris_memory.profile.models import GroupProfile, UserProfile
+    from ..core.components import ComponentManager
+    from ..l1_buffer import L1Buffer
+    from ..l1_buffer.models import ContextMessage
+    from ..l2_memory.models import MemorySearchResult
+    from ..profile.models import GroupProfile, UserProfile
 
 logger = get_logger("llm_request_hook")
 
@@ -342,7 +342,7 @@ def _schedule_related_image_parse(
 ) -> None:
     """将 related 模式图片解析移到后台，当前 LLM 请求不等待结果。"""
     try:
-        from iris_memory.config import get_config
+        from ..config import get_config
 
         config = get_config()
         if not config.get("l1_buffer.image_parsing.enable"):
@@ -388,8 +388,8 @@ def _schedule_related_image_parse(
                     error=error,
                 )
 
-        from iris_memory.image import ImageParseCoordinator
-        from iris_memory.platform import get_adapter
+        from ..image import ImageParseCoordinator
+        from ..platform import get_adapter
 
         coordinator = component_manager.get_available_component("image_coordinator")
         if isinstance(coordinator, ImageParseCoordinator):
@@ -429,8 +429,8 @@ def _record_background_image_timing(
 ) -> None:
     """记录不在当前注入链内完成的图片阶段耗时。"""
     try:
-        from iris_memory.core.run_log import get_run_log_manager
-        from iris_memory.platform import get_adapter
+        from ..core.run_log import get_run_log_manager
+        from ..platform import get_adapter
 
         adapter = get_adapter(event)
         get_run_log_manager().record(
@@ -465,12 +465,12 @@ def _record_injection_log(
 ) -> None:
     """写入统一运行日志（injection 类型），失败不影响主流程"""
     try:
-        from iris_memory.core.run_log import get_run_log_manager
+        from ..core.run_log import get_run_log_manager
 
         group_id = ""
         session_id = ""
         try:
-            from iris_memory.platform import get_adapter
+            from ..platform import get_adapter
 
             adapter = get_adapter(event)
             group_id = adapter.get_group_id(event) or ""
@@ -600,7 +600,7 @@ async def _build_image_map(
     Returns:
         映射表，key 为 message_id 或 (user_id, timestamp_window)，value为图片描述列表
     """
-    from iris_memory.image import ImageParseStatus
+    from ..image import ImageParseStatus
 
     cache_manager = component_manager.get_component("image_cache")
 
@@ -698,7 +698,7 @@ async def _collect_l1_context(
     Returns:
         格式化的 L1 上下文文本，不可用时返回空字符串
     """
-    from iris_memory.platform import get_adapter
+    from ..platform import get_adapter
 
     buffer = component_manager.get_available_component("l1_buffer")
     if not buffer:
@@ -707,7 +707,7 @@ async def _collect_l1_context(
             meta["skipped"] = "component_unavailable"
         return ""
 
-    from iris_memory.config import get_config
+    from ..config import get_config
 
     config = get_config()
 
@@ -881,8 +881,8 @@ async def _collect_user_profile(
     Returns:
         格式化的画像文本，不可用时返回空字符串
     """
-    from iris_memory.config import get_config
-    from iris_memory.platform import get_adapter
+    from ..config import get_config
+    from ..platform import get_adapter
 
     config = get_config()
     if not config.get("profile.enable"):
@@ -917,8 +917,8 @@ async def _collect_user_profile(
         group_id if config.get("isolation_config.enable_group_isolation") else "default"
     )
 
-    from iris_memory.core.persona import resolve_persona
-    from iris_memory.profile import GroupProfileManager, UserProfileManager
+    from ..core.persona import resolve_persona
+    from ..profile import GroupProfileManager, UserProfileManager
 
     persona_id = await resolve_persona(component_manager, event)
 
@@ -960,7 +960,7 @@ async def _rewrite_query_for_retrieval(
     Returns:
         改写后的查询文本，失败时返回 None（使用原始消息）
     """
-    from iris_memory.config import get_config
+    from ..config import get_config
     import asyncio
 
     config = get_config()
@@ -1082,8 +1082,8 @@ async def _collect_l2_memory(
     Returns:
         (格式化的记忆文本, L2 检索结果列表)
     """
-    from iris_memory.config import get_config
-    from iris_memory.platform import get_adapter
+    from ..config import get_config
+    from ..platform import get_adapter
 
     config = get_config()
 
@@ -1113,7 +1113,7 @@ async def _collect_l2_memory(
     adapter = get_adapter(event)
     group_id = adapter.get_group_id(event)
 
-    from iris_memory.core.persona import resolve_persona
+    from ..core.persona import resolve_persona
 
     persona_id = await resolve_persona(component_manager, event)
 
@@ -1135,7 +1135,7 @@ async def _collect_l2_memory(
         )
         search_query = rewritten_query if rewritten_query else query_text
 
-        from iris_memory.l2_memory import MemoryRetriever
+        from ..l2_memory import MemoryRetriever
 
         llm_manager = component_manager.get_component("llm_manager")
         retriever = MemoryRetriever(component_manager, llm_manager)
@@ -1203,8 +1203,8 @@ async def _collect_l3_knowledge_graph(
     Returns:
         格式化的图谱文本，不可用时返回空字符串
     """
-    from iris_memory.config import get_config
-    from iris_memory.platform import get_adapter
+    from ..config import get_config
+    from ..platform import get_adapter
 
     config = get_config()
 
@@ -1235,7 +1235,7 @@ async def _collect_l3_knowledge_graph(
 
     adapter = get_adapter(event)
     group_id = adapter.get_group_id(event)
-    from iris_memory.core.persona import resolve_persona
+    from ..core.persona import resolve_persona
 
     persona_id = await resolve_persona(component_manager, event)
 
@@ -1244,7 +1244,7 @@ async def _collect_l3_knowledge_graph(
         group_id = None
 
     try:
-        from iris_memory.l3_kg import GraphRetriever
+        from ..l3_kg import GraphRetriever
 
         retriever = GraphRetriever(kg_adapter)
 
@@ -1376,7 +1376,7 @@ async def _collect_learning(
     Returns:
         格式化的学习上下文文本，不可用时返回空字符串
     """
-    from iris_memory.config import get_config
+    from ..config import get_config
 
     config = get_config()
 
@@ -1471,8 +1471,8 @@ def _format_profiles_for_injection(
     Returns:
         格式化的画像文本，任一部分为空则不注入该部分
     """
-    from iris_memory.config import get_config
-    from iris_memory.profile.models import favorability_level
+    from ..config import get_config
+    from ..profile.models import favorability_level
 
     config = get_config()
     favorability_enabled = config.get("profile.favorability_enable", True)
@@ -1587,9 +1587,9 @@ async def _parse_images_if_related_mode(
         req: LLM 提供者请求对象
         component_manager: 组件管理器实例
     """
-    from iris_memory.config import get_config
-    from iris_memory.platform import get_adapter
-    from iris_memory.image import ImageParser, ImageParseStatus, ImageParseCache
+    from ..config import get_config
+    from ..platform import get_adapter
+    from ..image import ImageParser, ImageParseStatus, ImageParseCache
     import asyncio
 
     config = get_config()
@@ -1696,7 +1696,7 @@ async def _parse_images_if_related_mode(
 
     provider = config.get("l1_buffer.image_parsing.provider", "")
 
-    from iris_memory.image.recorder_bridge import get_recorder_bridge
+    from ..image.recorder_bridge import get_recorder_bridge
 
     parser = ImageParser(llm_manager, provider, recorder_bridge=get_recorder_bridge())
 
@@ -1819,7 +1819,7 @@ def _log_final_context(req: "ProviderRequest") -> None:
     Args:
         req: LLM 提供者请求对象
     """
-    from iris_memory.config import get_config
+    from ..config import get_config
 
     config = get_config()
     if not config.get("enable_context_logging", False):

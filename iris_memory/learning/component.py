@@ -17,16 +17,16 @@ import hashlib
 import time
 from typing import Any, Dict, Optional, TYPE_CHECKING
 
-from iris_memory.config import get_config
-from iris_memory.core import (
+from ..config import get_config
+from ..core import (
     Component,
     InitMode,
     get_component_manager,
     get_logger,
 )
-from iris_memory.platform import get_adapter
-from iris_memory.llm.policy import CallPriority
-from iris_memory.tasks.work_queue import BoundedWorkQueue
+from ..platform import get_adapter
+from ..llm.policy import CallPriority
+from ..tasks.work_queue import BoundedWorkQueue
 from . import expression, injector
 from .collector import LearningCollector
 from .jargon import JargonLearner

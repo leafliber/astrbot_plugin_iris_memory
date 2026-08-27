@@ -6,7 +6,7 @@
 
 from types import SimpleNamespace
 
-from iris_memory.proactive.time_hint import (
+from astrbot_plugin_iris_memory.iris_memory.proactive.time_hint import (
     build_datetime_reminder,
     resolve_datetime_reminder,
     wrap_system_reminder,

@@ -6,7 +6,7 @@ Iris Chat Memory - 指令注册中心
 
 from typing import Dict, Optional, TYPE_CHECKING
 
-from iris_memory.core import get_logger
+from ..core import get_logger
 from .base import CommandHandler
 
 if TYPE_CHECKING:

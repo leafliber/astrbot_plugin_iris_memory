@@ -12,7 +12,7 @@ from .perception import ContextPackager, SlidingWindow
 from .prompts import MOTIVE_INSTRUCTIONS, VALID_MOTIVES, WILLINGNESS_PROMPTS
 from .state import StateManager, ThreadAnchor
 from .time_hint import wrap_system_reminder
-from iris_memory.llm_modules import proactive_decision_module
+from ..llm_modules import proactive_decision_module
 
 # group_id -> 当前时间提示（<system_reminder> 块），无则返回空串
 TimeHintGet = Callable[[str], str]
@@ -63,7 +63,7 @@ def _record_decision_log(
 ) -> None:
     """写入统一运行日志（proactive 类型），失败不影响主流程。"""
     try:
-        from iris_memory.core.run_log import get_run_log_manager
+        from ..core.run_log import get_run_log_manager
 
         motive_label = _MOTIVE_LABELS.get(req.motive, req.motive)
         wake_label = "定时" if req.wake == "timer" else "消息"

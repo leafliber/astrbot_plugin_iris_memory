@@ -3,9 +3,9 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from iris_memory.l1_buffer.buffer import L1Buffer
-from iris_memory.l1_buffer.models import ContextMessage
-from iris_memory.l1_buffer.outbox import SummaryOutbox
+from astrbot_plugin_iris_memory.iris_memory.l1_buffer.buffer import L1Buffer
+from astrbot_plugin_iris_memory.iris_memory.l1_buffer.models import ContextMessage
+from astrbot_plugin_iris_memory.iris_memory.l1_buffer.outbox import SummaryOutbox
 
 
 def _message() -> ContextMessage:

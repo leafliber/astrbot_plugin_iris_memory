@@ -6,8 +6,8 @@
 
 import time
 
-from iris_memory.proactive.prompts import MAX_BACKOFF_LEVEL
-from iris_memory.proactive.state import GroupState, StateManager
+from astrbot_plugin_iris_memory.iris_memory.proactive.prompts import MAX_BACKOFF_LEVEL
+from astrbot_plugin_iris_memory.iris_memory.proactive.state import GroupState, StateManager
 
 GID = "g1"
 

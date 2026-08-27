@@ -22,6 +22,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **主动回复 decision ticket 去重**（`proactive/tickets.py`）：同群同一时刻仅允许一个活动决策，同一事件在 TTL 内至多创建一次 ticket；迟到/重复事件按 ticket_id + event_id 双重校验拒绝，不再出现旧事件清掉新事件的决策状态。
 - **学习审查批次原子领取**：审查批次改 `claim_review_batch` 原子领取（claim token + 过期回收 + 公平选取），审查 Worker 崩溃后待审数据自动回池，不再滞留「已领未审」；人格复审同样入有界队列并持久化审查状态（`claim_persona_review`/`advance_persona_review`），重启后不重复复审已通过的人格。
 
+### Changed
+
+- **导入结构重构：根治插件更新/热重载加载失败**。移除 `main.py` 的 `sys.path.insert` hack，`main.py` 与 `iris_memory/` 内部全部改为包内相对导入（`from .iris_memory.xxx import ...` / `from ..core import ...`），所有子模块因此注册在 AstrBot 的插件模块前缀（`data.plugins.<插件目录名>.*`）之下，可被插件管理器的 reload/update 完整清理。此前 `iris_memory.*` 以顶层模块名驻留 `sys.modules`，更新后重载命中旧缓存：只改文件内容时静默运行旧代码，新增代码文件时因旧模块缺少新符号抛 `ImportError` 导致加载失败。配套变更：新增 `iris_memory/__init__.py`（常规包化，消除与旧版 `astrbot_plugin_iris_chat_memory` 同名命名空间包的合并污染）；`tests/conftest.py` 改为以固定包名 `astrbot_plugin_iris_memory` 注册仓库根目录，测试导入统一为 `from astrbot_plugin_iris_memory.iris_memory.xxx import ...`。从旧版本热更新到本版本可正常完成加载；此后版本再更新/热重载不再因导入结构失败。
+
 ### Fixed
 
 - **L2 嵌入模型迁移失败不再删除唯一备份**：迁移第 2 步已 rmtree 旧库后导入中途失败（如 Embedding Provider 超时）时，原逻辑会无条件删除备份 JSON，造成记忆永久丢失；现失败路径保留备份并挪入 `data/faiss/migration_backup/`（不再写系统 /tmp，同时消除明文记忆驻留 /tmp 的隐私面）。

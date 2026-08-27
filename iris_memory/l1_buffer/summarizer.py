@@ -9,13 +9,13 @@ from typing import Optional, TYPE_CHECKING, cast
 import json
 import re
 
-from iris_memory.core import get_logger
-from iris_memory.config import get_config
+from ..core import get_logger
+from ..config import get_config
 from .models import ContextMessage, SegmentedMessageQueue
-from iris_memory.llm_modules import L1_SUMMARIZER
+from ..llm_modules import L1_SUMMARIZER
 
 if TYPE_CHECKING:
-    from iris_memory.llm import LLMManager
+    from ..llm import LLMManager
 
 logger = get_logger("summarizer")
 

@@ -22,7 +22,7 @@
 
 from typing import Any, Dict, List
 
-from iris_memory.core import get_logger
+from ..core import get_logger
 
 logger = get_logger("legacy_migration")
 

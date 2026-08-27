@@ -7,7 +7,7 @@
 import pytest
 from unittest.mock import MagicMock, patch
 
-from iris_memory.llm.manager import LLMManager
+from astrbot_plugin_iris_memory.iris_memory.llm.manager import LLMManager
 
 
 class TestLLMConfigAccess:
@@ -39,7 +39,7 @@ class TestLLMConfigAccess:
     async def test_hidden_config_access_without_prefix(
         self, mock_context, mock_storage
     ):
-        with patch("iris_memory.llm.manager.get_config") as mock_get_config:
+        with patch("astrbot_plugin_iris_memory.iris_memory.llm.manager.get_config") as mock_get_config:
             config = MagicMock()
 
             def config_get(key, default=None):
@@ -62,7 +62,7 @@ class TestLLMConfigAccess:
 
     @pytest.mark.asyncio
     async def test_default_value_when_config_missing(self, mock_context, mock_storage):
-        with patch("iris_memory.llm.manager.get_config") as mock_get_config:
+        with patch("astrbot_plugin_iris_memory.iris_memory.llm.manager.get_config") as mock_get_config:
             config = MagicMock()
 
             config.get = MagicMock(side_effect=lambda key, default=None: default)
@@ -75,7 +75,7 @@ class TestLLMConfigAccess:
 
     @pytest.mark.asyncio
     async def test_config_access_with_custom_limit(self, mock_context, mock_storage):
-        with patch("iris_memory.llm.manager.get_config") as mock_get_config:
+        with patch("astrbot_plugin_iris_memory.iris_memory.llm.manager.get_config") as mock_get_config:
             config = MagicMock()
 
             def config_get(key, default=None):

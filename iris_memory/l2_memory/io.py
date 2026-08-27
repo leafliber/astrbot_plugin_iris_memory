@@ -16,8 +16,8 @@ from pathlib import Path
 from typing import List, Optional, Dict, Any, Callable
 from dataclasses import dataclass, asdict
 
-from iris_memory.core import get_logger
-from iris_memory.utils import atomic_write_json
+from ..core import get_logger
+from ..utils import atomic_write_json
 from .models import MemoryEntry
 from .adapter import L2MemoryAdapter
 

@@ -21,13 +21,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, List, Optional
 
-from iris_memory.core import get_logger
-from iris_memory.config import get_config
-from iris_memory.l2_memory.adapter import L2MemoryAdapter
-from iris_memory.l2_memory.models import MemoryEntry
-from iris_memory.l3_kg.adapter import L3KGAdapter
-from iris_memory.llm.manager import LLMManager
-from iris_memory.llm.budget import (
+from ..core import get_logger
+from ..config import get_config
+from ..l2_memory.adapter import L2MemoryAdapter
+from ..l2_memory.models import MemoryEntry
+from ..l3_kg.adapter import L3KGAdapter
+from ..llm.manager import LLMManager
+from ..llm.budget import (
     LLMCallBudget,
     current_llm_call_budget,
     use_llm_call_budget,
@@ -35,7 +35,7 @@ from iris_memory.llm.budget import (
 from .state import DreamCursorStore
 
 if TYPE_CHECKING:
-    from iris_memory.core import ComponentManager
+    from ..core import ComponentManager
 
 logger = get_logger("dream")
 

@@ -7,8 +7,8 @@ import threading
 from datetime import datetime
 from typing import Dict, List, Optional
 
-from iris_memory.config import get_config
-from iris_memory.core import Component, InitMode, get_logger
+from ..config import get_config
+from ..core import Component, InitMode, get_logger
 from .models import GraphEdge, GraphNode
 
 logger = get_logger("l3_kg")

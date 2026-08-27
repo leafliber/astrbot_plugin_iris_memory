@@ -3,7 +3,7 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock, Mock
 
-from iris_memory.core.persona import PersonaResolver, resolve_persona, _normalize
+from astrbot_plugin_iris_memory.iris_memory.core.persona import PersonaResolver, resolve_persona, _normalize
 
 
 def _make_event(umo="umo_1", cached=None):
@@ -53,7 +53,7 @@ class TestPersonaResolverDisabled:
         resolver = PersonaResolver(context)
         with pytest.MonkeyPatch().context() as m:
             m.setattr(
-                "iris_memory.config.get_config",
+                "astrbot_plugin_iris_memory.iris_memory.config.get_config",
                 lambda: Mock(get=Mock(return_value=False)),
             )
             assert resolver.is_enabled() is False
@@ -68,7 +68,7 @@ class TestPersonaResolverFromReq:
         resolver = PersonaResolver(context)
         with pytest.MonkeyPatch().context() as m:
             m.setattr(
-                "iris_memory.config.get_config",
+                "astrbot_plugin_iris_memory.iris_memory.config.get_config",
                 lambda: Mock(get=Mock(return_value=True)),
             )
             req = Mock()
@@ -82,7 +82,7 @@ class TestPersonaResolverFromReq:
         resolver = PersonaResolver(context)
         with pytest.MonkeyPatch().context() as m:
             m.setattr(
-                "iris_memory.config.get_config",
+                "astrbot_plugin_iris_memory.iris_memory.config.get_config",
                 lambda: Mock(get=Mock(return_value=True)),
             )
             req = Mock()
@@ -98,7 +98,7 @@ class TestPersonaResolverFromConversation:
         resolver = PersonaResolver(context)
         with pytest.MonkeyPatch().context() as m:
             m.setattr(
-                "iris_memory.config.get_config",
+                "astrbot_plugin_iris_memory.iris_memory.config.get_config",
                 lambda: Mock(get=Mock(return_value=True)),
             )
             result = await resolver.resolve(_make_event())
@@ -110,7 +110,7 @@ class TestPersonaResolverFromConversation:
         resolver = PersonaResolver(context)
         with pytest.MonkeyPatch().context() as m:
             m.setattr(
-                "iris_memory.config.get_config",
+                "astrbot_plugin_iris_memory.iris_memory.config.get_config",
                 lambda: Mock(get=Mock(return_value=True)),
             )
             result = await resolver.resolve(_make_event())
@@ -125,7 +125,7 @@ class TestPersonaResolverCache:
         resolver = PersonaResolver(context)
         with pytest.MonkeyPatch().context() as m:
             m.setattr(
-                "iris_memory.config.get_config",
+                "astrbot_plugin_iris_memory.iris_memory.config.get_config",
                 lambda: Mock(get=Mock(return_value=True)),
             )
             event = _make_event(cached="cached_persona")

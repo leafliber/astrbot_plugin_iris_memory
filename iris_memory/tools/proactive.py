@@ -9,9 +9,9 @@ from astrbot.core.agent.run_context import ContextWrapper
 from astrbot.core.agent.tool import FunctionTool, ToolExecResult
 from astrbot.core.astr_agent_context import AstrAgentContext
 
-from iris_memory.core import get_logger
-from iris_memory.proactive.state import StateManager
-from iris_memory.proactive.tools import ToolContext
+from ..core import get_logger
+from ..proactive.state import StateManager
+from ..proactive.tools import ToolContext
 
 logger = get_logger("tools")
 

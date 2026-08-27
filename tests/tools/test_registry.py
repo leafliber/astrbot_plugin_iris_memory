@@ -6,11 +6,11 @@ import pytest
 from astrbot.core.agent.tool import FunctionTool, ToolSet
 from astrbot.core.star.context import Context
 
-from iris_memory.proactive.config import ConfigManager
-from iris_memory.proactive.state import StateManager
-from iris_memory.proactive.tools import ToolContext
-from iris_memory.tools import EXPECTED_TOOL_NAMES, build_llm_tools, register_llm_tools
-from iris_memory.tools.registry import _validate_tools
+from astrbot_plugin_iris_memory.iris_memory.proactive.config import ConfigManager
+from astrbot_plugin_iris_memory.iris_memory.proactive.state import StateManager
+from astrbot_plugin_iris_memory.iris_memory.proactive.tools import ToolContext
+from astrbot_plugin_iris_memory.iris_memory.tools import EXPECTED_TOOL_NAMES, build_llm_tools, register_llm_tools
+from astrbot_plugin_iris_memory.iris_memory.tools.registry import _validate_tools
 
 # 9 个工具的精确 Schema 快照。注册重构必须保持 Schema 深度相等，
 # 任何调整（新增 required/default/minimum/maximum、修改类型）都应单独提交。

@@ -9,7 +9,7 @@ import difflib
 from dataclasses import dataclass, field
 from typing import Any, List, Optional
 
-from iris_memory.core import get_logger
+from ..core import get_logger
 from .models import EditMode, ErrorCode, EvolutionJob
 from .publisher import (
     MARKERS_ABSENT,

@@ -12,8 +12,8 @@ import pytest
 from unittest.mock import Mock, AsyncMock, patch
 from datetime import datetime
 
-from iris_memory.l3_kg.related_retriever import RelatedMemoryRetriever
-from iris_memory.l2_memory.models import MemoryEntry, MemorySearchResult
+from astrbot_plugin_iris_memory.iris_memory.l3_kg.related_retriever import RelatedMemoryRetriever
+from astrbot_plugin_iris_memory.iris_memory.l2_memory.models import MemoryEntry, MemorySearchResult
 
 
 class TestRelatedMemoryRetriever:
@@ -86,7 +86,7 @@ class TestRelatedMemoryRetriever:
         l2_adapter.retrieve = AsyncMock(return_value=semantic_results)
         l2_adapter.get_all_entries = AsyncMock(return_value=[])
 
-        with patch("iris_memory.l3_kg.related_retriever.get_config") as mock_config:
+        with patch("astrbot_plugin_iris_memory.iris_memory.l3_kg.related_retriever.get_config") as mock_config:
             mock_config.return_value.get.side_effect = lambda key: {
                 "kg_extraction_semantic_weight": 1.0,
                 "kg_extraction_same_group_weight": 0.0,
@@ -116,7 +116,7 @@ class TestRelatedMemoryRetriever:
         l2_adapter.retrieve = AsyncMock(return_value=[])
         l2_adapter.get_entries_by_group = AsyncMock(return_value=group_memories)
 
-        with patch("iris_memory.l3_kg.related_retriever.get_config") as mock_config:
+        with patch("astrbot_plugin_iris_memory.iris_memory.l3_kg.related_retriever.get_config") as mock_config:
             mock_config.return_value.get.side_effect = lambda key: {
                 "kg_extraction_semantic_weight": 0.0,
                 "kg_extraction_same_group_weight": 1.0,
@@ -147,7 +147,7 @@ class TestRelatedMemoryRetriever:
         l2_adapter.retrieve = AsyncMock(return_value=[])
         l2_adapter.get_entries_by_user = AsyncMock(return_value=user_memories)
 
-        with patch("iris_memory.l3_kg.related_retriever.get_config") as mock_config:
+        with patch("astrbot_plugin_iris_memory.iris_memory.l3_kg.related_retriever.get_config") as mock_config:
             mock_config.return_value.get.side_effect = lambda key: {
                 "kg_extraction_semantic_weight": 0.0,
                 "kg_extraction_same_group_weight": 0.0,
@@ -210,7 +210,7 @@ class TestRelatedMemoryRetriever:
         l2_adapter.retrieve = mock_retrieve
         l2_adapter.get_all_entries = mock_get_all
 
-        with patch("iris_memory.l3_kg.related_retriever.get_config") as mock_config:
+        with patch("astrbot_plugin_iris_memory.iris_memory.l3_kg.related_retriever.get_config") as mock_config:
             mock_config.return_value.get.side_effect = lambda key: {
                 "kg_extraction_semantic_weight": 0.5,
                 "kg_extraction_same_group_weight": 0.3,
@@ -232,7 +232,7 @@ class TestRelatedMemoryRetriever:
         l2_adapter.retrieve = AsyncMock(return_value=semantic_results)
         l2_adapter.get_all_entries = AsyncMock(return_value=[])
 
-        with patch("iris_memory.l3_kg.related_retriever.get_config") as mock_config:
+        with patch("astrbot_plugin_iris_memory.iris_memory.l3_kg.related_retriever.get_config") as mock_config:
             mock_config.return_value.get.side_effect = lambda key: {
                 "kg_extraction_semantic_weight": 1.0,
                 "kg_extraction_same_group_weight": 0.0,

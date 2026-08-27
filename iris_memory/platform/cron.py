@@ -19,12 +19,12 @@ AstrBot 内置定时任务触发主 Agent 时，会创建 CronMessageEvent。
 
 from typing import Any, List, TYPE_CHECKING
 
-from iris_memory.core import get_logger
-from iris_memory.platform.base import PlatformAdapter, ReplyInfo
+from ..core import get_logger
+from ..platform.base import PlatformAdapter, ReplyInfo
 
 if TYPE_CHECKING:
     from astrbot.api.event import AstrMessageEvent
-    from iris_memory.image.models import ImageInfo
+    from ..image.models import ImageInfo
 
 logger = get_logger("platform.cron")
 

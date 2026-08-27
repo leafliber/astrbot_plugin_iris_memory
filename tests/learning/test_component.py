@@ -7,9 +7,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from iris_memory.config import init_config
-from iris_memory.config.config import reset_config
-from iris_memory.learning import LearningComponent
+from astrbot_plugin_iris_memory.iris_memory.config import init_config
+from astrbot_plugin_iris_memory.iris_memory.config.config import reset_config
+from astrbot_plugin_iris_memory.iris_memory.learning import LearningComponent
 
 
 @pytest.fixture
@@ -73,7 +73,7 @@ class TestFaultIsolation:
         comp = LearningComponent()
         await comp.initialize()
         with patch(
-            "iris_memory.learning.collector.get_adapter",
+            "astrbot_plugin_iris_memory.iris_memory.learning.collector.get_adapter",
             side_effect=RuntimeError("适配层炸了"),
         ):
             await comp.on_message(_event())  # 不抛出
@@ -84,7 +84,7 @@ class TestFaultIsolation:
         comp = LearningComponent()
         await comp.initialize()
         with patch(
-            "iris_memory.learning.collector.get_adapter",
+            "astrbot_plugin_iris_memory.iris_memory.learning.collector.get_adapter",
             side_effect=RuntimeError("适配层炸了"),
         ):
             await comp.on_response(_event(), _resp())  # 不抛出
@@ -96,7 +96,7 @@ class TestFaultIsolation:
         await comp.initialize()
         meta = {}
         with patch(
-            "iris_memory.learning.injector.get_adapter",
+            "astrbot_plugin_iris_memory.iris_memory.learning.injector.get_adapter",
             side_effect=RuntimeError("适配层炸了"),
         ):
             text = await comp.build_context(_event(), meta)
@@ -124,7 +124,7 @@ class TestCollection:
         comp = LearningComponent()
         await comp.initialize()
         with patch(
-            "iris_memory.learning.collector.get_adapter",
+            "astrbot_plugin_iris_memory.iris_memory.learning.collector.get_adapter",
             return_value=_fake_adapter(),
         ):
             await comp.on_response(_event(), _resp())
@@ -145,7 +145,7 @@ class TestCollection:
         event = _event()
         event.get_extra.return_value = "p1"
         with patch(
-            "iris_memory.learning.collector.get_adapter",
+            "astrbot_plugin_iris_memory.iris_memory.learning.collector.get_adapter",
             return_value=_fake_adapter(),
         ):
             await comp.on_response(event, _resp())
@@ -160,11 +160,11 @@ class TestCollection:
         # 组件层与采集层各自顶层绑定了 get_adapter，需同时 patch
         with (
             patch(
-                "iris_memory.learning.component.get_adapter",
+                "astrbot_plugin_iris_memory.iris_memory.learning.component.get_adapter",
                 return_value=_fake_adapter(),
             ),
             patch(
-                "iris_memory.learning.collector.get_adapter",
+                "astrbot_plugin_iris_memory.iris_memory.learning.collector.get_adapter",
                 return_value=_fake_adapter(),
             ),
         ):

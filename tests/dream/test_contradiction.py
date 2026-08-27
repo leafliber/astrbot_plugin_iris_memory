@@ -12,8 +12,8 @@ ContradictionPhase 矛盾消解测试
 import pytest
 from unittest.mock import Mock, AsyncMock, patch
 
-from iris_memory.dream.contradiction import ContradictionPhase
-from iris_memory.l2_memory.models import MemoryEntry, MemorySearchResult
+from astrbot_plugin_iris_memory.iris_memory.dream.contradiction import ContradictionPhase
+from astrbot_plugin_iris_memory.iris_memory.l2_memory.models import MemoryEntry, MemorySearchResult
 
 
 def _mock_config():
@@ -41,7 +41,7 @@ class TestContradictionPhase:
         llm = None
 
         with patch(
-            "iris_memory.dream.contradiction.get_config", return_value=_mock_config()
+            "astrbot_plugin_iris_memory.iris_memory.dream.contradiction.get_config", return_value=_mock_config()
         ):
             result = await phase.execute(l2, l3, llm)
 
@@ -57,7 +57,7 @@ class TestContradictionPhase:
         llm = Mock()
 
         with patch(
-            "iris_memory.dream.contradiction.get_config", return_value=_mock_config()
+            "astrbot_plugin_iris_memory.iris_memory.dream.contradiction.get_config", return_value=_mock_config()
         ):
             result = await phase.execute(l2, l3, llm)
 
@@ -150,7 +150,7 @@ class TestContradictionPhase:
         phase._query_top_k = 5
 
         with patch(
-            "iris_memory.dream.contradiction.get_config",
+            "astrbot_plugin_iris_memory.iris_memory.dream.contradiction.get_config",
             return_value=Mock(
                 get=Mock(
                     side_effect=lambda key, default=None: {

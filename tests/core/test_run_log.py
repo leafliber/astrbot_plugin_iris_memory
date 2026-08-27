@@ -2,7 +2,7 @@
 
 import pytest
 
-from iris_memory.core.run_log import (
+from astrbot_plugin_iris_memory.iris_memory.core.run_log import (
     RunLogManager,
     get_run_log_manager,
     reset_run_log_manager,

@@ -8,9 +8,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from iris_memory.learning import LearningComponent
-from iris_memory.learning.persona_reviewer import PersonaLearningReviewer
-from iris_memory.learning.storage import LEGACY_PERSONA_ID, LearningStorage
+from astrbot_plugin_iris_memory.iris_memory.learning import LearningComponent
+from astrbot_plugin_iris_memory.iris_memory.learning.persona_reviewer import PersonaLearningReviewer
+from astrbot_plugin_iris_memory.iris_memory.learning.storage import LEGACY_PERSONA_ID, LearningStorage
 
 
 class TestPersonaReviewerParsing:
@@ -121,7 +121,7 @@ class TestPersonaRevalidationFlow:
         try:
             # 首次观察时尚无学习数据，只建立人格基线。
             with patch(
-                "iris_memory.learning.injector.get_adapter",
+                "astrbot_plugin_iris_memory.iris_memory.learning.injector.get_adapter",
                 return_value=self._adapter(),
             ):
                 assert await comp.build_context(
@@ -161,7 +161,7 @@ class TestPersonaRevalidationFlow:
             with (
                 patch.object(comp, "_get_llm_manager", return_value=llm),
                 patch(
-                    "iris_memory.learning.injector.get_adapter",
+                    "astrbot_plugin_iris_memory.iris_memory.learning.injector.get_adapter",
                     return_value=self._adapter(),
                 ),
             ):
@@ -193,7 +193,7 @@ class TestPersonaRevalidationFlow:
             )
             comp.storage.update_status("expression_pattern", [p1, p2], "approved")
             with patch(
-                "iris_memory.learning.injector.get_adapter",
+                "astrbot_plugin_iris_memory.iris_memory.learning.injector.get_adapter",
                 return_value=self._adapter(),
             ):
                 text = await comp.build_context(

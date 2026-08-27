@@ -2,7 +2,7 @@
 
 import pytest
 
-from iris_memory.legacy_migration.detector import (
+from astrbot_plugin_iris_memory.iris_memory.legacy_migration.detector import (
     detect_legacy_config_keys,
     detect_legacy_data,
 )

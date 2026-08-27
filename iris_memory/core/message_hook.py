@@ -14,13 +14,13 @@ import uuid
 from collections import OrderedDict
 from typing import TYPE_CHECKING, Any, cast
 
-from iris_memory.core import get_logger
-from iris_memory.core.event_extras import L1_CURRENT_EVENT_RECORD_COUNT
+from ..core import get_logger
+from ..core.event_extras import L1_CURRENT_EVENT_RECORD_COUNT
 
 if TYPE_CHECKING:
     from astrbot.api.event import AstrMessageEvent
-    from iris_memory.core.components import ComponentManager
-    from iris_memory.l1_buffer import L1Buffer
+    from ..core.components import ComponentManager
+    from ..l1_buffer import L1Buffer
 
 logger = get_logger("message_hook")
 
@@ -194,8 +194,8 @@ def _schedule_image_pipeline(
 
     # 生产路径统一交给插件级固定 Worker；测试替身或旧组件图才走兼容分支。
     try:
-        from iris_memory.image import ImageParseCoordinator
-        from iris_memory.platform import get_adapter
+        from ..image import ImageParseCoordinator
+        from ..platform import get_adapter
 
         coordinator = component_manager.get_available_component("image_coordinator")
         if isinstance(coordinator, ImageParseCoordinator):
@@ -233,8 +233,8 @@ def _record_image_pipeline_timing(
     error: str,
 ) -> None:
     try:
-        from iris_memory.core.run_log import get_run_log_manager
-        from iris_memory.platform import get_adapter
+        from ..core.run_log import get_run_log_manager
+        from ..platform import get_adapter
 
         adapter = get_adapter(event)
         get_run_log_manager().record(
@@ -312,7 +312,7 @@ async def _update_profile_names(
         user_name: 用户昵称
         persona_id: 人格ID
     """
-    from iris_memory.config import get_config
+    from ..config import get_config
 
     config = get_config()
     if not config.get("profile.enable"):
@@ -335,7 +335,7 @@ async def _update_profile_names(
         return
 
     try:
-        from iris_memory.profile import GroupProfileManager, UserProfileManager
+        from ..profile import GroupProfileManager, UserProfileManager
 
         group_manager = GroupProfileManager(profile_storage)
         user_manager = UserProfileManager(profile_storage)
@@ -363,14 +363,14 @@ async def _add_to_l1_buffer(
         event: AstrBot 消息事件对象
         component_manager: 组件管理器实例
     """
-    from iris_memory.platform import get_adapter
+    from ..platform import get_adapter
 
     content = event.message_str
     if not content:
         logger.debug("消息内容为空，跳过添加")
         return
 
-    from iris_memory.utils import sanitize_input
+    from ..utils import sanitize_input
 
     content = sanitize_input(content, source="user_message")
 
@@ -391,7 +391,7 @@ async def _add_to_l1_buffer(
     group_name = adapter.get_group_name(event)
 
     # 解析 persona_id（用于画像与 L1 消息的隔离命名空间）
-    from iris_memory.core.persona import resolve_persona
+    from ..core.persona import resolve_persona
 
     persona_id = await resolve_persona(component_manager, event)
 
@@ -450,8 +450,8 @@ async def _add_to_l1_buffer(
         forward_messages = []
 
     if forward_messages:
-        from iris_memory.config import get_config as _get_cfg
-        from iris_memory.utils import count_tokens
+        from ..config import get_config as _get_cfg
+        from ..utils import count_tokens
 
         max_single_tokens = cast(
             int, _get_cfg().get("l1_max_single_message_tokens", 500)
@@ -535,7 +535,7 @@ async def update_l1_buffer(
         role: 消息角色（"user" 或 "assistant"）
         content: 消息内容
     """
-    from iris_memory.platform import get_adapter
+    from ..platform import get_adapter
 
     buffer = component_manager.get_available_component("l1_buffer")
     if not buffer:
@@ -548,7 +548,7 @@ async def update_l1_buffer(
     session_id = adapter.get_session_id(event)
     user_id = adapter.get_user_id(event)
 
-    from iris_memory.core.persona import resolve_persona
+    from ..core.persona import resolve_persona
 
     persona_id = await resolve_persona(component_manager, event)
 
@@ -577,10 +577,10 @@ async def _queue_images_to_l1_buffer(
         event: AstrBot 消息事件对象
         component_manager: 组件管理器实例
     """
-    from iris_memory.config import get_config
-    from iris_memory.platform import get_adapter
-    from iris_memory.image import ImageQueueItem, ImageParseStatus
-    from iris_memory.image.image_utils import (
+    from ..config import get_config
+    from ..platform import get_adapter
+    from ..image import ImageQueueItem, ImageParseStatus
+    from ..image.image_utils import (
         compute_image_hash,
         is_similar_image,
         check_invalid_image,
@@ -609,7 +609,7 @@ async def _queue_images_to_l1_buffer(
     # 否则该占位常作为最后入队消息，buffer.py 用 messages[-1].persona_id 决定
     # 画像与 L2 摘要归属，default 占位会污染人格命名空间。
     # resolve_persona 在同一 event 上缓存，此处复用 _add_to_l1_buffer 的解析结果。
-    from iris_memory.core.persona import resolve_persona
+    from ..core.persona import resolve_persona
 
     persona_id = await resolve_persona(component_manager, event)
 
@@ -631,7 +631,7 @@ async def _queue_images_to_l1_buffer(
     image_suffixes: list[str] = []
     queued_count = 0
 
-    from iris_memory.image.security import fetch_safe_image_bytes
+    from ..image.security import fetch_safe_image_bytes
 
     for image_info in images:
         # ---- 提前下载图片数据（用于 pHash、过滤、本地缓存） ----
@@ -769,9 +769,9 @@ async def _parse_images_if_enabled(
         event: AstrBot 消息事件对象
         component_manager: 组件管理器实例
     """
-    from iris_memory.config import get_config
-    from iris_memory.platform import get_adapter
-    from iris_memory.image import ImageParser, ImageParseStatus, ImageParseCache
+    from ..config import get_config
+    from ..platform import get_adapter
+    from ..image import ImageParser, ImageParseStatus, ImageParseCache
 
     config = get_config()
     if not config.get("l1_buffer.image_parsing.enable"):
@@ -860,7 +860,7 @@ async def _parse_images_if_enabled(
 
     provider = config.get("l1_buffer.image_parsing.provider", "")
 
-    from iris_memory.image.recorder_bridge import get_recorder_bridge
+    from ..image.recorder_bridge import get_recorder_bridge
 
     parser = ImageParser(llm_manager, provider, recorder_bridge=get_recorder_bridge())
 

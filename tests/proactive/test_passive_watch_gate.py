@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, MagicMock, Mock
 
 import pytest
 
-from main import IrisMemoryPlugin
+from astrbot_plugin_iris_memory.main import IrisMemoryPlugin
 
 
 @pytest.mark.asyncio

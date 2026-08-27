@@ -25,11 +25,11 @@ import time
 from re import Pattern
 from typing import Any, Callable, Optional, TYPE_CHECKING
 
-from iris_memory.core import get_logger
+from ..core import get_logger
 
 if TYPE_CHECKING:
     from astrbot.api.star import Context
-    from iris_memory.config import Config
+    from ..config import Config
 
 logger = get_logger("markdown_stripper")
 

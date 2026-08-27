@@ -11,11 +11,11 @@ Iris Chat Memory - 人格自迭代阶段 C：完整人格独立审查
 import asyncio
 from typing import Any, Dict, Optional, Tuple
 
-from iris_memory.core import get_logger
+from ..core import get_logger
 from .analyzer import extract_json_object
 from .models import ErrorCode
 from .prompts import build_review_prompt
-from iris_memory.llm_modules import PERSONA_EVOLUTION_REVIEW
+from ..llm_modules import PERSONA_EVOLUTION_REVIEW
 
 logger = get_logger("persona_evolution.reviewer")
 

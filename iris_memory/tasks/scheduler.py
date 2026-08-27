@@ -15,10 +15,10 @@ import random
 from typing import Dict, Optional, Callable, Awaitable, TYPE_CHECKING
 from datetime import datetime
 
-from iris_memory.core import Component, get_logger
+from ..core import Component, get_logger
 
 if TYPE_CHECKING:
-    from iris_memory.core import ComponentManager
+    from ..core import ComponentManager
 
 logger = get_logger("tasks.scheduler")
 

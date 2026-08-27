@@ -18,7 +18,7 @@ def _event_with_messages(messages):
 
 
 def test_pure_at_self_detection():
-    from main import _is_pure_at_self
+    from astrbot_plugin_iris_memory.main import _is_pure_at_self
 
     assert _is_pure_at_self(_event_with_messages([At(qq="bot-1", name="Chito")]))
     assert not _is_pure_at_self(
@@ -44,7 +44,7 @@ async def test_whitespace_transport_prompt_is_not_sent_to_model():
 
 @pytest.mark.asyncio
 async def test_pure_at_uses_standard_request_without_semantic_prompt():
-    from main import IrisMemoryPlugin
+    from astrbot_plugin_iris_memory.main import IrisMemoryPlugin
 
     plugin = object.__new__(IrisMemoryPlugin)
     buffer = MagicMock()
@@ -74,7 +74,7 @@ async def test_pure_at_uses_standard_request_without_semantic_prompt():
     extras = {}
     event.set_extra.side_effect = lambda key, value: extras.__setitem__(key, value)
 
-    with patch("iris_memory.platform.get_adapter", return_value=adapter):
+    with patch("astrbot_plugin_iris_memory.iris_memory.platform.get_adapter", return_value=adapter):
         handled = await plugin._prepare_pure_at_request(event)
 
     assert handled is True
@@ -92,7 +92,7 @@ async def test_pure_at_uses_standard_request_without_semantic_prompt():
 
 @pytest.mark.asyncio
 async def test_pure_at_is_not_taken_over_while_astrbot_waiter_is_enabled():
-    from main import IrisMemoryPlugin
+    from astrbot_plugin_iris_memory.main import IrisMemoryPlugin
 
     plugin = object.__new__(IrisMemoryPlugin)
     plugin.component_manager = MagicMock()
@@ -111,7 +111,7 @@ async def test_pure_at_is_not_taken_over_while_astrbot_waiter_is_enabled():
 
 @pytest.mark.asyncio
 async def test_pure_at_without_l1_context_keeps_default_empty_behavior():
-    from main import IrisMemoryPlugin
+    from astrbot_plugin_iris_memory.main import IrisMemoryPlugin
 
     plugin = object.__new__(IrisMemoryPlugin)
     buffer = MagicMock()
@@ -130,7 +130,7 @@ async def test_pure_at_without_l1_context_keeps_default_empty_behavior():
     adapter = MagicMock()
     adapter.get_session_id.return_value = "group-1"
 
-    with patch("iris_memory.platform.get_adapter", return_value=adapter):
+    with patch("astrbot_plugin_iris_memory.iris_memory.platform.get_adapter", return_value=adapter):
         handled = await plugin._prepare_pure_at_request(event)
 
     assert handled is False
@@ -139,7 +139,7 @@ async def test_pure_at_without_l1_context_keeps_default_empty_behavior():
 
 @pytest.mark.asyncio
 async def test_pure_at_feature_switch_disables_takeover():
-    from main import IrisMemoryPlugin
+    from astrbot_plugin_iris_memory.main import IrisMemoryPlugin
 
     plugin = object.__new__(IrisMemoryPlugin)
     plugin.component_manager = MagicMock()

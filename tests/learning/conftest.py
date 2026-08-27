@@ -4,9 +4,9 @@ from pathlib import Path
 
 import pytest
 
-from iris_memory.config import init_config
-from iris_memory.config.config import reset_config
-from iris_memory.learning import LearningStorage
+from astrbot_plugin_iris_memory.iris_memory.config import init_config
+from astrbot_plugin_iris_memory.iris_memory.config.config import reset_config
+from astrbot_plugin_iris_memory.iris_memory.learning import LearningStorage
 
 
 @pytest.fixture

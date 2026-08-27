@@ -37,7 +37,7 @@ _DEFAULT_CONTENT_MAX_CHARS = 2000
 def _read_settings() -> tuple[bool, int, int]:
     """读取运行日志相关隐藏配置，未初始化或异常时返回默认值"""
     try:
-        from iris_memory.config import get_config
+        from ..config import get_config
 
         config = get_config()
         enabled = bool(config.get("run_log_enabled", True))

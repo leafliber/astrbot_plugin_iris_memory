@@ -7,13 +7,13 @@ import tempfile
 import shutil
 from datetime import datetime, timedelta
 
-from iris_memory.l3_kg import (
+from astrbot_plugin_iris_memory.iris_memory.l3_kg import (
     GraphNode,
     GraphEdge,
     L3KGAdapter,
 )
-from iris_memory.config import init_config
-from iris_memory.utils.forgetting import should_evict_kg_node
+from astrbot_plugin_iris_memory.iris_memory.config import init_config
+from astrbot_plugin_iris_memory.iris_memory.utils.forgetting import should_evict_kg_node
 
 
 class TestAdapterEviction:

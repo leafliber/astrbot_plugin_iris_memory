@@ -6,9 +6,9 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 from quart import Quart
 
-from iris_memory.commands.base import ParsedArgs
-from iris_memory.commands.l2_handler import L2CommandHandler
-from iris_memory.web.routes import memory as memory_routes
+from astrbot_plugin_iris_memory.iris_memory.commands.base import ParsedArgs
+from astrbot_plugin_iris_memory.iris_memory.commands.l2_handler import L2CommandHandler
+from astrbot_plugin_iris_memory.iris_memory.web.routes import memory as memory_routes
 
 PREFIX = "/astrbot_plugin_iris_memory/memory"
 
@@ -138,7 +138,7 @@ async def test_archive_delete_not_found(archive_env):
 async def test_cli_restore_success(monkeypatch):
     component = FakeArchiveComponent()
     monkeypatch.setattr(
-        "iris_memory.commands.l2_handler.get_component_manager",
+        "astrbot_plugin_iris_memory.iris_memory.commands.l2_handler.get_component_manager",
         lambda: FakeManager(component),
     )
 
@@ -155,7 +155,7 @@ async def test_cli_restore_success(monkeypatch):
 async def test_cli_restore_missing_id(monkeypatch):
     component = FakeArchiveComponent()
     monkeypatch.setattr(
-        "iris_memory.commands.l2_handler.get_component_manager",
+        "astrbot_plugin_iris_memory.iris_memory.commands.l2_handler.get_component_manager",
         lambda: FakeManager(component),
     )
 
@@ -171,7 +171,7 @@ async def test_cli_restore_failure(monkeypatch):
     component = FakeArchiveComponent()
     component.restore_archived_memory = AsyncMock(return_value=False)
     monkeypatch.setattr(
-        "iris_memory.commands.l2_handler.get_component_manager",
+        "astrbot_plugin_iris_memory.iris_memory.commands.l2_handler.get_component_manager",
         lambda: FakeManager(component),
     )
 

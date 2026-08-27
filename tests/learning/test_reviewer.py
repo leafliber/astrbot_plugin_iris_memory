@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from iris_memory.learning.reviewer import LearningReviewer
+from astrbot_plugin_iris_memory.iris_memory.learning.reviewer import LearningReviewer
 
 
 def _seed_pending(storage, pairs=0, patterns=0):

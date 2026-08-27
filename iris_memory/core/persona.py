@@ -16,12 +16,12 @@ Iris Chat Memory - Persona 解析器
 
 from typing import TYPE_CHECKING, Optional
 
-from iris_memory.core import Component, get_logger
+from ..core import Component, get_logger
 
 if TYPE_CHECKING:
     from astrbot.api.event import AstrMessageEvent
     from astrbot.api.star import Context
-    from iris_memory.core.components import ComponentManager
+    from ..core.components import ComponentManager
 
 logger = get_logger("persona")
 
@@ -59,7 +59,7 @@ class PersonaResolver(Component):
     def is_enabled(self) -> bool:
         """persona 隔离是否启用"""
         try:
-            from iris_memory.config import get_config
+            from ..config import get_config
 
             return bool(get_config().get("isolation_config.enable_persona_isolation"))
         except RuntimeError:

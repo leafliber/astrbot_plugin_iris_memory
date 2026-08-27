@@ -9,8 +9,8 @@ import sqlite3
 
 import pytest
 
-from iris_memory.l3_kg.adapter import L3KGAdapter
-from iris_memory.l3_kg.models import GraphNode
+from astrbot_plugin_iris_memory.iris_memory.l3_kg.adapter import L3KGAdapter
+from astrbot_plugin_iris_memory.iris_memory.l3_kg.models import GraphNode
 
 
 @pytest.fixture
@@ -185,7 +185,7 @@ class TestDeleteByGroup:
         """删除节点时关联边级联删除"""
         a = await _add_node(l3_adapter, name="a", label="Person")
         b = await _add_node(l3_adapter, name="b", label="Preference")
-        from iris_memory.l3_kg.models import GraphEdge
+        from astrbot_plugin_iris_memory.iris_memory.l3_kg.models import GraphEdge
 
         edge = GraphEdge(
             source_id=a, target_id=b, relation_type="HAS_PREFERENCE", confidence=0.9

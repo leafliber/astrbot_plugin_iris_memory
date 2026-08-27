@@ -1,6 +1,6 @@
 """日志模块测试"""
 
-from iris_memory.core.logger import get_logger, IrisMemoryLoggerAdapter
+from astrbot_plugin_iris_memory.iris_memory.core.logger import get_logger, IrisMemoryLoggerAdapter
 
 
 class TestLogger:

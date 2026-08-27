@@ -30,7 +30,7 @@ def test_business_code_has_no_raw_llm_provider_calls():
 
 @pytest.mark.asyncio
 async def test_framework_reply_is_marked_on_request_and_settled_on_response():
-    from main import IrisMemoryPlugin
+    from astrbot_plugin_iris_memory.main import IrisMemoryPlugin
 
     plugin = object.__new__(IrisMemoryPlugin)
     plugin.component_manager = None
@@ -90,7 +90,7 @@ async def test_framework_reply_is_marked_on_request_and_settled_on_response():
 
 @pytest.mark.asyncio
 async def test_normal_framework_reply_also_acquires_governor_lease():
-    from main import IrisMemoryPlugin
+    from astrbot_plugin_iris_memory.main import IrisMemoryPlugin
 
     plugin = object.__new__(IrisMemoryPlugin)
     plugin.component_manager = None

@@ -22,7 +22,7 @@ from .signals import SignalGate
 from .state import GroupState, StateManager
 from .stats import StatsCollector
 from .time_hint import resolve_datetime_reminder, wrap_system_reminder
-from iris_memory.llm_modules import PROACTIVE_REPLY_INITIATE
+from ..llm_modules import PROACTIVE_REPLY_INITIATE
 
 # 发起评估被 LLM 否决后的重试间隔（秒），仅内存记录
 _SKIP_RETRY_SECONDS = 30 * 60
@@ -31,7 +31,7 @@ _SKIP_RETRY_SECONDS = 30 * 60
 def _record_initiate_send(group_id: str, text: str, success: bool, error: str = "") -> None:
     """写入统一运行日志（proactive 类型，主动发起直发结果）。"""
     try:
-        from iris_memory.core.run_log import get_run_log_manager
+        from ..core.run_log import get_run_log_manager
 
         get_run_log_manager().record(
             "proactive",

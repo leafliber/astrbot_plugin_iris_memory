@@ -6,12 +6,12 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from iris_memory.config import init_config
-from iris_memory.config.config import reset_config
-from iris_memory.persona_evolution import PersonaEvolutionStorage
-from iris_memory.persona_evolution.collector import PersonaCollector
-from iris_memory.persona_evolution.models import EvolutionJob
-from iris_memory.persona_evolution.service import PersonaEvolutionService
+from astrbot_plugin_iris_memory.iris_memory.config import init_config
+from astrbot_plugin_iris_memory.iris_memory.config.config import reset_config
+from astrbot_plugin_iris_memory.iris_memory.persona_evolution import PersonaEvolutionStorage
+from astrbot_plugin_iris_memory.iris_memory.persona_evolution.collector import PersonaCollector
+from astrbot_plugin_iris_memory.iris_memory.persona_evolution.models import EvolutionJob
+from astrbot_plugin_iris_memory.iris_memory.persona_evolution.service import PersonaEvolutionService
 
 from .fakes import FakeContext, FakeLLMManager, FakePersonaManager
 

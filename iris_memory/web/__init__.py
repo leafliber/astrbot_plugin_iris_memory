@@ -7,12 +7,12 @@ Web 模块 - 通过 AstrBot Plugin Pages 提供管理界面
 - 认证：由 AstrBot Dashboard 统一处理
 
 使用方式：
-    from iris_memory.web import register_all_routes
+    from .iris_memory.web import register_all_routes
 
     register_all_routes(context)
 """
 
-from iris_memory.core import get_logger
+from ..core import get_logger
 
 logger = get_logger("web")
 

@@ -2,12 +2,12 @@
 
 import pytest
 
-from iris_memory.persona_evolution.models import (
+from astrbot_plugin_iris_memory.iris_memory.persona_evolution.models import (
     ErrorCode,
     PersonaRevision,
     RevisionStatus,
 )
-from iris_memory.persona_evolution.publisher import (
+from astrbot_plugin_iris_memory.iris_memory.persona_evolution.publisher import (
     PersonaPublisher,
     persona_hash,
 )

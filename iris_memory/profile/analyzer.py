@@ -8,13 +8,13 @@ Iris Chat Memory - 画像分析器
 from typing import List, Dict, Union, TYPE_CHECKING
 import json
 
-from iris_memory.core import get_logger
-from iris_memory.llm_modules import PROFILE_ANALYSIS
-from iris_memory.config import get_config
+from ..core import get_logger
+from ..llm_modules import PROFILE_ANALYSIS
+from ..config import get_config
 from .models import UpdateTier
 
 if TYPE_CHECKING:
-    from iris_memory.llm import LLMManager
+    from ..llm import LLMManager
 
 logger = get_logger("profile")
 

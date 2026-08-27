@@ -20,8 +20,8 @@
 
 from typing import Any, Dict, List, Optional
 
-from iris_memory.core import get_logger
-from iris_memory.profile.models import UserProfile
+from ..core import get_logger
+from ..profile.models import UserProfile
 
 logger = get_logger("legacy_migration")
 

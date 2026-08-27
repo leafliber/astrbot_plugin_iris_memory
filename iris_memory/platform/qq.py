@@ -22,8 +22,8 @@ from typing import Any, List, TYPE_CHECKING
 
 from astrbot.api.message_components import At, Plain, Reply
 
-from iris_memory.core import get_logger
-from iris_memory.platform.base import (
+from ..core import get_logger
+from ..platform.base import (
     ForwardMessage,
     PlatformAdapter,
     ReplyInfo,
@@ -31,7 +31,7 @@ from iris_memory.platform.base import (
 
 if TYPE_CHECKING:
     from astrbot.api.event import AstrMessageEvent
-    from iris_memory.image.models import ImageInfo
+    from ..image.models import ImageInfo
 
 logger = get_logger("platform.qq")
 
@@ -305,7 +305,7 @@ class OneBot11Adapter(PlatformAdapter):
         Returns:
             图片信息列表
         """
-        from iris_memory.image.models import ImageInfo
+        from ..image.models import ImageInfo
 
         images: List[ImageInfo] = []
 
@@ -498,7 +498,7 @@ class OneBot11Adapter(PlatformAdapter):
         Returns:
             图片信息列表
         """
-        from iris_memory.image.models import ImageInfo
+        from ..image.models import ImageInfo
 
         images: List[ImageInfo] = []
 
@@ -537,7 +537,7 @@ class OneBot11Adapter(PlatformAdapter):
         Returns:
             图片信息列表
         """
-        from iris_memory.image.models import ImageInfo
+        from ..image.models import ImageInfo
 
         images: List[ImageInfo] = []
 

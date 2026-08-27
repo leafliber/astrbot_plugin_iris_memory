@@ -2,8 +2,8 @@
 
 from typing import Optional
 
-from iris_memory.core import get_logger
-from iris_memory.config import get_config
+from ..core import get_logger
+from ..config import get_config
 from .adapter import L3KGAdapter
 from collections import defaultdict
 import asyncio

@@ -2,7 +2,7 @@
 
 import pytest
 from unittest.mock import Mock, AsyncMock
-from iris_memory.tools import SaveMemoryTool
+from astrbot_plugin_iris_memory.iris_memory.tools import SaveMemoryTool
 
 
 @pytest.fixture
@@ -46,11 +46,11 @@ async def test_save_memory_success(tool, mock_context, monkeypatch):
     mock_manager.get_component = Mock(return_value=mock_l2)
 
     monkeypatch.setattr(
-        "iris_memory.platform.get_adapter", Mock(return_value=mock_adapter)
+        "astrbot_plugin_iris_memory.iris_memory.platform.get_adapter", Mock(return_value=mock_adapter)
     )
-    monkeypatch.setattr("iris_memory.config.get_config", Mock(return_value=mock_config))
+    monkeypatch.setattr("astrbot_plugin_iris_memory.iris_memory.config.get_config", Mock(return_value=mock_config))
     monkeypatch.setattr(
-        "iris_memory.tools.save_memory.get_component_manager",
+        "astrbot_plugin_iris_memory.iris_memory.tools.save_memory.get_component_manager",
         Mock(return_value=mock_manager),
     )
 
@@ -79,11 +79,11 @@ async def test_save_memory_writes_importance(tool, mock_context, monkeypatch):
     mock_manager.get_component = Mock(return_value=mock_l2)
 
     monkeypatch.setattr(
-        "iris_memory.platform.get_adapter", Mock(return_value=mock_adapter)
+        "astrbot_plugin_iris_memory.iris_memory.platform.get_adapter", Mock(return_value=mock_adapter)
     )
-    monkeypatch.setattr("iris_memory.config.get_config", Mock(return_value=mock_config))
+    monkeypatch.setattr("astrbot_plugin_iris_memory.iris_memory.config.get_config", Mock(return_value=mock_config))
     monkeypatch.setattr(
-        "iris_memory.tools.save_memory.get_component_manager",
+        "astrbot_plugin_iris_memory.iris_memory.tools.save_memory.get_component_manager",
         Mock(return_value=mock_manager),
     )
 
@@ -116,11 +116,11 @@ async def test_save_memory_writes_active_users(tool, mock_context, monkeypatch):
     mock_manager.get_component = Mock(return_value=mock_l2)
 
     monkeypatch.setattr(
-        "iris_memory.platform.get_adapter", Mock(return_value=mock_adapter)
+        "astrbot_plugin_iris_memory.iris_memory.platform.get_adapter", Mock(return_value=mock_adapter)
     )
-    monkeypatch.setattr("iris_memory.config.get_config", Mock(return_value=mock_config))
+    monkeypatch.setattr("astrbot_plugin_iris_memory.iris_memory.config.get_config", Mock(return_value=mock_config))
     monkeypatch.setattr(
-        "iris_memory.tools.save_memory.get_component_manager",
+        "astrbot_plugin_iris_memory.iris_memory.tools.save_memory.get_component_manager",
         Mock(return_value=mock_manager),
     )
 
@@ -151,11 +151,11 @@ async def test_save_memory_invalid_importance_defaults(tool, mock_context, monke
     mock_manager.get_component = Mock(return_value=mock_l2)
 
     monkeypatch.setattr(
-        "iris_memory.platform.get_adapter", Mock(return_value=mock_adapter)
+        "astrbot_plugin_iris_memory.iris_memory.platform.get_adapter", Mock(return_value=mock_adapter)
     )
-    monkeypatch.setattr("iris_memory.config.get_config", Mock(return_value=mock_config))
+    monkeypatch.setattr("astrbot_plugin_iris_memory.iris_memory.config.get_config", Mock(return_value=mock_config))
     monkeypatch.setattr(
-        "iris_memory.tools.save_memory.get_component_manager",
+        "astrbot_plugin_iris_memory.iris_memory.tools.save_memory.get_component_manager",
         Mock(return_value=mock_manager),
     )
 
@@ -185,11 +185,11 @@ async def test_save_memory_ttl_writes_expires_at(tool, mock_context, monkeypatch
     mock_manager.get_component = Mock(return_value=mock_l2)
 
     monkeypatch.setattr(
-        "iris_memory.platform.get_adapter", Mock(return_value=mock_adapter)
+        "astrbot_plugin_iris_memory.iris_memory.platform.get_adapter", Mock(return_value=mock_adapter)
     )
-    monkeypatch.setattr("iris_memory.config.get_config", Mock(return_value=mock_config))
+    monkeypatch.setattr("astrbot_plugin_iris_memory.iris_memory.config.get_config", Mock(return_value=mock_config))
     monkeypatch.setattr(
-        "iris_memory.tools.save_memory.get_component_manager",
+        "astrbot_plugin_iris_memory.iris_memory.tools.save_memory.get_component_manager",
         Mock(return_value=mock_manager),
     )
 
@@ -222,11 +222,11 @@ async def test_save_memory_invalid_ttl_ignored(tool, mock_context, monkeypatch):
     mock_manager.get_component = Mock(return_value=mock_l2)
 
     monkeypatch.setattr(
-        "iris_memory.platform.get_adapter", Mock(return_value=mock_adapter)
+        "astrbot_plugin_iris_memory.iris_memory.platform.get_adapter", Mock(return_value=mock_adapter)
     )
-    monkeypatch.setattr("iris_memory.config.get_config", Mock(return_value=mock_config))
+    monkeypatch.setattr("astrbot_plugin_iris_memory.iris_memory.config.get_config", Mock(return_value=mock_config))
     monkeypatch.setattr(
-        "iris_memory.tools.save_memory.get_component_manager",
+        "astrbot_plugin_iris_memory.iris_memory.tools.save_memory.get_component_manager",
         Mock(return_value=mock_manager),
     )
 
@@ -256,11 +256,11 @@ async def test_save_memory_scope_global(tool, mock_context, monkeypatch):
     mock_manager.get_component = Mock(return_value=mock_l2)
 
     monkeypatch.setattr(
-        "iris_memory.platform.get_adapter", Mock(return_value=mock_adapter)
+        "astrbot_plugin_iris_memory.iris_memory.platform.get_adapter", Mock(return_value=mock_adapter)
     )
-    monkeypatch.setattr("iris_memory.config.get_config", Mock(return_value=mock_config))
+    monkeypatch.setattr("astrbot_plugin_iris_memory.iris_memory.config.get_config", Mock(return_value=mock_config))
     monkeypatch.setattr(
-        "iris_memory.tools.save_memory.get_component_manager",
+        "astrbot_plugin_iris_memory.iris_memory.tools.save_memory.get_component_manager",
         Mock(return_value=mock_manager),
     )
 
@@ -308,11 +308,11 @@ async def test_save_memory_l2_unavailable(tool, mock_context, monkeypatch):
     mock_manager.get_component = Mock(return_value=mock_l2)
 
     monkeypatch.setattr(
-        "iris_memory.platform.get_adapter", Mock(return_value=mock_adapter)
+        "astrbot_plugin_iris_memory.iris_memory.platform.get_adapter", Mock(return_value=mock_adapter)
     )
-    monkeypatch.setattr("iris_memory.config.get_config", Mock(return_value=mock_config))
+    monkeypatch.setattr("astrbot_plugin_iris_memory.iris_memory.config.get_config", Mock(return_value=mock_config))
     monkeypatch.setattr(
-        "iris_memory.tools.save_memory.get_component_manager",
+        "astrbot_plugin_iris_memory.iris_memory.tools.save_memory.get_component_manager",
         Mock(return_value=mock_manager),
     )
 

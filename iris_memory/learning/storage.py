@@ -20,8 +20,8 @@ import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from iris_memory.core import get_logger
-from iris_memory.learning.jargon_clustering import (
+from ..core import get_logger
+from ..learning.jargon_clustering import (
     cluster_candidate_items,
     select_candidate_representative,
 )

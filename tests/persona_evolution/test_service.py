@@ -4,14 +4,14 @@ import asyncio
 
 import pytest
 
-from iris_memory.persona_evolution.models import (
+from astrbot_plugin_iris_memory.iris_memory.persona_evolution.models import (
     EditMode,
     ErrorCode,
     JobStatus,
     PersonaRevision,
     RevisionStatus,
 )
-from iris_memory.persona_evolution.publisher import (
+from astrbot_plugin_iris_memory.iris_memory.persona_evolution.publisher import (
     MANAGED_BLOCK_BEGIN,
     MANAGED_BLOCK_END,
     persona_hash,
@@ -85,7 +85,7 @@ class TestManagedBlockAutoPublish:
         seed_samples(storage, 100)
         job_id = make_job(storage, "p1")
         # 候选 = 追加区块后的有效基线替换区块内容
-        from iris_memory.persona_evolution.publisher import append_managed_block
+        from astrbot_plugin_iris_memory.iris_memory.persona_evolution.publisher import append_managed_block
 
         effective = append_managed_block(raw)
         candidate = effective.replace(

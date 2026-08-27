@@ -6,11 +6,11 @@ import pytest
 from astrbot.core.agent.tool import ToolSet
 from astrbot.core.star.context import Context
 
-from iris_memory.proactive.config import ConfigManager
-from iris_memory.proactive.state import StateManager
-from iris_memory.proactive.tools import ToolContext
-from iris_memory.tools import EXPECTED_TOOL_NAMES
-from main import IrisMemoryPlugin
+from astrbot_plugin_iris_memory.iris_memory.proactive.config import ConfigManager
+from astrbot_plugin_iris_memory.iris_memory.proactive.state import StateManager
+from astrbot_plugin_iris_memory.iris_memory.proactive.tools import ToolContext
+from astrbot_plugin_iris_memory.iris_memory.tools import EXPECTED_TOOL_NAMES
+from astrbot_plugin_iris_memory.main import IrisMemoryPlugin
 
 OWNER_MODULE = IrisMemoryPlugin.__module__
 

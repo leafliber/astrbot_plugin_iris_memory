@@ -11,10 +11,10 @@ import json
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
-from iris_memory.core import get_logger
+from ..core import get_logger
 from .models import ErrorCode
 from .prompts import build_analysis_prompt
-from iris_memory.llm_modules import PERSONA_EVOLUTION_ANALYSIS
+from ..llm_modules import PERSONA_EVOLUTION_ANALYSIS
 
 logger = get_logger("persona_evolution.analyzer")
 

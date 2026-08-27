@@ -10,14 +10,14 @@ Iris Chat Memory - 相关记忆检索器
 
 from typing import List, Optional, TYPE_CHECKING, cast
 
-from iris_memory.core import get_logger
-from iris_memory.config import get_config
-from iris_memory.l2_memory import MemoryEntry, MemorySearchResult
-from iris_memory.l2_memory.adapter import L2MemoryAdapter
+from ..core import get_logger
+from ..config import get_config
+from ..l2_memory import MemoryEntry, MemorySearchResult
+from ..l2_memory.adapter import L2MemoryAdapter
 
 if TYPE_CHECKING:
-    from iris_memory.core import ComponentManager
-    from iris_memory.l2_memory import L2MemoryAdapter
+    from ..core import ComponentManager
+    from ..l2_memory import L2MemoryAdapter
 
 logger = get_logger("l3_kg.related_retriever")
 

@@ -19,7 +19,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Dict, Optional
 
-from iris_memory.core import get_logger
+from ..core import get_logger
 
 from .detector import LegacyDetection, detect_legacy_data
 
@@ -224,7 +224,7 @@ async def _write_done_flag(star: Any, payload: Dict[str, Any]) -> None:
 def _get_raw_user_config() -> Optional[dict]:
     """获取 AstrBot 用户配置原始字典（用于旧配置键检测与迁移）"""
     try:
-        from iris_memory.config import get_config
+        from ..config import get_config
 
         raw = getattr(get_config(), "_user_config", None)
         return raw if isinstance(raw, dict) else None
@@ -289,7 +289,7 @@ def _backup_legacy_data(data_dir: Path, detection: LegacyDetection) -> Path:
             "config_keys": detection.config_keys,
         }
         target = backup_dir / KV_BACKUP_FILENAME
-        from iris_memory.utils import atomic_write_text
+        from ..utils import atomic_write_text
 
         atomic_write_text(
             target,

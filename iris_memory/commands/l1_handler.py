@@ -6,9 +6,9 @@ Iris Chat Memory - L1 指令处理器
 
 from typing import Optional, TYPE_CHECKING
 
-from iris_memory.core import get_logger, get_component_manager
-from iris_memory.l1_buffer.buffer import L1Buffer
-from iris_memory.platform import get_adapter
+from ..core import get_logger, get_component_manager
+from ..l1_buffer.buffer import L1Buffer
+from ..platform import get_adapter
 from .base import CommandHandler, CommandResult, ParsedArgs, DeleteScope
 
 if TYPE_CHECKING:

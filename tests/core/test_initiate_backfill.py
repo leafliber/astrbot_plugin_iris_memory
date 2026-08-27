@@ -5,19 +5,12 @@
 - 队列为空 / 组件不可用时静默跳过
 """
 
-import sys
-from pathlib import Path
-
 import pytest
-
-project_root = Path(__file__).parent.parent.parent
-if str(project_root) not in sys.path:
-    sys.path.insert(0, str(project_root))
 
 from datetime import datetime
 
-from iris_memory.core.initiate_backfill import handle_initiate_backfill
-from iris_memory.l1_buffer.models import ContextMessage
+from astrbot_plugin_iris_memory.iris_memory.core.initiate_backfill import handle_initiate_backfill
+from astrbot_plugin_iris_memory.iris_memory.l1_buffer.models import ContextMessage
 
 
 class FakeL1Buffer:

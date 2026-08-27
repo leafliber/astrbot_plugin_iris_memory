@@ -9,11 +9,11 @@ Iris Chat Memory - 人格自迭代阶段 B：候选生成
 import asyncio
 from typing import Any, Dict, List, Optional, Tuple
 
-from iris_memory.core import get_logger
+from ..core import get_logger
 from .analyzer import extract_json_object
 from .models import ErrorCode
 from .prompts import build_generation_prompt
-from iris_memory.llm_modules import PERSONA_EVOLUTION_GENERATE
+from ..llm_modules import PERSONA_EVOLUTION_GENERATE
 
 logger = get_logger("persona_evolution.generator")
 
