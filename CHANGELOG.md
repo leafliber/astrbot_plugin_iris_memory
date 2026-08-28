@@ -3,7 +3,7 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [3.2.0] - 2026-08-28
 
 ### ⚠️ 注意
 
@@ -25,6 +25,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **导入结构重构：根治插件更新/热重载加载失败**。移除 `main.py` 的 `sys.path.insert` hack，`main.py` 与 `iris_memory/` 内部全部改为包内相对导入（`from .iris_memory.xxx import ...` / `from ..core import ...`），所有子模块因此注册在 AstrBot 的插件模块前缀（`data.plugins.<插件目录名>.*`）之下，可被插件管理器的 reload/update 完整清理。此前 `iris_memory.*` 以顶层模块名驻留 `sys.modules`，更新后重载命中旧缓存：只改文件内容时静默运行旧代码，新增代码文件时因旧模块缺少新符号抛 `ImportError` 导致加载失败。配套变更：新增 `iris_memory/__init__.py`（常规包化，消除与旧版 `astrbot_plugin_iris_chat_memory` 同名命名空间包的合并污染）；`tests/conftest.py` 改为以固定包名 `astrbot_plugin_iris_memory` 注册仓库根目录，测试导入统一为 `from astrbot_plugin_iris_memory.iris_memory.xxx import ...`。从旧版本热更新到本版本可正常完成加载；此后版本再更新/热重载不再因导入结构失败。
+- 热路径同步 I/O 下放线程池：L2 命中强化访问计数（每次检索命中必经）、L1 outbox 读写、L3 检索/路径扩展/访问计数、学习模块每消息采集与响应配对、pHash/无效图 CPU 计算、图片缓存写盘、L2 存储加载与 FTS 重建，消息处理不再被 SQLite/FAISS/PIL 操作卡住事件循环。
+- 梦境五阶段原生开关与持久化游标联动，阶段完成即时落盘；全局 L3 维护（全图去重/孤儿清理/淘汰）每轮仅执行一次，不再随 persona 数量线性重复。
+- CLAUDE.md 钩子编排说明与 v3.1 实现对齐（注入走 `extra_user_content_parts`，不修改 `contexts`）。
 
 ### Fixed
 
@@ -42,11 +45,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **配置默认值双源分歧**：`extras.pure_at_reply.enable` 的 dataclass 默认值与 schema 对齐（均为 false）；新增 schema/Defaults/proactive `_DEFAULTS` 三方默认值一致性守卫测试。
 - 图片协调器会话锁改 `WeakValueDictionary` 弱引用回收，长生命周期进程不再每个会话泄漏一把锁；BoundedWorkQueue 任务失败不再静默吞异常（记 warning + 堆栈）。
 
-### Changed
+### Tests
 
-- 热路径同步 I/O 下放线程池：L2 命中强化访问计数（每次检索命中必经）、L1 outbox 读写、L3 检索/路径扩展/访问计数、学习模块每消息采集与响应配对、pHash/无效图 CPU 计算、图片缓存写盘、L2 存储加载与 FTS 重建，消息处理不再被 SQLite/FAISS/PIL 操作卡住事件循环。
-- 梦境五阶段原生开关与持久化游标联动，阶段完成即时落盘；全局 L3 维护（全图去重/孤儿清理/淘汰）每轮仅执行一次，不再随 persona 数量线性重复。
-- CLAUDE.md 钩子编排说明与 v3.1 实现对齐（注入走 `extra_user_content_parts`，不修改 `contexts`）。
+- 新增 LLM Governor 回归测试：全局/Provider 并发上限、后台满载时交互预留槽位、取消等待者不泄漏许可与队列条目、租约超时 watchdog 回收、队列超限背压指标、连续失败熔断与恢复、同参 singleflight 合并；新增 Dream 预算上下文测试（并发尝试上限、最小调用间隔）。
+- 新增 `BoundedWorkQueue`（同 key 任务合并、有界拒绝、固定 worker）与 L1 总结 Outbox 测试（rotate 边界重开不丢总结、profile 阶段重试不重复已完成 L2 阶段）；画像分析补齐批量条数测试。
+- 新增 L2 持久化韧性套件：FAISS 索引原子落盘、损坏自愈重建、checkpoint 任务生命周期（强引用/标志复位/异常上报）、嵌入模型迁移失败备份保留、读路径锁内取数纪律、hidden_config 写盘失败保留脏标志、查询改写 inflight 僵尸清理、L3 LIKE 转义。
+- 新增图片协调器测试（全局 worker 上限 + 单会话串行）与图片 claim 原子领取测试（并发单飞、过期回收、仅持有者可完成）。
+- 新增查询改写治理测试（常见偏好问题本地改写、同查询 singleflight + 缓存）、主动回复 decision ticket 测试（事件/owner 双重校验、滞留 ticket 回收、迟到事件不吞新决策）与被动评估节流测试（burst 仅一次决策、无 followup 信号仅本地评估）；全量 1819 用例全绿。
 
 ## [3.1.0] - 2026-08-23
 
