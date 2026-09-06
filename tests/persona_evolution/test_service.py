@@ -172,7 +172,7 @@ class TestTriggerConditions:
         self, storage, persona_manager, llm, service
     ):
         persona_manager.add_persona("p1", BASE)
-        job_id = make_job(storage, "p1")  # 默认 100 条 / 24h
+        make_job(storage, "p1")  # 默认 100 条 / 24h
         _setup_llm(llm)
         svc = service()
 

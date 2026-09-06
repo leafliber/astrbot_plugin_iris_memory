@@ -211,7 +211,7 @@ class StatsCollector:
     ) -> list[dict[str, Any]]:
         logs = list(self._llm_logs)
         if group_id:
-            logs = [l for l in logs if l.group_id == group_id]
+            logs = [log for log in logs if log.group_id == group_id]
         logs = logs[::-1]
         sliced = logs[offset:offset + limit]
         result = []

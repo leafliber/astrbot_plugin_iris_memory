@@ -54,6 +54,10 @@ def _metadata_expired(metadata: Dict[str, Any], now_iso: Optional[str] = None) -
     return str(expires_at) <= now_iso
 
 
+class EmbeddingRetryError(RuntimeError):
+    """索引修复重嵌入在重试耗尽后仍失败（索引保留已修复部分待下轮审计）。"""
+
+
 SUPPORTED_EMBEDDING_MODELS = {
     "BAAI/bge-small-zh-v1.5": {
         "dimensions": 512,
@@ -132,6 +136,11 @@ class L2MemoryAdapter(Component):
         self._init_mode = InitMode.BACKGROUND
         self._last_recovery_attempt: float = 0.0
         self._recovery_cooldown: float = 60.0
+        # 对账互斥：initialize 的启动对账与运行期审计不得并发修复索引
+        self._reconcile_lock = asyncio.Lock()
+        self._audit_task: Optional["asyncio.Task"] = None
+        # 嵌入重试退避基数（秒），测试置 0 加速；0 仍保留 3 次重试
+        self._embed_retry_backoff: float = 2.0
         # 进程内调用统计，供梦境任务按执行前后快照计算本轮成本。
         self._embedding_request_count: int = 0
         self._embedded_text_count: int = 0
@@ -198,9 +207,25 @@ class L2MemoryAdapter(Component):
             if not self._actual_embedding_model:
                 self._actual_embedding_model = "unknown"
 
-            # 确定维度：优先从 provider 获取，否则用已知模型参数，最后通过试算得到
-            if not self._embedding_dimensions:
-                self._embedding_dimensions = await self._detect_dimensions()
+            # Provider 声明的维度可能只是 AstrBot 配置值，并不一定会随请求发送给
+            # 实际服务（例如 NVIDIA NIM 会返回模型原生维度）。始终以一次真实请求
+            # 的输出为准，避免用错误维度创建 FAISS 索引。
+            declared_dim = self._embedding_dimensions
+            try:
+                actual_dim = await self._detect_dimensions()
+            except Exception as probe_err:
+                # 探测失败多为暂时性网络故障而非永久配置问题；错误信息带上
+                # "Provider" 使 _try_recover() 能在后续调用中自动重试初始化，
+                # 避免 L2 记忆库因启动瞬断而永久不可用。
+                raise RuntimeError(
+                    f"Embedding Provider 维度探测失败：{probe_err}"
+                ) from probe_err
+            if declared_dim and declared_dim != actual_dim:
+                logger.warning(
+                    f"Embedding 源声明维度({declared_dim})与实际输出维度"
+                    f"({actual_dim})不一致，以实际输出为准"
+                )
+            self._embedding_dimensions = actual_dim
 
             # 加载或创建索引
             meta = self._load_meta()
@@ -241,11 +266,35 @@ class L2MemoryAdapter(Component):
             else:
                 # 加载已有索引和数据
                 await self._load_existing(stored_dim)
+                # 历史 meta 可能没有维度，或其记录与磁盘索引不一致。直接校验
+                # FAISS index.d，避免 _load_existing() 以旧索引维度覆盖试算结果。
+                loaded_dim = int(self._index.d) if self._index is not None else 0
+                if loaded_dim and loaded_dim != actual_dim:
+                    logger.warning(
+                        f"FAISS 索引维度({loaded_dim})与实际输出维度"
+                        f"({actual_dim})不一致，开始自动迁移..."
+                    )
+                    ok = await self._migrate_on_model_change(
+                        self._actual_embedding_model, actual_dim
+                    )
+                    if not ok:
+                        logger.error(
+                            "自动迁移失败，L2 记忆库不可用。\n"
+                            "  → 解决方法：检查 Embedding Provider 配置是否变更，"
+                            "或手动删除 data/faiss 目录后重启插件重建记忆库"
+                        )
+                        self._is_available = False
+                        self._init_error = "自动迁移失败，旧数据与新嵌入模型不兼容"
+                        return
                 # 补全元数据
-                if not stored_model or (not stored_dim and self._embedding_dimensions):
+                elif not stored_model or (
+                    not stored_dim and self._embedding_dimensions
+                ):
                     self._save_meta()
 
             self._is_available = True
+            self._init_error = ""
+            self._start_index_audit()
 
             count = self._count_db()
             logger.info(
@@ -269,9 +318,10 @@ class L2MemoryAdapter(Component):
             self._init_error = f"L2 记忆库初始化失败：{e}"
 
     async def _load_existing(self, stored_dim: int) -> None:
-        """加载已有的 FAISS 索引和 SQLite 数据库（重 I/O 下放线程执行）"""
+        """打开存储；实际维度不一致时先交由初始化迁移，避免错误维度补写。"""
         await asyncio.to_thread(self._open_storage, stored_dim)
-        await self._reconcile_index_with_db()
+        if self._index is not None and self._index.d == self._embedding_dimensions:
+            await self._reconcile_index_with_db()
 
     def _open_storage(self, stored_dim: int) -> None:
         """同步打开 SQLite 与 FAISS 存储；索引损坏时降级为空索引待对账重建。"""
@@ -303,9 +353,8 @@ class L2MemoryAdapter(Component):
                 if stored_dim and actual_dim != stored_dim:
                     logger.warning(
                         f"FAISS 索引维度({actual_dim})与元数据记录({stored_dim})不一致，"
-                        f"以索引为准"
+                        f"将与实际嵌入维度核对，必要时迁移"
                     )
-                self._embedding_dimensions = actual_dim
         else:
             self._index = self._create_index(self._embedding_dimensions)
 
@@ -327,16 +376,39 @@ class L2MemoryAdapter(Component):
         return {int(i) for i in ids}
 
     async def _reconcile_index_with_db(self) -> None:
-        """启动对账：以 SQLite 为唯一事实源，索引 ID 集不一致时全量重建。
+        """对账：以 SQLite 为唯一事实源，增量修复索引与 DB 的漂移。
 
         SQLite 走 WAL 即时持久，FAISS 索引依赖 checkpoint 落盘；checkpoint
-        间隔内进程崩溃会使两者脱同步（DB 有行、索引缺向量 → 纯向量检索
-        永久漏召回；反之留下已删条目的脏向量）。对账发现不一致时用当前
-        嵌入模型重嵌入全部 DB 行重建索引；重建失败保持原索引不动，
-        留待下次启动重试。
+        间隔内进程崩溃/被杀（桌面端直接关闭窗口不走 terminate）会使两者
+        脱同步（DB 有行、索引缺向量 → 纯向量检索永久漏召回；反之留下
+        已删条目的脏向量）。修复策略为增量：
+
+        - 脏向量（索引有、DB 无）：直接 ``remove_ids``，无需重嵌入；
+        - 缺失向量（DB 有、索引无）：仅重嵌入缺失行（带重试退避）补回，
+          批间崩溃的进度会在下次对账中续跑；
+        - 每轮修复结果原子落盘。
+
+        修复失败保持已修复部分并记录错误，由周期审计
+        （``_index_audit_loop``）在运行期自动重试——否则脱同步会一直
+        持续到下一次重启且依赖当次启动嵌入全部成功，用户只能靠手动
+        「编辑保存」逐条恢复向量。
         """
+        async with self._reconcile_lock:
+            await self._reconcile_index_with_db_locked()
+
+    async def _reconcile_index_with_db_locked(self) -> None:
+        try:
+            await self._do_reconcile_index_with_db()
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            # 对账自身的意外异常不得冒泡到 initialize() 把整个 L2 置为
+            # 不可用（数据仍在 SQLite，只是暂时漏召回），留待审计重试
+            logger.error(f"索引对账异常，本轮放弃待周期审计重试：{e}", exc_info=True)
+
+    async def _do_reconcile_index_with_db(self) -> None:
         with self._lock:
-            if self._db is None:
+            if self._db is None or self._index is None:
                 return
             db_ids = {
                 int(row[0])
@@ -345,67 +417,192 @@ class L2MemoryAdapter(Component):
             index_ids = self._index_ids_unlocked()
 
         if db_ids == index_ids:
+            with self._lock:
+                stale_free = bool(set(self._free_list) & db_ids)
+            if stale_free:
+                await asyncio.to_thread(self._persist_repaired_index_locked, db_ids)
             return
 
         missing = db_ids - index_ids
         extra = index_ids - db_ids
         logger.warning(
             f"FAISS 索引与 SQLite 脱同步（缺 {len(missing)} 条向量、"
-            f"多 {len(extra)} 条脏向量），启动全量重建恢复"
+            f"多 {len(extra)} 条脏向量），开始增量修复"
         )
 
-        rows = await asyncio.to_thread(self._fetch_reconcile_rows)
-        if rows is None:
+        # 1) 脏向量：对应 DB 行已删除，直接从索引摘除
+        if extra:
+            await asyncio.to_thread(self._remove_index_ids_locked, sorted(extra))
+
+        # 2) 缺失向量：仅重嵌入缺失行
+        repaired = 0
+        embed_failed = False
+        if missing:
+            rows = await asyncio.to_thread(self._fetch_reconcile_rows, missing)
+            if rows is None:
+                return
+            try:
+                repaired = await self._reembed_missing_rows(rows)
+            except EmbeddingRetryError as e:
+                embed_failed = True
+                logger.error(
+                    f"缺失向量重嵌入失败（{len(missing) - repaired}/"
+                    f"{len(missing)} 条未恢复）：{e}。索引将在周期审计中自动重试，"
+                    f"重试期间这些记忆无法被向量检索命中"
+                )
+
+        # 3) 落盘修复结果（部分修复也保存，收敛崩溃丢失窗口）
+        await asyncio.to_thread(self._persist_repaired_index_locked, db_ids)
+
+        if embed_failed:
             return
+        logger.info(
+            f"索引对账修复完成：补回 {repaired} 条缺失向量、摘除 {len(extra)} 条脏向量"
+        )
 
-        dim = self._embedding_dimensions or (self._index.d if self._index else 0)
-        if not dim:
-            logger.error("对账重建失败：未知嵌入维度")
-            return
+    async def _reembed_missing_rows(self, rows: List[tuple]) -> int:
+        """分批重嵌入缺失行并补回索引，返回成功补回的条数。
 
-        import faiss
+        批间实时复查索引 ID：与并发写入路径（add/编辑保存）竞争时，
+        已被补上的槽位直接跳过，避免同一 ID 重复写入 id_map。
+        """
+        batch = 64
+        repaired = 0
+        for start in range(0, len(rows), batch):
+            chunk = rows[start : start + batch]
+            vectors = await self._embed_with_retry([content for _, content in chunk])
+            if vectors is None:
+                raise EmbeddingRetryError(
+                    f"批次 {start // batch} 重试耗尽（含 {len(chunk)} 条）"
+                )
+            if len(vectors) != len(chunk):
+                raise EmbeddingRetryError(
+                    f"嵌入返回数量不匹配：期望 {len(chunk)}，实际 {len(vectors)}"
+                )
+            repaired += await asyncio.to_thread(
+                self._add_missing_vectors_locked, chunk, vectors
+            )
+            await asyncio.to_thread(self._persist_repaired_index_locked, set())
+            if start and start % (batch * 10) == 0:
+                logger.info(f"索引修复进行中：{start}/{len(rows)} 条")
+        return repaired
 
-        rebuilt = faiss.IndexIDMap(faiss.IndexFlatIP(dim))
-        try:
-            batch = 64
-            for start in range(0, len(rows), batch):
-                chunk = rows[start : start + batch]
-                vectors = await self._embed([content for _, content in chunk])
-                if len(vectors) != len(chunk):
-                    raise RuntimeError(
-                        f"嵌入返回数量不匹配：期望 {len(chunk)}，实际 {len(vectors)}"
+    async def _embed_with_retry(
+        self, texts: list[str], max_retries: int = 3
+    ) -> Optional[list[list[float]]]:
+        """带指数退避的嵌入调用；重试耗尽返回 None（由调用方决定后续）。"""
+        delay = self._embed_retry_backoff
+        for attempt in range(1, max_retries + 1):
+            try:
+                return await self._embed(texts)
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                if attempt == max_retries:
+                    logger.error(f"嵌入调用重试 {max_retries} 次后仍失败：{e}")
+                    return None
+                if delay > 0:
+                    logger.warning(
+                        f"嵌入失败（{attempt}/{max_retries}），{delay:.0f}s 后重试：{e}"
                     )
-                matrix = np.array(vectors, dtype=np.float32)
-                ids = np.array([idx for idx, _ in chunk], dtype=np.int64)
-                rebuilt.add_with_ids(matrix, ids)
-                if start and start % (batch * 10) == 0:
-                    logger.info(f"对账重建进行中：{start}/{len(rows)} 条")
-        except Exception as e:
-            logger.error(f"对账重建失败，保留现有索引待下次启动重试：{e}", exc_info=True)
-            return
+                    await asyncio.sleep(delay)
+                    delay = min(delay * 2, 16.0)
+                else:
+                    logger.warning(
+                        f"嵌入失败（{attempt}/{max_retries}），立即重试：{e}"
+                    )
+        return None
 
-        await asyncio.to_thread(self._install_rebuilt_index, rebuilt)
-        logger.info(f"对账重建完成：共 {rebuilt.ntotal} 条向量已恢复")
+    def _remove_index_ids_locked(self, ids: List[int]) -> None:
+        """持锁从索引摘除脏向量（供线程池执行）。"""
+        with self._lock:
+            if self._index is None or not ids:
+                return
+            if self._db is None:
+                return
+            live_ids = {
+                row[0] for row in self._db.execute("SELECT faiss_idx FROM memories")
+            }
+            stale_ids = [idx for idx in ids if idx not in live_ids]
+            if stale_ids:
+                self._index.remove_ids(np.array(stale_ids, dtype=np.int64))
+                self._dirty = True
 
-    def _fetch_reconcile_rows(self) -> Optional[List[tuple]]:
-        """持锁读取对账所需的 (faiss_idx, content) 全量行。"""
+    def _add_missing_vectors_locked(
+        self, rows: List[tuple], vectors: list[list[float]]
+    ) -> int:
+        """持锁把重嵌入向量补回索引（供线程池执行），跳过期间已被补上的槽位。"""
+        with self._lock:
+            if self._index is None or self._db is None:
+                return 0
+            present = self._index_ids_unlocked()
+            added = 0
+            for (faiss_idx, _content), vector in zip(rows, vectors):
+                if faiss_idx in present:
+                    continue
+                current = self._db.execute(
+                    "SELECT content FROM memories WHERE faiss_idx = ?", (faiss_idx,)
+                ).fetchone()
+                if current is None or current[0] != _content:
+                    continue
+                matrix = np.array([vector], dtype=np.float32)
+                self._validate_index_dimensions_unlocked(matrix, "恢复记忆")
+                self._index.add_with_ids(
+                    matrix,
+                    np.array([faiss_idx], dtype=np.int64),
+                )
+                present.add(faiss_idx)
+                self._dirty = True
+                added += 1
+            return added
+
+    def _persist_repaired_index_locked(self, db_ids: set) -> None:
+        """持锁原子落盘修复后的索引与元数据（供线程池执行）。"""
+        with self._lock:
+            if self._index is None or self._db is None or self._persist_dir is None:
+                return
+            # meta 落后于索引时 free-list 可能残留已占用槽位，过滤避免
+            # 后续写入复用活动槽位覆盖既有记忆
+            db_ids = {
+                row[0] for row in self._db.execute("SELECT faiss_idx FROM memories")
+            }
+            self._free_list = sorted({i for i in self._free_list if i not in db_ids})
+            self._write_index_atomic(self._index, self._persist_dir / "index.faiss")
+            self._save_meta()
+            self._dirty = False
+
+    def _fetch_reconcile_rows(
+        self, missing: Optional[set] = None
+    ) -> Optional[List[tuple]]:
+        """持锁读取对账所需的 (faiss_idx, content) 行。
+
+        missing 为 None 时取全量；否则仅取缺失 ID（分片规避 SQLite
+        绑定变量上限）。供线程池执行。
+        """
         with self._lock:
             if self._db is None:
                 return None
-            return self._db.execute(
-                "SELECT faiss_idx, content FROM memories ORDER BY faiss_idx"
-            ).fetchall()
-
-    def _install_rebuilt_index(self, rebuilt) -> None:
-        """持锁安装重建索引并立即持久化（供线程池执行）。"""
-        with self._lock:
-            if self._db is None:
-                return
-            self._index = rebuilt
-            self._free_list = []
-            self._dirty = False
-            self._write_index_atomic(rebuilt, self._persist_dir / "index.faiss")
-            self._save_meta()
+            if missing is None:
+                return self._db.execute(
+                    "SELECT faiss_idx, content FROM memories ORDER BY faiss_idx"
+                ).fetchall()
+            ids = sorted(missing)
+            if not ids:
+                return []
+            rows: List[tuple] = []
+            # SQLite 绑定变量上限旧版为 999，取 500 留余量
+            for i in range(0, len(ids), 500):
+                chunk = ids[i : i + 500]
+                placeholders = ",".join("?" * len(chunk))
+                rows.extend(
+                    self._db.execute(
+                        f"SELECT faiss_idx, content FROM memories "
+                        f"WHERE faiss_idx IN ({placeholders}) "
+                        f"ORDER BY faiss_idx",
+                        chunk,
+                    ).fetchall()
+                )
+            return rows
 
     @staticmethod
     def _write_index_atomic(index, path: Path) -> None:
@@ -430,11 +627,10 @@ class L2MemoryAdapter(Component):
 
     async def _detect_dimensions(self) -> int:
         """通过试算检测嵌入维度"""
-        try:
-            vecs = await self._embed(["test"])
-            return len(vecs[0])
-        except Exception:
-            return 384
+        vecs = await self._embed(["dimension probe"])
+        if len(vecs) != 1 or not vecs[0]:
+            raise RuntimeError("Embedding Provider 未返回有效的测试向量")
+        return len(vecs[0])
 
     def _create_index(self, dim: int):
         """创建 FAISS IndexIDMap(IndexFlatIP) 索引"""
@@ -643,13 +839,78 @@ class L2MemoryAdapter(Component):
         meta_path = self._persist_dir / "index_meta.json"
         atomic_write_json(meta_path, meta, ensure_ascii=False, indent=2)
 
+    # ========================================================================
+    # 运行期索引审计（自愈）
+    # ========================================================================
+
+    def _index_audit_interval(self) -> float:
+        """读取审计间隔（秒）；0 或配置不可用时禁用。"""
+        try:
+            return float(get_config().get("l2_index_audit_interval_sec") or 0)
+        except Exception:
+            return 0.0
+
+    def _start_index_audit(self) -> None:
+        """启动周期索引审计任务（幂等；无事件循环或间隔为 0 时跳过）。
+
+        启动对账只在 initialize() 时执行一次，任何一次重嵌入失败都会让
+        脱同步的索引保持残缺——直到下次重启且当次嵌入全部成功为止，期间
+        记忆检索持续漏召回、只能靠手动编辑保存逐条恢复。周期审计把对账
+        变成运行期持续自愈：每轮做一次廉价的 ID 集比较，发现漂移才修复。
+        """
+        if self._audit_task is not None and not self._audit_task.done():
+            return
+        interval = self._index_audit_interval()
+        if interval <= 0:
+            return
+        try:
+            self._audit_task = asyncio.create_task(
+                self._index_audit_loop(interval), name="l2_index_audit"
+            )
+        except RuntimeError:
+            # 无运行中的事件循环（同步测试上下文）
+            self._audit_task = None
+
+    async def _index_audit_loop(self, interval: float) -> None:
+        """周期对账循环：首轮延后 min(30s, interval) 给启动期 Provider 预热。"""
+        delay = min(30.0, interval)
+        while True:
+            await asyncio.sleep(delay)
+            delay = interval
+            try:
+                if not self._is_available or self._db is None:
+                    continue
+                await self._reconcile_index_with_db()
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                logger.warning(f"L2 索引周期审计异常（下轮重试）：{e}")
+
+    async def _shutdown_audit_task(self) -> None:
+        """取消并等待审计任务退出。"""
+        task = self._audit_task
+        self._audit_task = None
+        if task is None or task.done():
+            return
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            logger.debug(f"L2 索引审计任务退出异常（忽略）：{e}")
+
     async def shutdown(self) -> None:
         """关闭数据库连接并保存 FAISS 索引
 
         获取锁后再操作，确保不会有其他线程在使用 FAISS 或 SQLite。
         全量落盘可能耗时数秒，整体下放线程池避免阻塞事件循环。
         """
-        await asyncio.to_thread(self._shutdown_locked)
+        await self._shutdown_audit_task()
+        if self._checkpoint_task is not None:
+            await asyncio.gather(self._checkpoint_task, return_exceptions=True)
+        async with self._reconcile_lock:
+            await asyncio.to_thread(self._shutdown_locked)
         logger.info("L2 记忆库已关闭")
 
     def _shutdown_locked(self) -> None:
@@ -977,6 +1238,27 @@ class L2MemoryAdapter(Component):
     # 记忆存储
     # ========================================================================
 
+    def _validate_index_dimensions_unlocked(
+        self, vectors: np.ndarray, operation: str
+    ) -> None:
+        """校验二维向量矩阵与当前 FAISS 索引的维度一致。
+
+        调用方必须持有 ``_lock``，使索引不会在读取 ``d`` 后被并发替换。
+        """
+        if vectors.ndim != 2 or vectors.shape[0] == 0 or vectors.shape[1] == 0:
+            raise ValueError(f"{operation}收到无效嵌入向量形状: {tuple(vectors.shape)}")
+        if self._index is None:
+            raise RuntimeError(f"{operation}时 FAISS 索引尚未初始化")
+
+        actual_dim = int(vectors.shape[1])
+        index_dim = int(self._index.d)
+        if actual_dim != index_dim:
+            raise ValueError(
+                f"{operation}的嵌入向量维度与 FAISS 索引不一致："
+                f"实际输出={actual_dim}，索引={index_dim}。"
+                "请重启插件以按实际维度迁移索引"
+            )
+
     async def add_memory_with_result(
         self,
         content: str,
@@ -1021,6 +1303,7 @@ class L2MemoryAdapter(Component):
                 if self._index is None or self._db is None:
                     return None, False
 
+                self._validate_index_dimensions_unlocked(vector_np, "添加记忆")
                 if not skip_dedup:
                     existing_id = self._find_similar_unlocked(vector_np, persona_id)
                     if existing_id:
@@ -1113,6 +1396,7 @@ class L2MemoryAdapter(Component):
                     return [None] * len(items)
                 for (content, metadata), vector in zip(prepared, vectors):
                     vector_np = np.array([vector], dtype=np.float32)
+                    self._validate_index_dimensions_unlocked(vector_np, "批量添加记忆")
                     if not skip_dedup:
                         existing_id = self._find_similar_unlocked(
                             vector_np, persona_id
@@ -1252,6 +1536,7 @@ class L2MemoryAdapter(Component):
             if self._index is None or self._db is None:
                 logger.debug("FAISS 索引或 DB 为 None，跳过检索")
                 return []
+            self._validate_index_dimensions_unlocked(vector, "检索记忆")
             if self._index.ntotal == 0:
                 logger.debug("FAISS 索引为空（ntotal=0），跳过检索")
                 return []
@@ -1744,6 +2029,7 @@ class L2MemoryAdapter(Component):
         with self._lock:
             if self._index is None or self._db is None:
                 return [[] for _ in range(len(vector_matrix))]
+            self._validate_index_dimensions_unlocked(vector_matrix, "批量检索记忆")
             if self._index.ntotal == 0:
                 return [[] for _ in range(len(vector_matrix))]
 
@@ -2196,6 +2482,7 @@ class L2MemoryAdapter(Component):
                     metadata["updated_at"] = now
                     metadata["kg_processed"] = False
                     new_vector = np.array([vector], dtype=np.float32)
+                    self._validate_index_dimensions_unlocked(new_vector, "更新记忆")
                     self._index.remove_ids(np.array([faiss_idx], dtype=np.int64))
                     self._index.add_with_ids(
                         new_vector, np.array([faiss_idx], dtype=np.int64)
@@ -2923,6 +3210,7 @@ class L2MemoryAdapter(Component):
             with self._lock:
                 if self._db is None or self._index is None:
                     return False
+                self._validate_index_dimensions_unlocked(vector, "恢复归档记忆")
 
                 if self._free_list:
                     faiss_idx = self._free_list.pop(0)
@@ -3231,16 +3519,16 @@ class L2MemoryAdapter(Component):
                 f"归档快照 {archived_count} 条"
             )
 
-            if export_stats.exported_count == 0:
-                logger.warning("导出 0 条记忆，跳过迁移")
-                _cleanup_backups()
+            if export_stats.exported_count != old_count:
+                logger.error(
+                    f"导出不完整，停止迁移并保留旧库及备份：{backup_path}、{archive_backup_path}"
+                )
                 return False
 
             # 2. 删除旧数据
             deleted = await self.delete_collection()
             if not deleted:
-                logger.error("迁移步骤 2/4：删除旧数据失败")
-                _cleanup_backups()
+                logger.error("迁移步骤 2/4：删除旧数据失败，保留备份")
                 return False
             logger.info("迁移步骤 2/4：已删除旧数据")
 
@@ -3276,15 +3564,26 @@ class L2MemoryAdapter(Component):
                 f"恢复归档 {restored_archives} 条"
             )
 
-            _cleanup_backups()
-
-            success = import_stats.imported_count > 0
+            success = (
+                import_stats.imported_count == export_stats.exported_count
+                and import_stats.error_count == 0
+                and import_stats.skipped_count == 0
+            )
             if success:
+                with self._lock:
+                    self._write_index_atomic(
+                        self._index, self._persist_dir / "index.faiss"
+                    )
+                    self._save_meta()
+                    self._dirty = False
+                _cleanup_backups()
                 logger.info(
                     f"迁移成功：{export_stats.exported_count} -> {import_stats.imported_count} 条"
                 )
             else:
-                logger.error("迁移后导入 0 条记忆，迁移失败")
+                logger.error(
+                    f"迁移导入不完整，保留全量备份供恢复：{backup_path}、{archive_backup_path}"
+                )
 
             return success
 
@@ -3344,16 +3643,22 @@ class L2MemoryAdapter(Component):
         受并发写影响；适合配合 asyncio.to_thread 把读路径移出事件循环。
         """
         with self._lock:
+            if self._db is None:
+                raise RuntimeError("L2 数据库未初始化或已关闭")
             return self._db.execute(sql, params).fetchone()
 
     def _db_fetchall(self, sql: str, params=()) -> List[tuple]:
         """线程安全的 DB 查询：持锁内完成 execute + fetchall，返回数据行列表。"""
         with self._lock:
+            if self._db is None:
+                raise RuntimeError("L2 数据库未初始化或已关闭")
             return self._db.execute(sql, params).fetchall()
 
     def _db_write(self, sql: str, params=()):
         """线程安全的 DB 写入（INSERT/UPDATE/DELETE + COMMIT）"""
         with self._lock:
+            if self._db is None:
+                raise RuntimeError("L2 数据库未初始化或已关闭")
             self._db.execute(sql, params)
             self._db.commit()
 
@@ -3361,6 +3666,8 @@ class L2MemoryAdapter(Component):
         if not self._db:
             return 0
         with self._lock:
+            if self._db is None:
+                raise RuntimeError("L2 数据库未初始化或已关闭")
             row = self._db.execute("SELECT COUNT(*) FROM memories").fetchone()
             return row[0]
 
@@ -3380,6 +3687,8 @@ class L2MemoryAdapter(Component):
         metadata_json = json.dumps(metadata, ensure_ascii=False)
 
         with self._lock:
+            if self._db is None:
+                raise RuntimeError("L2 数据库未初始化或已关闭")
             self._fts_sync_for_upsert_unlocked(faiss_idx, memory_id, content)
             self._db.execute(
                 """INSERT OR REPLACE INTO memories

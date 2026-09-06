@@ -267,6 +267,21 @@ class TestConfig:
 
 
 class TestHiddenConfigManager:
+    def test_delete_notifies_effective_default(self, tmp_path: Path):
+        defaults = HiddenConfig()
+        path = tmp_path / "hidden_config.json"
+        manager = HiddenConfigManager(path, defaults)
+        manager.set("forgetting_lambda", 0.9)
+        changes = []
+        manager.add_observer(lambda *change: changes.append(change))
+
+        assert manager.delete("forgetting_lambda") is True
+        assert changes == [("forgetting_lambda", 0.9, defaults.forgetting_lambda)]
+        assert manager.get("forgetting_lambda") == defaults.forgetting_lambda
+        assert "forgetting_lambda" not in json.loads(path.read_text())
+        assert manager.delete("forgetting_lambda") is False
+        assert len(changes) == 1
+
     def test_get_set(self, tmp_path: Path):
         manager = HiddenConfigManager(tmp_path / "hidden_config.json", HiddenConfig())
 

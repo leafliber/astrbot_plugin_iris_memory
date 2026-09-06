@@ -93,6 +93,11 @@ class BoundedWorkQueue(Generic[PayloadT]):
             sequence=self._sequence,
         )
         if key in self._running:
+            current = self._dirty.get(key)
+            if current is not None:
+                item.priority = min(current.priority, priority)
+                item.enqueued_at = current.enqueued_at
+                item.sequence = current.sequence
             self._dirty[key] = item
             self.merged_count += 1
             self._joined.clear()

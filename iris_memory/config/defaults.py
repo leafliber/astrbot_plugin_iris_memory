@@ -247,6 +247,14 @@ class HiddenConfig:
             "group": "持久化",
         },
     )
+    l2_index_audit_interval_sec: int = field(
+        default=600,
+        metadata={
+            "description": "L2 索引周期审计间隔（秒）：对账 SQLite 与 FAISS 索引，发现漂移自动增量修复，"
+            "覆盖启动对账失败、checkpoint 写失败等运行期脱同步（0=禁用）",
+            "group": "持久化",
+        },
+    )
 
     # L3 知识图谱遗忘评分权重 S = w_recency·R + w_structure·(1-D) + w_confidence·C + w_verification·V
     forgetting_kg_weight_recency: float = field(

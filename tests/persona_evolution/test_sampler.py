@@ -25,6 +25,18 @@ def _samples(group_user_counts: dict[tuple[str, str], int], start_id: int = 1):
 class TestRatioCaps:
     """多群单群 ≤35%、多用户单用户 ≤20%"""
 
+    def test_small_pool_still_respects_caps(self):
+        samples = _samples({("hot", "u1"): 40, ("cold", "u2"): 5})
+        selected = stratified_sample(samples, max_count=60)
+        assert sum(s["user_id"] == "u1" for s in selected) == 12
+        assert len(selected) == 17
+
+    def test_pool_equal_to_limit_still_respects_group_cap(self):
+        samples = _samples({("hot", "u1"): 55, ("cold", "u2"): 5})
+        selected = stratified_sample(samples, max_count=60, single_user_scope=True)
+        assert sum(s["group_id"] == "hot" for s in selected) == 21
+        assert len(selected) == 26
+
     def test_group_and_user_caps(self):
         # 3 群 × 5 用户 × 15 条 = 225 条，抽 60
         samples = _samples(

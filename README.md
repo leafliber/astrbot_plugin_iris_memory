@@ -294,6 +294,7 @@ python -m pytest -q
 
 ## 文档
 
+- [v4 技术路线、落地标准与实施指南（规划）](./docs/V4_TECHNICAL_ROADMAP.md)
 - [更新日志](./CHANGELOG.md)
 - [v2 → v3 迁移指南](./docs/MIGRATION.md)
 - [人格自学习迭代指南](./docs/PERSONA_EVOLUTION.md)

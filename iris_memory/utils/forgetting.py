@@ -30,6 +30,13 @@ if TYPE_CHECKING:
 # ============================================================================
 
 
+def _days_since(last_access_time: str) -> float:
+    """带偏移的时间按其时区计算；旧的无时区记录保持本地时间语义。"""
+    access_dt = datetime.fromisoformat(last_access_time)
+    now = datetime.now(tz=access_dt.tzinfo)
+    return max(0.0, (now - access_dt).total_seconds() / 86400)
+
+
 def calculate_recency(
     last_access_time: Optional[str], lambda_decay: float = 0.1
 ) -> float:
@@ -57,9 +64,7 @@ def calculate_recency(
         return 0.5
 
     try:
-        access_dt = datetime.fromisoformat(last_access_time)
-        now = datetime.now()
-        days_elapsed = (now - access_dt).total_seconds() / 86400
+        days_elapsed = _days_since(last_access_time)
 
         # 指数衰减：exp(-lambda * t)
         recency = math.exp(-lambda_decay * days_elapsed)
@@ -201,7 +206,7 @@ def calculate_forgetting_score(
     F = calculate_frequency(entry.access_count)
     C = calculate_confidence(entry.confidence)
     D = calculate_isolation_degree(entry.metadata)
-    I = calculate_confidence(entry.importance)
+    importance = calculate_confidence(entry.importance)
 
     # 显式自定义权重字典可省略 w5（缺省 0，等价旧四项公式）
     score = (
@@ -209,7 +214,7 @@ def calculate_forgetting_score(
         + weights["w2"] * F
         + weights["w3"] * C
         + weights["w4"] * (1 - D)
-        + weights.get("w5", 0.0) * I
+        + weights.get("w5", 0.0) * importance
     )
 
     weight_sum = sum(weights.values())
@@ -283,8 +288,7 @@ def should_evict(
         last_access = entry.last_access_time
         if last_access:
             try:
-                access_dt = datetime.fromisoformat(last_access)
-                days_elapsed = (datetime.now() - access_dt).days
+                days_elapsed = int(_days_since(last_access))
 
                 if days_elapsed > retention_days:
                     return True
@@ -415,8 +419,7 @@ def should_evict_kg_node(
     if score < threshold:
         if last_access_time:
             try:
-                access_dt = datetime.fromisoformat(last_access_time)
-                days_elapsed = (datetime.now() - access_dt).days
+                days_elapsed = int(_days_since(last_access_time))
                 if days_elapsed > retention_days:
                     return True
             except (ValueError, TypeError):

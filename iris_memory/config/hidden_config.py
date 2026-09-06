@@ -278,13 +278,14 @@ class HiddenConfigManager:
                 return False
 
             old_value = self._cache.pop(key)
+            new_value = getattr(self._defaults, key, None)
             self._dirty = True
 
             logger.info(f"已删除隐藏配置: {key} (原值: {old_value})")
 
             for observer in self._observers:
                 try:
-                    observer(key, old_value, None)
+                    observer(key, old_value, new_value)
                 except Exception as e:
                     logger.error(f"观察者回调执行失败: {e}")
 

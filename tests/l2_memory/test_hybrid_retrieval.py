@@ -39,6 +39,7 @@ def adapter():
     a._embedding_dimensions = 8
 
     mock_index = Mock()
+    mock_index.d = 8
     mock_index.ntotal = 0
 
     def fake_add(vectors, ids):

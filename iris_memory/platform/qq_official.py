@@ -359,8 +359,6 @@ class QQOfficialAdapter(PlatformAdapter):
         Returns:
             图片信息列表
         """
-        from ..image.models import ImageInfo
-
         images: List["ImageInfo"] = []
         message_id = self._clean_id(getattr(event.message_obj, "message_id", None))
 

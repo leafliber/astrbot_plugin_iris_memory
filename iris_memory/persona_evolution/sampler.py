@@ -11,7 +11,7 @@ Iris Chat Memory - 人格自迭代均衡抽样器
 """
 
 from collections import defaultdict
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from ..core import get_logger
 
@@ -59,9 +59,6 @@ def stratified_sample(
     """
     if max_count <= 0 or not samples:
         return []
-    if len(samples) <= max_count:
-        return sorted(samples, key=lambda s: s.get("id", 0))
-
     distinct_groups = {s.get("group_id", "") for s in samples}
     distinct_users = {s.get("user_id", "") for s in samples}
 

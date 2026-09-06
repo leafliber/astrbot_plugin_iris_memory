@@ -160,7 +160,8 @@ class SearchMemoryTool(FunctionTool[AstrAgentContext]):
             if not nodes:
                 return ""
 
-            return retriever.format_for_context(nodes, edges)
+            graph_text, _ = retriever.format_for_context(nodes, edges)
+            return graph_text
 
         except Exception as e:
             logger.warning(f"获取图谱上下文失败：{e}")

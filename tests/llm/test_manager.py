@@ -362,3 +362,37 @@ class TestLLMManager:
 
             with pytest.raises(asyncio.TimeoutError):
                 await manager.generate_direct(prompt="Hi", module="test", timeout=0.1)
+
+
+    @pytest.mark.asyncio
+    async def test_generate_normalizes_dict_contexts_without_mutating_input(
+        self, mock_context, mock_storage, mock_config
+    ):
+        from astrbot.core.agent.message import Message
+
+        manager = LLMManager(mock_context, mock_storage)
+        await manager.initialize()
+        contexts = [{"role": "user", "content": "历史消息"}]
+        await manager.generate("新消息", provider_id="chat", contexts=contexts)
+        passed = mock_context.llm_generate.call_args.kwargs["contexts"]
+        assert isinstance(passed[0], Message)
+        assert passed[0].role == "user"
+        assert passed[0].content == "历史消息"
+        assert contexts == [{"role": "user", "content": "历史消息"}]
+
+    def test_get_provider_rejects_non_chat_provider(self, mock_context, mock_storage):
+        from astrbot.core.provider.provider import EmbeddingProvider
+
+        non_chat = MagicMock(spec=EmbeddingProvider)
+        mock_context.get_provider_by_id.return_value = non_chat
+        mock_context.provider_manager.inst_map = {"embedding": non_chat}
+        manager = LLMManager(mock_context, mock_storage)
+        assert manager._get_provider_instance("embedding") is None
+
+    def test_get_provider_accepts_chat_provider(self, mock_context, mock_storage):
+        from astrbot.core.provider.provider import Provider
+
+        chat = MagicMock(spec=Provider)
+        mock_context.get_provider_by_id.return_value = chat
+        manager = LLMManager(mock_context, mock_storage)
+        assert manager._get_provider_instance("chat") is chat

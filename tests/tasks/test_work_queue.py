@@ -7,6 +7,32 @@ from astrbot_plugin_iris_memory.iris_memory.tasks.work_queue import BoundedWorkQ
 
 
 @pytest.mark.asyncio
+async def test_running_key_merges_preserve_urgent_priority():
+    started = asyncio.Event()
+    release = asyncio.Event()
+    handled = []
+
+    async def handler(payload):
+        handled.append(payload)
+        if payload == "first":
+            started.set()
+            await release.wait()
+
+    queue = BoundedWorkQueue(name="test-priority", handler=handler)
+    try:
+        queue.enqueue_once("session", "first")
+        await asyncio.wait_for(started.wait(), 1)
+        queue.enqueue_once("other", "other", priority=CallPriority.NEARLINE)
+        queue.enqueue_once("session", "urgent", priority=CallPriority.INTERACTIVE)
+        queue.enqueue_once("session", "latest", priority=CallPriority.MAINTENANCE)
+        release.set()
+        await asyncio.wait_for(queue.join(), 1)
+        assert handled == ["first", "latest", "other"]
+    finally:
+        await queue.shutdown()
+
+
+@pytest.mark.asyncio
 async def test_same_key_is_coalesced_while_running():
     started = asyncio.Event()
     release = asyncio.Event()

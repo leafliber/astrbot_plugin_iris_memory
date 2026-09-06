@@ -307,6 +307,8 @@ async def get_latest_l2_memories():
 
 async def list_l1_buffer():
     group_id = request.args.get("group_id")
+    if group_id is None:
+        return jsonify({"success": False, "error": "缺少 group_id 参数"}), 400
 
     manager = get_component_manager()
     l1_buffer = manager.get_component("l1_buffer", L1Buffer)

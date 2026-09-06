@@ -11,6 +11,7 @@
 增删字段时只需修改 dataclass，无需手动同步本文件。
 """
 
+import math
 import re
 from collections import OrderedDict
 from dataclasses import asdict, fields
@@ -116,12 +117,12 @@ async def get_hidden_config():
 async def update_hidden_config():
     try:
         config = get_config()
-        data = await request.get_json()
-        if not data:
+        data = await request.get_json(silent=True)
+        if not isinstance(data, dict) or not data:
             return jsonify({"success": False, "error": "请求正文为空或格式错误"}), 400
         updates = data.get("updates", {})
 
-        if not updates:
+        if not isinstance(updates, dict) or not updates:
             return jsonify({"success": False, "error": "未提供更新内容"}), 400
 
         # 构建字段名→类型映射，校验键名和值类型
@@ -163,10 +164,18 @@ async def update_hidden_config():
                 type_errors.append(
                     f"{key} 需要{type_label}，实际 {type(value).__name__}"
                 )
-            elif expected_type is float and not isinstance(value, (int, float)):
+            elif expected_type is float and (
+                isinstance(value, bool) or not isinstance(value, (int, float))
+            ):
                 type_errors.append(
                     f"{key} 需要{type_label}，实际 {type(value).__name__}"
                 )
+            elif (
+                expected_type is float
+                and isinstance(value, float)
+                and not math.isfinite(value)
+            ):
+                type_errors.append(f"{key} 需要有限数值")
             elif expected_type is str and not isinstance(value, str):
                 type_errors.append(
                     f"{key} 需要{type_label}，实际 {type(value).__name__}"

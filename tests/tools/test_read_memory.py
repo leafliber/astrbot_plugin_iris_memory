@@ -97,3 +97,60 @@ async def test_search_memory_no_results(tool, mock_context, monkeypatch):
 
     result = await tool.call(mock_context, query="不存在的记忆")
     assert "未找到" in result
+
+
+@pytest.mark.asyncio
+async def test_search_memory_with_graph_returns_text(tool, mock_context, monkeypatch):
+    """图谱格式化返回文本和 ID 集合，工具必须只拼接文本。"""
+    from astrbot_plugin_iris_memory.iris_memory.l3_kg import GraphRetriever
+
+    result_entry = MemorySearchResult(
+        entry=MemoryEntry(id="m1", content="Alice 喜欢 Python"), score=0.9, distance=0.1
+    )
+    l2 = Mock(_is_available=True)
+    l2.retrieve = AsyncMock(return_value=[result_entry])
+    l3 = Mock(_is_available=True)
+    l3.get_node_ids_by_source_memory_ids = AsyncMock(return_value=["n1"])
+    manager = Mock()
+    manager.get_component.side_effect = lambda name, *args: {
+        "l2_memory": l2,
+        "l3_kg": l3,
+    }.get(name)
+    platform = Mock()
+    platform.get_group_id.return_value = "g1"
+    platform.get_user_id.return_value = "u1"
+    config = Mock()
+    config.get.return_value = True
+    monkeypatch.setattr(
+        "astrbot_plugin_iris_memory.iris_memory.tools.search_memory.get_component_manager", lambda: manager
+    )
+    monkeypatch.setattr("astrbot_plugin_iris_memory.iris_memory.platform.get_adapter", lambda event: platform)
+    monkeypatch.setattr("astrbot_plugin_iris_memory.iris_memory.config.get_config", lambda: config)
+    monkeypatch.setattr("astrbot_plugin_iris_memory.iris_memory.l3_kg.retriever.get_config", lambda: config)
+    monkeypatch.setattr("astrbot_plugin_iris_memory.iris_memory.utils.sanitize_input", lambda text, **kw: text)
+    monkeypatch.setattr(
+        "astrbot_plugin_iris_memory.iris_memory.core.persona.resolve_persona", AsyncMock(return_value="default")
+    )
+    monkeypatch.setattr(
+        GraphRetriever,
+        "retrieve_with_expansion",
+        AsyncMock(
+            return_value=(
+                [
+                    {
+                        "id": "n1",
+                        "label": "Person",
+                        "name": "Alice",
+                        "content": "喜欢 Python",
+                    }
+                ],
+                [],
+            )
+        ),
+    )
+
+    result = await tool.call(mock_context, query="Alice", with_graph_context=True)
+    assert "找到 1 条" in result
+    assert "长期知识" in result
+    assert "Alice" in result
+    assert "检索记忆失败" not in result

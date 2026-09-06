@@ -1,7 +1,7 @@
 """遗忘权重算法测试"""
 
 import pytest
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from unittest.mock import Mock, patch
 
 from astrbot_plugin_iris_memory.iris_memory.utils.forgetting import (
@@ -11,12 +11,43 @@ from astrbot_plugin_iris_memory.iris_memory.utils.forgetting import (
     calculate_isolation_degree,
     calculate_forgetting_score,
     should_evict,
+    should_evict_kg_node,
 )
 from astrbot_plugin_iris_memory.iris_memory.l2_memory.models import MemoryEntry
 
 
+@pytest.mark.parametrize("tz", [timezone.utc, timezone(timedelta(hours=8))])
+def test_offset_timestamp_respects_l2_and_l3_retention(tz, monkeypatch):
+    config = Mock()
+    config.get.side_effect = lambda key, default=None: default
+    monkeypatch.setattr(
+        "astrbot_plugin_iris_memory.iris_memory.utils.forgetting.get_config",
+        lambda: config,
+    )
+    old_time = (datetime.now(tz) - timedelta(days=60)).isoformat()
+    entry = MemoryEntry(id="old", content="旧记忆", metadata={"last_access_time": old_time})
+    with patch(
+        "astrbot_plugin_iris_memory.iris_memory.utils.forgetting.calculate_forgetting_score",
+        return_value=0.2,
+    ):
+        assert should_evict(entry, threshold=0.3, retention_days=30)
+    with patch(
+        "astrbot_plugin_iris_memory.iris_memory.utils.forgetting.calculate_kg_forgetting_score",
+        return_value=0.2,
+    ):
+        assert should_evict_kg_node(last_access_time=old_time, retention_days=30)
+
+
 class TestCalculateRecency:
     """calculate_recency 测试"""
+
+    @pytest.mark.parametrize("tz", [timezone.utc, timezone(timedelta(hours=8))])
+    def test_offset_timestamp_decays(self, tz):
+        old_time = (datetime.now(tz) - timedelta(days=30)).isoformat()
+        assert calculate_recency(old_time) == pytest.approx(0.049787, abs=0.00001)
+
+    def test_distant_future_does_not_overflow(self):
+        assert calculate_recency("9999-12-31T00:00:00") == 1.0
 
     def test_recent_access(self):
         """测试最近访问"""

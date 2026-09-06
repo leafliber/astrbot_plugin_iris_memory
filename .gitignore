@@ -210,7 +210,8 @@ __marimo__/
 /data/
 
 # Docs
-/docs/
+/docs/*
+!/docs/V4_TECHNICAL_ROADMAP.md
 
 # Docker
 docker/**/*.log

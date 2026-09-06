@@ -223,6 +223,12 @@ class LLMManager(Component):
         call_id = str(uuid.uuid4())
 
         try:
+            from astrbot.core.agent.message import Message
+
+            host_contexts = [
+                item if isinstance(item, Message) else Message.model_validate(item)
+                for item in (contexts or [])
+            ]
             logger.debug(
                 f"LLM 调用开始：module={module}, provider={actual_provider_id}"
             )
@@ -231,7 +237,7 @@ class LLMManager(Component):
                 self._context.llm_generate(
                     chat_provider_id=actual_provider_id,
                     prompt=prompt,
-                    contexts=contexts or [],
+                    contexts=host_contexts,
                 ),
                 timeout_sec,
             )
@@ -848,16 +854,19 @@ class LLMManager(Component):
         Returns:
             Provider 实例，不可用时返回 None
         """
+        from astrbot.core.provider.provider import Provider
+
         try:
             if hasattr(self._context, "get_provider_by_id"):
                 provider = self._context.get_provider_by_id(provider_id)
-                if provider:
+                if isinstance(provider, Provider):
                     return provider
 
             if hasattr(self._context, "provider_manager"):
                 provider_manager = self._context.provider_manager
                 if hasattr(provider_manager, "inst_map"):
-                    return provider_manager.inst_map.get(provider_id)
+                    provider = provider_manager.inst_map.get(provider_id)
+                    return provider if isinstance(provider, Provider) else None
         except Exception as e:
             logger.debug(f"获取 Provider 实例失败: {e}")
 

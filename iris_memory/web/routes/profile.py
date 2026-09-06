@@ -69,14 +69,15 @@ async def get_group_profile():
 
 async def update_group_profile():
     try:
-        data = await request.get_json()
+        data = await request.get_json(silent=True)
+        if not data:
+            return jsonify({"success": False, "error": "请求体不能为空"}), 400
+        if not isinstance(data, dict):
+            return jsonify({"success": False, "error": "请求体必须是 JSON 对象"}), 400
         group_id = data.get("group_id") or request.args.get("group_id")
 
         if not group_id:
             return jsonify({"success": False, "error": "缺少 group_id 参数"}), 400
-
-        if not data:
-            return jsonify({"success": False, "error": "请求体不能为空"}), 400
 
         persona_id = request.args.get("persona", data.get("persona", "default"))
         profile_storage, error = get_profile_storage()
@@ -125,15 +126,16 @@ async def get_user_profile():
 
 async def update_user_profile():
     try:
-        data = await request.get_json()
-        user_id = request.args.get("user_id") or (data or {}).get("user_id")
+        data = await request.get_json(silent=True)
+        if not data:
+            return jsonify({"success": False, "error": "请求体不能为空"}), 400
+        if not isinstance(data, dict):
+            return jsonify({"success": False, "error": "请求体必须是 JSON 对象"}), 400
+        user_id = request.args.get("user_id") or data.get("user_id")
         if not user_id:
             return jsonify({"success": False, "error": "缺少 user_id 参数"}), 400
 
-        group_id = request.args.get("group_id") or (data or {}).get("group_id")
-
-        if not data:
-            return jsonify({"success": False, "error": "请求体不能为空"}), 400
+        group_id = request.args.get("group_id") or data.get("group_id")
 
         persona_id = request.args.get("persona", data.get("persona", "default"))
         profile_storage, error = get_profile_storage()
@@ -159,12 +161,16 @@ async def update_user_profile():
 
 async def delete_group_profile():
     try:
-        group_id = request.args.get("group_id") or (
-            await request.get_json(silent=True) or {}
-        ).get("group_id")
+        body = await request.get_json(silent=True)
+        if (
+            body is None and await request.get_data()
+        ) or (body is not None and not isinstance(body, dict)):
+            return jsonify({"success": False, "error": "请求体必须是 JSON 对象"}), 400
+        body = body or {}
+        group_id = request.args.get("group_id") or body.get("group_id")
         if not group_id:
             return jsonify({"success": False, "error": "缺少 group_id 参数"}), 400
-        persona_id = request.args.get("persona", "default")
+        persona_id = request.args.get("persona", body.get("persona", "default"))
         profile_storage, error = get_profile_storage()
         if error:
             return error
@@ -183,7 +189,12 @@ async def delete_group_profile():
 
 async def delete_user_profile():
     try:
-        body = await request.get_json(silent=True) or {}
+        body = await request.get_json(silent=True)
+        if (
+            body is None and await request.get_data()
+        ) or (body is not None and not isinstance(body, dict)):
+            return jsonify({"success": False, "error": "请求体必须是 JSON 对象"}), 400
+        body = body or {}
         user_id = request.args.get("user_id") or body.get("user_id")
         if not user_id:
             return jsonify({"success": False, "error": "缺少 user_id 参数"}), 400
