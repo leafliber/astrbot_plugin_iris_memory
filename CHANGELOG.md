@@ -3,12 +3,15 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [3.2.1] - 2026-09-08
 
 ### Fixed
 
 - 修复人格自迭代全部 12 处动态路由注册：使用 AstrBot 分发器支持的 `<job_id>` / `<revision_id>`，恢复任务详情、配置更新、暂停/恢复、立即迭代、版本查询/审批/拒绝/回滚和冲突采纳接口。处理函数显式校验并转换整数 ID，非法 ID 返回 `400 invalid_params`。
-- 路由测试改用 AstrBot 兼容的路径匹配及字符串参数分发，覆盖全部动态端点，避免 Quart 的 `int:` 转换器掩盖宿主兼容问题。
+
+### Tests
+
+- 路由测试改用 AstrBot 兼容的路径匹配及字符串参数分发，覆盖全部动态端点，避免 Quart 的 `int:` 转换器掩盖宿主兼容问题。Web 与人格自迭代相关 424 项测试通过，另使用本机 AstrBot 实际匹配函数验证 116 项路由测试通过。
 
 ## [3.2.0] - 2026-08-28
 
