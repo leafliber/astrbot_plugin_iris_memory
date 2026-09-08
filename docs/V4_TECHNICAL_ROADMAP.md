@@ -1,5 +1,7 @@
 # Iris Memory v4 技术路线、落地标准与实施指南
 
+> **2026-09-08 最新计划：** 所有范围内消息全量进入 Observation，插件尽量保持薄层，基本覆盖或优化整合 v3 功能，并在 Pages 提供独立开关。以 [薄层整合计划](V4_THIN_ADAPTER_PLAN.md) 和 [功能开关矩阵](V4_FEATURE_SWITCH_MATRIX.md) 为本轮入口；既有成果已归档至 `4a8e0d0`。本轮仅修订计划，不实施代码、不改动正在改造的 Core。下文的历史范围和旧接口假设如有冲突，以最新计划为准。
+
 > **2026-09-08 实施更新：** `dev.4` 已从零实现开发候选。当前代码、实际验证和未完成门禁以 [实施报告](V4_IMPLEMENTATION_REPORT.md) 为准，依赖产物以 [快照摘要](DEPENDENCY_SNAPSHOT.json) 为准。旧基线下“没有 Embedded / SDK 仍用 urllib”的结论已被新接缝替代。本地认知候选 Scope 的新缺口见 [Core 后续事项](CORE_V4_FOLLOWUP.md)。本指南仍是最终验收标准，不代表所有门禁已关闭。
 
 > **后续设计修订：** 环境消息直接复用 Core Observation。一个持续 Agent 对应多个来源 Space，补回未进入宿主历史的多人环境上下文。最新待实施方案见 [插件修改方案](V4_OBSERVATION_REVISION_PLAN.md) 与 [Core 修改方案](CORE_MULTIPARTY_REVISION_PLAN.md)，并见第 20 节；它们不改变当前代码的完成状态。

@@ -6,7 +6,7 @@
 
 升级前请先阅读 [v4dev 与 v3 功能对照](docs/V4_V3_FUNCTION_COMPARISON.md)：当前尚未覆盖 v3 的全部主动陪伴、自动学习及数据管理能力。
 
-下一轮修改按 [插件 Observation 接入方案](docs/V4_OBSERVATION_REVISION_PLAN.md) 和 [Core 多人场景方案](docs/CORE_MULTIPARTY_REVISION_PLAN.md) 评审：环境消息直接复用 Observation，一个持续 Agent 对应多个 Space。两份文档为待实施方案，不代表当前候选已支持这些改动。
+下一轮按 [全量 Observation 与薄层整合计划](docs/V4_THIN_ADAPTER_PLAN.md) 和 [v3 功能及 Pages 独立开关矩阵](docs/V4_FEATURE_SWITCH_MATRIX.md) 评审：所有范围内消息进入 Observation，插件消费 Core 能力，逐项恢复或优化 v3 功能。当前**仅计划，未开始实施**；现有代码已保存为本地检查点 `4a8e0d0`。[Observation 专项方案](docs/V4_OBSERVATION_REVISION_PLAN.md) 和 [Core 多人场景方案](docs/CORE_MULTIPARTY_REVISION_PLAN.md) 保留接入细节及外部需求，不代表 Core 已交付全部能力。
 
 ## 使用方式
 
