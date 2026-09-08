@@ -48,7 +48,7 @@ def check(mode):
         "python": sys.version.split()[0],
         "sqlite": sqlite3.sqlite_version,
         "feature_probe": "passed",
-        "note": "Version alone does not identify the unpublished development artifact. Compare wheel SHA-256 with docs/DEPENDENCY_SNAPSHOT.json.",
+        "note": "Version alone does not identify the unpublished development artifact. Compare wheel SHA-256 with the development snapshot table in README.md.",
     }
 
 

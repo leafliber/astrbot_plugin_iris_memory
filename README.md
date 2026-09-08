@@ -2,11 +2,11 @@
 
 从零构建的轻量 AstrBot 插件：插件管理配置、完整人格和实际交互；记忆存储、检索、画像、任务与关注点交给 Iris Memory Core。
 
-当前为 **`4.0.0-dev.1` 开发候选**，所在分支 `dev.4`。已实现可运行的双模式与 Pages，不代表技术指南中的真实模型质量对照、24 小时长稳和全部平台验收已经完成。详细证据见 [实施与验收报告](docs/V4_IMPLEMENTATION_REPORT.md)。
+当前为 **`4.0.0-dev.1` 开发候选**，所在分支 `dev.4`。双模式、Pages、完整人格、显式记忆和基础提醒已有实现；真实模型质量对照、24 小时长稳和全部平台验收尚未完成。
 
-升级前请先阅读 [v4dev 与 v3 功能对照](docs/V4_V3_FUNCTION_COMPARISON.md)：当前尚未覆盖 v3 的全部主动陪伴、自动学习及数据管理能力。
+当前尚不能完整替代 v3：群聊插话/事件跟进、表达和黑话学习、完整画像/图谱管理、范围删除、配套备份恢复及 v3 数据迁移仍有缺项；助手消息与自动记忆沉淀也未形成完整闭环。
 
-下一轮按 [全量 Observation 与薄层整合计划](docs/V4_THIN_ADAPTER_PLAN.md) 和 [v3 功能及 Pages 独立开关矩阵](docs/V4_FEATURE_SWITCH_MATRIX.md) 评审：所有范围内消息进入 Observation，插件消费 Core 能力，逐项恢复或优化 v3 功能。当前**仅计划，未开始实施**；现有代码已保存为本地检查点 `4a8e0d0`。[Observation 专项方案](docs/V4_OBSERVATION_REVISION_PLAN.md) 和 [Core 多人场景方案](docs/CORE_MULTIPARTY_REVISION_PLAN.md) 保留接入细节及外部需求，不代表 Core 已交付全部能力。
+下一轮方向是范围内所有消息进入 Observation，插件保持薄层，逐项恢复或优化 v3 功能，并在 Pages 独立控制采集、加工、采用和发送。当前**仅计划，未开始实施**，既有代码检查点为 `4a8e0d0`。详细工作文档放在本地 `docs/`，已排除 Git 跟踪；本 README 独立提供安装和运行所需信息。
 
 ## 使用方式
 
@@ -21,7 +21,14 @@
 
 使用 Python **3.12+**；AstrBot 接口参考版本为 **4.28.0**。先将本分支插件文件置于 AstrBot 的插件目录，通过 AstrBot 加载。复制工作目录时排除 `.venv`、`.local-backups`、测试缓存和本地数据。
 
-Core/SDK 的新接缝目前属于未发布开发快照。此次验证的 wheel 版本虽然显示 Core `0.15.0`、SDK `0.11.1`，同版本号的其他产物不一定含有这些接口。请取得对应 Core 项目的构建产物，核对 [wheel 摘要](docs/DEPENDENCY_SNAPSHOT.json)，在 **AstrBot 实际使用的 Python 环境** 安装：
+Core/SDK 的接缝目前属于未发布开发快照。原消费验证的 wheel 版本虽然显示 Core `0.15.0`、SDK `0.11.1`，同版本号的其他产物不一定含有这些接口。以下为 **2026-09-08 原消费快照**，不代表 Core 正在进行的 Observation 改造已经通过插件验收：
+
+| wheel | SHA-256 |
+| --- | --- |
+| `iris_memory_core-0.15.0-py3-none-any.whl` | `c31e39b024b057035d4323c1d721329518cae2de9ceb5a165b9b7355a7a89647` |
+| `iris_memory_sdk-0.11.1-py3-none-any.whl` | `0ab86f1ecfc707e5a9702b8474f66e4a3d675d4a6a52b48b82666ceceb2fe982` |
+
+请取得对应 Core 项目的构建产物，核对摘要，在 **AstrBot 实际使用的 Python 环境** 安装：
 
 ```sh
 # 本地模式：把路径替换为取得的实际 wheel 路径
@@ -99,7 +106,7 @@ Task 和 Focus 均保存在 Core；插件仅保存路由与发送回执。提醒
 - 详细日志默认关闭；正文默认只记录摘要。显式开启正文后仍脱敏已知凭据；日志可包含对话，请按需启用。默认轮转总量 100 MiB、保留 7 天。
 - `StarTools.get_data_dir()` 下使用 `plugin.sqlite3`、`core/`（仅本地记忆启用）、`logs/`（仅详细日志启用）；不写源码或 site-packages。
 
-**自动记忆提炼暂不可用**：本地 `AsyncCognitiveAdapter` 无法从现有观察 DTO 得到候选必需的 tenant/agent Scope，当前桥接也未补绑定。填写本地“认知 Provider”会得到明确错误，不静默运行无效候选。详见 [Core 后续清单](docs/CORE_V4_FOLLOWUP.md)。远程服务自行配置的认知 Provider 不受插件这条本地检查控制。
+**自动记忆提炼暂不可用**：本地 `AsyncCognitiveAdapter` 无法从现有观察 DTO 得到候选必需的 tenant/agent Scope，当前桥接也未补绑定。填写本地“认知 Provider”会得到 `core_cognitive_scope_missing`，不静默运行无效候选；须在 Core 完成固定窗口候选绑定并通过新安装物验证后接入。远程服务自行配置的认知 Provider 不受插件这条本地检查控制。
 
 ## 开发与验证
 
