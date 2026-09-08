@@ -6,10 +6,13 @@ FakeWebContext（捕获 register_web_api）+ FakeManager（替换组件管理器
 """
 
 import json
+import re
+from inspect import iscoroutinefunction
 from types import SimpleNamespace
+from unittest.mock import AsyncMock, Mock
 
 import pytest
-from quart import Quart
+from quart import Quart, request
 
 from astrbot_plugin_iris_memory.iris_memory.config import init_config
 from astrbot_plugin_iris_memory.iris_memory.config.config import reset_config
@@ -38,13 +41,32 @@ NEW_INNER = "新风格：短句为主"
 
 
 class FakeWebContext:
-    """捕获 register_web_api 调用的 AstrBot Context fake"""
+    """模拟 AstrBot 的字符串路径参数分发，不使用 Quart 的类型转换器。"""
 
     def __init__(self):
         self.routes = []
 
     def register_web_api(self, route, handler, methods, desc):
         self.routes.append((route, handler, methods, desc))
+
+    async def dispatch(self, subpath):
+        for route, handler, methods, _ in self.routes:
+            if request.method not in methods:
+                continue
+            # 与 AstrBot _plugin_api_route_pattern 一致：仅识别 name/path:name。
+            chunks = []
+            pos = 0
+            for match in re.finditer(r"<(?:(path):)?([A-Za-z_][A-Za-z0-9_]*)>", route):
+                chunks.append(re.escape(route[pos:match.start()]))
+                name = match.group(2)
+                value_pattern = ".*" if match.group(1) else "[^/]+"
+                chunks.append(f"(?P<{name}>{value_pattern})")
+                pos = match.end()
+            chunks.append(re.escape(route[pos:]))
+            matched = re.fullmatch("".join(chunks), f"/{subpath}")
+            if matched:
+                return await handler(**matched.groupdict())
+        return {"error": "未找到该路由"}, 404
 
 
 class FakeManager:
@@ -92,8 +114,10 @@ def web_env(tmp_path, monkeypatch):
     web_context = FakeWebContext()
     pe_routes.register_persona_evolution_routes(web_context)
     app = Quart("test_pe")
-    for i, (route, handler, methods, desc) in enumerate(web_context.routes):
-        app.add_url_rule(route, f"pe_{i}", handler, methods=methods)
+    app.add_url_rule(
+        "/<path:subpath>", "dispatch", web_context.dispatch,
+        methods=["GET", "POST", "PUT"],
+    )
 
     yield SimpleNamespace(
         app=app, storage=storage, pm=pm, llm=llm, service=service, component=component
@@ -105,6 +129,83 @@ def _setup_llm(llm, candidate):
     llm.set_default(ANALYSIS_MODULE, good_analysis_json())
     llm.set_default(GENERATION_MODULE, good_generation_json(candidate))
     llm.set_default(REVIEW_MODULE, good_review_json())
+
+
+DYNAMIC_ENDPOINTS = [
+    ("GET", "jobs/{id}", "storage", "get_job"),
+    ("PUT", "jobs/{id}", "storage", "get_job"),
+    ("POST", "jobs/{id}/update", "storage", "get_job"),
+    ("POST", "jobs/{id}/pause", "service", "pause_job"),
+    ("POST", "jobs/{id}/resume", "service", "resume_job"),
+    ("POST", "jobs/{id}/run", "service", "run_job"),
+    ("GET", "jobs/{id}/revisions", "storage", "get_job"),
+    ("POST", "jobs/{id}/conflict/adopt-current", "service", "adopt_current_for_conflict"),
+    ("GET", "revisions/{id}", "storage", "get_revision"),
+    ("POST", "revisions/{id}/approve", "service", "approve_revision"),
+    ("POST", "revisions/{id}/reject", "service", "reject_revision"),
+    ("POST", "revisions/{id}/rollback", "service", "rollback_to_revision"),
+]
+
+
+@pytest.mark.parametrize("method,path,target,operation", DYNAMIC_ENDPOINTS)
+class TestDynamicRouting:
+    @pytest.mark.asyncio
+    async def test_dispatch_passes_integer_id(self, web_env, monkeypatch, method, path, target, operation):
+        component = getattr(web_env, target)
+        original = getattr(component, operation)
+        spy = (AsyncMock if iscoroutinefunction(original) else Mock)(wraps=original)
+        monkeypatch.setattr(component, operation, spy)
+        resp = await web_env.app.test_client().open(
+            f"{PREFIX}/{path.format(id='0009999')}", method=method, json={"name": "renamed"},
+        )
+
+        assert resp.status_code == 404
+        assert (await resp.get_json())["error_code"] == "not_found"
+        value = spy.call_args.args[0]
+        assert type(value) is int
+        assert value == 9999
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("invalid_id", ["abc", "1.5", "-1", "0", "+1", "1_0", "9223372036854775808"])
+    async def test_invalid_id_returns_400(self, web_env, monkeypatch, method, path, target, operation, invalid_id):
+        get_component = Mock(side_effect=AssertionError("非法 ID 不应进入业务层"))
+        monkeypatch.setattr(pe_routes, "get_pe_component", get_component)
+        resp = await web_env.app.test_client().open(
+            f"{PREFIX}/{path.format(id=invalid_id)}", method=method, json={"name": "renamed"},
+        )
+
+        assert resp.status_code == 400
+        assert (await resp.get_json())["error_code"] == "invalid_params"
+        get_component.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_all_registered_routes_use_supported_parameters():
+    from astrbot_plugin_iris_memory.iris_memory.proactive.api import register_web_apis
+    from astrbot_plugin_iris_memory.iris_memory.web import register_all_routes
+
+    context = FakeWebContext()
+    register_all_routes(context)
+    stats = Mock()
+    stats.get_group_detail.return_value = {"group_id": "group-123"}
+    register_web_apis(
+        context=context, plugin_name="astrbot_plugin_iris_memory",
+        state=Mock(), stats=stats, window=Mock(), kv_save=Mock(),
+    )
+    dynamic_routes = [route for route, *_ in context.routes if "<" in route]
+    assert len(dynamic_routes) == len(DYNAMIC_ENDPOINTS) + 1
+    for route in dynamic_routes:
+        for parameter in re.findall(r"<([^>]+)>", route):
+            assert re.fullmatch(r"(?:path:)?[A-Za-z_][A-Za-z0-9_]*", parameter), route
+
+    app = Quart("test_all_dynamic_routes")
+    app.add_url_rule("/<path:subpath>", "dispatch", context.dispatch)
+    resp = await app.test_client().get(
+        "/astrbot_plugin_iris_memory/reply/stats/group/group-123"
+    )
+    assert resp.status_code == 200
+    assert (await resp.get_json())["group_id"] == "group-123"
+    stats.get_group_detail.assert_called_once_with("group-123")
 
 
 class TestPersonas:

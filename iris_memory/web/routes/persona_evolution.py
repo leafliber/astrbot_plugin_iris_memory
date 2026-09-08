@@ -227,6 +227,17 @@ def _int_range(value: Any, field: str, lo: int, hi: int, default: int) -> int:
     return number
 
 
+def _parse_path_id(value: Any, field: str) -> int:
+    """AstrBot 路径参数是字符串；进入 service 前统一为 SQLite 正整数 ID。"""
+    text = str(value)
+    if not text.isascii() or not text.isdecimal():
+        raise ValueError(f"{field} 必须是正整数")
+    number = int(text)
+    if not 1 <= number <= 2**63 - 1:
+        raise ValueError(f"{field} 超出有效 ID 范围")
+    return number
+
+
 def _validate_goal(goal_preset_id: Any, custom_goal: Any) -> Tuple[str, str]:
     """校验目标预设与自定义目标"""
     preset = _optional_str(goal_preset_id, "goal_preset_id") or "natural"
@@ -626,9 +637,13 @@ async def create_job():
         return handle_exception(e, "创建迭代 Job")
 
 
-async def get_job(job_id: int):
+async def get_job(job_id: str | int):
     """GET /jobs/<id>：Job 详情 + 最近运行与版本摘要"""
     try:
+        try:
+            job_id = _parse_path_id(job_id, "job_id")
+        except ValueError as e:
+            return _bad_request(str(e))
         component, error = get_pe_component()
         if error:
             return error
@@ -655,13 +670,17 @@ async def get_job(job_id: int):
         return handle_exception(e, "获取迭代 Job 详情")
 
 
-async def update_job(job_id: int):
+async def update_job(job_id: str | int):
     """PUT /jobs/<id>：更新 Job 配置
 
     审批模式从手动切回自动只影响后续运行，已有 candidate
     不会被追溯自动发布（文档 §11.2）。
     """
     try:
+        try:
+            job_id = _parse_path_id(job_id, "job_id")
+        except ValueError as e:
+            return _bad_request(str(e))
         data = await request.get_json(silent=True) or {}
         unknown = set(data) - set(_JOB_EDITABLE_FIELDS)
         if unknown:
@@ -698,9 +717,13 @@ async def update_job(job_id: int):
         return handle_exception(e, "更新迭代 Job")
 
 
-async def pause_job(job_id: int):
+async def pause_job(job_id: str | int):
     """POST /jobs/<id>/pause：暂停自动迭代"""
     try:
+        try:
+            job_id = _parse_path_id(job_id, "job_id")
+        except ValueError as e:
+            return _bad_request(str(e))
         component, error = get_pe_component()
         if error:
             return error
@@ -710,9 +733,13 @@ async def pause_job(job_id: int):
         return handle_exception(e, "暂停迭代 Job")
 
 
-async def resume_job(job_id: int):
+async def resume_job(job_id: str | int):
     """POST /jobs/<id>/resume：恢复迭代（§8.3 管理员查看原因后恢复）"""
     try:
+        try:
+            job_id = _parse_path_id(job_id, "job_id")
+        except ValueError as e:
+            return _bad_request(str(e))
         component, error = get_pe_component()
         if error:
             return error
@@ -722,9 +749,13 @@ async def resume_job(job_id: int):
         return handle_exception(e, "恢复迭代 Job")
 
 
-async def run_job(job_id: int):
+async def run_job(job_id: str | int):
     """POST /jobs/<id>/run：立即执行一轮迭代（手动触发）"""
     try:
+        try:
+            job_id = _parse_path_id(job_id, "job_id")
+        except ValueError as e:
+            return _bad_request(str(e))
         component, error = get_pe_component()
         if error:
             return error
@@ -746,9 +777,13 @@ async def run_job(job_id: int):
         return handle_exception(e, "手动执行迭代")
 
 
-async def adopt_current(job_id: int):
+async def adopt_current(job_id: str | int):
     """POST /jobs/<id>/conflict/adopt-current：采纳外部版本为新基线（§12.1）"""
     try:
+        try:
+            job_id = _parse_path_id(job_id, "job_id")
+        except ValueError as e:
+            return _bad_request(str(e))
         component, error = get_pe_component()
         if error:
             return error
@@ -765,9 +800,13 @@ async def adopt_current(job_id: int):
 # ----------------------------------------------------------------------
 
 
-async def list_revisions(job_id: int):
+async def list_revisions(job_id: str | int):
     """GET /jobs/<id>/revisions：版本时间线（含完整快照供 Diff）"""
     try:
+        try:
+            job_id = _parse_path_id(job_id, "job_id")
+        except ValueError as e:
+            return _bad_request(str(e))
         component, error = get_pe_component()
         if error:
             return error
@@ -796,9 +835,13 @@ async def list_revisions(job_id: int):
         return handle_exception(e, "获取版本时间线")
 
 
-async def get_revision(revision_id: int):
+async def get_revision(revision_id: str | int):
     """GET /revisions/<id>：单个 Revision 完整快照"""
     try:
+        try:
+            revision_id = _parse_path_id(revision_id, "revision_id")
+        except ValueError as e:
+            return _bad_request(str(e))
         component, error = get_pe_component()
         if error:
             return error
@@ -811,9 +854,13 @@ async def get_revision(revision_id: int):
         return handle_exception(e, "获取 Revision 详情")
 
 
-async def approve_revision(revision_id: int):
+async def approve_revision(revision_id: str | int):
     """POST /revisions/<id>/approve：批准候选（§11.2 复核校验+哈希检查）"""
     try:
+        try:
+            revision_id = _parse_path_id(revision_id, "revision_id")
+        except ValueError as e:
+            return _bad_request(str(e))
         component, error = get_pe_component()
         if error:
             return error
@@ -825,9 +872,13 @@ async def approve_revision(revision_id: int):
         return handle_exception(e, "批准 Revision")
 
 
-async def reject_revision(revision_id: int):
+async def reject_revision(revision_id: str | int):
     """POST /revisions/<id>/reject：拒绝候选（保存理由）"""
     try:
+        try:
+            revision_id = _parse_path_id(revision_id, "revision_id")
+        except ValueError as e:
+            return _bad_request(str(e))
         data = await request.get_json(silent=True) or {}
         try:
             reason = _optional_str(data.get("reason"), "reason", _MAX_REASON_LEN)
@@ -845,9 +896,13 @@ async def reject_revision(revision_id: int):
         return handle_exception(e, "拒绝 Revision")
 
 
-async def rollback_revision(revision_id: int):
+async def rollback_revision(revision_id: str | int):
     """POST /revisions/<id>/rollback：回滚到该版本（§13.3 生成新版本）"""
     try:
+        try:
+            revision_id = _parse_path_id(revision_id, "revision_id")
+        except ValueError as e:
+            return _bad_request(str(e))
         component, error = get_pe_component()
         if error:
             return error
@@ -967,26 +1022,27 @@ async def import_data():
 def register_persona_evolution_routes(context) -> None:
     prefix = f"/{PLUGIN_NAME}/persona-evolution"
 
+    # AstrBot 分发器只支持 <name> / <path:name>，不支持 Quart 的 int: 转换器。
     routes = [
         (f"{prefix}/personas", list_personas, ["GET"], "获取 Persona 列表"),
         (f"{prefix}/goals", list_goals, ["GET"], "获取人格迭代目标预设"),
         (f"{prefix}/personas/clone-default", clone_default_persona, ["POST"], "克隆 default Persona"),
         (f"{prefix}/jobs", list_jobs, ["GET"], "获取迭代 Job 列表"),
         (f"{prefix}/jobs", create_job, ["POST"], "创建迭代 Job"),
-        (f"{prefix}/jobs/<int:job_id>", get_job, ["GET"], "获取迭代 Job 详情"),
-        (f"{prefix}/jobs/<int:job_id>", update_job, ["PUT"], "更新迭代 Job"),
+        (f"{prefix}/jobs/<job_id>", get_job, ["GET"], "获取迭代 Job 详情"),
+        (f"{prefix}/jobs/<job_id>", update_job, ["PUT"], "更新迭代 Job"),
         # AstrBot 插件页桥接层当前只提供 apiGet/apiPost；保留 PUT 的同时
         # 提供语义明确的 POST 别名，避免前端绕过宿主认证桥接直接 fetch。
-        (f"{prefix}/jobs/<int:job_id>/update", update_job, ["POST"], "更新迭代 Job"),
-        (f"{prefix}/jobs/<int:job_id>/pause", pause_job, ["POST"], "暂停迭代 Job"),
-        (f"{prefix}/jobs/<int:job_id>/resume", resume_job, ["POST"], "恢复迭代 Job"),
-        (f"{prefix}/jobs/<int:job_id>/run", run_job, ["POST"], "立即执行迭代"),
-        (f"{prefix}/jobs/<int:job_id>/revisions", list_revisions, ["GET"], "获取版本时间线"),
-        (f"{prefix}/jobs/<int:job_id>/conflict/adopt-current", adopt_current, ["POST"], "采纳外部版本为新基线"),
-        (f"{prefix}/revisions/<int:revision_id>", get_revision, ["GET"], "获取 Revision 详情"),
-        (f"{prefix}/revisions/<int:revision_id>/approve", approve_revision, ["POST"], "批准 Revision"),
-        (f"{prefix}/revisions/<int:revision_id>/reject", reject_revision, ["POST"], "拒绝 Revision"),
-        (f"{prefix}/revisions/<int:revision_id>/rollback", rollback_revision, ["POST"], "回滚到该版本"),
+        (f"{prefix}/jobs/<job_id>/update", update_job, ["POST"], "更新迭代 Job"),
+        (f"{prefix}/jobs/<job_id>/pause", pause_job, ["POST"], "暂停迭代 Job"),
+        (f"{prefix}/jobs/<job_id>/resume", resume_job, ["POST"], "恢复迭代 Job"),
+        (f"{prefix}/jobs/<job_id>/run", run_job, ["POST"], "立即执行迭代"),
+        (f"{prefix}/jobs/<job_id>/revisions", list_revisions, ["GET"], "获取版本时间线"),
+        (f"{prefix}/jobs/<job_id>/conflict/adopt-current", adopt_current, ["POST"], "采纳外部版本为新基线"),
+        (f"{prefix}/revisions/<revision_id>", get_revision, ["GET"], "获取 Revision 详情"),
+        (f"{prefix}/revisions/<revision_id>/approve", approve_revision, ["POST"], "批准 Revision"),
+        (f"{prefix}/revisions/<revision_id>/reject", reject_revision, ["POST"], "拒绝 Revision"),
+        (f"{prefix}/revisions/<revision_id>/rollback", rollback_revision, ["POST"], "回滚到该版本"),
         (f"{prefix}/samples/stats", sample_stats, ["GET"], "获取语料统计"),
         (f"{prefix}/samples/clear", clear_samples, ["POST"], "清除语料"),
         (f"{prefix}/export", export_data, ["GET"], "导出人格自迭代数据"),
