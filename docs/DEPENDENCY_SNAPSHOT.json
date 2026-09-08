@@ -1,0 +1,20 @@
+{
+  "date": "2026-09-08",
+  "status": "unpublished development snapshot",
+  "core_head": "7629152",
+  "core_worktree": "includes pre-existing uncommitted plugin integration APIs",
+  "astrbot_reference_commit": "a412146401426c0cdff8bbefb8627a03da519da8",
+  "astrbot_reference_version": "4.28.0",
+  "wheels": [
+    {
+      "file": "iris_memory_core-0.15.0-py3-none-any.whl",
+      "sha256": "c31e39b024b057035d4323c1d721329518cae2de9ceb5a165b9b7355a7a89647",
+      "bytes": 973077
+    },
+    {
+      "file": "iris_memory_sdk-0.11.1-py3-none-any.whl",
+      "sha256": "0ab86f1ecfc707e5a9702b8474f66e4a3d675d4a6a52b48b82666ceceb2fe982",
+      "bytes": 35222
+    }
+  ]
+}
