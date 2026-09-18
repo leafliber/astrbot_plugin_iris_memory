@@ -1,9 +1,0 @@
-{
-  "core_mode": {
-    "type": "string",
-    "description": "Core 运行方式",
-    "options": ["local", "remote"],
-    "default": "local",
-    "hint": "其他设置请打开 Iris Memory Pages → 配置管理。切换模式后重载插件；不会自动迁移数据。"
-  }
-}

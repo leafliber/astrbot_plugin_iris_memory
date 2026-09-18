@@ -1,3 +1,0 @@
-# Control layer uses the Python standard library and AstrBot.
-# Install the verified Core or SDK wheel for the selected mode; see README.md.
-# Current integration APIs are development snapshots, not registry releases.

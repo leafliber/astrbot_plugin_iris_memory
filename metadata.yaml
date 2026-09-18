@@ -1,7 +1,0 @@
-name: astrbot_plugin_iris_memory
-display_name: Iris Memory
-desc: 轻量记忆、完整人格与可选主动陪伴，支持 Core 内嵌及远程接入
-version: v4.0.0-dev.1
-author: AirObject
-repo: https://github.com/AirObject/astrbot_plugin_iris_memory
-astrbot_version: '>=4.28.0'
