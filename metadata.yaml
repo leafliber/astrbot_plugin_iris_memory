@@ -1,0 +1,6 @@
+name: astrbot_plugin_iris_memory
+display_name: Iris Memory
+desc: Iris Memory Core 连接、功能目录与持久控制基础
+version: 4.0.0.dev1
+author: Cassia
+astrbot_version: '==4.28.0'

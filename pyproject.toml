@@ -1,0 +1,16 @@
+[project]
+name = "astrbot-plugin-iris-memory"
+version = "4.0.0.dev1"
+requires-python = ">=3.12"
+dependencies = ["aiohttp>=3.10,<4", "aiosqlite>=0.20,<1"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "ASYNC"]
+ignore = ["E501"]
