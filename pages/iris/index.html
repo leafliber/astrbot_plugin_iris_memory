@@ -7,12 +7,12 @@
   <link rel="stylesheet" href="./style.css">
 </head>
 <body>
-  <header><span class="eyebrow">IRIS MEMORY · 控制中心</span><h1>让状态有据可查</h1><p>连接、意图与真实效果分别展示。当前仅提供基础工程能力。</p></header>
-  <nav aria-label="主导航"><a href="#overview">总览</a><a href="#connection">连接</a><a href="#features">功能目录</a><a href="#diagnostics">诊断</a></nav>
+  <header><span class="eyebrow">IRIS MEMORY · 控制中心</span><h1>让状态有据可查</h1><p>连接、意图与真实效果分别展示。来源授权与有界交付状态分别核实。</p></header>
+  <nav aria-label="主导航"><a href="#overview">总览</a><a href="#connection">连接</a><a href="#features">功能目录</a><a href="#sources">来源与授权</a><a href="#delivery">交付与覆盖</a><a href="#diagnostics">诊断</a></nav>
   <div class="toolbar"><button id="refresh" type="button">刷新本地状态</button><span id="loading" role="status" aria-live="polite">正在连接宿主…</span></div>
   <p id="error" class="error" role="alert" hidden></p>
   <main id="main" tabindex="-1"></main>
-  <footer>当前未接入聊天、模型、媒体或主动发送。关闭产品总闸仍保留原操作确认义务。</footer>
+  <footer>仅接入公开 handler 可达且已授权来源；不额外调用模型或发送。关闭产品总闸仍保留原操作确认义务。</footer>
   <script type="module" src="./app.js"></script>
 </body>
 </html>

@@ -18,6 +18,21 @@ ROUTES = (
     ("admin/authorize", "POST"),
     ("admin/status", "POST"),
     ("admin/revoke", "POST"),
+    ("sources", "GET"),
+    ("sources/save", "POST"),
+    ("groups/save", "POST"),
+    ("groups/check", "POST"),
+    ("ingress/limits", "POST"),
+    ("ingress/register", "POST"),
+    ("ingress/token", "POST"),
+    ("ingress/revoke", "POST"),
+    ("ingress/confirm", "POST"),
+    ("ingress/list", "POST"),
+    ("delivery", "GET"),
+    ("delivery/confirm", "POST"),
+    ("delivery/reauthorize-confirm", "POST"),
+    ("delivery/resume", "POST"),
+    ("connection/impact", "POST"),
 )
 
 
@@ -89,6 +104,86 @@ class PagesAPI:
         app = self.application
         if endpoint == "overview":
             return await app.overview()
+        if endpoint == "sources":
+            return await app.source_status()
+        if endpoint == "delivery":
+            return await app.delivery.status(
+                integer(int(request.query.get("offset", "0")), 0, 3048)
+            )
+        if endpoint == "sources/save":
+            exact_fields(payload, {"expected_revision", "source"})
+            return await app.source_save(
+                integer(payload["expected_revision"]), payload["source"]
+            )
+        if endpoint == "groups/save":
+            exact_fields(
+                payload,
+                {"expected_revision", "group_id", "host_id", "entries", "token"},
+            )
+            return await app.group_save(
+                payload["expected_revision"],
+                payload["group_id"],
+                payload["host_id"],
+                payload["entries"],
+                payload["token"],
+            )
+        if endpoint == "groups/check":
+            exact_fields(payload, {"group_id"})
+            return await app.group_check(payload["group_id"])
+        if endpoint == "ingress/limits":
+            exact_fields(payload, set())
+            return await app.read_ingress_limits(username)
+        if endpoint in {"ingress/register", "ingress/token", "ingress/revoke"}:
+            exact_fields(payload, {"expected_revision", "input"}, {"group_id"})
+            kind = {
+                "ingress/register": "source_register",
+                "ingress/token": "token_create",
+                "ingress/revoke": "token_revoke",
+            }[endpoint]
+            return await app.registration.perform(
+                username,
+                kind,
+                payload["input"],
+                group_id=payload.get("group_id"),
+                expected_revision=payload["expected_revision"],
+            )
+        if endpoint == "ingress/confirm":
+            exact_fields(payload, {"id"})
+            return await app.registration.perform(
+                username, "", operation_id=payload["id"]
+            )
+        if endpoint == "ingress/list":
+            exact_fields(payload, {"kind", "after"})
+            return await app.management_list(
+                username, payload["kind"], payload["after"]
+            )
+        if endpoint == "delivery/reauthorize-confirm":
+            from ..delivery.confirmation import confirm_with_current_group
+
+            exact_fields(payload, {"id", "group_id", "expected_revision"})
+            return await confirm_with_current_group(
+                app,
+                username,
+                payload["id"],
+                payload["group_id"],
+                integer(payload["expected_revision"]),
+            )
+        if endpoint == "delivery/confirm":
+            exact_fields(payload, {"id"})
+            return await app.delivery_confirm(payload["id"])
+        if endpoint == "delivery/resume":
+            exact_fields(payload, {"id"})
+            return await app.delivery_resume(payload["id"])
+        if endpoint == "connection/impact":
+            exact_fields(payload, set())
+            config = await app.store.settings()
+            return {
+                "revision": config["revision"],
+                "groups": len(config["groups"]),
+                "sources": len(config["sources"]),
+                "delivery": (await app.delivery.status())["states"],
+                "effect": "切换连接／凭据后，旧绑定操作保留且停止派发；须逐项核实原实例与权限，不自动改用新凭据",
+            }
         if endpoint == "features":
             try:
                 offset = integer(int(request.query.get("offset", "0")), 0, 1000)
@@ -120,12 +215,10 @@ class PagesAPI:
             )
         if endpoint == "controls/save":
             exact_fields(payload, {"expected_revision", "action_key", "desired"})
-            return app.safe_settings(
-                await app.store.intent(
-                    integer(payload["expected_revision"]),
-                    payload["action_key"],
-                    payload["desired"],
-                )
+            return await app.save_intent(
+                integer(payload["expected_revision"]),
+                payload["action_key"],
+                payload["desired"],
             )
         if endpoint == "admin/authorize":
             exact_fields(payload, {"session", "csrf", "expected_revision"})

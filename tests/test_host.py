@@ -110,7 +110,7 @@ async def test_real_loader_reload_old_handlers_and_store_recovery(loaded):
     manager, metadata, context = loaded
     first = metadata.star_cls
     assert first.application.state == "ready"
-    assert len(context.registered_web_apis) == 9
+    assert len(context.registered_web_apis) == 24
     old_handler = context.registered_web_apis[0][1]
     with request_context():
         assert (await old_handler()).status_code == 200
@@ -118,7 +118,7 @@ async def test_real_loader_reload_old_handlers_and_store_recovery(loaded):
     for _ in range(3):
         success, error = await manager.reload(PLUGIN_NAME)
         assert success, error
-        assert len(context.registered_web_apis) == 9
+        assert len(context.registered_web_apis) == 24
     assert first.application.state == "closed"
     assert first.application.store.db is None and first.application.transport is None
     with request_context():

@@ -1,5 +1,6 @@
-"""AstrBot entrypoint. No message hooks or business work are registered."""
+"""AstrBot public hooks; raw capture never calls a model or sends a message."""
 
+from astrbot.api.event import filter
 from astrbot.api.star import Context, Star, StarTools
 
 from .iris_memory import PLUGIN_NAME
@@ -29,3 +30,18 @@ class IrisMemory(Star):
     async def terminate(self):
         if self.application is not None:
             await self.application.terminate()
+
+    @filter.event_message_type(filter.EventMessageType.ALL, priority=100)
+    async def observe_message(self, event):
+        if self.application and self.application.state == "ready":
+            await self.application.delivery.capture(event)
+
+    @filter.on_llm_response()
+    async def observe_generated(self, event, response):
+        if self.application and self.application.state == "ready":
+            await self.application.delivery.observe_stage(event, "generated_callback")
+
+    @filter.after_message_sent()
+    async def observe_send_callback(self, event):
+        if self.application and self.application.state == "ready":
+            await self.application.delivery.observe_stage(event, "after_send_callback")

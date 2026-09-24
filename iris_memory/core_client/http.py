@@ -10,6 +10,29 @@ from ..errors import ControlError
 from ..validation import decode, origin, reject_secret_echo, secret
 from .protocol import capabilities, envelope, health, management_status
 
+HOST_INGRESS_ROUTES = frozenset(
+    {
+        "accept",
+        "accept/resolve",
+        "media/begin",
+        "media/chunk",
+        "media/finish",
+        "media/resolve",
+        "media/inspect",
+    }
+)
+ADMIN_INGRESS_ROUTES = frozenset(
+    {
+        "connections/hosts/register",
+        "connections/hosts/confirm",
+        "connections/hosts/list",
+        "tokens/create",
+        "tokens/list",
+        "tokens/revoke",
+        "configuration/read",
+    }
+)
+
 
 class Admission:
     def __init__(self, active=4, waiting=16):
@@ -84,8 +107,13 @@ class HTTPTransport:
             ("GET", "/health"),
             ("POST", "/api/host/capabilities"),
             ("GET", "/api/status"),
+        } | {("POST", "/api/host/" + route) for route in HOST_INGRESS_ROUTES} | {
+            ("POST", "/api/" + route) for route in ADMIN_INGRESS_ROUTES
         }:
             raise ControlError("HTTP_ROUTE_NOT_ALLOWED", 403)
+        binary = path == "/api/host/media/chunk"
+        if binary and (type(body) is not bytes or not 1 <= len(body) <= 65536):
+            raise ControlError("INVALID_MEDIA_CHUNK")
         try:
             async with asyncio.timeout(self.timeout):
                 async with self.admission.slot():
@@ -93,7 +121,7 @@ class HTTPTransport:
                         method,
                         base + path,
                         headers=headers,
-                        json=body,
+                        **({"data": body} if binary else {"json": body}),
                         allow_redirects=False,
                     ) as response:
                         if 300 <= response.status < 400:
@@ -135,6 +163,55 @@ class HostClient:
             capabilities(reply.data)
         return reply
 
+    async def ingress(self, base, token, entry, action, payload, *, limits=None):
+        from ..validation import exact_fields, identifier, integer
+        from .ingress import event_v2, modality
+
+        if action not in HOST_INGRESS_ROUTES:
+            raise ControlError("HTTP_ROUTE_NOT_ALLOWED", 403)
+        identifier(entry)
+        headers = {"Authorization": f"Bearer {secret(token)}"}
+        if action in {"accept", "accept/resolve"}:
+            exact_fields(payload, {"key", "event"})
+            identifier(payload["key"])
+            if limits is None:
+                raise ControlError("INGRESS_LIMITS_UNVERIFIED", 409)
+            event_v2(payload["event"], limits)
+        elif action in {"media/begin", "media/resolve", "media/inspect"}:
+            exact_fields(payload, {"key", "modality"})
+            identifier(payload["key"])
+            modality(payload["modality"])
+        elif action == "media/finish":
+            exact_fields(payload, {"upload_id"})
+            identifier(payload["upload_id"])
+        else:
+            exact_fields(payload, {"upload_id", "offset", "data"})
+            identifier(payload["upload_id"])
+            integer(payload["offset"], 0, 1048576)
+            if (
+                type(payload["data"]) is not bytes
+                or not 1 <= len(payload["data"]) <= 65536
+            ):
+                raise ControlError("INVALID_MEDIA_CHUNK")
+            headers.update(
+                {
+                    "Content-Type": "application/octet-stream",
+                    "X-Iris-Entry": entry,
+                    "X-Iris-Upload": payload["upload_id"],
+                    "X-Iris-Offset": str(payload["offset"]),
+                }
+            )
+        body = (
+            payload["data"]
+            if action == "media/chunk"
+            else {"entry_id": entry, "input": payload}
+        )
+        status, value = await self.transport.request(
+            base, "POST", "/api/host/" + action, headers, body
+        )
+        reject_secret_echo(value, (token,))
+        return envelope(status, value)
+
 
 class ManagementClient:
     """One short-lived explicit Core session owned by one authenticated host user."""
@@ -165,6 +242,26 @@ class ManagementClient:
                 403 if status in (401, 403) else 502,
             )
         return management_status(reply.data)
+
+    async def ingress(self, action, payload):
+        from .management import validate_request
+
+        if action not in ADMIN_INGRESS_ROUTES:
+            raise ControlError("HTTP_ROUTE_NOT_ALLOWED", 403)
+        validate_request(action, payload)
+        status, value = await self.transport.request(
+            self.base,
+            "POST",
+            "/api/" + action,
+            {
+                "Cookie": f"iris_session={self._session}; iris_csrf={self._csrf}",
+                "X-CSRF-Token": self._csrf,
+                "Origin": self.base,
+            },
+            payload,
+        )
+        reject_secret_echo(value, (self._session, self._csrf))
+        return envelope(status, value)
 
     async def close(self):
         self._session = self._csrf = ""

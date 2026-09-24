@@ -65,6 +65,7 @@ def main():
         ("ruff", [sys.executable, "-m", "ruff", "check", "."]),
         ("format", [sys.executable, "-m", "ruff", "format", "--check", "."]),
         ("javascript", ["node", "--check", "pages/iris/app.js"]),
+        ("delivery_javascript", ["node", "--check", "pages/iris/delivery.js"]),
         ("diff", ["git", "diff", "--check"]),
     ]
     ledger = {"environment": environment, "runs": []}

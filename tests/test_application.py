@@ -128,7 +128,15 @@ def test_catalog_complete_at_independent_action_level():
     assert {r["limitation_id"] for r in CATALOG if "limitation_id" in r} == {
         f"U{i:02}" for i in range(1, 13)
     }
-    assert not any(r["implemented"] for r in CATALOG if r["feature_id"].startswith("F"))
+    partial = {
+        r["action_key"]
+        for r in CATALOG
+        if r["implemented"] and r["feature_id"].startswith("F")
+    }
+    assert partial == {"observation.enabled", "ingress.enabled"}
+    assert all(
+        r["availability"] == "partial" for r in CATALOG if r["action_key"] in partial
+    )
     assert any(r["availability"] == "pending_verification" for r in CATALOG)
 
 

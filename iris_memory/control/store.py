@@ -28,6 +28,8 @@ DEFAULT = {
     "intents": {"plugin.enabled": False},
     "sources": [],
     "ws_connections": [],
+    "groups": [],
+    "ingress_limits": None,
 }
 
 
@@ -51,7 +53,7 @@ class Store:
         try:
             async with self.db.execute("PRAGMA user_version") as cursor:
                 version = (await cursor.fetchone())[0]
-            if version not in (0, 1):
+            if version not in (0, 1, 2):
                 raise ControlError("STORE_VERSION_UNSUPPORTED", 503)
             await self.db.execute("PRAGMA journal_mode=DELETE")
             await self.db.execute("PRAGMA synchronous=FULL")
@@ -62,12 +64,20 @@ class Store:
                 CREATE TABLE IF NOT EXISTS credentials (ref TEXT PRIMARY KEY, value TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS observations (name TEXT PRIMARY KEY, binding TEXT NOT NULL, observed_at REAL NOT NULL, value TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS operations (id TEXT PRIMARY KEY, binding TEXT NOT NULL, instance_id TEXT NOT NULL, kind TEXT NOT NULL, original_key TEXT NOT NULL, original_input TEXT NOT NULL, digest TEXT NOT NULL, state TEXT NOT NULL, cleanup_pending INTEGER NOT NULL, http_status INTEGER, created_at REAL NOT NULL, updated_at REAL NOT NULL, UNIQUE(binding,original_key));
-                PRAGMA user_version=1;
+                PRAGMA user_version=2;
                 COMMIT;
             """)
             await self.db.execute(
                 "INSERT OR IGNORE INTO settings VALUES (1,0,?)", (encode(DEFAULT),)
             )
+            async with self.transaction() as db:
+                revision, value = await self._settings(db)
+                value.setdefault("groups", [])
+                value.setdefault("ingress_limits", None)
+                value["intents"].setdefault("observation.enabled", False)
+                await db.execute(
+                    "UPDATE settings SET value=? WHERE id=1", (encode(value),)
+                )
             await self.prune()
         except BaseException:
             await self.close()
@@ -88,8 +98,10 @@ class Store:
     async def transaction(self):
         async with self.lock:
             db = self._live()
-            await db.execute("BEGIN IMMEDIATE")
             try:
+                # The queued BEGIN may execute even when its await is cancelled.
+                # Rollback must therefore cover BEGIN itself, not only the body.
+                await db.execute("BEGIN IMMEDIATE")
                 yield db
                 await db.commit()
             except BaseException:
@@ -126,7 +138,11 @@ class Store:
                 # Never carry a saved credential to a different origin implicitly.
                 token = ""
             if token is not None:
-                await db.execute("DELETE FROM credentials")
+                # Historical references remain bound to their original operations.
+                # Capacity refuses new credentials instead of deleting unknown obligations.
+                async with db.execute("SELECT COUNT(*) FROM credentials") as cur:
+                    if (await cur.fetchone())[0] >= 256:
+                        raise ControlError("CREDENTIAL_HISTORY_CAPACITY", 429)
                 ref = str(uuid.uuid4()) if token else None
                 if ref:
                     await db.execute(
@@ -137,6 +153,7 @@ class Store:
             if changed:
                 value["binding"] = str(uuid.uuid4())
                 value["instance_id"] = None
+                value["ingress_limits"] = None
                 await db.execute("DELETE FROM observations")
             await db.execute(
                 "UPDATE settings SET revision=?,value=? WHERE id=1",

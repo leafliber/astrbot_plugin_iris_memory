@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 
 CATALOG = json.loads(Path(__file__).with_name("catalog.json").read_text())
-EDITABLE = frozenset({"plugin.enabled"})
+EDITABLE = frozenset({"plugin.enabled", "observation.enabled"})
 
 
 def effective(

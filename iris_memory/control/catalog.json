@@ -13,10 +13,10 @@
     "trace": "V02,V11 → C01；P04；A04,A05,A06",
     "stage": "S2",
     "description": "P＋C：accept、媒体、原确认；关闭只停新增交付，旧未确认继续核对；G01：超限、复杂／无文本事件及来源覆盖不得遗漏",
-    "implemented": false,
+    "implemented": true,
     "supported": null,
-    "availability": "not_implemented",
-    "reason": "尚未实施",
+    "availability": "partial",
+    "reason": "公开 handler 可达消息有界接入；来源、权限与配置上限需逐项核实，完整保证仍未实现",
     "parent": "plugin.enabled"
   },
   {
@@ -33,10 +33,10 @@
     "trace": "V02,V11 → C01；P04；A04,A05,A06",
     "stage": "S2",
     "description": "P＋C：accept、媒体、原确认；关闭只停新增交付，旧未确认继续核对；G01：超限、复杂／无文本事件及来源覆盖不得遗漏",
-    "implemented": false,
+    "implemented": true,
     "supported": null,
-    "availability": "not_implemented",
-    "reason": "尚未实施",
+    "availability": "partial",
+    "reason": "公开 handler 可达消息有界接入；来源、权限与配置上限需逐项核实，完整保证仍未实现",
     "parent": "plugin.enabled"
   },
   {
@@ -1536,7 +1536,7 @@
     "implemented": false,
     "supported": null,
     "availability": "not_implemented",
-    "reason": "尚未实施",
+    "reason": "必要交付暂存／事件自带引用已有部分适配；此可选完整功能尚未实施",
     "parent": "plugin.enabled"
   },
   {
@@ -1619,7 +1619,7 @@
     "implemented": false,
     "supported": null,
     "availability": "not_implemented",
-    "reason": "尚未实施",
+    "reason": "必要交付暂存／事件自带引用已有部分适配；此可选完整功能尚未实施",
     "parent": "plugin.enabled"
   },
   {
@@ -1957,7 +1957,7 @@
     "dependencies": [],
     "trace": "FEATURES §6",
     "stage": "S1",
-    "description": "本地产品总闸；保留所有子项意图，必要原确认不受此开关影响。当前没有业务动作。",
+    "description": "本地产品总闸；停止新采集与首次提交，保留子项意图和原确认义务。",
     "implemented": true,
     "supported": true,
     "availability": "implemented",

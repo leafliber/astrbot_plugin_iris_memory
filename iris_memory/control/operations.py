@@ -1,7 +1,8 @@
 """Original-operation dispatch boundary, with no production business descriptors.
 
 A future adapter must supply a finite reviewed descriptor and an exact transport.
-The built plugin exposes no write or replay route. Tests inject synthetic adapters.
+This legacy descriptor registry remains empty. S2 uses dedicated finite ingress
+and management adapters; tests here inject synthetic descriptors.
 """
 
 import asyncio

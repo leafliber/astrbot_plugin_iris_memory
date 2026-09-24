@@ -303,7 +303,7 @@ async def test_local_qualification_records_are_not_live_authority(tmp_path):
             == "pending_verification"
         )
         assert all(
-            not r["implemented"] and not r["effective"]
+            not r["effective"] and (not r["implemented"] or r["state"] == "partial")
             for r in records.values()
             if r["feature_id"].startswith("F")
         )
