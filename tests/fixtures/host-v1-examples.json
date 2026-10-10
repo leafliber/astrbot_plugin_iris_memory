@@ -1,0 +1,1543 @@
+{
+  "source": "AirObject/iris-core 43f8221b1ba482f98748667c20ff3014b9ce2e32 src/iris/api.py OpenAPI examples",
+  "operations": [
+    {
+      "method": "POST",
+      "path": "/api/v1/entries/{entry_id}/messages",
+      "request": {
+        "sender": "小林",
+        "content": "今晚看星星",
+        "occurred_at": "2026-10-10T08:00:00+08:00",
+        "dedupe_key": "host-message-1",
+        "media_ids": []
+      },
+      "responses": {
+        "200": {
+          "message_ids": [
+            1
+          ],
+          "pending_count": 1
+        },
+        "400": {
+          "error": {
+            "code": "invalid_request",
+            "message": "请求不合法，附字段级说明",
+            "fields": [
+              {
+                "field": "body",
+                "message": "请求不合法，附字段级说明"
+              }
+            ],
+            "retry_after_seconds": null,
+            "retry_at": null
+          }
+        },
+        "401": {
+          "error": {
+            "code": "invalid_token",
+            "message": "令牌无效或缺失",
+            "fields": [],
+            "retry_after_seconds": null,
+            "retry_at": null
+          }
+        },
+        "403": {
+          "error": {
+            "code": "entry_forbidden",
+            "message": "无权访问入口或对象",
+            "fields": [],
+            "retry_after_seconds": null,
+            "retry_at": null
+          }
+        },
+        "404": {
+          "error": {
+            "code": "not_found",
+            "message": "对象不存在或已删除",
+            "fields": [],
+            "retry_after_seconds": null,
+            "retry_at": null
+          }
+        },
+        "409": {
+          "error": {
+            "code": "revision_conflict",
+            "message": "修订冲突或目标已合并",
+            "fields": [],
+            "retry_after_seconds": null,
+            "retry_at": null
+          }
+        },
+        "413": {
+          "error": {
+            "code": "payload_too_large",
+            "message": "消息、媒体或请求体过大",
+            "fields": [],
+            "retry_after_seconds": null,
+            "retry_at": null
+          }
+        },
+        "429": {
+          "error": {
+            "code": "rate_limited",
+            "message": "超过令牌请求速率",
+            "fields": [],
+            "retry_after_seconds": 1,
+            "retry_at": "2026-10-10T08:00:00+08:00"
+          }
+        },
+        "503": {
+          "error": {
+            "code": "unavailable",
+            "message": "启动、迁移或存储暂不可用；恢复时间为重试建议",
+            "fields": [],
+            "retry_after_seconds": 1,
+            "retry_at": "2026-10-10T08:00:00+08:00"
+          }
+        }
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/media",
+      "request": {
+        "entry_id": "group-a",
+        "content_type": "image/gif",
+        "data_base64": "R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==",
+        "understanding_text": "星空照片"
+      },
+      "responses": {
+        "201": {
+          "id": "media-object-id",
+          "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+          "content_type": "image/gif",
+          "size_bytes": 34,
+          "kind": "image",
+          "understanding_source": "host",
+          "understanding_text": "星空照片",
+          "completed_at": "2026-10-10T08:00:00+08:00",
+          "last_error": null
+        },
+        "400": {
+          "error": {
+            "code": "invalid_request",
+            "message": "请求不合法，附字段级说明",
+            "fields": [
+              {
+                "field": "body",
+                "message": "请求不合法，附字段级说明"
+              }
+            ],
+            "retry_after_seconds": null,
+            "retry_at": null
+          }
+        },
+        "401": {
+          "error": {
+            "code": "invalid_token",
+            "message": "令牌无效或缺失",
+            "fields": [],
+            "retry_after_seconds": null,
+            "retry_at": null
+          }
+        },
+        "403": {
+          "error": {
+            "code": "entry_forbidden",
+            "message": "无权访问入口或对象",
+            "fields": [],
+            "retry_after_seconds": null,
+            "retry_at": null
+          }
+        },
+        "404": {
+          "error": {
+            "code": "not_found",
+            "message": "对象不存在或已删除",
+            "fields": [],
+            "retry_after_seconds": null,
+            "retry_at": null
+          }
+        },
+        "409": {
+          "error": {
+            "code": "revision_conflict",
+            "message": "修订冲突或目标已合并",
+            "fields": [],
+            "retry_after_seconds": null,
+            "retry_at": null
+          }
+        },
+        "413": {
+          "error": {
+            "code": "payload_too_large",
+            "message": "消息、媒体或请求体过大",
+            "fields": [],
+            "retry_after_seconds": null,
+            "retry_at": null
+          }
+        },
+        "429": {
+          "error": {
+            "code": "rate_limited",
+            "message": "超过令牌请求速率",
+            "fields": [],
+            "retry_after_seconds": 1,
+            "retry_at": "2026-10-10T08:00:00+08:00"
+          }
+        },
+        "503": {
+          "error": {
+            "code": "unavailable",
+            "message": "启动、迁移或存储暂不可用；恢复时间为重试建议",
+            "fields": [],
+            "retry_after_seconds": 1,
+            "retry_at": "2026-10-10T08:00:00+08:00"
+          }
+        }
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/entries/{entry_id}/learn",
+      "request": null,
+      "responses": {
+        "200": {
+          "accepted": true,
+          "pending_count": 1,
+          "paused": false,
+          "reason": null
+        },
+        "400": {
+          "error": {
+            "code": "invalid_request",
+            "message": "请求不合法，附字段级说明",
+            "fields": [
+              {
+                "field": "body",
+                "message": "请求不合法，附字段级说明"
+              }
+            ],
+            "retry_after_seconds": null,
+            "retry_at": null
+          }
+        },
+        "401": {
+          "error": {
+            "code": "invalid_token",
+            "message": "令牌无效或缺失",
+            "fields": [],
+            "retry_after_seconds": null,
+            "retry_at": null
+          }
+        },
+        "403": {
+          "error": {
+            "code": "entry_forbidden",
+            "message": "无权访问入口或对象",
+            "fields": [],
+            "retry_after_seconds": null,
+            "retry_at": null
+          }
+        },
+        "404": {
+          "error": {
+            "code": "not_found",
+            "message": "对象不存在或已删除",
+            "fields": [],
+            "retry_after_seconds": null,
+            "retry_at": null
+          }
+        },
+        "409": {
+          "error": {
+            "code": "revision_conflict",
+            "message": "修订冲突或目标已合并",
+            "fields": [],
+            "retry_after_seconds": null,
+            "retry_at": null
+          }
+        },
+        "413": {
+          "error": {
+            "code": "payload_too_large",
+            "message": "消息、媒体或请求体过大",
+            "fields": [],
+            "retry_after_seconds": null,
+            "retry_at": null
+          }
+        },
+        "429": {
+          "error": {
+            "code": "rate_limited",
+            "message": "超过令牌请求速率",
+            "fields": [],
+            "retry_after_seconds": 1,
+            "retry_at": "2026-10-10T08:00:00+08:00"
+          }
+        },
+        "503": {
+          "error": {
+            "code": "unavailable",
+            "message": "启动、迁移或存储暂不可用；恢复时间为重试建议",
+            "fields": [],
+            "retry_after_seconds": 1,
+            "retry_at": "2026-10-10T08:00:00+08:00"
+          }
+        }
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/entries/{entry_id}/prepare",
+      "request": {
+        "text": "今晚聊什么？",
+        "participants": [],
+        "known_memory_ids": [],
+        "judge": false
+      },
+      "responses": {
+        "200": {
+          "persona": {
+            "version": null,
+            "content": "",
+            "generated_at": null,
+            "needs_update": false,
+            "stale_basis_count": 0
+          },
+          "memories": [],
+          "recent_messages": [],
+          "state": {},
+          "goals": [],
+          "hints": [],
+          "judgment": {
+            "status": "disabled"
+          },
+          "recall_id": "recall-id"
+        },
+        "400": {
+          "error": {
+            "code": "invalid_request",
+            "message": "请求不合法，附字段级说明",
+            "fields": [
+              {
+                "field": "body",
+                "message": "请求不合法，附字段级说明"
+              }
+            ],
+            "retry_after_seconds": null,
+            "retry_at": null
+          }
+        },
+        "401": {
+          "error": {
+            "code": "invalid_token",
+            "message": "令牌无效或缺失",
+            "fields": [],
+            "retry_after_seconds": null,
+            "retry_at": null
+          }
+        },
+        "403": {
+          "error": {
+            "code": "entry_forbidden",
+            "message": "无权访问入口或对象",
+            "fields": [],
+            "retry_after_seconds": null,
+            "retry_at": null
+          }
+        },
+        "404": {
+          "error": {
+            "code": "not_found",
+            "message": "对象不存在或已删除",
+            "fields": [],
+            "retry_after_seconds": null,
+            "retry_at": null
+          }
+        },
+        "409": {
+          "error": {
+            "code": "revision_conflict",
+            "message": "修订冲突或目标已合并",
+            "fields": [],
+            "retry_after_seconds": null,
+            "retry_at": null
+          }
+        },
+        "413": {
+          "error": {
+            "code": "payload_too_large",
+            "message": "消息、媒体或请求体过大",
+            "fields": [],
+            "retry_after_seconds": null,
+            "retry_at": null
+          }
+        },
+        "429": {
+          "error": {
+            "code": "rate_limited",
+            "message": "超过令牌请求速率",
+            "fields": [],
+            "retry_after_seconds": 1,
+            "retry_at": "2026-10-10T08:00:00+08:00"
+          }
+        },
+        "503": {
+          "error": {
+            "code": "unavailable",
+            "message": "启动、迁移或存储暂不可用；恢复时间为重试建议",
+            "fields": [],
+            "retry_after_seconds": 1,
+            "retry_at": "2026-10-10T08:00:00+08:00"
+          }
+        }
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/memories/search",
+      "request": {
+        "text": "观星",
+        "entry_id": "group-a",
+        "include_forgotten": false,
+        "include_state": false,
+        "include_goals": false
+      },
+      "responses": {
+        "200": {
+          "memories": [],
+          "hints": [],
+          "recall_id": "recall-id"
+        },
+        "400": {
+          "error": {
+            "code": "invalid_request",
+            "message": "请求不合法，附字段级说明",
+            "fields": [
+              {
+                "field": "body",
+                "message": "请求不合法，附字段级说明"
+              }
+            ],
+            "retry_after_seconds": null,
+            "retry_at": null
+          }
+        },
+        "401": {
+          "error": {
+            "code": "invalid_token",
+            "message": "令牌无效或缺失",
+            "fields": [],
+            "retry_after_seconds": null,
+            "retry_at": null
+          }
+        },
+        "403": {
+          "error": {
+            "code": "entry_forbidden",
+            "message": "无权访问入口或对象",
+            "fields": [],
+            "retry_after_seconds": null,
+            "retry_at": null
+          }
+        },
+        "404": {
+          "error": {
+            "code": "not_found",
+            "message": "对象不存在或已删除",
+            "fields": [],
+            "retry_after_seconds": null,
+            "retry_at": null
+          }
+        },
+        "409": {
+          "error": {
+            "code": "revision_conflict",
+            "message": "修订冲突或目标已合并",
+            "fields": [],
+            "retry_after_seconds": null,
+            "retry_at": null
+          }
+        },
+        "413": {
+          "error": {
+            "code": "payload_too_large",
+            "message": "消息、媒体或请求体过大",
+            "fields": [],
+            "retry_after_seconds": null,
+            "retry_at": null
+          }
+        },
+        "429": {
+          "error": {
+            "code": "rate_limited",
+            "message": "超过令牌请求速率",
+            "fields": [],
+            "retry_after_seconds": 1,
+            "retry_at": "2026-10-10T08:00:00+08:00"
+          }
+        },
+        "503": {
+          "error": {
+            "code": "unavailable",
+            "message": "启动、迁移或存储暂不可用；恢复时间为重试建议",
+            "fields": [],
+            "retry_after_seconds": 1,
+            "retry_at": "2026-10-10T08:00:00+08:00"
+          }
+        }
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/feedback",
+      "request": {
+        "recall_id": "recall-id",
+        "memory_ids": [
+          1
+        ]
+      },
+      "responses": {
+        "200": {
+          "recall_id": "recall-id",
+          "accepted": [
+            1
+          ],
+          "strengthened": [
+            1
+          ]
+        },
+        "400": {
+          "error": {
+            "code": "invalid_request",
+            "message": "请求不合法，附字段级说明",
+            "fields": [
+              {
+                "field": "body",
+                "message": "请求不合法，附字段级说明"
+              }
+            ],
+            "retry_after_seconds": null,
+            "retry_at": null
+          }
+        },
+        "401": {
+          "error": {
+            "code": "invalid_token",
+            "message": "令牌无效或缺失",
+            "fields": [],
+            "retry_after_seconds": null,
+            "retry_at": null
+          }
+        },
+        "403": {
+          "error": {
+            "code": "entry_forbidden",
+            "message": "无权访问入口或对象",
+            "fields": [],
+            "retry_after_seconds": null,
+            "retry_at": null
+          }
+        },
+        "404": {
+          "error": {
+            "code": "not_found",
+            "message": "对象不存在或已删除",
+            "fields": [],
+            "retry_after_seconds": null,
+            "retry_at": null
+          }
+        },
+        "409": {
+          "error": {
+            "code": "revision_conflict",
+            "message": "修订冲突或目标已合并",
+            "fields": [],
+            "retry_after_seconds": null,
+            "retry_at": null
+          }
+        },
+        "413": {
+          "error": {
+            "code": "payload_too_large",
+            "message": "消息、媒体或请求体过大",
+            "fields": [],
+            "retry_after_seconds": null,
+            "retry_at": null
+          }
+        },
+        "429": {
+          "error": {
+            "code": "rate_limited",
+            "message": "超过令牌请求速率",
+            "fields": [],
+            "retry_after_seconds": 1,
+            "retry_at": "2026-10-10T08:00:00+08:00"
+          }
+        },
+        "503": {
+          "error": {
+            "code": "unavailable",
+            "message": "启动、迁移或存储暂不可用；恢复时间为重试建议",
+            "fields": [],
+            "retry_after_seconds": 1,
+            "retry_at": "2026-10-10T08:00:00+08:00"
+          }
+        }
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/goals",
+      "request": null,
+      "responses": {
+        "200": {
+          "items": [
+            {
+              "id": 1,
+              "content": "整理观星照片",
+              "kind": "normal",
+              "origin": "host",
+              "state": "open",
+              "entry_id": "group-a",
+              "host": "astrbot",
+              "host_key": "goal-1",
+              "revision": 1,
+              "people": [],
+              "deadline": null,
+              "reminder_minutes": null,
+              "effective_reminder_minutes": 60,
+              "created_at": "2026-10-10T08:00:00+08:00",
+              "updated_at": "2026-10-10T08:00:00+08:00",
+              "closed_at": null,
+              "closed_by": null,
+              "merged_into": null,
+              "deadline_unresolved": false,
+              "overdue": false,
+              "due_soon": false,
+              "possible_duplicate": false,
+              "possible_duplicate_ids": [],
+              "basis_needs_review": false,
+              "basis_annotations": []
+            }
+          ],
+          "total": 1,
+          "limit": 30,
+          "offset": 0
+        },
+        "400": {
+          "error": {
+            "code": "invalid_request",
+            "message": "请求不合法，附字段级说明",
+            "fields": [
+              {
+                "field": "body",
+                "message": "请求不合法，附字段级说明"
+              }
+            ],
+            "retry_after_seconds": null,
+            "retry_at": null
+          }
+        },
+        "401": {
+          "error": {
+            "code": "invalid_token",
+            "message": "令牌无效或缺失",
+            "fields": [],
+            "retry_after_seconds": null,
+            "retry_at": null
+          }
+        },
+        "403": {
+          "error": {
+            "code": "entry_forbidden",
+            "message": "无权访问入口或对象",
+            "fields": [],
+            "retry_after_seconds": null,
+            "retry_at": null
+          }
+        },
+        "404": {
+          "error": {
+            "code": "not_found",
+            "message": "对象不存在或已删除",
+            "fields": [],
+            "retry_after_seconds": null,
+            "retry_at": null
+          }
+        },
+        "409": {
+          "error": {
+            "code": "revision_conflict",
+            "message": "修订冲突或目标已合并",
+            "fields": [],
+            "retry_after_seconds": null,
+            "retry_at": null
+          }
+        },
+        "413": {
+          "error": {
+            "code": "payload_too_large",
+            "message": "消息、媒体或请求体过大",
+            "fields": [],
+            "retry_after_seconds": null,
+            "retry_at": null
+          }
+        },
+        "429": {
+          "error": {
+            "code": "rate_limited",
+            "message": "超过令牌请求速率",
+            "fields": [],
+            "retry_after_seconds": 1,
+            "retry_at": "2026-10-10T08:00:00+08:00"
+          }
+        },
+        "503": {
+          "error": {
+            "code": "unavailable",
+            "message": "启动、迁移或存储暂不可用；恢复时间为重试建议",
+            "fields": [],
+            "retry_after_seconds": 1,
+            "retry_at": "2026-10-10T08:00:00+08:00"
+          }
+        }
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/goals",
+      "request": {
+        "content": "整理观星照片",
+        "entry_id": "group-a",
+        "host_key": "goal-1"
+      },
+      "responses": {
+        "201": {
+          "goal": {
+            "id": 1,
+            "content": "整理观星照片",
+            "kind": "normal",
+            "origin": "host",
+            "state": "open",
+            "entry_id": "group-a",
+            "host": "astrbot",
+            "host_key": "goal-1",
+            "revision": 1,
+            "people": [],
+            "deadline": null,
+            "reminder_minutes": null,
+            "effective_reminder_minutes": 60,
+            "created_at": "2026-10-10T08:00:00+08:00",
+            "updated_at": "2026-10-10T08:00:00+08:00",
+            "closed_at": null,
+            "closed_by": null,
+            "merged_into": null,
+            "deadline_unresolved": false,
+            "overdue": false,
+            "due_soon": false,
+            "possible_duplicate": false,
+            "possible_duplicate_ids": [],
+            "basis_needs_review": false,
+            "basis_annotations": []
+          },
+          "submitted_id": 1,
+          "dedup": {
+            "status": "created",
+            "target_id": null
+          }
+        },
+        "400": {
+          "error": {
+            "code": "invalid_request",
+            "message": "请求不合法，附字段级说明",
+            "fields": [
+              {
+                "field": "body",
+                "message": "请求不合法，附字段级说明"
+              }
+            ],
+            "retry_after_seconds": null,
+            "retry_at": null
+          }
+        },
+        "401": {
+          "error": {
+            "code": "invalid_token",
+            "message": "令牌无效或缺失",
+            "fields": [],
+            "retry_after_seconds": null,
+            "retry_at": null
+          }
+        },
+        "403": {
+          "error": {
+            "code": "entry_forbidden",
+            "message": "无权访问入口或对象",
+            "fields": [],
+            "retry_after_seconds": null,
+            "retry_at": null
+          }
+        },
+        "404": {
+          "error": {
+            "code": "not_found",
+            "message": "对象不存在或已删除",
+            "fields": [],
+            "retry_after_seconds": null,
+            "retry_at": null
+          }
+        },
+        "409": {
+          "error": {
+            "code": "revision_conflict",
+            "message": "修订冲突或目标已合并",
+            "fields": [],
+            "retry_after_seconds": null,
+            "retry_at": null
+          }
+        },
+        "413": {
+          "error": {
+            "code": "payload_too_large",
+            "message": "消息、媒体或请求体过大",
+            "fields": [],
+            "retry_after_seconds": null,
+            "retry_at": null
+          }
+        },
+        "429": {
+          "error": {
+            "code": "rate_limited",
+            "message": "超过令牌请求速率",
+            "fields": [],
+            "retry_after_seconds": 1,
+            "retry_at": "2026-10-10T08:00:00+08:00"
+          }
+        },
+        "503": {
+          "error": {
+            "code": "unavailable",
+            "message": "启动、迁移或存储暂不可用；恢复时间为重试建议",
+            "fields": [],
+            "retry_after_seconds": 1,
+            "retry_at": "2026-10-10T08:00:00+08:00"
+          }
+        }
+      }
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/goals/{goal_id}",
+      "request": {
+        "state": "completed",
+        "expected_revision": 1
+      },
+      "responses": {
+        "200": {
+          "id": 1,
+          "content": "整理观星照片",
+          "kind": "normal",
+          "origin": "host",
+          "state": "completed",
+          "entry_id": "group-a",
+          "host": "astrbot",
+          "host_key": "goal-1",
+          "revision": 2,
+          "people": [],
+          "deadline": null,
+          "reminder_minutes": null,
+          "effective_reminder_minutes": 60,
+          "created_at": "2026-10-10T08:00:00+08:00",
+          "updated_at": "2026-10-10T08:00:00+08:00",
+          "closed_at": "2026-10-10T08:00:00+08:00",
+          "closed_by": "astrbot",
+          "merged_into": null,
+          "deadline_unresolved": false,
+          "overdue": false,
+          "due_soon": false,
+          "possible_duplicate": false,
+          "possible_duplicate_ids": [],
+          "basis_needs_review": false,
+          "basis_annotations": []
+        },
+        "400": {
+          "error": {
+            "code": "invalid_request",
+            "message": "请求不合法，附字段级说明",
+            "fields": [
+              {
+                "field": "body",
+                "message": "请求不合法，附字段级说明"
+              }
+            ],
+            "retry_after_seconds": null,
+            "retry_at": null
+          }
+        },
+        "401": {
+          "error": {
+            "code": "invalid_token",
+            "message": "令牌无效或缺失",
+            "fields": [],
+            "retry_after_seconds": null,
+            "retry_at": null
+          }
+        },
+        "403": {
+          "error": {
+            "code": "entry_forbidden",
+            "message": "无权访问入口或对象",
+            "fields": [],
+            "retry_after_seconds": null,
+            "retry_at": null
+          }
+        },
+        "404": {
+          "error": {
+            "code": "not_found",
+            "message": "对象不存在或已删除",
+            "fields": [],
+            "retry_after_seconds": null,
+            "retry_at": null
+          }
+        },
+        "409": {
+          "error": {
+            "code": "revision_conflict",
+            "message": "修订冲突或目标已合并",
+            "fields": [],
+            "retry_after_seconds": null,
+            "retry_at": null
+          }
+        },
+        "413": {
+          "error": {
+            "code": "payload_too_large",
+            "message": "消息、媒体或请求体过大",
+            "fields": [],
+            "retry_after_seconds": null,
+            "retry_at": null
+          }
+        },
+        "429": {
+          "error": {
+            "code": "rate_limited",
+            "message": "超过令牌请求速率",
+            "fields": [],
+            "retry_after_seconds": 1,
+            "retry_at": "2026-10-10T08:00:00+08:00"
+          }
+        },
+        "503": {
+          "error": {
+            "code": "unavailable",
+            "message": "启动、迁移或存储暂不可用；恢复时间为重试建议",
+            "fields": [],
+            "retry_after_seconds": 1,
+            "retry_at": "2026-10-10T08:00:00+08:00"
+          }
+        }
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/notifications",
+      "request": null,
+      "responses": {
+        "200": {
+          "items": [],
+          "next_cursor": 0,
+          "has_more": false
+        },
+        "400": {
+          "error": {
+            "code": "invalid_request",
+            "message": "请求不合法，附字段级说明",
+            "fields": [
+              {
+                "field": "body",
+                "message": "请求不合法，附字段级说明"
+              }
+            ],
+            "retry_after_seconds": null,
+            "retry_at": null
+          }
+        },
+        "401": {
+          "error": {
+            "code": "invalid_token",
+            "message": "令牌无效或缺失",
+            "fields": [],
+            "retry_after_seconds": null,
+            "retry_at": null
+          }
+        },
+        "403": {
+          "error": {
+            "code": "entry_forbidden",
+            "message": "无权访问入口或对象",
+            "fields": [],
+            "retry_after_seconds": null,
+            "retry_at": null
+          }
+        },
+        "404": {
+          "error": {
+            "code": "not_found",
+            "message": "对象不存在或已删除",
+            "fields": [],
+            "retry_after_seconds": null,
+            "retry_at": null
+          }
+        },
+        "409": {
+          "error": {
+            "code": "revision_conflict",
+            "message": "修订冲突或目标已合并",
+            "fields": [],
+            "retry_after_seconds": null,
+            "retry_at": null
+          }
+        },
+        "413": {
+          "error": {
+            "code": "payload_too_large",
+            "message": "消息、媒体或请求体过大",
+            "fields": [],
+            "retry_after_seconds": null,
+            "retry_at": null
+          }
+        },
+        "429": {
+          "error": {
+            "code": "rate_limited",
+            "message": "超过令牌请求速率",
+            "fields": [],
+            "retry_after_seconds": 1,
+            "retry_at": "2026-10-10T08:00:00+08:00"
+          }
+        },
+        "503": {
+          "error": {
+            "code": "unavailable",
+            "message": "启动、迁移或存储暂不可用；恢复时间为重试建议",
+            "fields": [],
+            "retry_after_seconds": 1,
+            "retry_at": "2026-10-10T08:00:00+08:00"
+          }
+        }
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/state",
+      "request": null,
+      "responses": {
+        "200": {
+          "activity": "观星",
+          "activity_updated_at": "2026-10-10T08:00:00+08:00",
+          "mood": null,
+          "mood_updated_at": null,
+          "started_at": "2026-10-10T08:00:00+08:00",
+          "start_time_basis": "first_report",
+          "updated_at": "2026-10-10T08:00:00+08:00",
+          "host": "astrbot",
+          "entry_id": "group-a",
+          "details": {},
+          "duration_seconds": 0.0,
+          "possibly_stale": false,
+          "stale_after_minutes": 30
+        },
+        "400": {
+          "error": {
+            "code": "invalid_request",
+            "message": "请求不合法，附字段级说明",
+            "fields": [
+              {
+                "field": "body",
+                "message": "请求不合法，附字段级说明"
+              }
+            ],
+            "retry_after_seconds": null,
+            "retry_at": null
+          }
+        },
+        "401": {
+          "error": {
+            "code": "invalid_token",
+            "message": "令牌无效或缺失",
+            "fields": [],
+            "retry_after_seconds": null,
+            "retry_at": null
+          }
+        },
+        "403": {
+          "error": {
+            "code": "entry_forbidden",
+            "message": "无权访问入口或对象",
+            "fields": [],
+            "retry_after_seconds": null,
+            "retry_at": null
+          }
+        },
+        "404": {
+          "error": {
+            "code": "not_found",
+            "message": "对象不存在或已删除",
+            "fields": [],
+            "retry_after_seconds": null,
+            "retry_at": null
+          }
+        },
+        "409": {
+          "error": {
+            "code": "revision_conflict",
+            "message": "修订冲突或目标已合并",
+            "fields": [],
+            "retry_after_seconds": null,
+            "retry_at": null
+          }
+        },
+        "413": {
+          "error": {
+            "code": "payload_too_large",
+            "message": "消息、媒体或请求体过大",
+            "fields": [],
+            "retry_after_seconds": null,
+            "retry_at": null
+          }
+        },
+        "429": {
+          "error": {
+            "code": "rate_limited",
+            "message": "超过令牌请求速率",
+            "fields": [],
+            "retry_after_seconds": 1,
+            "retry_at": "2026-10-10T08:00:00+08:00"
+          }
+        },
+        "503": {
+          "error": {
+            "code": "unavailable",
+            "message": "启动、迁移或存储暂不可用；恢复时间为重试建议",
+            "fields": [],
+            "retry_after_seconds": 1,
+            "retry_at": "2026-10-10T08:00:00+08:00"
+          }
+        }
+      }
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/state",
+      "request": {
+        "activity": "观星",
+        "entry_id": "group-a"
+      },
+      "responses": {
+        "200": {
+          "activity": "观星",
+          "activity_updated_at": "2026-10-10T08:00:00+08:00",
+          "mood": null,
+          "mood_updated_at": null,
+          "started_at": "2026-10-10T08:00:00+08:00",
+          "start_time_basis": "first_report",
+          "updated_at": "2026-10-10T08:00:00+08:00",
+          "host": "astrbot",
+          "entry_id": "group-a",
+          "details": {},
+          "duration_seconds": 0.0,
+          "possibly_stale": false,
+          "stale_after_minutes": 30
+        },
+        "400": {
+          "error": {
+            "code": "invalid_request",
+            "message": "请求不合法，附字段级说明",
+            "fields": [
+              {
+                "field": "body",
+                "message": "请求不合法，附字段级说明"
+              }
+            ],
+            "retry_after_seconds": null,
+            "retry_at": null
+          }
+        },
+        "401": {
+          "error": {
+            "code": "invalid_token",
+            "message": "令牌无效或缺失",
+            "fields": [],
+            "retry_after_seconds": null,
+            "retry_at": null
+          }
+        },
+        "403": {
+          "error": {
+            "code": "entry_forbidden",
+            "message": "无权访问入口或对象",
+            "fields": [],
+            "retry_after_seconds": null,
+            "retry_at": null
+          }
+        },
+        "404": {
+          "error": {
+            "code": "not_found",
+            "message": "对象不存在或已删除",
+            "fields": [],
+            "retry_after_seconds": null,
+            "retry_at": null
+          }
+        },
+        "409": {
+          "error": {
+            "code": "revision_conflict",
+            "message": "修订冲突或目标已合并",
+            "fields": [],
+            "retry_after_seconds": null,
+            "retry_at": null
+          }
+        },
+        "413": {
+          "error": {
+            "code": "payload_too_large",
+            "message": "消息、媒体或请求体过大",
+            "fields": [],
+            "retry_after_seconds": null,
+            "retry_at": null
+          }
+        },
+        "429": {
+          "error": {
+            "code": "rate_limited",
+            "message": "超过令牌请求速率",
+            "fields": [],
+            "retry_after_seconds": 1,
+            "retry_at": "2026-10-10T08:00:00+08:00"
+          }
+        },
+        "503": {
+          "error": {
+            "code": "unavailable",
+            "message": "启动、迁移或存储暂不可用；恢复时间为重试建议",
+            "fields": [],
+            "retry_after_seconds": 1,
+            "retry_at": "2026-10-10T08:00:00+08:00"
+          }
+        }
+      }
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/state",
+      "request": {
+        "entry_id": "group-a"
+      },
+      "responses": {
+        "200": {},
+        "400": {
+          "error": {
+            "code": "invalid_request",
+            "message": "请求不合法，附字段级说明",
+            "fields": [
+              {
+                "field": "body",
+                "message": "请求不合法，附字段级说明"
+              }
+            ],
+            "retry_after_seconds": null,
+            "retry_at": null
+          }
+        },
+        "401": {
+          "error": {
+            "code": "invalid_token",
+            "message": "令牌无效或缺失",
+            "fields": [],
+            "retry_after_seconds": null,
+            "retry_at": null
+          }
+        },
+        "403": {
+          "error": {
+            "code": "entry_forbidden",
+            "message": "无权访问入口或对象",
+            "fields": [],
+            "retry_after_seconds": null,
+            "retry_at": null
+          }
+        },
+        "404": {
+          "error": {
+            "code": "not_found",
+            "message": "对象不存在或已删除",
+            "fields": [],
+            "retry_after_seconds": null,
+            "retry_at": null
+          }
+        },
+        "409": {
+          "error": {
+            "code": "revision_conflict",
+            "message": "修订冲突或目标已合并",
+            "fields": [],
+            "retry_after_seconds": null,
+            "retry_at": null
+          }
+        },
+        "413": {
+          "error": {
+            "code": "payload_too_large",
+            "message": "消息、媒体或请求体过大",
+            "fields": [],
+            "retry_after_seconds": null,
+            "retry_at": null
+          }
+        },
+        "429": {
+          "error": {
+            "code": "rate_limited",
+            "message": "超过令牌请求速率",
+            "fields": [],
+            "retry_after_seconds": 1,
+            "retry_at": "2026-10-10T08:00:00+08:00"
+          }
+        },
+        "503": {
+          "error": {
+            "code": "unavailable",
+            "message": "启动、迁移或存储暂不可用；恢复时间为重试建议",
+            "fields": [],
+            "retry_after_seconds": 1,
+            "retry_at": "2026-10-10T08:00:00+08:00"
+          }
+        }
+      }
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/state",
+      "request": {
+        "details": {
+          "location": "露台"
+        },
+        "mood": "平静"
+      },
+      "responses": {
+        "200": {
+          "activity": "观星",
+          "activity_updated_at": "2026-10-10T08:00:00+08:00",
+          "mood": null,
+          "mood_updated_at": null,
+          "started_at": "2026-10-10T08:00:00+08:00",
+          "start_time_basis": "first_report",
+          "updated_at": "2026-10-10T08:00:00+08:00",
+          "host": "astrbot",
+          "entry_id": "group-a",
+          "details": {},
+          "duration_seconds": 0.0,
+          "possibly_stale": false,
+          "stale_after_minutes": 30
+        },
+        "400": {
+          "error": {
+            "code": "invalid_request",
+            "message": "请求不合法，附字段级说明",
+            "fields": [
+              {
+                "field": "body",
+                "message": "请求不合法，附字段级说明"
+              }
+            ],
+            "retry_after_seconds": null,
+            "retry_at": null
+          }
+        },
+        "401": {
+          "error": {
+            "code": "invalid_token",
+            "message": "令牌无效或缺失",
+            "fields": [],
+            "retry_after_seconds": null,
+            "retry_at": null
+          }
+        },
+        "403": {
+          "error": {
+            "code": "entry_forbidden",
+            "message": "无权访问入口或对象",
+            "fields": [],
+            "retry_after_seconds": null,
+            "retry_at": null
+          }
+        },
+        "404": {
+          "error": {
+            "code": "not_found",
+            "message": "对象不存在或已删除",
+            "fields": [],
+            "retry_after_seconds": null,
+            "retry_at": null
+          }
+        },
+        "409": {
+          "error": {
+            "code": "revision_conflict",
+            "message": "修订冲突或目标已合并",
+            "fields": [],
+            "retry_after_seconds": null,
+            "retry_at": null
+          }
+        },
+        "413": {
+          "error": {
+            "code": "payload_too_large",
+            "message": "消息、媒体或请求体过大",
+            "fields": [],
+            "retry_after_seconds": null,
+            "retry_at": null
+          }
+        },
+        "429": {
+          "error": {
+            "code": "rate_limited",
+            "message": "超过令牌请求速率",
+            "fields": [],
+            "retry_after_seconds": 1,
+            "retry_at": "2026-10-10T08:00:00+08:00"
+          }
+        },
+        "503": {
+          "error": {
+            "code": "unavailable",
+            "message": "启动、迁移或存储暂不可用；恢复时间为重试建议",
+            "fields": [],
+            "retry_after_seconds": 1,
+            "retry_at": "2026-10-10T08:00:00+08:00"
+          }
+        }
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/status",
+      "request": null,
+      "responses": {
+        "200": {
+          "service": "ready",
+          "models": [],
+          "entries": [],
+          "backlog": [],
+          "batches": [],
+          "memory_gap_count": 0,
+          "missing_vectors": 0,
+          "usage": {
+            "today": {},
+            "week": {}
+          },
+          "learning_calls_24h": [],
+          "learning_latency_24h": {
+            "count": 0,
+            "p95_ms": null
+          },
+          "chat_reasoning_effort": null,
+          "model_health": {},
+          "budget": {},
+          "scheduler": {
+            "running": true,
+            "max_concurrent": 2,
+            "last_error": null
+          },
+          "timeouts_seconds": {
+            "learning": 180,
+            "chat": 120,
+            "embedding": 30,
+            "retrieval_query": 2,
+            "recall_judge": 10
+          }
+        },
+        "400": {
+          "error": {
+            "code": "invalid_request",
+            "message": "请求不合法，附字段级说明",
+            "fields": [
+              {
+                "field": "body",
+                "message": "请求不合法，附字段级说明"
+              }
+            ],
+            "retry_after_seconds": null,
+            "retry_at": null
+          }
+        },
+        "401": {
+          "error": {
+            "code": "invalid_token",
+            "message": "令牌无效或缺失",
+            "fields": [],
+            "retry_after_seconds": null,
+            "retry_at": null
+          }
+        },
+        "403": {
+          "error": {
+            "code": "entry_forbidden",
+            "message": "无权访问入口或对象",
+            "fields": [],
+            "retry_after_seconds": null,
+            "retry_at": null
+          }
+        },
+        "404": {
+          "error": {
+            "code": "not_found",
+            "message": "对象不存在或已删除",
+            "fields": [],
+            "retry_after_seconds": null,
+            "retry_at": null
+          }
+        },
+        "409": {
+          "error": {
+            "code": "revision_conflict",
+            "message": "修订冲突或目标已合并",
+            "fields": [],
+            "retry_after_seconds": null,
+            "retry_at": null
+          }
+        },
+        "413": {
+          "error": {
+            "code": "payload_too_large",
+            "message": "消息、媒体或请求体过大",
+            "fields": [],
+            "retry_after_seconds": null,
+            "retry_at": null
+          }
+        },
+        "429": {
+          "error": {
+            "code": "rate_limited",
+            "message": "超过令牌请求速率",
+            "fields": [],
+            "retry_after_seconds": 1,
+            "retry_at": "2026-10-10T08:00:00+08:00"
+          }
+        },
+        "503": {
+          "error": {
+            "code": "unavailable",
+            "message": "启动、迁移或存储暂不可用；恢复时间为重试建议",
+            "fields": [],
+            "retry_after_seconds": 1,
+            "retry_at": "2026-10-10T08:00:00+08:00"
+          }
+        }
+      }
+    }
+  ]
+}

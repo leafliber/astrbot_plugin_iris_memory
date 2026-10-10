@@ -1,4 +1,4 @@
-"""Thin, explicitly scoped AstrBot integration for Iris Memory."""
+"""AstrBot host adapter for Iris v1."""
 
 PLUGIN_NAME = "astrbot_plugin_iris_memory"
-VERSION = "4.0.0.dev1"
+VERSION = "4.0.0-dev"

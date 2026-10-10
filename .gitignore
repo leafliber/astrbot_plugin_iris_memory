@@ -3,3 +3,7 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 .venv/
+.coverage
+*.egg-info/
+secrets.json
+test-models.toml

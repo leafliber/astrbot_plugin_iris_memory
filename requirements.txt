@@ -1,2 +1,1 @@
-aiohttp>=3.10,<4
-aiosqlite>=0.20,<1
+httpx>=0.28,<0.29

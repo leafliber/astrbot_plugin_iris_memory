@@ -1,16 +1,22 @@
 [project]
 name = "astrbot-plugin-iris-memory"
-version = "4.0.0.dev1"
+version = "4.0.0.dev0"
 requires-python = ">=3.12"
-dependencies = ["aiohttp>=3.10,<4", "aiosqlite>=0.20,<1"]
+dependencies = ["httpx>=0.28,<0.29"]
+
+[dependency-groups]
+dev = ["pytest>=8.4,<9", "pytest-asyncio>=1.1,<2", "respx>=0.22,<0.23", "ruff>=0.12"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
+addopts = "--tb=short"
+markers = ["integration: real offline iris-core service (requires IRIS_CORE_PATH)"]
 
 [tool.ruff]
 target-version = "py312"
+line-length = 100
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "ASYNC"]
-ignore = ["E501"]
+select = ["E4", "E7", "E9", "F", "I"]

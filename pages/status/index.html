@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Iris Memory · 状态</title><link rel="stylesheet" href="./style.css"></head>
+<body><main><header><p class="eyebrow">IRIS MEMORY · 4.0.0-dev</p><h1>Iris 连接与状态</h1>
+<p>记忆和人格由本机 Iris 服务维护。接收成功不等于已经学会。</p></header>
+<div class="actions"><button id="refresh">刷新状态</button><span id="notice" role="status">正在连接 AstrBot…</span></div>
+<section><h2>连接</h2><dl id="connection"></dl><p>Iris 管理页：<a id="management" target="_blank" rel="noopener noreferrer"></a></p>
+<p class="muted">在运行 Iris 的电脑浏览器中打开上面的地址。</p><ul id="warnings"></ul></section>
+<section><h2>健康与用量</h2><pre id="health">等待状态</pre></section>
+<section><h2>入口映射</h2><p>显示本次启动观察到的最近 200 个会话。覆盖或模板合并入口会共享近期原始消息。</p>
+<pre id="rules"></pre><table><thead><tr><th>AstrBot 会话</th><th>Iris 入口</th><th>类型</th></tr></thead><tbody id="entries"></tbody></table></section>
+</main><script type="module" src="./app.js"></script></body></html>
