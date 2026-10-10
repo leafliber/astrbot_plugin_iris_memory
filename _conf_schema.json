@@ -1,0 +1,253 @@
+{
+  "base_url": {
+    "type": "string",
+    "default": "http://127.0.0.1:8080",
+    "description": "Iris 地址",
+    "hint": "同一台电脑上运行 Iris；默认 http://127.0.0.1:8080，只接受回环 HTTP 地址。"
+  },
+  "token": {
+    "type": "string",
+    "default": "",
+    "description": "Iris 宿主令牌",
+    "hint": "仅从此配置读取，不读取环境变量；建议授权 astrbot: 前缀。",
+    "secret": true
+  },
+  "enabled": {
+    "type": "bool",
+    "default": true,
+    "description": "启用 Iris",
+    "hint": "启用消息接收、准备注入与输出回流。"
+  },
+  "entry_prefix": {
+    "type": "string",
+    "default": "astrbot:",
+    "description": "入口前缀",
+    "hint": "默认 astrbot:，应与宿主令牌范围一致。"
+  },
+  "entry_template": {
+    "type": "string",
+    "default": "$prefix$platform_id:$kind:$session_id",
+    "description": "入口模板",
+    "hint": "变量：$prefix $platform $platform_id $kind $session_id。默认按平台实例和群／私聊映射。"
+  },
+  "entry_overrides": {
+    "type": "string",
+    "default": "{}",
+    "description": "入口覆盖 JSON",
+    "hint": "以原始 unified_msg_origin 为键、入口 ID 为值；合并入口会共享近期消息。"
+  },
+  "prompt_template": {
+    "type": "string",
+    "default": "",
+    "description": "注入模板",
+    "hint": "留空使用内置模板；支持 $persona $memories $recent_messages $state $goals $hints $reminders。"
+  },
+  "max_prompt_chars": {
+    "type": "int",
+    "default": 12000,
+    "description": "提示字符预算",
+    "hint": "512—64000 Unicode 字符，非 token；整条材料保留或省略。"
+  },
+  "prepare_timeout": {
+    "type": "float",
+    "default": 8.0,
+    "description": "回复准备总预算（秒）",
+    "hint": "包括等待当前消息接收和 prepare；超时沿用 AstrBot 原提示。"
+  },
+  "request_timeout": {
+    "type": "float",
+    "default": 1.0,
+    "description": "后台操作预算（秒）",
+    "hint": "后台消息、反馈、提醒拉取总预算；失败记录固定码。"
+  },
+  "queue_size": {
+    "type": "int",
+    "default": 256,
+    "description": "接收队列容量",
+    "hint": "有界内存队列，1—4096；不提供重启后的持久补发。"
+  },
+  "judge": {
+    "type": "bool",
+    "default": true,
+    "description": "开启召回判断",
+    "hint": "由 Iris 判断相关材料，默认开启以减少无关记忆。"
+  },
+  "judge_budget_seconds": {
+    "type": "float",
+    "default": 5.0,
+    "description": "召回判断预算（秒）",
+    "hint": "大于 0、最多 10 秒，包含在回复准备总预算内。"
+  },
+  "images_enabled": {
+    "type": "bool",
+    "default": true,
+    "description": "上传图片",
+    "hint": "支持 PNG/JPEG/GIF/WebP，失败保留占位并继续接收文字。"
+  },
+  "image_timeout": {
+    "type": "float",
+    "default": 2.0,
+    "description": "图片总预算（秒）",
+    "hint": "全部图片的读取、下载和上传共用此预算。"
+  },
+  "max_images": {
+    "type": "int",
+    "default": 4,
+    "description": "每条消息最多图片数",
+    "hint": "1—100，每张最多 10 MiB。"
+  },
+  "recent_limit": {
+    "type": "int",
+    "default": 20,
+    "description": "近期消息条数",
+    "hint": "0—100，由 Iris 返回本入口消息。"
+  },
+  "memory_limit": {
+    "type": "int",
+    "default": 8,
+    "description": "记忆条数",
+    "hint": "0—8。"
+  },
+  "token_budget": {
+    "type": "int",
+    "default": 1500,
+    "description": "Iris 记忆 token 预算",
+    "hint": "0—1500；与本地提示字符预算共同生效。"
+  },
+  "goal_limit": {
+    "type": "int",
+    "default": 10,
+    "description": "准备材料目标条数",
+    "hint": "0—10。"
+  },
+  "take_over_context": {
+    "type": "bool",
+    "default": true,
+    "description": "接管 AstrBot 上下文",
+    "hint": "prepare 成功后清空旧 contexts；仍需设置 group_message_max_cnt=0。"
+  },
+  "pure_at_reply": {
+    "type": "bool",
+    "default": false,
+    "description": "纯 @ 回复",
+    "hint": "需关闭 AstrBot 的 platform_settings.empty_mention_waiting。"
+  },
+  "error_friendly": {
+    "type": "bool",
+    "default": true,
+    "description": "错误消息友好化",
+    "hint": "仅替换非 LLM 结果中的明确 AstrBot 错误模板。"
+  },
+  "strip_markdown": {
+    "type": "bool",
+    "default": true,
+    "description": "清理纯文本 Markdown",
+    "hint": "保留代码正文和链接；准备转为图片的长文不清理。"
+  },
+  "tools_enabled": {
+    "type": "bool",
+    "default": true,
+    "description": "启用记忆和跟进工具",
+    "hint": "总开关；各工具还可单独关闭。"
+  },
+  "search_memory_enabled": {
+    "type": "bool",
+    "default": true,
+    "description": "search_memory 工具",
+    "hint": "仅操作当前入口。save/correct 请求学习原始对话；图谱工具为人物查询。"
+  },
+  "save_memory_enabled": {
+    "type": "bool",
+    "default": true,
+    "description": "save_memory 工具",
+    "hint": "仅操作当前入口。save/correct 请求学习原始对话；图谱工具为人物查询。"
+  },
+  "correct_memory_enabled": {
+    "type": "bool",
+    "default": true,
+    "description": "correct_memory 工具",
+    "hint": "仅操作当前入口。save/correct 请求学习原始对话；图谱工具为人物查询。"
+  },
+  "get_profile_enabled": {
+    "type": "bool",
+    "default": true,
+    "description": "get_profile 工具",
+    "hint": "仅操作当前入口。save/correct 请求学习原始对话；图谱工具为人物查询。"
+  },
+  "search_knowledge_graph_enabled": {
+    "type": "bool",
+    "default": true,
+    "description": "search_knowledge_graph 工具",
+    "hint": "仅操作当前入口。save/correct 请求学习原始对话；图谱工具为人物查询。"
+  },
+  "add_follow_up_enabled": {
+    "type": "bool",
+    "default": true,
+    "description": "add_follow_up 工具",
+    "hint": "仅操作当前入口。save/correct 请求学习原始对话；图谱工具为人物查询。"
+  },
+  "end_follow_up_enabled": {
+    "type": "bool",
+    "default": true,
+    "description": "end_follow_up 工具",
+    "hint": "仅操作当前入口。save/correct 请求学习原始对话；图谱工具为人物查询。"
+  },
+  "tool_timeout": {
+    "type": "float",
+    "default": 8.0,
+    "description": "指令与工具总预算（秒）",
+    "hint": "超时不宣称修改成功；目标冲突需重新查询。"
+  },
+  "inject_memory": {
+    "type": "bool",
+    "default": true,
+    "description": "注入 Iris 材料",
+    "hint": "关闭后仍可接收消息；不接管 contexts。"
+  },
+  "force_non_streaming": {
+    "type": "bool",
+    "default": true,
+    "description": "覆盖为非流式回复",
+    "hint": "默认开启以便确认发送后回流；原生流式发送无法保证捕获。"
+  },
+  "assume_injected_used": {
+    "type": "bool",
+    "default": false,
+    "description": "近似使用反馈（谨慎开启）",
+    "hint": "默认关闭。开启后只对成功 LLM 回复中完整注入的 relevant 记忆反馈，可能过度强化。"
+  },
+  "reminders_enabled": {
+    "type": "bool",
+    "default": true,
+    "description": "拉取 Iris 提醒",
+    "hint": "提醒与游标持久保存在插件数据目录。"
+  },
+  "reminder_interval": {
+    "type": "float",
+    "default": 30.0,
+    "description": "提醒轮询间隔（秒）",
+    "hint": "每次最多拉取 30 条。"
+  },
+  "reminder_mode": {
+    "type": "string",
+    "default": "context",
+    "description": "提醒方式",
+    "hint": "context：作为当前入口回复材料；active：发往显式配置的固定会话。",
+    "options": [
+      "context",
+      "active"
+    ]
+  },
+  "reminder_target": {
+    "type": "string",
+    "default": "",
+    "description": "主动提醒目标会话",
+    "hint": "仅 active 使用，必须填写完整 AstrBot unified_msg_origin；不猜收件人。"
+  },
+  "reminder_entry_id": {
+    "type": "string",
+    "default": "",
+    "description": "提醒绑定 Iris 入口",
+    "hint": "active 必填；context 可用于限定入口。通知本身不携带可用路由。"
+  }
+}

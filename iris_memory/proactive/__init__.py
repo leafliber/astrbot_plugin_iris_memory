@@ -1,0 +1,16 @@
+"""PL-2 extension boundary. PL-1 contains no autonomous reply policy or scheduler."""
+
+from typing import Any, Protocol
+
+
+class ProactiveHooks(Protocol):
+    async def start(self) -> None: ...
+    async def on_message(self, event: Any) -> None: ...
+    async def before_llm(self, event: Any, request: Any) -> None: ...
+    async def after_sent(self, event: Any) -> None: ...
+    async def close(self) -> None: ...
+
+
+def create_proactive(plugin: Any) -> ProactiveHooks | None:
+    """PL-2 supplies its factory here; bridge/service/context are available on plugin."""
+    return None

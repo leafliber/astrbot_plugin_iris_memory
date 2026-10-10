@@ -1,0 +1,7 @@
+name: astrbot_plugin_iris_memory
+display_name: Iris Memory
+desc: 基于本机 Iris 服务的上下文、长期记忆、人物要点、目标和提醒。
+version: 4.0.0-dev
+author: Leafiber
+repo: https://github.com/leafliber/astrbot_plugin_iris_memory
+astrbot_version: ">=4.28.2,<5"
