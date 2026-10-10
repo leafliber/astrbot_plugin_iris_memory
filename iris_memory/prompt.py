@@ -91,6 +91,11 @@ def render(prepared: dict[str, Any], reminders: list[dict[str, Any]], config: Co
         "persona": project(
             prepared.get("persona") or {}, ("content", "version", "generated_at", "needs_update")
         ),
+        "entry_profile": project(
+            prepared["entry_profile"], ("text", "version", "generated_at", "possibly_stale")
+        )
+        if isinstance(prepared.get("entry_profile"), dict)
+        else None,
         "memories": [memory_material(m) for m in prepared.get("memories", [])],
         "recent_messages": [
             project(
@@ -146,6 +151,10 @@ def render(prepared: dict[str, Any], reminders: list[dict[str, Any]], config: Co
     included: dict[str, Any] = {}
     for key in used:
         item = data[key]
+        if key == "entry_profile" and item is None:
+            # Optional host extension: old cores / ungenerated profiles render empty.
+            included[key] = None
+            continue
         if isinstance(item, list):
             kept: list[Any] = []
             candidates = list(reversed(item)) if key == "recent_messages" else item

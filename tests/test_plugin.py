@@ -11,31 +11,6 @@ from tests.conftest import Context, HostEvent, Result
 from tests.test_bridge import component
 
 
-@pytest.fixture
-async def plugin_factory(plugin_module, fake_iris):
-    module, logs = plugin_module
-    plugins = []
-
-    async def create(**config):
-        plugin = module.IrisMemoryPlugin(
-            Context(),
-            {
-                "base_url": fake_iris.url,
-                "token": "iris_test_token",
-                "reminders_enabled": False,
-                **config,
-            },
-        )
-        await plugin.initialize()
-        plugins.append(plugin)
-        return plugin
-
-    yield create
-    for plugin in plugins:
-        await plugin.terminate()
-    assert "iris_test_token" not in str(logs)
-
-
 async def command(plugin, action):
     event = HostEvent(message_id="command-" + action)
     event.messages = [component("plain", text="/iris_mem " + action)]
@@ -211,7 +186,12 @@ async def test_http_active_reminder_is_not_goal_completion(plugin_factory, fake_
         reminder_mode="active",
         reminder_target="bot1:FriendMessage:u1",
         reminder_entry_id="astrbot:bot1:private:u1",
+        proactive_quiet_start="00:00",
+        proactive_quiet_end="00:00",
     )
+    event = HostEvent(group="")
+    await plugin.receive(event)
+    plugin.proactive.update(event.unified_msg_origin, {"enabled": True})
     fake_iris.notices = [
         {"id": 1, "kind": "goal_reminder", "goal_id": 5, "content": "喝水"},
         {"id": 2, "kind": "goal_dedup_result"},
@@ -223,7 +203,7 @@ async def test_http_active_reminder_is_not_goal_completion(plugin_factory, fake_
     assert plugin.bridge.inbox.count() == 1
     assert plugin.bridge.inbox.pending()[0]["id"] == 3
     assert not any(r[0] == "PATCH" for r in fake_iris.requests)
-    assert fake_iris.messages["astrbot:bot1:private:u1"][0]["kind"] == "self_output"
+    assert fake_iris.messages["astrbot:bot1:private:u1"][-1]["kind"] == "self_output"
 
 
 async def test_pure_mention_standard_pipeline(plugin_factory):
