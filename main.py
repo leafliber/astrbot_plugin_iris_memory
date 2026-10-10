@@ -35,6 +35,7 @@ class IrisMemoryPlugin(Star):
         self.proactive = None
         self.warnings = set()
         self._page_route = f"/{PLUGIN_NAME}/status"
+        self._proactive_route = f"/{PLUGIN_NAME}/proactive"
         try:
             self.settings = Config.from_mapping(config)
             if self.settings.enabled and self.settings.token:
@@ -61,9 +62,15 @@ class IrisMemoryPlugin(Star):
         except Exception:
             logger.warning("Iris: invalid_configuration")
         context.register_web_api(self._page_route, self.page_status, ["GET"], "Iris 连接与状态")
+        context.register_web_api(
+            self._proactive_route, self.page_proactive, ["POST"], "Iris 主动回复设置"
+        )
         self.check_host_config()
-        # PL-2 owns only proactive policy / scheduling; it reuses this bridge.
-        self.proactive = create_proactive(self)
+        # Proactive owns only proactive policy / scheduling; it reuses this bridge.
+        try:
+            self.proactive = create_proactive(self)
+        except Exception:
+            logger.warning("Iris: proactive_initialization_failed")
 
     def check_host_config(self, event=None) -> None:
         try:
@@ -92,6 +99,10 @@ class IrisMemoryPlugin(Star):
         return "".join("\n提示：" + WARNINGS[code] for code in sorted(self.warnings))
 
     async def _send_active(self, origin: str, text: str) -> bool:
+        # The bridge owns reminder consumption/backflow; policy owns permission to send.
+        return bool(self.proactive and await self.proactive.send_reminder(origin, text))
+
+    async def _send_to_session(self, origin: str, text: str) -> bool:
         return await self.context.send_message(origin, MessageChain().message(text))
 
     async def initialize(self) -> None:
@@ -118,7 +129,7 @@ class IrisMemoryPlugin(Star):
         if tools is not None:
             # Avoid mutating a ToolSet shared by other requests or plugins.
             req.func_tool = copy.copy(tools)
-            for name in TOOL_NAMES:
+            for name in (*TOOL_NAMES, "set_cooldown"):
                 if (
                     not self.service
                     or not self.settings.tools_enabled
@@ -153,10 +164,48 @@ class IrisMemoryPlugin(Star):
     async def iris_mem(self, event: AstrMessageEvent):
         yield event.plain_result(await run_command(self, event))
 
+    @filter.permission_type(filter.PermissionType.ADMIN)
+    @filter.command("iris_reply")
+    async def iris_reply(self, event: AstrMessageEvent):
+        if not event.is_admin():
+            yield event.plain_result("仅 AstrBot 管理员可以管理主动回复。")
+            return
+        if not self.proactive:
+            yield event.plain_result("Iris 未连接，请检查插件配置及本机服务。")
+            return
+        yield event.plain_result(await self.proactive.command(event))
+
+    @filter.llm_tool(name="set_cooldown")
+    async def set_cooldown(self, event: AstrMessageEvent, minutes: int = 5) -> str:
+        """管理员要求暂时停止当前会话的主动回复时设置冷却，不会开启主动回复。
+
+        Args:
+            minutes(number): 冷却整数分钟，1—120，默认 5。
+        """
+        return await self._tool("set_cooldown", event, minutes=minutes)
+
     async def _tool(self, name, event, **kwargs) -> str:
+        if name == "set_cooldown":
+            if (
+                not self.settings
+                or not self.settings.tools_enabled
+                or not self.settings.set_cooldown_enabled
+            ):
+                return "这个 Iris 工具已关闭。"
+            if not self.proactive:
+                return "Iris 未连接，请检查插件配置及本机服务。"
+            return await self.proactive.set_cooldown(event, **kwargs)
         if not self.service:
             return "Iris 未连接，请检查插件配置及本机服务。"
-        return await self.service.tool(name, event, **kwargs)
+        result = await self.service.tool(name, event, **kwargs)
+        if (
+            self.proactive
+            and name in {"add_follow_up", "end_follow_up"}
+            and self.settings.tools_enabled
+            and getattr(self.settings, name + "_enabled", False)
+        ):
+            self.proactive.invalidate_goals(event)
+        return result
 
     @filter.llm_tool(name="search_memory")
     async def search_memory(
@@ -264,6 +313,7 @@ class IrisMemoryPlugin(Star):
             if settings
             else {},
             "entries": [],
+            "proactive": self.proactive.snapshot() if self.proactive else None,
         }
         if self.bridge:
             data["entries"] = [
@@ -279,6 +329,24 @@ class IrisMemoryPlugin(Star):
                 data["connection"] = "unavailable"
         return json_response(data, headers={"Cache-Control": "no-store"})
 
+    async def page_proactive(self):
+        if not request.username:
+            return error_response("请先登录 AstrBot。", status_code=401)
+        if not self.proactive:
+            return error_response("Iris 未连接。", status_code=503)
+        body = await request.json()
+        if (
+            not isinstance(body, dict)
+            or set(body) != {"origin", "changes"}
+            or not isinstance(body["origin"], str)
+        ):
+            return error_response("请提供会话和设置。", status_code=400)
+        try:
+            data = self.proactive.update(body["origin"], body["changes"])
+        except (ValueError, TypeError):
+            return error_response("会话不存在或设置无效。", status_code=400)
+        return json_response(data, headers={"Cache-Control": "no-store"})
+
     async def terminate(self) -> None:
         try:
             if self.proactive:
@@ -291,5 +359,8 @@ class IrisMemoryPlugin(Star):
             registered[:] = [
                 api
                 for api in registered
-                if not (api[0] == self._page_route and api[1] == self.page_status)
+                if not (
+                    (api[0] == self._page_route and api[1] == self.page_status)
+                    or (api[0] == self._proactive_route and api[1] == self.page_proactive)
+                )
             ]

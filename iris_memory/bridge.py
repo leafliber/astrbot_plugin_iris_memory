@@ -31,6 +31,7 @@ class Bridge:
         log: Callable[[str], None],
         send_active: Callable[[str, str], Awaitable[bool]],
     ) -> None:
+        self.data_dir = data_dir
         self.config, self.client, self.log, self.send_active = config, client, log, send_active
         # Separate checkpoints when endpoint/token scope changes. Only a one-way
         # digest is persisted; credentials never enter the inbox or logs.
@@ -134,8 +135,7 @@ class Bridge:
             try:
                 if text and result is not False and not self.closed:
                     sequence += 1
-                    message = output_message(entry, text, f"{event_key}:{sequence}")
-                    self.enqueue(lambda: self.client.receive_message(entry.id, message))
+                    self.submit_output(entry, text, f"{event_key}:{sequence}")
                     event.set_extra("iris_confirmed_send", True)
                     llm_result = event.get_result()
                     if llm_result is not None and llm_result.is_llm_result():
@@ -146,6 +146,21 @@ class Bridge:
 
         event.send = send  # per-event only; no adapter/class/global monkey patch
         event.set_extra("iris_observing_send", True)
+
+    def submit_output(self, entry: Entry, text: str, key: str) -> asyncio.Future[bool]:
+        """Call only after a successful send; share dedupe and queue semantics."""
+        message = output_message(entry, text, key)
+        return self.enqueue(lambda: self.client.receive_message(entry.id, message))
+
+    def prepare_options(self) -> dict:
+        return {
+            "judge": self.config.judge,
+            "memory_limit": self.config.memory_limit,
+            "token_budget": self.config.token_budget,
+            "goal_limit": self.config.goal_limit,
+            "recent_limit": self.config.recent_limit,
+            "judge_budget_seconds": self.config.judge_budget_seconds,
+        }
 
     async def prepare(self, event: Any, request: Any) -> None:
         if (
@@ -166,14 +181,7 @@ class Bridge:
                     self.record("prepare_without_ingest")
                     return
                 entry = event.get_extra("iris_entry")
-                options = {
-                    "judge": self.config.judge,
-                    "memory_limit": self.config.memory_limit,
-                    "token_budget": self.config.token_budget,
-                    "goal_limit": self.config.goal_limit,
-                    "recent_limit": self.config.recent_limit,
-                    "judge_budget_seconds": self.config.judge_budget_seconds,
-                }
+                options = self.prepare_options()
                 # Optional host extensions are explicit, per request; no persistent
                 # known-ID cache because AstrBot may evict or replace its context.
                 for key in ("participants", "known_memory_ids", "text"):
@@ -255,12 +263,7 @@ class Bridge:
                         "private" if parts[1] == "FriendMessage" else "group",
                         self.config.reminder_target,
                     )
-                    message = output_message(entry, text, f"notification:{notice['id']}")
-                    self.enqueue(
-                        lambda entry=entry, message=message: self.client.receive_message(
-                            entry.id, message
-                        )
-                    )
+                    self.submit_output(entry, text, f"notification:{notice['id']}")
 
     async def _reminders(self) -> None:
         while True:

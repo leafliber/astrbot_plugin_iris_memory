@@ -40,7 +40,7 @@
     "type": "string",
     "default": "",
     "description": "注入模板",
-    "hint": "留空使用内置模板；支持 $persona $memories $recent_messages $state $goals $hints $reminders。"
+    "hint": "留空使用内置模板；支持 $persona $memories $recent_messages $state $goals $hints $reminders。 可选入口画像 $entry_profile 缺失或 null 时为空。"
   },
   "max_prompt_chars": {
     "type": "int",
@@ -242,12 +242,158 @@
     "type": "string",
     "default": "",
     "description": "主动提醒目标会话",
-    "hint": "仅 active 使用，必须填写完整 AstrBot unified_msg_origin；不猜收件人。"
+    "hint": "仅 active 使用，必须填写完整 AstrBot unified_msg_origin；不猜收件人。 目标会话需已 /iris_reply enable，受主动回复总开关、静音和冷却限制。"
   },
   "reminder_entry_id": {
     "type": "string",
     "default": "",
     "description": "提醒绑定 Iris 入口",
     "hint": "active 必填；context 可用于限定入口。通知本身不携带可用路由。"
+  },
+  "proactive_enabled": {
+    "type": "bool",
+    "default": true,
+    "description": "允许主动回复",
+    "hint": "总开关；每个会话仍默认关闭，管理员用 /iris_reply enable 或 Pages 开启。关闭也停止 active 提醒。"
+  },
+  "proactive_provider_id": {
+    "type": "string",
+    "default": "",
+    "description": "主动决策 Provider",
+    "hint": "留空使用当前会话 Provider；一次调用同时决策和生成，不执行工具。"
+  },
+  "proactive_bot_aliases": {
+    "type": "list",
+    "default": [
+      "Iris",
+      "鸢尾"
+    ],
+    "description": "机器人别名",
+    "hint": "用于本地信号门控；点名、问句或 Iris 跟进目标相关消息才评估。"
+  },
+  "proactive_willingness": {
+    "type": "string",
+    "default": "medium",
+    "description": "默认主动回复意愿",
+    "hint": "low（仅点名／关注）、medium（加问句）、high（加轻量求助信号）；Pages 可按会话覆盖。",
+    "options": [
+      "low",
+      "medium",
+      "high"
+    ]
+  },
+  "proactive_cooldown_minutes": {
+    "type": "int",
+    "default": 5,
+    "description": "发言后冷却（分钟）",
+    "hint": "1—120；普通回复成功也阻止紧接着插话，模型建议只能延长。"
+  },
+  "proactive_quiet_start": {
+    "type": "string",
+    "default": "01:00",
+    "description": "默认静音开始",
+    "hint": "本机时区 HH:MM；支持跨午夜；开始等于结束时不静音，Pages 可按会话设置。"
+  },
+  "proactive_quiet_end": {
+    "type": "string",
+    "default": "07:00",
+    "description": "默认静音结束",
+    "hint": "本机时区 HH:MM，结束后重新随机延后，不立即集中发起。"
+  },
+  "proactive_daily_calls": {
+    "type": "int",
+    "default": 20,
+    "description": "每会话每日决策调用上限",
+    "hint": "0—1000；本机日期换日，失败和 watch 都计数；管理员 reset 可清零。"
+  },
+  "proactive_min_interval_seconds": {
+    "type": "int",
+    "default": 30,
+    "description": "决策最小间隔（秒）",
+    "hint": "1—3600；不发言、解析失败和超时也受此限制。"
+  },
+  "proactive_decision_timeout": {
+    "type": "float",
+    "default": 60.0,
+    "description": "决策／主动发送总超时（秒）",
+    "hint": "Provider 单次调用和平台单次发送各自的预算；异常不记录原文。"
+  },
+  "proactive_max_message_chars": {
+    "type": "int",
+    "default": 300,
+    "description": "主动发言最大字符数",
+    "hint": "50—2000；过长的模型决策不发送。"
+  },
+  "proactive_watch_enabled": {
+    "type": "bool",
+    "default": false,
+    "description": "允许定期观察",
+    "hint": "开启后，对至少 10 字的非触发消息低频调用 watch，只更新现有目标的关注锚点，不发言。"
+  },
+  "proactive_watch_interval_seconds": {
+    "type": "int",
+    "default": 600,
+    "description": "观察最小间隔（秒）",
+    "hint": "60—86400；也受冷却、静音、每日调用限额限制。"
+  },
+  "proactive_initiate_enabled": {
+    "type": "bool",
+    "default": false,
+    "description": "允许群聊静默后主动发起",
+    "hint": "另需会话 enable；手动 initiate 只跳过静默与概率，保留静音、冷却和限额。"
+  },
+  "proactive_private_care_enabled": {
+    "type": "bool",
+    "default": false,
+    "description": "允许私聊主动关心",
+    "hint": "与群发起独立开关，另需私聊会话 enable；收到私聊仍由 AstrBot 正常回复。"
+  },
+  "proactive_check_interval_seconds": {
+    "type": "int",
+    "default": 300,
+    "description": "主动发起概率检查间隔（秒）",
+    "hint": "1—3600；只有静默超过底线的会话才进行本地概率试验。"
+  },
+  "proactive_silence_minutes": {
+    "type": "int",
+    "default": 120,
+    "description": "最小静默底线（分钟）",
+    "hint": "1—1440；从最近真人消息或普通／主动回复计算。"
+  },
+  "proactive_initiate_probability": {
+    "type": "float",
+    "default": 0.2,
+    "description": "静默后每次检查预约概率",
+    "hint": "0—1；按意愿调整，通过后仍需随机等待与单次决策。"
+  },
+  "proactive_delay_min_minutes": {
+    "type": "int",
+    "default": 5,
+    "description": "随机预约最短延后（分钟）",
+    "hint": "1—120；不得大于最长延后。"
+  },
+  "proactive_delay_max_minutes": {
+    "type": "int",
+    "default": 30,
+    "description": "随机预约最长延后（分钟）",
+    "hint": "1—120；收到新消息取消预约；重启后等待首次消息。"
+  },
+  "proactive_initiate_limit": {
+    "type": "int",
+    "default": 2,
+    "description": "滚动 24 小时发起上限",
+    "hint": "0—20；按成功发出计数，两次发起均无人接话也停止，直到有人发言。"
+  },
+  "proactive_initiate_interval_minutes": {
+    "type": "int",
+    "default": 360,
+    "description": "两次成功发起最短间隔（分钟）",
+    "hint": "1—1440；跨零点不重置。"
+  },
+  "set_cooldown_enabled": {
+    "type": "bool",
+    "default": true,
+    "description": "set_cooldown 工具",
+    "hint": "仅允许管理员会话上下文调用，1—120 分钟，同时受 tools_enabled 控制。"
   }
 }

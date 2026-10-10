@@ -1,4 +1,4 @@
-"""PL-2 extension boundary. PL-1 contains no autonomous reply policy or scheduler."""
+"""Proactive policy boundary; construction is lazy to keep configuration imports pure."""
 
 from typing import Any, Protocol
 
@@ -12,5 +12,8 @@ class ProactiveHooks(Protocol):
 
 
 def create_proactive(plugin: Any) -> ProactiveHooks | None:
-    """PL-2 supplies its factory here; bridge/service/context are available on plugin."""
-    return None
+    if not plugin.bridge or not plugin.settings:
+        return None
+    from .engine import Proactive
+
+    return Proactive(plugin)

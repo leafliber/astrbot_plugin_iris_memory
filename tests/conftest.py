@@ -32,6 +32,9 @@ class HostEvent(Event):
         super().__init__(**kwargs)
         self.result = Result("回答", llm=True)
 
+    def is_admin(self):
+        return getattr(self, "admin", True)
+
     def get_self_id(self):
         return "bot-self"
 
@@ -87,6 +90,7 @@ def plugin_module(monkeypatch, tmp_path):
 
     class Filter:
         EventMessageType = SimpleNamespace(ALL="all")
+        PermissionType = SimpleNamespace(ADMIN="admin")
 
         def __getattr__(self, name):
             def decorator(*args, **kwargs):
@@ -291,3 +295,28 @@ def fake_iris():
     server.shutdown()
     server.server_close()
     thread.join(timeout=2)
+
+
+@pytest.fixture
+async def plugin_factory(plugin_module, fake_iris):
+    module, logs = plugin_module
+    plugins = []
+
+    async def create(**config):
+        plugin = module.IrisMemoryPlugin(
+            Context(),
+            {
+                "base_url": fake_iris.url,
+                "token": "iris_test_token",
+                "reminders_enabled": False,
+                **config,
+            },
+        )
+        await plugin.initialize()
+        plugins.append(plugin)
+        return plugin
+
+    yield create
+    for plugin in plugins:
+        await plugin.terminate()
+    assert "iris_test_token" not in str(logs)
