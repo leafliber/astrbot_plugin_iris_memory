@@ -218,4 +218,8 @@ uv run --locked ruff format --check .
 
 其余测试涵盖同步／异步客户端、AstrBot 替身、假 HTTP 服务、接收／注入／回流／反馈、提醒重启、图片限额、工具、指令、平台映射和小工具；假 Provider 还覆盖全部主动动机、门控、限额、静音／休眠恢复、并发复查、回流、权限、Pages 与设置持久化。测试通过不等于真实平台或模型学习质量已经验收。
 
-来源和许可状态见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。连接器原始约束快照见 [CONNECTOR_DESIGN.md](docs/CONNECTOR_DESIGN.md)；该文件保留为上游设计快照，本仓库新增主动策略与配置差异以本 README 和实现为准。
+## 许可
+
+本插件以 **AGPL-3.0-only** 分发，完整许可见 [LICENSE](LICENSE)。vendored 的 iris-connectors 代码同样由作者以 AGPL-3.0-only 授权，来源、固定提交与改动说明见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+
+连接器原始约束快照见 [CONNECTOR_DESIGN.md](docs/CONNECTOR_DESIGN.md)；该文件保留为上游设计快照，本仓库新增主动策略与配置差异以本 README 和实现为准。

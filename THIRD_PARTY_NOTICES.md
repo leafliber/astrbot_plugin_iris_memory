@@ -10,10 +10,10 @@
 
 本次客户端除格式整理外，仅加强入口 ID 校验及 search 入口参数校验，以适配 core 上线前约束；Python 3.12 类型别名语法保留。桥接增加 prepare 预算字段、成功后的 contexts 接管、有限的入口状态映射、独立消息提交预算与主动提醒文本清理；提示保留生命周期、白名单来源元数据与供目标工具使用的目标编号。配置改为只读 AstrBot 配置令牌，增加工具／小工具开关；QQ 官方身份空间和图片组件属性兜底作适配。其余新增接线、服务、命令、状态页和小工具均为本次实现。
 
-该固定上游快照没有 LICENSE、NOTICE 文件，Python 包元数据也未声明许可证。**不能据此推断上游已按 AGPL、MIT 或其他许可证授权，不能宣称许可兼容已被证明。** 本次按仓库所有者明确要求集成，保留来源与此许可缺口说明；公开再分发前需由权利人确认上游授权或补充兼容许可证，本仓库不替上游擅自重新许可。
+AirObject/iris-connectors 的全部代码已由作者以 **AGPL-3.0-only** 授权；授权提交为 [`a3784d8`](https://github.com/AirObject/iris-connectors/commit/a3784d818e73da93bfada1f4ef348cfce486aa0b)，其中加入 LICENSE，并在 Python／TypeScript 包元数据中声明许可证。本插件 vendored 代码仍固定来自 `a532e2b`，按上述作者授权以 AGPL-3.0-only 分发，与本插件许可一致。许可全文见根目录 [LICENSE](LICENSE)。
 
 ## v3 与 AstrBot
 
-插件 v3 README 声明 AGPL-3.0；本次新编写的插件实现沿用该声明，不将其自动延伸为上游 vendored 代码的许可结论。v3 仅作为功能与行为参考，未整体搬运其实现。AstrBot 4.28.2 声明 AGPL-3.0-or-later，只用于 API 核对与运行宿主，没有 vendoring AstrBot 源码。
+本插件以 **AGPL-3.0-only** 分发。插件 v3 README 声明 AGPL-3.0；v3 仅作为功能与行为参考，未整体搬运其实现。AstrBot 4.28.2 声明 AGPL-3.0-or-later，只用于 API 核对与运行宿主，没有 vendoring AstrBot 源码。
 
-运行依赖 httpx 按其自身许可证分发。第三方原有版权与许可声明如后续补齐，升级 vendor 时应同时保留并复核。
+运行依赖 httpx 按其自身许可证分发。升级 vendor 时应同时保留并复核第三方原有版权与许可声明。
