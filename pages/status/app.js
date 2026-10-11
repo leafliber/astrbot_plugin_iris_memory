@@ -6,13 +6,16 @@ async function refresh() {
   try {
     const data = await bridge.apiGet('status');
     el('connection').replaceChildren();
-    for (const [name, value] of [['Iris 服务', label[data.connection] || '未知'], ['令牌', data.token_configured ? '已配置' : '未配置']]) {
+    for (const [name, value] of [['Iris 服务', label[data.connection] || '未知'], ['令牌', data.token_configured ? '已配置' : '未配置'], ['Docker 主机名', data.allow_container_host ? '已允许' : '未允许']]) {
       const dt = document.createElement('dt'); dt.textContent = name;
       const dd = document.createElement('dd'); dd.textContent = value;
       el('connection').append(dt, dd);
     }
     el('management').textContent = data.management_url;
     el('management').href = data.management_url;
+    el('management-hint').textContent = data.allow_container_host ?
+      'Docker 服务名通常只能在容器网络解析；请用宿主机映射端口打开管理页，例如在同机浏览器访问 http://127.0.0.1:8080。' :
+      '在运行 Iris 的电脑浏览器中打开上面的地址。';
     el('health').textContent = data.health ? JSON.stringify(data.health, null, 2) : '尚未取得服务状态';
     el('rules').textContent = JSON.stringify(data.entry_rules, null, 2);
     el('warnings').replaceChildren(...data.warnings.map((text) => { const li = document.createElement('li'); li.textContent = text; return li; }));

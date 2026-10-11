@@ -1,7 +1,9 @@
 import base64
 import json
+import socket
 from pathlib import Path
 from types import SimpleNamespace
+from urllib.parse import urlsplit
 
 import pytest
 
@@ -172,6 +174,8 @@ async def test_commands_and_redacted_authenticated_page(plugin_factory, fake_iri
     page = await plugin.page_status()
     assert page["connection"] == "connected" and page["token_configured"] is True
     assert page["entries"] and page["health"]["usage"]["today"]["tokens"] == 42
+    assert page["allow_container_host"] is False
+    assert "container_host_enabled" not in plugin.warnings
     assert "iris_test_token" not in json.dumps(page)
     plugin.context.config["provider_ltm_settings"]["group_message_max_cnt"] = 12
     plugin.check_host_config()
@@ -245,6 +249,7 @@ def test_schema_covers_config_and_minimum_version():
     assert set(schema) == set(Config.__dataclass_fields__)
     assert schema["token"]["secret"] is True and schema["token"]["default"] == ""
     assert schema["assume_injected_used"]["default"] is False
+    assert schema["allow_container_host"]["default"] is False
     assert 'astrbot_version: ">=4.28.2,<5"' in (root / "metadata.yaml").read_text()
 
 
@@ -288,3 +293,89 @@ async def test_proactive_lifecycle_hooks_and_close_order(plugin_module, fake_iri
     await plugin.terminate()
     assert calls == ["start", "message", "prepare", "after", "close"]
     assert plugin.bridge.closed
+
+
+async def test_container_http_receive_prepare_backflow_and_warnings(
+    plugin_factory, plugin_module, fake_iris, monkeypatch
+):
+    original_resolver = socket.getaddrinfo
+
+    def resolve(host, *args, **kwargs):
+        if host in ("iris", b"iris"):
+            host = "127.0.0.1"
+        return original_resolver(host, *args, **kwargs)
+
+    monkeypatch.setattr(socket, "getaddrinfo", resolve)
+    url = f"http://iris:{urlsplit(fake_iris.url).port}"
+    plugin = await plugin_factory(base_url=url, allow_container_host=True)
+    event = HostEvent()
+    await plugin.receive(event)
+    req = SimpleNamespace(system_prompt="原提示", contexts=[])
+    await plugin.before_llm(event, req)
+    assert "本入口近期消息" in req.system_prompt
+    await event.send(Result("已回复", llm=True))
+    await plugin.bridge.queue.join()
+    assert fake_iris.messages["astrbot:bot1:group:g1"][-1]["kind"] == "self_output"
+    page = await plugin.page_status()
+    assert page["connection"] == "connected" and page["allow_container_host"] is True
+    assert page["management_url"] == url and page["token_configured"] is True
+    warning = "请求在 Docker 网络中以明文传输令牌，只在可信网络使用"
+    assert warning in "".join(page["warnings"])
+    assert warning in await command(plugin, "status")
+    plugin.check_host_config()
+    logs = plugin_module[1]
+    assert sum(warning in line for line in logs) == 1
+    assert "iris_test_token" not in json.dumps(page) + str(logs)
+
+
+async def test_container_hostname_rejected_before_client_creation(plugin_module, monkeypatch):
+    module, logs = plugin_module
+
+    def unexpected_client(*args, **kwargs):
+        pytest.fail("Disabled container mode must not construct an HTTP client")
+
+    monkeypatch.setattr(module, "AsyncIrisClient", unexpected_client)
+    plugin = module.IrisMemoryPlugin(
+        Context(), {"base_url": "http://iris:8080", "token": "iris_test_token"}
+    )
+    try:
+        assert plugin.bridge is None
+        assert "Iris: invalid_configuration" in logs
+        assert (await plugin.page_status())["connection"] == "disabled"
+        assert "iris_test_token" not in str(logs)
+    finally:
+        await plugin.terminate()
+
+
+@pytest.mark.parametrize("url", ["http://iris:8080", "https://iris:8443"])
+async def test_container_warning_without_token_and_unavailable_host_settings(
+    url, plugin_module, monkeypatch
+):
+    module, logs = plugin_module
+    context = Context()
+
+    def unavailable_config(**kwargs):
+        raise RuntimeError("unavailable")
+
+    monkeypatch.setattr(context, "get_config", unavailable_config)
+    plugin = module.IrisMemoryPlugin(context, {"base_url": url, "allow_container_host": True})
+    try:
+        assert plugin.bridge is None
+        assert "container_host_enabled" in plugin.warnings
+        assert "host_settings_unavailable" in plugin.warnings
+        page = await plugin.page_status()
+        assert page["allow_container_host"] is True and not page["token_configured"]
+        assert any("明文传输令牌" in warning for warning in page["warnings"])
+        assert any("明文传输令牌" in line for line in logs)
+    finally:
+        await plugin.terminate()
+
+
+async def test_container_origin_does_not_follow_redirects(plugin_factory, respx_mock):
+    redirect = respx_mock.get("http://iris:8080/api/v1/status").respond(
+        302, headers={"Location": "http://other-iris:8080/api/v1/status"}
+    )
+    other = respx_mock.get("http://other-iris:8080/api/v1/status").respond(200, json={})
+    plugin = await plugin_factory(base_url="http://iris:8080", allow_container_host=True)
+    assert (await plugin.page_status())["connection"] == "unavailable"
+    assert redirect.call_count == 1 and other.call_count == 0

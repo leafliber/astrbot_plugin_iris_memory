@@ -1,7 +1,9 @@
 # 更新日志
 
-## 4.0.0-dev — 2026-10-10
+## 4.0.0-dev — 2026-10-11
 
+- 增加默认关闭的 `allow_container_host`，支持同一可信 Docker 网络的单一主机名 HTTP(S) origin；严格校验地址，日志与 Pages 提示 HTTP 明文令牌传输。
+- README 测试版统一安装 `dev.4`，补充 Iris 0.0.1 镜像的宿主机／容器两种部署、首次设置码与管理页令牌配置，更新入口画像、批量操作和定时备份状态。
 - 清空 dev.4 旧实现并保留 Git 历史，基于 iris-connectors `a532e2b` 的 Python 客户端与 AstrBot 接线重建。
 - 客户端 vendored；插件名保持 `astrbot_plugin_iris_memory`，要求 AstrBot >=4.28.2,<5、Python >=3.12。
 - 接入消息接收、prepare 六分区注入、成功发送后的输出回流、可选使用反馈、持久提醒收件箱及图片上传。
