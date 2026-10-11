@@ -58,7 +58,7 @@
     "type": "float",
     "default": 8.0,
     "description": "回复准备总预算（秒）",
-    "hint": "包括等待当前消息接收和 prepare；超时沿用 AstrBot 原提示。"
+    "hint": "包括排队、消息接收和 prepare（召回判断也包含在内）；图片预算 2 秒、请求预算 1 秒、召回预算 5 秒时建议 11 秒，详见 README 时间预算。超时沿用 AstrBot 原提示。"
   },
   "request_timeout": {
     "type": "float",
@@ -401,6 +401,30 @@
     "default": true,
     "description": "set_cooldown 工具",
     "hint": "仅允许管理员会话上下文调用，1—120 分钟，同时受 tools_enabled 控制。"
+  },
+  "diagnostics_enabled": {
+    "type": "bool",
+    "default": true,
+    "description": "本地诊断采集",
+    "hint": "仅内存，不保存正文、令牌、异常原文；重启清空。关闭后日志、检索与门控诊断均不采集。"
+  },
+  "diagnostics_log_limit": {
+    "type": "int",
+    "default": 200,
+    "description": "环形告警／故障日志条数",
+    "hint": "1–5000；仅插件固定事件码，不读取 AstrBot 日志文件。"
+  },
+  "diagnostics_prepare_limit": {
+    "type": "int",
+    "default": 50,
+    "description": "最近 prepare 条数",
+    "hint": "1–500；分区计数、请求耗时、召回判断状态与入口画像版本，无正文。"
+  },
+  "diagnostics_session_limit": {
+    "type": "int",
+    "default": 200,
+    "description": "主动诊断会话数",
+    "hint": "1–1000；LRU 淘汰。本次进程的门控、调用与结果计数，管理员 reset 同步清除本会话。"
   },
   "input_cleanup_enabled": {
     "type": "bool",

@@ -21,7 +21,7 @@ async function refresh() {
     el('warnings').replaceChildren(...data.warnings.map((text) => { const li = document.createElement('li'); li.textContent = text; return li; }));
     el('entries').replaceChildren(...data.entries.map((entry) => {
       const tr = document.createElement('tr');
-      for (const value of [entry.origin, entry.entry_id, entry.kind]) { const td = document.createElement('td'); td.textContent = value; tr.append(td); }
+      for (const value of [entry.origin, entry.entry_id, entry.kind, `${entry.entry_ref || "—"} / ${entry.session_ref || "—"}`]) { const td = document.createElement('td'); td.textContent = value; tr.append(td); }
       return tr;
     }));
     renderProactive(data.proactive);

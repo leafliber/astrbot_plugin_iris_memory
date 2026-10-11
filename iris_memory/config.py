@@ -100,6 +100,10 @@ class Config:
     pure_at_reply: bool = False
     error_friendly: bool = True
     strip_markdown: bool = True
+    diagnostics_enabled: bool = True
+    diagnostics_log_limit: int = 200
+    diagnostics_prepare_limit: int = 50
+    diagnostics_session_limit: int = 200
     input_cleanup_enabled: bool = True
     input_cleanup_repeat_limit: int = 64
     tools_enabled: bool = True
@@ -179,6 +183,7 @@ class Config:
             "strip_markdown",
             "input_cleanup_enabled",
             "tools_enabled",
+            "diagnostics_enabled",
             "search_memory_enabled",
             "save_memory_enabled",
             "correct_memory_enabled",
@@ -220,6 +225,9 @@ class Config:
             ("proactive_initiate_limit", 0, 20),
             ("proactive_initiate_interval_minutes", 1, 1440),
             ("max_images", 1, 100),
+            ("diagnostics_log_limit", 1, 5000),
+            ("diagnostics_prepare_limit", 1, 500),
+            ("diagnostics_session_limit", 1, 1000),
             ("input_cleanup_repeat_limit", 16, 4096),
             ("image_hash_threshold", 0, 64),
             ("image_cache_ttl_hours", 1, 24),

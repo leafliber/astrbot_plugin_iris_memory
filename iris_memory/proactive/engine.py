@@ -161,6 +161,9 @@ class Proactive:
         ids = {g["id"] for g in goals}
         state.anchors = [a for a in state.anchors if a["goal_id"] in ids]
 
+    def note(self, state, stage, code) -> None:
+        self.bridge.diagnostics.proactive(state.origin, state.entry_id, stage, code)
+
     async def on_message(self, event) -> None:
         if self.closed or event.get_extra("iris_proactive_observed"):
             return
@@ -175,7 +178,9 @@ class Proactive:
         state.no_reply_streak = 0
         state.next_check = now + self.config.proactive_silence_minutes * 60
         self.store.save(state)
-        if self.blocked(state, now):
+        reason = self.blocked(state, now)
+        if reason:
+            self.note(state, "message", reason)
             return
         text = event.get_message_str().strip()
         # Explicit replies, private incoming messages and commands stay in AstrBot's pipeline.
@@ -186,10 +191,15 @@ class Proactive:
             or event.get_extra("provider_request")
             or text.startswith(("/", "iris_reply", "iris_mem"))
         ):
+            self.note(state, "message", "explicit_reply")
             return
         generation = state.generation
         await self.refresh_goals(state)
-        if generation != state.generation or self.blocked(state, self.clock()):
+        reason = self.blocked(state, self.clock())
+        if generation != state.generation or reason:
+            self.note(
+                state, "message", "new_activity" if generation != state.generation else reason
+            )
             return
         sender = str(event.get_sender_id())
         name = str(event.get_sender_name() or "")
@@ -207,6 +217,7 @@ class Proactive:
         motive = message_motive(
             self.config, state, text=text, named=named, matches=matches, now=now
         )
+        self.note(state, "message", motive or "no_signal")
         if motive:
             self.launch(
                 state,
@@ -271,19 +282,25 @@ class Proactive:
     async def decide(self, state, motive, signal=None, *, generation=None) -> str:
         lock = self.locks[state.origin]
         if lock.locked():
+            self.note(state, "decision_gate", "busy")
+            self.note(state, "outcome", "busy")
             return "busy"
         async with lock:
             task = asyncio.current_task()
             self.inflight.add(task)
+            result = "failed"
             try:
-                return await self._decide(state, motive, signal or {}, generation)
+                result = await self._decide(state, motive, signal or {}, generation)
+                return result
             except asyncio.CancelledError:
+                result = "cancelled"
                 state.outcome("cancelled")
                 raise
             except Exception:
                 self.bridge.record("proactive_decision_failed")
                 return state.outcome("failed")
             finally:
+                self.note(state, "outcome", result)
                 self.inflight.discard(task)
                 self.store.save(state)
 
@@ -291,6 +308,11 @@ class Proactive:
         now = self.clock()
         generation = state.generation if generation is None else generation
         reason = self.blocked(state, now, motive=motive)
+        self.note(
+            state,
+            "decision_gate",
+            reason or ("new_activity" if generation != state.generation else "accepted"),
+        )
         if reason or generation != state.generation:
             return state.outcome(reason or "new_activity")
         state.pending_at = 0
@@ -306,7 +328,9 @@ class Proactive:
         async with asyncio.timeout(self.config.prepare_timeout):
             if receipt is None or not await asyncio.shield(receipt):
                 return state.outcome("input_unavailable")
-            prepared = await self.bridge.client.prepare(entry.id, self.bridge.prepare_options())
+            prepared = await self.bridge.prepare_material(
+                entry.id, self.bridge.prepare_options(), purpose="proactive"
+            )
         # Use the full connector projection even when the passive template is customized.
         material = render(prepared, [], replace(self.config, prompt_template=DEFAULT_TEMPLATE))
         prompt = encode(
@@ -331,6 +355,7 @@ class Proactive:
             return state.outcome(reason or "new_activity")
         state.last_decision = self.clock()
         state.reserve_call(motive)  # Failed / timed out / malformed calls count too.
+        self.note(state, "calls", motive)
         if motive == "watch":
             state.last_watch = self.clock()
         self.store.save(state)
@@ -386,6 +411,7 @@ class Proactive:
             self.bridge.enqueue(lambda: self.bridge.client.feedback(prepared["recall_id"], used))
         now = self.clock()
         state.sent(motive, now)
+        self.note(state, "sends", motive)
         state.cooldown_until = max(
             state.cooldown_until,
             now + max(self.config.proactive_cooldown_minutes, decision.cooldown_minutes) * 60,
@@ -398,15 +424,18 @@ class Proactive:
             state = self.sessions[origin]
             state.roll(now)
             if not state.enabled or not self.config.proactive_enabled:
+                self.note(state, "scheduler", "disabled")
                 continue
             crossed = crossed_quiet(state, state.checked_at, now)
             state.checked_at = now
             if muted(state, now):
+                self.note(state, "scheduler", "quiet_hours")
                 state.was_muted = True
                 state.pending_at = 0
                 self.store.save(state)
                 continue
             if state.was_muted or crossed:
+                self.note(state, "scheduler", "quiet_resume")
                 state.was_muted = False
                 state.pending_at = 0
                 state.next_check = (
@@ -424,25 +453,37 @@ class Proactive:
                 if state.kind == "private"
                 else self.config.proactive_initiate_enabled
             )
-            if not automatic or self.blocked(state, now, motive="initiate"):
+            reason = (
+                "automatic_disabled"
+                if not automatic
+                else self.blocked(state, now, motive="initiate")
+            )
+            if reason:
+                self.note(state, "scheduler", reason)
                 continue
             if (
                 now - max(state.last_human, state.last_bot)
                 < self.config.proactive_silence_minutes * 60
             ):
+                self.note(state, "scheduler", "not_silent")
                 continue
             if origin in self.running or self.locks[origin].locked():
+                self.note(state, "scheduler", "busy")
                 continue
             if state.pending_at:
+                self.note(state, "scheduler", "due" if now >= state.pending_at else "scheduled")
                 if now >= state.pending_at:
                     self.launch(state, "initiate")
                 continue
             if now < state.next_check:
+                self.note(state, "scheduler", "waiting")
                 continue
             state.next_check = now + self.config.proactive_check_interval_seconds
             factor = {"low": 0.5, "medium": 1.0, "high": 1.5}[state.willingness]
             probability = 1 - (1 - self.config.proactive_initiate_probability) ** factor
-            if self.rng.random() < probability:
+            reserved = self.rng.random() < probability
+            self.note(state, "scheduler", "reserved" if reserved else "probability")
+            if reserved:
                 state.pending_at = (
                     now
                     + self.rng.uniform(
@@ -464,23 +505,29 @@ class Proactive:
 
     async def send_reminder(self, origin, text) -> bool:
         state = self.sessions.get(origin)
-        if state is None or self.blocked(
-            state, self.clock(), check_calls=False, check_interval=False
-        ):
+        if state is None:
+            return False
+        reason = self.blocked(state, self.clock(), check_calls=False, check_interval=False)
+        if reason:
+            self.note(state, "reminder", reason)
             return False
         lock = self.locks[origin]
         if lock.locked():
+            self.note(state, "reminder", "busy")
             return False
         async with lock:
             accepted = await self.plugin._send_to_session(origin, text)
             if accepted is True:
                 now = self.clock()
                 state.sent("reminder", now)
+                self.note(state, "sends", "reminder")
+                self.note(state, "reminder", "sent")
                 state.cooldown_until = max(
                     state.cooldown_until, now + self.config.proactive_cooldown_minutes * 60
                 )
                 self.store.save(state)
                 return True
+        self.note(state, "reminder", "send_unconfirmed")
         return False
 
     def update(self, origin, changes) -> dict:
@@ -507,6 +554,7 @@ class Proactive:
         now = self.clock()
         if changes.get("reset"):
             state.reset(now)
+            self.bridge.diagnostics.reset_session(origin)
         for key, value in changes.items():
             if key == "cooldown_minutes":
                 state.cooldown_until = now + value * 60

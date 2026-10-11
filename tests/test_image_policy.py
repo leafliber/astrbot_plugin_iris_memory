@@ -161,7 +161,10 @@ async def test_bridge_reuses_same_entry_but_never_cross_entry(bridge_factory):
         None,
     ]
     assert client.inputs[-1][1]["content"] == "[图片，未理解]"
-    assert "Iris: image_quota_exhausted" in logs
+    assert not logs
+    assert bridge.counts["image_quota_exhausted"] == 1
+    assert bridge.diagnostics.snapshot()["counts"]["image_quota_exhausted"] == 1
+    assert bridge.diagnostics.snapshot()["logs"] == []
 
 
 async def test_stale_cached_reference_evicted_text_kept_then_reuploaded(bridge_factory):
