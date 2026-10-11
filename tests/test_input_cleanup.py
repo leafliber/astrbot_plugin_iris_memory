@@ -6,9 +6,13 @@ import pytest
 
 from iris_memory.config import Config
 from iris_memory.input_cleanup import clean_message, clean_text
+from iris_memory.mapping import input_message, map_entry
 from iris_memory.prompt import render
+from iris_memory.vendor.iris_client import IrisError
 from tests.conftest import HostEvent, Result
+from tests.test_bridge import bridge_factory as bridge_factory
 from tests.test_bridge import component, prepared
+from tests.test_image_policy import image_event, picture
 from tests.test_proactive import enable, settle
 from tests.test_proactive import setup as setup
 
@@ -279,3 +283,59 @@ async def test_raw_cq_expansion_is_bounded_before_http(plugin_factory, fake_iris
     await plugin.bridge.queue.join()
     text = fake_iris.messages["astrbot:bot1:group:g1"][0]["content"]
     assert len(text.encode("utf-8")) <= 32768 and text.endswith("[已截断]")
+
+
+@pytest.mark.parametrize("stale", [False, True], ids=["cache-hit", "cache-404"])
+async def test_image_cache_ingest_cleans_before_receive_and_404_retry(bridge_factory, stale):
+    bridge, client, _, _ = bridge_factory()
+    uploads = []
+
+    async def upload(body):
+        uploads.append(body)
+        return {"id": f"media-{len(uploads)}"}
+
+    client.upload_media = upload
+    prime = image_event(picture(), message_id="prime")
+    prime.set_extra("iris_image_descriptions", ["图\x00片"])
+    await bridge.receive(prime)
+    await bridge.queue.join()
+    assert len(uploads) == 1
+
+    event = image_event(picture(), message_id="with-quote")
+    event.messages += image_event(picture(reverse=True)).messages
+    event.messages += [
+        component("plain", text="正\x00文" + "!" * 64),
+        component(
+            "reply",
+            sender_nickname="甲",
+            sender_id="u2",
+            message_str="引\x00用 [CQ:forward,id=literal]",
+        ),
+    ]
+    event.set_extra("iris_image_descriptions", ["图\x00片", "新\x00图"])
+    entry = map_entry(event, bridge.config)
+    source = input_message(event, entry)
+    before = copy.deepcopy(source)
+    expected = clean_message(source, bridge.config)
+    attempts = []
+    receive = client.receive_message
+
+    async def capture(entry_id, message):
+        attempts.append(copy.deepcopy(message))
+        if stale and len(attempts) == 1:
+            raise IrisError("not_found", status_code=404)
+        return await receive(entry_id, message)
+
+    client.receive_message = capture
+    await bridge._ingest(event, entry, source)
+
+    assert attempts[0] == {**expected, "media_ids": ["media-1", "media-2"]}
+    assert len(attempts) == (2 if stale else 1)
+    if stale:
+        assert attempts[1] == {**expected, "media_ids": ["media-2"]}
+        assert bridge.counts["image_cache_stale"] == 1
+    assert client.inputs[-1] == (entry.id, attempts[-1])
+    # Attachment precedes the cleanup copy; neither cleanup nor the 404 retry
+    # mutates the original text or removes media IDs from the original message.
+    assert source == {**before, "media_ids": ["media-1", "media-2"]}
+    assert len(uploads) == 2

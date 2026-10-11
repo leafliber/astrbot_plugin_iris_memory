@@ -81,6 +81,17 @@ class Config:
     images_enabled: bool = True
     image_timeout: float = 2.0
     max_images: int = 4
+    image_perceptual_reuse: bool = False
+    image_hash_threshold: int = 4
+    image_cache_ttl_hours: int = 12
+    image_cache_max_entries: int = 1024
+    image_cache_max_mb: int = 8
+    image_min_side: int = 32
+    image_max_pixels: int = 20000000
+    image_skip_solid: bool = True
+    image_skip_stickers: bool = False
+    image_entry_daily_quota: int = 50
+    image_global_daily_quota: int = 200
     recent_limit: int = 20
     memory_limit: int = 8
     token_budget: int = 1500
@@ -155,6 +166,9 @@ class Config:
             "allow_container_host",
             "judge",
             "images_enabled",
+            "image_perceptual_reuse",
+            "image_skip_solid",
+            "image_skip_stickers",
             "inject_memory",
             "force_non_streaming",
             "assume_injected_used",
@@ -207,6 +221,14 @@ class Config:
             ("proactive_initiate_interval_minutes", 1, 1440),
             ("max_images", 1, 100),
             ("input_cleanup_repeat_limit", 16, 4096),
+            ("image_hash_threshold", 0, 64),
+            ("image_cache_ttl_hours", 1, 24),
+            ("image_cache_max_entries", 1, 10000),
+            ("image_cache_max_mb", 1, 64),
+            ("image_min_side", 1, 4096),
+            ("image_max_pixels", 1, 40000000),
+            ("image_entry_daily_quota", 0, 100000),
+            ("image_global_daily_quota", 0, 100000),
             ("max_prompt_chars", 512, 64000),
             ("queue_size", 1, 4096),
             ("recent_limit", 0, 100),

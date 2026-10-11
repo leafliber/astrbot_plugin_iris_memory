@@ -8,6 +8,7 @@ from uuid import uuid4
 
 from .config import Config
 from .extras import strip_markdown
+from .image_store import ImageStore
 from .input_cleanup import clean_message, clean_text
 from .mapping import (
     Entry,
@@ -21,7 +22,7 @@ from .mapping import (
 from .media import attach_images
 from .prompt import render
 from .store import Inbox
-from .vendor.iris_client import AsyncIrisClient
+from .vendor.iris_client import AsyncIrisClient, IrisError
 
 
 @dataclass
@@ -52,6 +53,12 @@ class Bridge:
         self.entries: OrderedDict[str, Entry] = OrderedDict()
         self.poll_lock = asyncio.Lock()
         self.counts: dict[str, int] = {}
+        self.images = None
+        if config.images_enabled:
+            try:
+                self.images = ImageStore(data_dir, config, namespace)
+            except Exception:
+                self.record("image_storage_unavailable")
 
     def record(self, code: str) -> None:
         self.counts[code] = self.counts.get(code, 0) + 1
@@ -113,7 +120,7 @@ class Bridge:
                 "iris_received",
                 self.enqueue(
                     lambda: self._ingest(event, entry, message),
-                    timeout=self.config.image_timeout + self.config.request_timeout + 0.1,
+                    timeout=self.config.image_timeout + 2 * self.config.request_timeout + 0.1,
                 ),
             )
             self._observe_send(event, entry)
@@ -121,17 +128,35 @@ class Bridge:
             self.record("receive_failed")
 
     async def _ingest(self, event: Any, entry: Entry, message: dict) -> None:
+        cached = set()
         if self.config.images_enabled:
-            await attach_images(event, entry.id, message, self.client, self.config, self.record)
+            cached = await attach_images(
+                event, entry.id, message, self.client, self.config, self.record, self.images
+            )
         # Parsed components are ordinary text. Only a known OneBot wire string
         # may supply CQ syntax, and only when no component chain is available.
         if event.get_platform_name() in {"aiocqhttp", "onebot"} and not event.get_messages():
             wire = raw_message(event).get("message")
             if isinstance(wire, str):
                 message["content"] = clean_text(wire, self.config, raw_cq=True)
+        # Keep attachments in the cleaned copy, including any 404 retry below.
         message = clean_message(message, self.config)
-        async with asyncio.timeout(self.config.request_timeout):
-            await self.client.receive_message(entry.id, message)
+        try:
+            async with asyncio.timeout(self.config.request_timeout):
+                await self.client.receive_message(entry.id, message)
+        except IrisError as error:
+            if error.status_code != 404 or not cached or self.images is None:
+                raise
+            self.images.discard(entry.id, cached)
+            remaining = [value for value in message.get("media_ids", []) if value not in cached]
+            if remaining:
+                message["media_ids"] = remaining
+            else:
+                message.pop("media_ids", None)
+            self.record("image_cache_stale")
+            # Same message key: preserve text once, without extra uploads on failure.
+            async with asyncio.timeout(self.config.request_timeout):
+                await self.client.receive_message(entry.id, message)
 
     def _observe_send(self, event: Any, entry: Entry) -> None:
         if event.get_extra("iris_observing_send"):
@@ -303,3 +328,5 @@ class Bridge:
             self.queue.task_done()
         await self.client.aclose()
         self.inbox.close()
+        if self.images is not None:
+            self.images.close()

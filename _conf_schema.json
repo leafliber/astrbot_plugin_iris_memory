@@ -413,5 +413,71 @@
     "default": 64,
     "description": "重复噪声阈值",
     "hint": "16–4096；达到阈值的连续感叹号、问号、省略号、波浪号及哈/呵/啊/呜保留 8 个并标注原数量；代码块、数字、标识符不压缩。"
+  },
+  "image_perceptual_reuse": {
+    "description": "近似图片复用",
+    "type": "bool",
+    "default": false,
+    "hint": "默认关闭；开启后使用 64 位 dHash、比例与平均颜色判断，可能误认相似截图。"
+  },
+  "image_hash_threshold": {
+    "description": "图片哈希距离",
+    "type": "int",
+    "default": 4,
+    "hint": "0–64；仅开启近似复用时生效，越低越严格。"
+  },
+  "image_cache_ttl_hours": {
+    "description": "图片缓存有效期（小时）",
+    "type": "int",
+    "default": 12,
+    "hint": "从上传时起算，命中不续期，1–24 小时；不超过 Iris 未引用媒体的 1 天清理宽限。"
+  },
+  "image_cache_max_entries": {
+    "description": "图片缓存条数",
+    "type": "int",
+    "default": 1024,
+    "hint": "所有入口与服务范围合计的 LRU 上限，1–10000。"
+  },
+  "image_cache_max_mb": {
+    "description": "图片元数据库大小上限（MiB）",
+    "type": "int",
+    "default": 8,
+    "hint": "1–64；含缓存与配额，满时停止上传；缩小后超限须先清理或调回。"
+  },
+  "image_min_side": {
+    "description": "图片最短边（像素）",
+    "type": "int",
+    "default": 32,
+    "hint": "不足则只保留占位，1–4096。"
+  },
+  "image_max_pixels": {
+    "description": "图片像素总量上限",
+    "type": "int",
+    "default": 20000000,
+    "hint": "1–40000000；文件仍受 10 MiB 限制。"
+  },
+  "image_skip_solid": {
+    "description": "过滤纯色静态图片",
+    "type": "bool",
+    "default": true,
+    "hint": "完全透明或合成白底后纯色时跳过。"
+  },
+  "image_skip_stickers": {
+    "description": "跳过表情图片",
+    "type": "bool",
+    "default": false,
+    "hint": "跳过动图及平台明确标为表情的图片；无法从普通静态图可靠判断表情包。"
+  },
+  "image_entry_daily_quota": {
+    "description": "每入口每日上传次数",
+    "type": "int",
+    "default": 50,
+    "hint": "0 禁止新上传；缓存命中不扣，失败或超时也计数。"
+  },
+  "image_global_daily_quota": {
+    "description": "全局每日上传次数",
+    "type": "int",
+    "default": 200,
+    "hint": "所有入口共用，按 AstrBot 所在主机日期自动换日，0 禁止新上传。"
   }
 }
