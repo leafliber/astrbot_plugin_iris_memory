@@ -321,3 +321,9 @@ def test_image_dependency_and_ttl_contract():
     project = tomllib.loads((Path(__file__).parents[1] / "pyproject.toml").read_text())
     assert any(item.lower().startswith("pillow") for item in project["dependency-groups"]["dev"])
     assert Config.from_mapping({"image_cache_ttl_hours": 24}).image_cache_ttl_hours == 24
+
+
+@pytest.mark.parametrize("limit_mb", [0, 65])
+def test_pragma_page_limit_rejects_out_of_range_before_sql(tmp_path, limit_mb):
+    with pytest.raises(ValueError, match="invalid image cache page limit"):
+        ImageStore(tmp_path, Config(image_cache_max_mb=limit_mb), "scope")

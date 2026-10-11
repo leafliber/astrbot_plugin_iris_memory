@@ -88,11 +88,12 @@ class ImageStore:
         try:
             self.db.execute("PRAGMA auto_vacuum=FULL")
             self.db.execute("PRAGMA journal_mode=DELETE")
-            pages = (
-                config.image_cache_max_mb
-                * 1024**2
-                // self.db.execute("PRAGMA page_size").fetchone()[0]
-            )
+            page_size = self.db.execute("PRAGMA page_size").fetchone()[0]
+            pages = int(config.image_cache_max_mb * 1024**2 // page_size)
+            if not 1 <= pages <= 64 * 1024**2 // page_size:
+                raise ValueError("invalid image cache page limit")
+            # SQLite PRAGMA cannot bind parameters. Only interpolate the int above,
+            # bounded to the same 64 MiB maximum enforced by Config validation.
             self.db.execute(f"PRAGMA max_page_count={pages}")
             self.db.executescript("""
                 CREATE TABLE IF NOT EXISTS images (
