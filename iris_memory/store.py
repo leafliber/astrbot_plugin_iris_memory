@@ -1,15 +1,26 @@
 """Single-process notification inbox: checkpoint and page content commit together."""
 
 import json
+import os
 import sqlite3
 from pathlib import Path
 from typing import Any
 
 
+def open_private_database(path: Path, *, timeout: float = 5.0) -> sqlite3.Connection:
+    """Create privately before SQLite writes; tighten existing files on reopen."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o600)
+    try:
+        os.chmod(path, 0o600)
+    finally:
+        os.close(fd)
+    return sqlite3.connect(path, timeout=timeout)
+
+
 class Inbox:
     def __init__(self, path: Path) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        self.db = sqlite3.connect(path)
+        self.db = open_private_database(path)
         self.db.execute("PRAGMA synchronous=FULL")
         self.db.executescript("""
             CREATE TABLE IF NOT EXISTS cursor (id INTEGER PRIMARY KEY CHECK(id=1), value INTEGER NOT NULL);

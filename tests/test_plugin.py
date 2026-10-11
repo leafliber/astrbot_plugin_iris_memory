@@ -11,6 +11,7 @@ from iris_memory.config import Config
 from iris_memory.service import TOOL_NAMES
 from tests.conftest import Context, HostEvent, Result
 from tests.test_bridge import component
+from tests.test_image_policy import picture
 
 
 async def command(plugin, action):
@@ -24,9 +25,7 @@ async def test_http_receive_prepare_send_feedback_image_reminder(plugin_factory,
     plugin = await plugin_factory(assume_injected_used=True)
     event = HostEvent(platform="aiocqhttp")
     event.messages += [
-        component(
-            "image", url="", file="base64://" + base64.b64encode(b"\x89PNG\r\n\x1a\nTEST").decode()
-        )
+        component("image", url="", file="base64://" + base64.b64encode(picture()).decode())
     ]
     event.set_extra("iris_image_descriptions", ["窗边有猫"])
     fake_iris.notices = [{"id": 1, "kind": "goal_reminder", "goal_id": 5, "content": "喝水"}]
