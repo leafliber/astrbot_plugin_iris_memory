@@ -13,6 +13,7 @@ from .iris_memory import PLUGIN_NAME, VERSION
 from .iris_memory.bridge import Bridge
 from .iris_memory.commands import run_command
 from .iris_memory.config import Config
+from .iris_memory.diagnostics import Diagnostics, reference
 from .iris_memory.extras import decorate_result, prepare_pure_mention
 from .iris_memory.proactive import create_proactive
 from .iris_memory.service import TOOL_NAMES, MemoryService
@@ -38,10 +39,13 @@ class IrisMemoryPlugin(Star):
         self.settings = None
         self.proactive = None
         self.warnings = set()
+        self.diagnostics = Diagnostics(Config())
         self._page_route = f"/{PLUGIN_NAME}/status"
+        self._diagnostics_route = f"/{PLUGIN_NAME}/diagnostics"
         self._proactive_route = f"/{PLUGIN_NAME}/proactive"
         try:
             self.settings = Config.from_mapping(config)
+            self.diagnostics = Diagnostics(self.settings)
             if self.settings.enabled and self.settings.token:
                 client = AsyncIrisClient(
                     self.settings.base_url,
@@ -59,22 +63,31 @@ class IrisMemoryPlugin(Star):
                     StarTools.get_data_dir(PLUGIN_NAME),
                     logger.warning,
                     self._send_active,
+                    diagnostics=self.diagnostics,
                 )
                 self.service = MemoryService(self.bridge)
             else:
-                logger.info("Iris: disabled_or_missing_token")
+                self._record("disabled_or_missing_token")
         except Exception:
-            logger.warning("Iris: invalid_configuration")
+            self._record("invalid_configuration")
         context.register_web_api(self._page_route, self.page_status, ["GET"], "Iris 连接与状态")
         context.register_web_api(
             self._proactive_route, self.page_proactive, ["POST"], "Iris 主动回复设置"
+        )
+        context.register_web_api(
+            self._diagnostics_route, self.page_diagnostics, ["GET"], "Iris 本地诊断"
         )
         self.check_host_config()
         # Proactive owns only proactive policy / scheduling; it reuses this bridge.
         try:
             self.proactive = create_proactive(self)
         except Exception:
-            logger.warning("Iris: proactive_initialization_failed")
+            self._record("proactive_initialization_failed")
+
+    def _record(self, code: str) -> None:
+        code = self.diagnostics.record(code)
+        log = logger.info if code == "disabled_or_missing_token" else logger.warning
+        log("Iris: " + code + (" — " + WARNINGS[code] if code in WARNINGS else ""))
 
     def check_host_config(self, event=None) -> None:
         try:
@@ -97,7 +110,7 @@ class IrisMemoryPlugin(Star):
         if self.settings and self.settings.allow_container_host:
             codes.add("container_host_enabled")
         for code in codes - self.warnings:
-            logger.warning("Iris: " + code + " — " + WARNINGS[code])
+            self._record(code)
         # Include warnings found in routed per-session AstrBot profiles.
         self.warnings.update(codes)
 
@@ -156,7 +169,7 @@ class IrisMemoryPlugin(Star):
                 event, self.settings, self.context.get_config(umo=event.unified_msg_origin)
             )
         except Exception:
-            logger.warning("Iris: decorate_failed")
+            self._record("decorate_failed")
 
     @filter.after_message_sent()
     async def after_message_sent(self, event: AstrMessageEvent) -> None:
@@ -324,7 +337,13 @@ class IrisMemoryPlugin(Star):
         }
         if self.bridge:
             data["entries"] = [
-                {"origin": e.origin, "entry_id": e.id, "kind": e.kind}
+                {
+                    "origin": e.origin,
+                    "entry_id": e.id,
+                    "kind": e.kind,
+                    "entry_ref": reference(e.id),
+                    "session_ref": reference(e.origin),
+                }
                 for e in self.bridge.entries.values()
             ]
             data["counts"] = dict(self.bridge.counts)
@@ -335,6 +354,11 @@ class IrisMemoryPlugin(Star):
             except Exception:
                 data["connection"] = "unavailable"
         return json_response(data, headers={"Cache-Control": "no-store"})
+
+    async def page_diagnostics(self):
+        if not request.username:
+            return error_response("请先登录 AstrBot。", status_code=401)
+        return json_response(self.diagnostics.snapshot(), headers={"Cache-Control": "no-store"})
 
     async def page_proactive(self):
         if not request.username:
@@ -369,5 +393,6 @@ class IrisMemoryPlugin(Star):
                 if not (
                     (api[0] == self._page_route and api[1] == self.page_status)
                     or (api[0] == self._proactive_route and api[1] == self.page_proactive)
+                    or (api[0] == self._diagnostics_route and api[1] == self.page_diagnostics)
                 )
             ]

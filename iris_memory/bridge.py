@@ -1,4 +1,5 @@
 import asyncio
+import time
 from collections import OrderedDict
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -7,6 +8,7 @@ from typing import Any
 from uuid import uuid4
 
 from .config import Config
+from .diagnostics import Diagnostics
 from .extras import strip_markdown
 from .mapping import Entry, content_text, input_message, map_entry, output_message, stable_key
 from .media import attach_images
@@ -30,7 +32,9 @@ class Bridge:
         data_dir: Path,
         log: Callable[[str], None],
         send_active: Callable[[str, str], Awaitable[bool]],
+        diagnostics: Diagnostics | None = None,
     ) -> None:
+        self.diagnostics = diagnostics if diagnostics is not None else Diagnostics(config)
         self.data_dir = data_dir
         self.config, self.client, self.log, self.send_active = config, client, log, send_active
         # Separate checkpoints when endpoint/token scope changes. Only a one-way
@@ -45,6 +49,7 @@ class Bridge:
         self.counts: dict[str, int] = {}
 
     def record(self, code: str) -> None:
+        code = self.diagnostics.record(code)
         self.counts[code] = self.counts.get(code, 0) + 1
         # Codes come from this module, never exceptions, payloads, or config.
         self.log("Iris: " + code)
@@ -116,6 +121,7 @@ class Bridge:
             await attach_images(event, entry.id, message, self.client, self.config, self.record)
         async with asyncio.timeout(self.config.request_timeout):
             await self.client.receive_message(entry.id, message)
+        self.diagnostics.record("message_received")
 
     def _observe_send(self, event: Any, entry: Entry) -> None:
         if event.get_extra("iris_observing_send"):
@@ -162,6 +168,26 @@ class Bridge:
             "judge_budget_seconds": self.config.judge_budget_seconds,
         }
 
+    async def prepare_material(self, entry_id: str, options: dict, *, purpose="reply") -> dict:
+        started = time.monotonic()
+        prepared, outcome = None, "failed"
+        try:
+            prepared = await self.client.prepare(entry_id, options)
+            outcome = "ok"
+            return prepared
+        except asyncio.CancelledError:
+            outcome = "cancelled"
+            raise
+        finally:
+            self.diagnostics.prepared(
+                entry_id,
+                prepared,
+                time.monotonic() - started,
+                purpose=purpose,
+                outcome=outcome,
+                judge=options.get("judge", True) is True,
+            )
+
     async def prepare(self, event: Any, request: Any) -> None:
         if (
             self.closed
@@ -188,7 +214,7 @@ class Bridge:
                     value = event.get_extra("iris_" + key)
                     if value is not None:
                         options[key] = value
-                prepared = await self.client.prepare(entry.id, options)
+                prepared = await self.prepare_material(entry.id, options)
                 goals = {g["id"] for g in prepared.get("goals", [])}
                 reminders = [
                     n

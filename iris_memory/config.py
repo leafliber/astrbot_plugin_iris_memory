@@ -89,6 +89,10 @@ class Config:
     pure_at_reply: bool = False
     error_friendly: bool = True
     strip_markdown: bool = True
+    diagnostics_enabled: bool = True
+    diagnostics_log_limit: int = 200
+    diagnostics_prepare_limit: int = 50
+    diagnostics_session_limit: int = 200
     tools_enabled: bool = True
     search_memory_enabled: bool = True
     save_memory_enabled: bool = True
@@ -162,6 +166,7 @@ class Config:
             "error_friendly",
             "strip_markdown",
             "tools_enabled",
+            "diagnostics_enabled",
             "search_memory_enabled",
             "save_memory_enabled",
             "correct_memory_enabled",
@@ -203,6 +208,9 @@ class Config:
             ("proactive_initiate_limit", 0, 20),
             ("proactive_initiate_interval_minutes", 1, 1440),
             ("max_images", 1, 100),
+            ("diagnostics_log_limit", 1, 5000),
+            ("diagnostics_prepare_limit", 1, 500),
+            ("diagnostics_session_limit", 1, 1000),
             ("max_prompt_chars", 512, 64000),
             ("queue_size", 1, 4096),
             ("recent_limit", 0, 100),

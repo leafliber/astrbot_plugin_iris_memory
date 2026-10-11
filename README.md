@@ -231,10 +231,27 @@ Iris main 已提供 `prepare.entry_profile`，入口画像默认开启、检查�
 | QQ 官方平台专用细节 | 已支持稳定显示标签、群／私聊／频道身份隔离；完整平台适配仍需真实环境验收，不猜测平台未提供的信息。 |
 | 模型输入净化 | 不搬运 v3 完整净化流水线；已有材料字段投影、预算和数据／指令区分。 |
 | 完整 L1/L2/L3／画像／学习／人格数据 Dashboard | 不保留；使用 AstrBot 状态／主动回复面板和 Iris 管理页。 |
-| 隐藏参数、界面偏好、日志／检索诊断页面 | 完整旧页面暂不提供；主动决策调用、发言与动机统计已实现，参数在 AstrBot 配置和 Pages。 |
+| 日志／检索诊断页面、决策统计 | Pages 已提供固定事件环形日志、prepare 元数据与主动门控／调用／发言计数；隐藏参数和旧界面偏好不搬运。 |
 | 插件导入导出、自动备份 | 在 Iris 管理页导出，按页面指引离线导入；Iris 每日维护后定时备份默认开启，保留最近 7 份，插件不另做备份。 |
 | v3 数据／配置迁移（记忆、画像、白名单等） | **不做，用户已决定**；不读取或转换 v3 数据目录。 |
 | 全部 v3 指令／工具别名 | 只保留本 README 列出的接口；旧管理操作引导到 Iris 管理页，部分名称语义已改变。 |
+
+## Pages 诊断
+
+在 AstrBot 插件 Pages 的状态页下方打开“运行与检索诊断”，可切换运行日志、检索诊断、主动决策统计，独立刷新。接口 `GET /astrbot_plugin_iris_memory/diagnostics` 复用 AstrBot 登录校验，响应为 `no-store`；刷新只读本地内存，不发起 Iris 或 Provider 请求，Iris 停机时也可检查已有记录。
+
+- **运行日志**：只采集本插件固定事件码及 UTC 时间，不读取 AstrBot 全局日志，不接收异常原文。未知事件统一为 `unknown_event`。日志、检索记录、计数均不采集消息、记忆、图片理解、提示词、模型输出或令牌正文；页面没有开启正文的选项。
+- **检索诊断**：最近 N 次普通／主动 prepare 的请求耗时、结果（返回成功／失败／取消）、七个分区条数、召回判断（应用／未启用／降级／未报告）、入口画像版本与可能过时标记。分区条数是服务返回值，未套用注入预算，也不代表实际使用；耗时不含接收排队或 AstrBot Provider。画像缺失／null 显示无版本，未知诊断字段不透传。
+- **主动统计**：分别计数消息门控、定时检查、决策入口检查、Provider 调用、成功发言、决策结果和提醒门控。多阶段检查不等于多次模型调用；调用失败也算调用，只有平台确认成功才算发言。`no_signal` 为无信号，`cooldown` 为冷却，`quiet_hours` 为静音，`daily_limit` 为每日限额，`new_activity` 为期间出现新活动；自动预约的 `reserved` 与概率未通过的 `probability` 分开。
+
+入口和会话显示 12 位摘要，可在状态页入口映射中对照。主动诊断计数只覆盖本次进程中仍保留的会话，显示各自起始时间；重启清空，LRU 淘汰后重新计数。`/iris_reply reset` 或 Pages 的原有重置按钮同步清除该会话的诊断计数；原有持久每日额度和动机统计仍在主动回复面板，诊断开关与淘汰不会修改这些额度。
+
+| 配置 | 默认值 | 上限与含义 |
+| --- | --- | --- |
+| `diagnostics_enabled` | `true` | 开启内存诊断；关闭后不采集，不落盘。 |
+| `diagnostics_log_limit` | `200` | 环形事件条数，1–5000。 |
+| `diagnostics_prepare_limit` | `50` | 最近 prepare 次数，1–500。 |
+| `diagnostics_session_limit` | `200` | 活跃诊断会话的 LRU 上限，1–1000。 |
 
 ## 入口、可见范围与平台
 
@@ -300,6 +317,8 @@ IRIS_CORE_PATH=/path/to/iris-core uv run --locked pytest -q \
 uv run --locked ruff check --no-cache .
 uv run --locked ruff format --check --no-cache .
 ```
+
+Pages 交互测试需要 Node.js 18+，通过 DOM 替身验证刷新、标签切换、关闭／错误状态及纯文本渲染；未安装 Node.js 会明确跳过，提 PR 验证必须安装。
 
 真实集成测试使用 `IRIS_CORE_PATH/.venv/bin/python`，可通过 `IRIS_CORE_PYTHON` 改为其他已准备的 Python；只读导入 core 源码，设置不写字节码。它在临时目录离线创建令牌（只在内存捕获），空模型配置启动真实 HTTP 服务，覆盖接收→prepare→search→goals→notifications，也验证去重、空反馈和明确结束。不会读取真实模型配置、密码文件或既有凭据。未设置 `IRIS_CORE_PATH` 时该项明确跳过；提 PR 必须启用运行。
 
