@@ -12,6 +12,7 @@ from uuid import uuid4
 
 from ..config import DEFAULT_TEMPLATE
 from ..extras import strip_markdown
+from ..input_cleanup import clean_material
 from ..mapping import component_kind, map_entry, stable_key
 from ..prompt import encode, render
 from .decision import SYSTEM, parse
@@ -339,7 +340,7 @@ class Proactive:
                 "kind": state.kind,
                 "local_time": datetime.fromtimestamp(self.clock()).astimezone().isoformat(),
                 "silent_minutes": max(0, int((now - max(state.last_human, state.last_bot)) / 60)),
-                "signal": signal,
+                "signal": clean_material(signal, self.config),
             }
         )
         async with asyncio.timeout(self.config.proactive_decision_timeout):

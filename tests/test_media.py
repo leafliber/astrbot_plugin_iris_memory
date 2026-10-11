@@ -39,7 +39,7 @@ async def test_astrbot_4282_image_sources(source, tmp_path):
 
 
 async def test_upload_then_reference_with_host_description(bridge_factory):
-    bridge, client, logs, _ = bridge_factory()
+    bridge, client, logs, _ = bridge_factory(image_min_side=1, image_skip_solid=False)
     uploaded = []
 
     async def upload(body):
@@ -62,7 +62,9 @@ async def test_upload_then_reference_with_host_description(bridge_factory):
 
 @pytest.mark.parametrize("mode", ["error", "timeout", "invalid"])
 async def test_failed_upload_is_placeholder_and_ingest_still_succeeds(bridge_factory, mode):
-    bridge, client, logs, _ = bridge_factory(image_timeout=0.01)
+    bridge, client, logs, _ = bridge_factory(
+        image_timeout=0.1, image_min_side=1, image_skip_solid=False
+    )
 
     async def upload(body):
         if mode == "timeout":

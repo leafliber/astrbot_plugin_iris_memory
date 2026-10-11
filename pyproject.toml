@@ -6,7 +6,7 @@ requires-python = ">=3.12"
 dependencies = ["httpx>=0.28,<0.29"]
 
 [dependency-groups]
-dev = ["pytest>=8.4,<9", "pytest-asyncio>=1.1,<2", "respx>=0.22,<0.23", "ruff>=0.12"]
+dev = ["pillow>=11.2.1,<13", "pytest>=8.4,<9", "pytest-asyncio>=1.1,<2", "respx>=0.22,<0.23", "ruff>=0.12"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

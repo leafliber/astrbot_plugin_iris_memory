@@ -9,8 +9,11 @@ import pytest
 
 from iris_memory.config import Config
 from iris_memory.diagnostics import CODES, Diagnostics, reference
+from iris_memory.vendor.iris_client import IrisError
 from tests.conftest import Context, HostEvent
+from tests.test_bridge import bridge_factory as bridge_factory
 from tests.test_bridge import prepared
+from tests.test_image_policy import image_event, picture
 from tests.test_proactive import enable, settle
 from tests.test_proactive import setup as setup
 
@@ -302,7 +305,15 @@ def test_every_record_literal_in_plugin_source_is_registered():
                 and isinstance(node.args[0].value, str)
             ):
                 seen.add(node.args[0].value)
-    assert {"command_request_failed", "tool_request_failed"} <= seen
+    assert {
+        "command_request_failed",
+        "tool_request_failed",
+        "image_processing_unavailable",
+        "image_cache_hit",
+        "image_cache_stale",
+        "image_filtered",
+        "image_quota_exhausted",
+    } <= seen
     assert seen <= CODES, "Unregistered fixed event codes: " + str(sorted(seen - CODES))
 
 
@@ -355,3 +366,48 @@ async def test_bridge_warns_only_for_faults_and_preserves_command_tool_codes(
         assert logs[-1] == "Iris: " + code
         assert plugin.diagnostics.snapshot()["logs"][-1]["code"] == code
         assert plugin.diagnostics.snapshot()["counts"][code] == 1
+
+
+@pytest.mark.parametrize("mode", ["success", "cache-404", "receive-failed", "retry-failed"])
+async def test_image_ingest_counts_only_confirmed_receive_once(bridge_factory, mode):
+    bridge, client, logs, _ = bridge_factory()
+
+    async def upload(body):
+        return {"id": "media-test"}
+
+    client.upload_media = upload
+    await bridge.receive(image_event(picture(), message_id="prime"))
+    await bridge.queue.join()
+    baseline = bridge.diagnostics.snapshot()["counts"].get("message_received", 0)
+    attempts = []
+    receive = client.receive_message
+
+    async def capture(entry_id, message):
+        attempts.append(dict(message))
+        if mode in {"cache-404", "retry-failed"} and len(attempts) == 1:
+            raise IrisError("not_found", status_code=404)
+        if mode in {"receive-failed", "retry-failed"}:
+            raise IrisError("unavailable", status_code=503)
+        return await receive(entry_id, message)
+
+    client.receive_message = capture
+    event = image_event(picture(), message_id="second")
+    await bridge.receive(event)
+    await bridge.queue.join()
+    snapshot = bridge.diagnostics.snapshot()
+    confirmed = mode in {"success", "cache-404"}
+    assert event.get_extra("iris_received").result() is confirmed
+    assert snapshot["counts"].get("message_received", 0) - baseline == int(confirmed)
+    assert snapshot["counts"]["image_cache_hit"] == 1
+    assert "unknown_event" not in snapshot["counts"]
+    expected_warnings = []
+    if mode in {"cache-404", "retry-failed"}:
+        expected_warnings.append("image_cache_stale")
+        assert len(attempts) == 2
+        assert "media_ids" not in attempts[-1]
+    else:
+        assert len(attempts) == 1
+    if not confirmed:
+        expected_warnings.append("background_request_failed")
+    assert [row["code"] for row in snapshot["logs"]] == expected_warnings
+    assert logs == ["Iris: " + code for code in expected_warnings]

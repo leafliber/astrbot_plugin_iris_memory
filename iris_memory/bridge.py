@@ -10,11 +10,21 @@ from uuid import uuid4
 from .config import Config
 from .diagnostics import ROUTINE_CODES, Diagnostics
 from .extras import strip_markdown
-from .mapping import Entry, content_text, input_message, map_entry, output_message, stable_key
+from .image_store import ImageStore
+from .input_cleanup import clean_message, clean_text
+from .mapping import (
+    Entry,
+    content_text,
+    input_message,
+    map_entry,
+    output_message,
+    raw_message,
+    stable_key,
+)
 from .media import attach_images
 from .prompt import render
 from .store import Inbox
-from .vendor.iris_client import AsyncIrisClient
+from .vendor.iris_client import AsyncIrisClient, IrisError
 
 
 @dataclass
@@ -47,6 +57,12 @@ class Bridge:
         self.entries: OrderedDict[str, Entry] = OrderedDict()
         self.poll_lock = asyncio.Lock()
         self.counts: dict[str, int] = {}
+        self.images = None
+        if config.images_enabled:
+            try:
+                self.images = ImageStore(data_dir, config, namespace)
+            except Exception:
+                self.record("image_storage_unavailable")
 
     def record(self, code: str) -> None:
         code = self.diagnostics.record(code)
@@ -110,7 +126,7 @@ class Bridge:
                 "iris_received",
                 self.enqueue(
                     lambda: self._ingest(event, entry, message),
-                    timeout=self.config.image_timeout + self.config.request_timeout + 0.1,
+                    timeout=self.config.image_timeout + 2 * self.config.request_timeout + 0.1,
                 ),
             )
             self._observe_send(event, entry)
@@ -118,10 +134,35 @@ class Bridge:
             self.record("receive_failed")
 
     async def _ingest(self, event: Any, entry: Entry, message: dict) -> None:
+        cached = set()
         if self.config.images_enabled:
-            await attach_images(event, entry.id, message, self.client, self.config, self.record)
-        async with asyncio.timeout(self.config.request_timeout):
-            await self.client.receive_message(entry.id, message)
+            cached = await attach_images(
+                event, entry.id, message, self.client, self.config, self.record, self.images
+            )
+        # Parsed components are ordinary text. Only a known OneBot wire string
+        # may supply CQ syntax, and only when no component chain is available.
+        if event.get_platform_name() in {"aiocqhttp", "onebot"} and not event.get_messages():
+            wire = raw_message(event).get("message")
+            if isinstance(wire, str):
+                message["content"] = clean_text(wire, self.config, raw_cq=True)
+        # Keep attachments in the cleaned copy, including any 404 retry below.
+        message = clean_message(message, self.config)
+        try:
+            async with asyncio.timeout(self.config.request_timeout):
+                await self.client.receive_message(entry.id, message)
+        except IrisError as error:
+            if error.status_code != 404 or not cached or self.images is None:
+                raise
+            self.images.discard(entry.id, cached)
+            remaining = [value for value in message.get("media_ids", []) if value not in cached]
+            if remaining:
+                message["media_ids"] = remaining
+            else:
+                message.pop("media_ids", None)
+            self.record("image_cache_stale")
+            # Same message key: preserve text once, without extra uploads on failure.
+            async with asyncio.timeout(self.config.request_timeout):
+                await self.client.receive_message(entry.id, message)
         self.diagnostics.record("message_received")
 
     def _observe_send(self, event: Any, entry: Entry) -> None:
@@ -156,7 +197,7 @@ class Bridge:
 
     def submit_output(self, entry: Entry, text: str, key: str) -> asyncio.Future[bool]:
         """Call only after a successful send; share dedupe and queue semantics."""
-        message = output_message(entry, text, key)
+        message = clean_message(output_message(entry, text, key), self.config)
         return self.enqueue(lambda: self.client.receive_message(entry.id, message))
 
     def prepare_options(self) -> dict:
@@ -314,3 +355,5 @@ class Bridge:
             self.queue.task_done()
         await self.client.aclose()
         self.inbox.close()
+        if self.images is not None:
+            self.images.close()
