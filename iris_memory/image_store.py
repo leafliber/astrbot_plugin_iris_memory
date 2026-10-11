@@ -94,6 +94,8 @@ class ImageStore:
                 raise ValueError("invalid image cache page limit")
             # SQLite PRAGMA cannot bind parameters. Only interpolate the int above,
             # bounded to the same 64 MiB maximum enforced by Config validation.
+            # False positive: the generic SQLAlchemy rule also matches SQLite PRAGMA.
+            # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query
             self.db.execute(f"PRAGMA max_page_count={pages}")
             self.db.executescript("""
                 CREATE TABLE IF NOT EXISTS images (
