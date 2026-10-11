@@ -3,7 +3,13 @@
     "type": "string",
     "default": "http://127.0.0.1:8080",
     "description": "Iris 地址",
-    "hint": "同一台电脑上运行 Iris；默认 http://127.0.0.1:8080，只接受回环 HTTP 地址。"
+    "hint": "默认 http://127.0.0.1:8080，仅回环 HTTP(S) origin；同一 Docker 网络可开启 allow_container_host 后填 http://iris:8080。不能含用户信息、路径、查询或片段。"
+  },
+  "allow_container_host": {
+    "type": "bool",
+    "default": false,
+    "description": "允许 Docker 网络主机名",
+    "hint": "仅允许 base_url 中管理员指定的单一 ASCII 主机名（字母数字、连字符、点），拒绝非回环 IP 字面量。使用 HTTP 时，请求在 Docker 网络中以明文传输令牌，只在可信网络使用；Iris 需设置 IRIS_ALLOWED_HOSTS=iris（与实际主机名一致）。"
   },
   "token": {
     "type": "string",

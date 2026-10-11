@@ -20,6 +20,10 @@ from .iris_memory.status import summarize
 from .iris_memory.vendor.iris_client import AsyncIrisClient, RetryPolicy
 
 WARNINGS = {
+    "container_host_enabled": (
+        "使用 HTTP 时，请求在 Docker 网络中以明文传输令牌，只在可信网络使用；"
+        "HTTPS 需要服务端配置有效 TLS。"
+    ),
     "astrbot_context_conflict": "请将 provider_ltm_settings.group_message_max_cnt 设置为 0，避免重复上下文。",
     "pure_at_waiting_conflict": "纯 @ 回复需要关闭 platform_settings.empty_mention_waiting。",
     "host_settings_unavailable": "未能检查 AstrBot 上下文配置，请确认 group_message_max_cnt=0。",
@@ -90,6 +94,8 @@ class IrisMemoryPlugin(Star):
                 codes.add("pure_at_waiting_conflict")
         except Exception:
             codes = {"host_settings_unavailable"}
+        if self.settings and self.settings.allow_container_host:
+            codes.add("container_host_enabled")
         for code in codes - self.warnings:
             logger.warning("Iris: " + code + " — " + WARNINGS[code])
         # Include warnings found in routed per-session AstrBot profiles.
@@ -301,6 +307,7 @@ class IrisMemoryPlugin(Star):
             "connection": "disabled",
             "health": None,
             "token_configured": bool(settings and settings.token),
+            "allow_container_host": bool(settings and settings.allow_container_host),
             "management_url": settings.base_url.rstrip("/")
             if settings
             else "http://127.0.0.1:8080",

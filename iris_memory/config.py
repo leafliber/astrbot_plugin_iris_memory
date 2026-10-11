@@ -1,9 +1,9 @@
 import json
 import math
+import re
 from dataclasses import dataclass, field
 from string import Template
 from typing import Mapping
-from urllib.parse import urlsplit
 
 from .vendor.iris_client.compat import validate_entry_id
 
@@ -32,9 +32,40 @@ SECTIONS = {
 }
 
 
+_HTTP_ORIGIN = re.compile(
+    r"https?://(?P<host>\[::1\]|[a-z0-9.-]+)(?::(?P<port>[0-9]{1,5}))?/?",
+    re.IGNORECASE | re.ASCII,
+)
+_HOST_LABEL = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", re.ASCII)
+
+
+def _validate_base_url(base_url: str, allow_container_host: bool) -> None:
+    # Match the original value: URL parsers can silently strip controls/whitespace.
+    origin = _HTTP_ORIGIN.fullmatch(base_url) if isinstance(base_url, str) else None
+    error = "Iris requires an allowed HTTP(S) origin"
+    if origin is None:
+        raise ValueError(error)
+    port = origin["port"]
+    if port is not None and not 1 <= int(port) <= 65535:
+        raise ValueError(error)
+    host = origin["host"].lower()
+    if host in {"127.0.0.1", "localhost", "[::1]"}:
+        return
+    if not allow_container_host:
+        raise ValueError(error)
+    labels = host.split(".")
+    if len(host) > 253 or any(_HOST_LABEL.fullmatch(label) is None for label in labels):
+        raise ValueError(error)
+    # Exclude IP literals, including shortened, integer, octal and hexadecimal IPv4.
+    # A numeric final label can be treated as an address by a URL parser/resolver.
+    if re.fullmatch(r"[0-9]+|0x[0-9a-f]+", labels[-1]):
+        raise ValueError(error)
+
+
 @dataclass(frozen=True)
 class Config:
     base_url: str = "http://127.0.0.1:8080"
+    allow_container_host: bool = False
     token: str = field(default="", repr=False)
     enabled: bool = True
     entry_prefix: str = "astrbot:"
@@ -119,6 +150,7 @@ class Config:
     def validate(self) -> None:
         for name in (
             "enabled",
+            "allow_container_host",
             "judge",
             "images_enabled",
             "inject_memory",
@@ -203,17 +235,7 @@ class Config:
             raise ValueError("invalid initiate probability")
         if self.proactive_delay_min_minutes > self.proactive_delay_max_minutes:
             raise ValueError("invalid initiate delay range")
-        url = urlsplit(self.base_url)
-        if (
-            url.scheme not in {"http", "https"}
-            or url.hostname not in {"127.0.0.1", "localhost", "::1"}
-            or url.username
-            or url.password
-            or url.query
-            or url.fragment
-            or url.path not in {"", "/"}
-        ):
-            raise ValueError("Iris requires a loopback HTTP origin")
+        _validate_base_url(self.base_url, self.allow_container_host)
         if any(ord(c) < 32 or 127 <= ord(c) <= 159 for c in self.token):
             raise ValueError("invalid token")
         if self.judge_budget_seconds > 10:

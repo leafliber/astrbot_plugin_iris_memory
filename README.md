@@ -1,6 +1,6 @@
 # Iris Memory 4.0.0-dev
 
-面向 AstrBot 的 Iris 宿主插件。AstrBot 负责聊天平台、回复模型和实际发送；同一台电脑上的 **Iris 服务**负责近期消息、长期记忆、人物要点、人格、目标、提醒与后台整理。插件不再内置 v3 的记忆数据库、知识图谱或梦境引擎。
+面向 AstrBot 的 Iris 宿主插件。AstrBot 负责聊天平台、回复模型和实际发送；同机或同一可信 Docker 网络中的 **Iris 服务**负责近期消息、长期记忆、人物要点、人格、目标、提醒与后台整理。插件不再内置 v3 的记忆数据库、知识图谱或梦境引擎。
 
 v4 在 Iris 服务基础上提供自然插话、目标跟进、静默发起、观察和独立开关的私聊关心。**每个会话默认关闭主动回复**，由管理员显式开启。
 
@@ -8,7 +8,7 @@ v4 在 Iris 服务基础上提供自然插话、目标跟进、静默发起、�
 
 要求 **AstrBot >=4.28.2,<5，Python >=3.12**。AstrBot 4.28 的 `requires-python` 是 `>=3.12`；已核对 4.28.2 wheel 的消息、工具和 Pages 接口。插件运行依赖仅 `httpx`，Iris Python 客户端已内置，无需另装 `iris-client`。
 
-1. 在运行 AstrBot 的同一台电脑安装 [iris-core](https://github.com/AirObject/iris-core)，按其 README 完成首次设置。先启动 Iris：
+1. 先启动 [iris-core](https://github.com/AirObject/iris-core)。可按下方 [Docker 部署](#docker-部署) 使用 `ghcr.io/airobject/iris-core:0.0.1`；源码部署则在同机按 Iris README 安装并启动：
 
    ```sh
    cd /path/to/iris-core
@@ -18,17 +18,17 @@ v4 在 Iris 服务基础上提供自然插话、目标跟进、静默发起、�
 
    浏览器打开 `http://127.0.0.1:8080`。在 Iris 管理页配置角色、学习／对话和向量模型；没有模型也能接收消息及进行已有记忆的全文检索，但不能据此认为新消息已经学会。AstrBot 的回复模型仍在 AstrBot 中配置。
 
-2. 为插件创建宿主令牌，建议仅授权 `astrbot:` 前缀。Iris 的宿主令牌与管理员登录凭据不同。若使用离线命令，先停止 Iris，沿用上一步的数据目录：
+2. 在 Iris 管理页的「接入与数据」（接入）创建宿主令牌：宿主名填 `astrbot`，范围选择前缀 `astrbot:`。宿主令牌与管理员登录凭据不同。源码部署也可使用离线命令，先停止 Iris，沿用上一步的数据目录：
 
    ```sh
    uv run iris --data-dir /path/to/iris-data tokens create --host astrbot --prefix 'astrbot:'
    ```
 
-   将一次性返回值直接填入 AstrBot 插件配置，不要保存到代码、聊天、截图或日志。随后重新启动 Iris。也可使用 Iris 管理端的宿主令牌接口在线创建。**本插件只读取配置中的令牌，不读取环境变量或凭据文件。**
+   将一次性显示的令牌直接填入 AstrBot 插件配置，不要保存到代码、聊天、截图或日志。使用离线命令后重新启动 Iris；管理页在线创建无需重启服务。**本插件只读取配置中的令牌，不读取环境变量或凭据文件。**
 
-3. 将本仓库的 v4 功能分支完整安装到 AstrBot 的 `data/plugins/astrbot_plugin_iris_memory/`，由 AstrBot 安装 `requirements.txt`。测试版安装 `dev.4`；主动回复 PR 合入前使用 `feat/v4-proactive`。默认 `master` 仍是 v3。停用重复的旧记忆／主动回复插件后重载。
+3. 测试版直接安装本仓库的 **`dev.4` 分支**，将完整目录放入 AstrBot 的 `data/plugins/astrbot_plugin_iris_memory/`，由 AstrBot 安装 `requirements.txt`。默认 `master` 仍是 v3。停用重复的旧记忆／主动回复插件后重载。
 
-4. 在插件配置中填写 Iris 地址（默认 `http://127.0.0.1:8080`）和令牌。地址只能是 `127.0.0.1`、`localhost` 或 `[::1]` 的 HTTP(S) origin。Iris 默认只监听回环地址；分开容器的 `127.0.0.1` 不是同一个网络空间，本版不提供跨机部署方案。
+4. 在插件配置中填写 Iris 地址和令牌。AstrBot 在宿主机上时填默认 `http://127.0.0.1:8080`；AstrBot 与 Iris 分别在同一 Docker 网络中时，开启 `allow_container_host`，填 `http://iris:8080`，并在 Iris 端设置 `IRIS_ALLOWED_HOSTS=iris`。分开容器的 `127.0.0.1` 指向各自容器，不能互相访问。地址规则见下方。
 
 5. 将 AstrBot 的 **`provider_ltm_settings.group_message_max_cnt=0`**。插件在启动及接收事件时检查，冲突会出现在日志、`status` 和 Pages。`prepare` 成功后默认清空本次请求的旧 `contexts`，使用 Iris 的近期消息；Iris 不可用或超时则保留 AstrBot 原请求继续回复。
 
@@ -36,13 +36,100 @@ v4 在 Iris 服务基础上提供自然插话、目标跟进、静默发起、�
 
 一个 Iris 服务代表一个角色；连接多个 AstrBot persona 不会自动得到独立的 Iris 人格。需要角色隔离时应使用独立 Iris 数据目录／实例及插件配置实例。
 
+## Docker 部署
+
+以下示例使用 Iris `0.0.1` 镜像；数据保存在独立卷中。先启动并完成 Iris 首次设置，再配置 AstrBot 插件。Iris 镜像使用容器监听模式，默认 HTTP 端口为 8080。
+
+### AstrBot 在宿主机上
+
+启动 Iris，把管理页和宿主 API 端口只映射到本机回环地址：
+
+```sh
+docker run -d --name iris --restart unless-stopped \
+  -p 127.0.0.1:8080:8080 \
+  -e IRIS_CONTAINER=1 -e IRIS_DATA_DIR=/data \
+  -v iris-data:/data \
+  ghcr.io/airobject/iris-core:0.0.1
+docker logs iris
+```
+
+从当前启动日志中取得**首次设置码**，在同机浏览器打开 `http://127.0.0.1:8080/setup`，直接填入设置页并完成管理员、角色和模型设置。首次设置码不是宿主令牌，不要填到插件里，也不要转贴日志中的设置码。已完成设置的实例直接登录管理页。
+
+在管理页「接入与数据」（接入）创建 `astrbot:` 前缀范围的宿主令牌，填入 AstrBot 插件配置的 `token`。插件 `base_url` 填 `http://127.0.0.1:8080`，`allow_container_host` 保持默认关闭。
+
+### AstrBot 也在 Docker 中
+
+将下面内容保存为 `compose.yaml`。两个服务加入同一个 Docker 网络；`iris` 是服务名，Iris 的 Host 允许列表与它一致。宿主机的 8080 映射用于浏览器管理，AstrBot 通过容器网络直接访问 Iris。
+
+```yaml
+services:
+  iris:
+    image: ghcr.io/airobject/iris-core:0.0.1
+    restart: unless-stopped
+    environment:
+      IRIS_CONTAINER: "1"
+      IRIS_DATA_DIR: /data
+      IRIS_ALLOWED_HOSTS: iris
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - iris-data:/data
+    networks:
+      - iris-net
+
+  astrbot:
+    image: soulter/astrbot:latest
+    restart: unless-stopped
+    environment:
+      TZ: Asia/Shanghai
+    ports:
+      - "127.0.0.1:6185:6185"
+    volumes:
+      - ./astrbot-data:/AstrBot/data
+    networks:
+      - iris-net
+    depends_on:
+      - iris
+
+networks:
+  iris-net:
+    driver: bridge
+
+volumes:
+  iris-data:
+```
+
+AstrBot 的镜像与数据目录沿用 [AstrBot 官方 Docker 部署说明](https://docs.astrbot.app/deploy/astrbot/docker.html)；请确认安装版本满足 `>=4.28.2,<5`。示例只映射管理端口，聊天平台适配器需要的端口另按 AstrBot 文档配置。已有 AstrBot 容器时，将 Iris 服务及共同网络合入现有 Compose，保留原数据挂载。
+
+```sh
+docker compose up -d
+docker compose logs iris
+```
+
+从 Iris 当前启动日志取得首次设置码，在宿主机浏览器打开 `http://127.0.0.1:8080/setup` 完成设置，随后在「接入与数据」（接入）创建 `astrbot:` 前缀范围的令牌。打开 AstrBot 管理页 `http://127.0.0.1:6185`，安装插件 `dev.4`，在插件配置中填：
+
+- `base_url`：`http://iris:8080`。
+- `allow_container_host`：开启。
+- `token`：管理页刚创建的宿主令牌，只填插件配置。
+
+`IRIS_ALLOWED_HOSTS` 填主机名 `iris`，不要填完整 URL；服务改名时同步修改该设置和插件地址。浏览器通常不能解析 Docker 服务名 `iris`，管理页仍用宿主机映射地址。令牌不放在 Compose、环境变量或命令行参数里。
+
+### 地址规则
+
+- 默认只接受 `127.0.0.1`、`localhost`、`[::1]` 的 HTTP(S) origin。
+- `allow_container_host=true` 后额外接受 `base_url` 中管理员指定的**单一 ASCII 主机名**，例如 `iris`、`iris-core`、`iris.internal`。各段长 1—63 字符，只含字母、数字、连字符，首尾必须是字母或数字；点分隔，总长最多 253。不允许空段或末尾点；末段不能是纯数字或 `0x` 开头的十六进制数，以排除 IP 的替代写法。
+- 只接受 `http://主机[:端口]` 或 `https://主机[:端口]`，可有一个末尾 `/`；可选端口是 1—65535 的十进制数。拒绝用户信息（`user@host`）、路径（包括 `/api/v1`）、查询、片段、空白／控制字符、反斜线、百分号转义、通配符、多个主机和其他协议。
+- 除上述回环地址外，所有 IP 字面量均拒绝，包括公网、私网、IPv6，以及整数／缩写／八进制／十六进制 IPv4。开关仅校验主机名形式，不验证 DNS 解析结果是否属于 Docker；管理员须保证该主机名指向可信网络中的 Iris。客户端不跟随重定向。
+
+开启后启动日志和状态页提示：**使用 HTTP 时，请求在 Docker 网络中以明文传输令牌，只在可信网络使用。** Iris 镜像提供 HTTP；配置 HTTPS 地址需要服务端另行提供有效 TLS。不要把 Iris 端口直接映射到公网。
+
 ## v3 功能如何承接
 
 | v3 大功能 | v4 实际承接 | 状态 |
 | --- | --- | --- |
 | L1 近期上下文、接管 AstrBot 上下文 | `/prepare` 的 `recent_messages`；成功时接管本次 contexts，检查框架配置 | 已实现 |
 | L2 长期记忆、遗忘、梦境加工 | Iris 接收消息并后台学习、维护、整理；插件注入准备材料 | 已接入，质量取决于 Iris 与模型配置 |
-| L3 知识图谱、用户／群画像 | 人物要点与按人物定向检索；群画像等通过可选入口画像注入 | 人物查询已接入；入口画像待 Iris 提供，不再维护独立图谱、画像表或好感度 |
+| L3 知识图谱、用户／群画像 | 人物要点与按人物定向检索；群画像等通过可选入口画像注入 | 人物查询与入口画像均已接入；Iris main 默认开启画像，不再维护独立图谱、画像表或好感度 |
 | `search_memory` | `/memories/search`，始终带当前入口 | 已实现 |
 | `save_memory`、`correct_memory` | 等待当前消息接收后，对本入口调用 `/learn` | 已实现；按真实对话学习，不直接编辑、不伪造工具参数为用户原话 |
 | `get_profile`、`search_knowledge_graph` | 按人物名字／主体 ID 查询，保留立场、相信程度、来源 | 已实现；同名需澄清 |
@@ -67,7 +154,7 @@ v4 在 Iris 服务基础上提供自然插话、目标跟进、静默发起、�
 /iris_mem help
 ```
 
-删除、编辑、清空、导出、导入请在 Iris 管理页操作。v3 的管理子命令会引导到该地址。`goals` 最多展示本入口 100 条开放目标；更多目标在管理页查看。`learn` 返回接受／暂停情况，不返回“保存成功”。
+删除、编辑、清空、导出请在 Iris 管理页操作；导入按管理页指引使用 Iris 离线命令。v3 的管理子命令会引导到管理页地址。`goals` 最多展示本入口 100 条开放目标；更多目标在管理页查看。`learn` 返回接受／暂停情况，不返回“保存成功”。
 
 八个工具各有开关（含管理员 `set_cooldown`），另有总开关 `tools_enabled`。搜索和人物工具只检索当前入口可见材料。跟进创建始终携带本入口 `entry_id`；结束前分页查询并校验归属，再提交 `expected_revision`。宿主 v1 的 PATCH 不接受 `entry_id` 字段，因此归属检查在提交前完成。全局及其他入口目标不通过插件结束；冲突和合并跳转均要求重新查询，不自动跟随。创建／修改无入口的全局目标需要 Iris 的 `all` 范围令牌，本插件不使用该权限。
 
@@ -119,21 +206,21 @@ v4 在 Iris 服务基础上提供自然插话、目标跟进、静默发起、�
 
 ## 入口画像与暂不提供的 v3 功能
 
-`$entry_profile` 为可选分区：Iris 返回 `{text, version, generated_at, possibly_stale}` 时注入这些字段；字段缺失或为 `null` 时替换为空字符串。旧 Iris 无需立即升级也可继续运行，主动决策同样兼容。画像是可能过时的描述，不是指令。生成群画像、群氛围、表达模式与黑话的工作由 **Iris 入口画像**承接，插件不再独立学习或存储这些内容。
+Iris main 已提供 `prepare.entry_profile`，入口画像默认开启、检查通过后发布。`$entry_profile` 收到 `{text, version, generated_at, possibly_stale}` 时注入这些字段；入口关闭、私聊或尚无已发布版时为 `null`。字段缺失或为 `null` 时替换为空字符串，兼容旧服务；普通回复与主动决策均使用该分区。画像是可能过时的描述，不是指令。生成群画像、群氛围、表达模式与黑话的工作由 **Iris 入口画像**承接，插件不再独立学习或存储这些内容。
 
 以下逐项对应 v3，避免把“转移到 Iris”误认为完整保留了原交互：
 
 | v3 项目 | v4 本版状态／后续归属 |
 | --- | --- |
-| 表达学习、采纳流水线 | 不保留原插件流水线；表达模式由 Iris 入口画像承接，待服务提供。 |
-| 黑话抽取、聚类、审核、匹配注入 | 不保留独立词库；由 Iris 入口画像承接，待服务提供。 |
+| 表达学习、采纳流水线 | 不保留原插件流水线；表达模式已由 Iris 入口画像承接并注入。 |
+| 黑话抽取、聚类、审核、匹配注入 | 不保留独立词库；群内说法已由 Iris 入口画像承接并注入。 |
 | 对话样例学习与注入 | 暂不提供。 |
 | 独立知识图谱画布、节点／边编辑、路径扩展、`save_knowledge` | 不提供；人物要点、人物查询与 `save_memory` 学习流程已接入。 |
-| 群画像、群氛围 | 可选入口画像接线已完成；由 Iris 生成并提供。 |
+| 群画像、群氛围 | 已接入；由 Iris 生成并发布，prepare 注入本入口画像。 |
 | 好感度演变与注入 | 暂不提供。 |
 | 独立结构化用户画像表 | 不提供；已由人物定向记忆查询承接。 |
 | 聊天工具直接写入／按 ID 纠错 | 不提供直接编辑；聊天中立即学习真实对话，精确编辑使用 Iris 管理页。 |
-| 按用户／群／全部清空 | 不在插件删除；已改由 Iris 管理页批量遗忘／删除承接，具体范围能力以服务版本为准。 |
+| 按用户／群／全部清空 | 不在插件删除；Iris 管理页已支持按人物／入口预览后批量遗忘／删除。 |
 | 检索策略选择、独立 L1/L2/L3 注入预算 | 不保留插件策略切换；使用 Iris 检索与统一预算。 |
 | 五个梦境阶段独立开关 | 不保留；由 Iris 维护、整理统一调度。 |
 | AstrBot Embedding／本地 sentence-transformers | 不内置；在 Iris 配置向量模型。 |
@@ -145,7 +232,7 @@ v4 在 Iris 服务基础上提供自然插话、目标跟进、静默发起、�
 | 模型输入净化 | 不搬运 v3 完整净化流水线；已有材料字段投影、预算和数据／指令区分。 |
 | 完整 L1/L2/L3／画像／学习／人格数据 Dashboard | 不保留；使用 AstrBot 状态／主动回复面板和 Iris 管理页。 |
 | 隐藏参数、界面偏好、日志／检索诊断页面 | 完整旧页面暂不提供；主动决策调用、发言与动机统计已实现，参数在 AstrBot 配置和 Pages。 |
-| 插件导入导出、自动备份 | 导入导出使用 Iris 管理页；自动备份已改由 Iris 定时备份承接，服务能力未发布时插件不代做。 |
+| 插件导入导出、自动备份 | 在 Iris 管理页导出，按页面指引离线导入；Iris 每日维护后定时备份默认开启，保留最近 7 份，插件不另做备份。 |
 | v3 数据／配置迁移（记忆、画像、白名单等） | **不做，用户已决定**；不读取或转换 v3 数据目录。 |
 | 全部 v3 指令／工具别名 | 只保留本 README 列出的接口；旧管理操作引导到 Iris 管理页，部分名称语义已改变。 |
 
@@ -183,7 +270,7 @@ v4 在 Iris 服务基础上提供自然插话、目标跟进、静默发起、�
 
 **主动回复太频繁？** 降低意愿、延长冷却，或在 Pages 关闭该会话；`/iris_reply disable` 同时停止发往它的主动提醒。
 
-**无法连接或 401/403？** 先启动同机 Iris，检查端口、令牌是否撤销及最终入口是否在范围内。管理页 Cookie 不能代替宿主令牌；令牌更换后重载插件。Iris 接口不接受自定义 Host 域名。
+**无法连接或 400/401/403？** 先启动 Iris，检查地址、端口、令牌是否撤销及最终入口是否在范围内。容器间要使用同一网络的服务名，打开插件 `allow_container_host`，并在 Iris 设置匹配的 `IRIS_ALLOWED_HOSTS`；Host 不被允许可能返回 400。管理页 Cookie 不能代替宿主令牌；令牌或地址更换后重载插件。
 
 **收到消息却没记住？** 接收不等于学习，成功学习也不必然形成记忆。检查 `status` 的模型健康、积压和用量，在 Iris 管理页检查批次、记忆缺口与运行记录。`learn` 只是请求尽快处理；空模型配置不会产生新记忆。
 
@@ -195,7 +282,7 @@ v4 在 Iris 服务基础上提供自然插话、目标跟进、静默发起、�
 
 **图片没有理解？** 检查图片大小、预算和 Iris 图片模型配置。上传与消息接收不等待模型，后台理解失败会降级。默认预算适合本机网络，可按需要增大。
 
-**Dashboard 上的 localhost 打不开？** 地址是 Iris 所在电脑的回环地址。远程浏览 AstrBot 的设备不能靠自己的 localhost 访问它；请在 Iris 所在电脑打开管理页。状态页通过 AstrBot bridge 请求，浏览器不接触宿主令牌。
+**状态页的 localhost／iris 链接打不开？** 状态页显示 AstrBot 使用的 Iris 地址。容器服务名 `iris` 通常只在 Docker 网络解析；请在宿主机浏览器使用映射地址 `http://127.0.0.1:8080`。远程浏览 AstrBot 的设备不能用自己的 localhost 访问 Iris 所在电脑。状态页通过 AstrBot bridge 请求，浏览器不接触宿主令牌。
 
 **v3 数据和配置会迁移吗？** 不会。本次清空 dev.4 实现并保留 Git 历史，v3 数据目录不读取、不转换。部署前自行保留旧环境；不能直接复用 v3 的存储文件。
 
@@ -204,19 +291,19 @@ v4 在 Iris 服务基础上提供自然插话、目标跟进、静默发起、�
 推荐把环境、缓存、完整日志和临时数据库放在仓库外。以下路径由使用者选择：
 
 ```sh
-export UV_CACHE_DIR=/path/to/iris-eval-artifacts/pl2/uv-cache
-export UV_PROJECT_ENVIRONMENT=/path/to/iris-eval-artifacts/pl2/venv312
+export UV_CACHE_DIR=/path/to/iris-eval-artifacts/plugin-v4/uv-cache
+export UV_PROJECT_ENVIRONMENT=/path/to/iris-eval-artifacts/plugin-v4/venv312
 uv sync --locked --python 3.12
 IRIS_CORE_PATH=/path/to/iris-core uv run --locked pytest -q \
-  -o cache_dir=/path/to/iris-eval-artifacts/pl2/pytest-cache \
-  --basetemp=/path/to/iris-eval-artifacts/pl2/pytest-tmp
+  -o cache_dir=/path/to/iris-eval-artifacts/plugin-v4/pytest-cache \
+  --basetemp=/path/to/iris-eval-artifacts/plugin-v4/pytest-tmp
 uv run --locked ruff check --no-cache .
-uv run --locked ruff format --check .
+uv run --locked ruff format --check --no-cache .
 ```
 
 真实集成测试使用 `IRIS_CORE_PATH/.venv/bin/python`，可通过 `IRIS_CORE_PYTHON` 改为其他已准备的 Python；只读导入 core 源码，设置不写字节码。它在临时目录离线创建令牌（只在内存捕获），空模型配置启动真实 HTTP 服务，覆盖接收→prepare→search→goals→notifications，也验证去重、空反馈和明确结束。不会读取真实模型配置、密码文件或既有凭据。未设置 `IRIS_CORE_PATH` 时该项明确跳过；提 PR 必须启用运行。
 
-其余测试涵盖同步／异步客户端、AstrBot 替身、假 HTTP 服务、接收／注入／回流／反馈、提醒重启、图片限额、工具、指令、平台映射和小工具；假 Provider 还覆盖全部主动动机、门控、限额、静音／休眠恢复、并发复查、回流、权限、Pages 与设置持久化。测试通过不等于真实平台或模型学习质量已经验收。
+其余测试涵盖同步／异步客户端、AstrBot 替身、假 HTTP 服务、地址校验、Docker 主机名开关与提示、假 DNS 服务名访问、接收／注入／回流／反馈、提醒重启、图片限额、工具、指令、平台映射和小工具；假 Provider 还覆盖全部主动动机、门控、限额、静音／休眠恢复、并发复查、回流、权限、Pages 与设置持久化。测试通过不等于真实平台或模型学习质量已经验收。
 
 ## 许可
 
