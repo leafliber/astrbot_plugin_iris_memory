@@ -3,10 +3,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from iris_memory.config import Config
+from iris_memory.config import Config, validate_entry_id
 from iris_memory.extras import decorate_result, friendly_error, pure_mention, strip_markdown
 from iris_memory.mapping import input_message, map_entry
-from iris_memory.vendor.iris_client.compat import entry_path
 from tests.conftest import HostEvent, Result
 from tests.test_bridge import component
 
@@ -26,10 +25,10 @@ from tests.test_bridge import component
         " ",
     ],
 )
-def test_invalid_ids_rejected_by_client_mapping_and_config(bad):
+def test_invalid_ids_rejected_by_plugin_boundary_mapping_and_config(bad):
     event = HostEvent()
     with pytest.raises(ValueError):
-        entry_path(bad, "prepare")
+        validate_entry_id(bad)
     with pytest.raises(ValueError):
         map_entry(event, Config(entry_overrides={event.unified_msg_origin: bad}))
     with pytest.raises(ValueError):

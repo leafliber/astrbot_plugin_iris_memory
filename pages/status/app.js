@@ -1,3 +1,7 @@
+function reminderTransport(value) {
+  if (!value) return 'stopped · disabled';
+  return `${value.mode} · ${value.reason}${value.hint ? ' · ' + value.hint : ''}`;
+}
 const bridge = window.AstrBotPluginPage;
 const el = (id) => document.getElementById(id);
 const label = { connected: '已连接', unavailable: '服务暂不可用', disabled: '未启用或未配置' };
@@ -6,7 +10,7 @@ async function refresh() {
   try {
     const data = await bridge.apiGet('status');
     el('connection').replaceChildren();
-    for (const [name, value] of [['Iris 服务', label[data.connection] || '未知'], ['令牌', data.token_configured ? '已配置' : '未配置'], ['Docker 主机名', data.allow_container_host ? '已允许' : '未允许']]) {
+    for (const [name, value] of [['Iris 服务', label[data.connection] || '未知'], ['令牌', data.token_configured ? '已配置' : '未配置'], ['Docker 主机名', data.allow_container_host ? '已允许' : '未允许'], ['提醒通道', reminderTransport(data.reminder_transport)]]) {
       const dt = document.createElement('dt'); dt.textContent = name;
       const dd = document.createElement('dd'); dd.textContent = value;
       el('connection').append(dt, dd);

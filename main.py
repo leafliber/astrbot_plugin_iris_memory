@@ -334,6 +334,7 @@ class IrisMemoryPlugin(Star):
             else {},
             "entries": [],
             "proactive": self.proactive.snapshot() if self.proactive else None,
+            "reminder_transport": dict(self.diagnostics.reminder_transport),
         }
         if self.bridge:
             data["entries"] = [

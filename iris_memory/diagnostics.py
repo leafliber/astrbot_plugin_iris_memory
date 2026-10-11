@@ -19,13 +19,21 @@ proactive_goals_unavailable proactive_task_failed proactive_decision_failed proa
 message_received prepare_received prepare_failed prepare_cancelled proactive_call proactive_sent
 forward_degraded forward_expanded image_filtered image_cache_hit image_quota_exhausted
 image_storage_unavailable image_cache_stale image_processing_unavailable
-command_request_failed tool_request_failed""".split()
+command_request_failed tool_request_failed reminder_enqueued reminder_duplicate reminder_sent
+reminder_sse_connected reminder_transport_changed reminder_stream_degraded
+reminder_stream_failed reminder_auth_failed reminder_state_failed""".split()
 )
 # Routine activity is useful as counters, but must not evict fault evidence.
 ROUTINE_CODES = frozenset(
     """disabled_or_missing_token goal_dedup_result message_received prepare_received
 proactive_call proactive_sent forward_expanded image_filtered image_cache_hit
-image_quota_exhausted""".split()
+image_quota_exhausted reminder_enqueued reminder_duplicate reminder_sent
+reminder_sse_connected reminder_transport_changed""".split()
+)
+REMINDER_REASONS = frozenset(
+    """disabled push_disabled connecting connected events_unsupported invalid_content_type
+cursor_reset resync disconnected heartbeat_timeout network_error invalid_event rate_limited
+unavailable poll_error unauthorized forbidden request_rejected closed state_failed stream_failed""".split()
 )
 MOTIVES = frozenset(("chime_in", "follow_up", "initiate", "watch", "reminder"))
 REASONS = (
@@ -60,6 +68,19 @@ class Diagnostics:
         self.logs = deque(maxlen=config.diagnostics_log_limit)
         self.prepares = deque(maxlen=config.diagnostics_prepare_limit)
         self.sessions = OrderedDict()
+        self.reminder_transport = {"mode": "stopped", "reason": "disabled", "hint": ""}
+
+    def set_reminder_transport(self, mode: str, reason: str) -> None:
+        # Operational state remains available when optional diagnostics are off.
+        mode = mode if mode in {"sse", "poll", "stopped"} else "stopped"
+        reason = reason if reason in REMINDER_REASONS else "stream_failed"
+        self.reminder_transport = {
+            "mode": mode,
+            "reason": reason,
+            "hint": "请检查令牌及其入口范围，修正配置后重载插件。"
+            if reason in {"unauthorized", "forbidden"}
+            else "",
+        }
 
     def record(self, code: str) -> str:
         code = code if isinstance(code, str) and code in CODES else "unknown_event"
@@ -160,6 +181,7 @@ class Diagnostics:
             {
                 "enabled": self.config.diagnostics_enabled,
                 "started_at": self.started_at,
+                "reminder_transport": self.reminder_transport,
                 "limits": {
                     "logs": self.logs.maxlen,
                     "prepares": self.prepares.maxlen,

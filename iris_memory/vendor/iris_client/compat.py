@@ -12,21 +12,9 @@ from .types import JSON, JSONObject, SearchOptions
 PREFIX = "/api/v1"
 
 
-def validate_entry_id(entry_id: str) -> None:
-    # Local PL-1 compatibility patch for the core pre-release path constraints.
-    if (
-        not isinstance(entry_id, str)
-        or not entry_id.strip()
-        or len(entry_id) > 200
-        or entry_id in {".", ".."}
-        or any(c in entry_id for c in "/\\?#")
-        or any(ord(c) < 32 or 127 <= ord(c) <= 159 for c in entry_id)
-    ):
-        raise ValueError("invalid entry ID")
-
-
 def entry_path(entry_id: str, action: str) -> str:
-    validate_entry_id(entry_id)
+    if not entry_id or entry_id in {".", ".."} or "/" in entry_id or "\\" in entry_id:
+        raise ValueError("entry_id must be a nonempty single path segment")
     return f"{PREFIX}/entries/{quote(entry_id, safe='')}/{action}"
 
 
@@ -36,8 +24,6 @@ def search_body(options: SearchOptions | None, entry_id: str | None) -> SearchOp
         if "entry_id" in result and result["entry_id"] != entry_id:
             raise ValueError("conflicting search entry_id")
         result["entry_id"] = entry_id
-    if result.get("entry_id") is not None:
-        validate_entry_id(result["entry_id"])
     return result
 
 

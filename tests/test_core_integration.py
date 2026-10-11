@@ -15,6 +15,8 @@ from pathlib import Path
 
 import pytest
 
+from iris_memory.bridge import Bridge
+from iris_memory.config import Config
 from iris_memory.vendor.iris_client import AsyncIrisClient, RetryPolicy
 
 
@@ -151,6 +153,13 @@ async def test_real_core_receive_prepare_search_goals_notifications(tmp_path):
             assert completed["state"] == "completed"
             final_status = await client.status()
             assert final_status["usage"]["today"]["calls"] == 0
+            latency = await verify_live_sse(
+                f"http://127.0.0.1:{port}",
+                credential,
+                entry,
+                notifications["next_cursor"],
+                tmp_path,
+            )
             # Store only public execution metadata, never client repr or configuration.
             (tmp_path / "integration-result.json").write_text(
                 json.dumps(
@@ -158,6 +167,8 @@ async def test_real_core_receive_prepare_search_goals_notifications(tmp_path):
                         "core_head": head,
                         "result": "passed",
                         "model_calls_expected": 0,
+                        "sse_enqueue_seconds": round(latency, 4),
+                        "sse_platform_sends": 1,
                         "steps": [
                             "receive",
                             "dedupe",
@@ -169,6 +180,9 @@ async def test_real_core_receive_prepare_search_goals_notifications(tmp_path):
                             "goals",
                             "notifications",
                             "complete",
+                            "sse_enqueue",
+                            "sse_and_poll_single_send",
+                            "sse_unload",
                         ],
                     },
                     indent=2,
@@ -186,3 +200,67 @@ async def test_real_core_receive_prepare_search_goals_notifications(tmp_path):
             pytest.fail("Core emitted the ephemeral credential; log withheld", pytrace=False)
         (tmp_path / "core-service.log").write_bytes(output)
         credential = None
+
+
+async def verify_live_sse(base_url, credential, entry, pull_cursor, tmp_path):
+    # The fresh goal is created only after initial repair/connection. A 60s pull
+    # interval makes delivery within 2s evidence of push, not a periodic poll.
+    client = AsyncIrisClient(
+        base_url, token=credential, timeout=2, retry=RetryPolicy(max_retries=0)
+    )
+    config = Config(
+        base_url=base_url,
+        token=credential,
+        images_enabled=False,
+        reminder_interval=60,
+        request_timeout=2,
+        reminder_mode="active",
+        reminder_target="integration:GroupMessage:events",
+        reminder_entry_id=entry,
+    )
+    enqueued, release = asyncio.Event(), asyncio.Event()
+    sends, logs = [], []
+
+    async def send(target, text):
+        enqueued.set()
+        await release.wait()
+        sends.append(True)
+        return True
+
+    bridge = Bridge(config, client, tmp_path / "plugin-events", logs.append, send)
+    # Simulate an existing plugin that already handled the previous test goal.
+    bridge.inbox.advance(pull_cursor)
+    bridge.start()
+    try:
+        async with asyncio.timeout(5):
+            while bridge.diagnostics.reminder_transport["mode"] != "sse":
+                await asyncio.sleep(0.01)
+        started = time.monotonic()
+        await client.create_goal(
+            {
+                "content": "SSE 集成测试提醒",
+                "entry_id": entry,
+                "host_key": "integration-sse-goal",
+                "deadline": (datetime.now(timezone.utc) - timedelta(seconds=1)).isoformat(),
+                "reminder_minutes": 0,
+            }
+        )
+        await asyncio.wait_for(enqueued.wait(), 2)
+        latency = time.monotonic() - started
+        assert latency < 2  # Core queries the stream every ~1s, with scheduling margin.
+        assert bridge.inbox.count() == 1
+        notice = bridge.inbox.pending()[0]
+        assert notice["kind"] == "goal_reminder"
+        release.set()
+        await bridge.poll()
+        await bridge.poll()
+        await bridge.queue.join()
+        assert len(sends) == 1 and bridge.inbox.count() == 0
+        assert bridge.counts["reminder_sent"] == 1
+        assert (await client.status())["usage"]["today"]["calls"] == 0
+        assert not logs
+        return latency
+    finally:
+        release.set()
+        await bridge.close()
+        assert all(task.done() for task in bridge.tasks + bridge.reminders.tasks)

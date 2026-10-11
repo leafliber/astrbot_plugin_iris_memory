@@ -411,3 +411,21 @@ async def test_image_ingest_counts_only_confirmed_receive_once(bridge_factory, m
         expected_warnings.append("background_request_failed")
     assert [row["code"] for row in snapshot["logs"]] == expected_warnings
     assert logs == ["Iris: " + code for code in expected_warnings]
+
+
+@pytest.mark.parametrize("reason", ["connected", "unauthorized", "forbidden"])
+async def test_reminder_transport_in_status_and_diagnostics_without_body(plugin_factory, reason):
+    plugin = await plugin_factory(diagnostics_enabled=False)
+    plugin.diagnostics.set_reminder_transport("sse" if reason == "connected" else "stopped", reason)
+    diagnostics = await plugin.page_diagnostics()
+    status = await plugin.page_status()
+    assert diagnostics["reminder_transport"] == status["reminder_transport"]
+    assert status["reminder_transport"]["reason"] == reason
+    assert ("检查令牌" in status["reminder_transport"]["hint"]) == (reason != "connected")
+    assert "iris_test_token" not in json.dumps(status) + json.dumps(diagnostics)
+    plugin.diagnostics.set_reminder_transport("PRIVATE_BODY", "iris_test_token")
+    assert plugin.diagnostics.reminder_transport == {
+        "mode": "stopped",
+        "reason": "stream_failed",
+        "hint": "",
+    }

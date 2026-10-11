@@ -10,11 +10,13 @@ from types import TracebackType
 from typing import Self, cast
 from urllib.parse import urlsplit
 from uuid import uuid4
+from weakref import WeakSet
 
 import httpx
 
 from . import compat
 from .errors import IrisError, TransportError
+from .events import EventOptions, EventStateStore, EventStatus, NotificationSubscription
 from .types import (
     CurrentState,
     FeedbackResult,
@@ -29,6 +31,7 @@ from .types import (
     Media,
     MediaUpload,
     Message,
+    Notification,
     NotificationPage,
     Prepared,
     PrepareOptions,
@@ -273,6 +276,7 @@ class AsyncIrisClient:
         self._token, self._timeout, self._retry, self._sleep = token, timeout, retry, sleep
         self._owns_client = http_client is None
         self._http = http_client or httpx.AsyncClient(trust_env=False)
+        self._subscriptions: WeakSet[NotificationSubscription] = WeakSet()
 
     async def __aenter__(self) -> Self:
         return self
@@ -286,6 +290,8 @@ class AsyncIrisClient:
         await self.aclose()
 
     async def aclose(self) -> None:
+        for subscription in list(self._subscriptions):
+            await subscription.aclose()
         if self._owns_client:
             await self._http.aclose()
 
@@ -407,3 +413,30 @@ class AsyncIrisClient:
 
     async def status(self) -> ServiceStatus:
         return cast(ServiceStatus, await self._request("GET", compat.PREFIX + "/status"))
+
+    def subscribe_notifications(
+        self,
+        handler: Callable[[Notification], Awaitable[None]],
+        *,
+        state: EventStateStore | None = None,
+        options: EventOptions = EventOptions(),
+        on_status: Callable[[EventStatus], None] | None = None,
+    ) -> NotificationSubscription:
+        """Create one subscription; await its run() in a host-owned background task."""
+
+        async def pull(after: int) -> NotificationPage:
+            return await self.pull_notifications(after=after, limit=100)
+
+        subscription = NotificationSubscription(
+            http=self._http,
+            base_url=self._base,
+            token=self._token,
+            timeout=self._timeout,
+            pull=pull,
+            handler=handler,
+            state=state,
+            options=options,
+            on_status=on_status,
+        )
+        self._subscriptions.add(subscription)
+        return subscription
