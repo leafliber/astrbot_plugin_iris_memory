@@ -218,7 +218,7 @@ class Config:
             ("proactive_initiate_interval_minutes", 1, 1440),
             ("max_images", 1, 100),
             ("image_hash_threshold", 0, 64),
-            ("image_cache_ttl_hours", 1, 720),
+            ("image_cache_ttl_hours", 1, 24),
             ("image_cache_max_entries", 1, 10000),
             ("image_cache_max_mb", 1, 64),
             ("image_min_side", 1, 4096),

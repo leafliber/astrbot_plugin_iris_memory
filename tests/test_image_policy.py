@@ -1,12 +1,17 @@
 import base64
 import io
+import stat
+import sys
+import tomllib
 from dataclasses import replace
+from pathlib import Path
 
 import pytest
 from PIL import Image, PngImagePlugin
 
 from iris_memory.config import Config
 from iris_memory.image_store import ImageStore, inspect_image
+from iris_memory.store import Inbox
 from iris_memory.vendor.iris_client import IrisError
 from tests.test_bridge import Event, component
 from tests.test_bridge import bridge_factory as bridge_factory
@@ -208,6 +213,7 @@ async def test_failure_consumes_reservation_and_sticker_skips(bridge_factory):
         {"image_cache_max_entries": 0},
         {"image_cache_max_mb": 0},
         {"image_cache_ttl_hours": 0},
+        {"image_cache_ttl_hours": 25},
         {"image_hash_threshold": 65},
         {"image_min_side": True},
         {"image_max_pixels": 0},
@@ -265,3 +271,53 @@ async def test_actual_http_cache_and_filter(plugin_factory, fake_iris):
     await plugin.bridge.queue.join()
     assert len(fake_iris.media) == 2
     assert "media_ids" not in fake_iris.messages["astrbot:bot1:group:g1"][-1]
+
+
+def test_exact_match_precedes_more_recent_perceptual_match(tmp_path):
+    now = [100000.0]
+    config = Config(image_perceptual_reuse=True, image_hash_threshold=0)
+    exact = inspect_image(picture(tag="exact"), config)
+    similar = inspect_image(picture(tag="similar"), config)
+    assert exact.sha256 != similar.sha256 and exact.dhash == similar.dhash
+    store = ImageStore(tmp_path, config, "scope", clock=lambda: now[0])
+    try:
+        store.save("entry", exact, "", "media-exact")
+        now[0] += 1
+        store.save("entry", similar, "", "media-similar")
+        assert store.lookup("entry", exact, "") == "media-exact"
+        assert store.lookup("entry", similar, "") == "media-similar"
+    finally:
+        store.close()
+
+
+@pytest.mark.parametrize("existing", [False, True])
+@pytest.mark.parametrize("kind", ["images", "inbox"])
+def test_database_files_are_private_on_create_and_reopen(tmp_path, existing, kind):
+    path = tmp_path / f"{kind}.sqlite3"
+    if existing:
+        path.touch(mode=0o644)
+        path.chmod(0o644)
+    store = ImageStore(tmp_path, Config(), "scope") if kind == "images" else Inbox(path)
+    try:
+        assert stat.S_IMODE(path.stat().st_mode) == 0o600
+    finally:
+        store.close()
+
+
+async def test_missing_pillow_has_distinct_fault_and_keeps_placeholder(bridge_factory, monkeypatch):
+    event = image_event(picture())
+    bridge, client, logs, _ = bridge_factory()
+    monkeypatch.setitem(sys.modules, "PIL", None)
+    await bridge.receive(event)
+    await bridge.queue.join()
+    assert client.inputs[0][1]["content"] == "[图片，未理解]"
+    assert "media_ids" not in client.inputs[0][1]
+    assert bridge.counts["image_processing_unavailable"] == 1
+    assert bridge.counts.get("image_filtered", 0) == 0
+    assert bridge.counts.get("image_upload_failed", 0) == 0
+
+
+def test_image_dependency_and_ttl_contract():
+    project = tomllib.loads((Path(__file__).parents[1] / "pyproject.toml").read_text())
+    assert any(item.lower().startswith("pillow") for item in project["dependency-groups"]["dev"])
+    assert Config.from_mapping({"image_cache_ttl_hours": 24}).image_cache_ttl_hours == 24

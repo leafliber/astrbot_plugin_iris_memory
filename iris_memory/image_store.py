@@ -2,7 +2,6 @@
 
 import hashlib
 import io
-import sqlite3
 import time
 from dataclasses import dataclass
 from datetime import datetime
@@ -11,6 +10,11 @@ from typing import Callable
 
 from .config import Config
 from .mapping import stable_key
+from .store import open_private_database
+
+
+class ImageProcessingUnavailable(RuntimeError):
+    """The image decoder dependency is unavailable; this is not a filtered image."""
 
 
 @dataclass(frozen=True)
@@ -25,7 +29,10 @@ class Fingerprint:
 
 def inspect_image(data: bytes, config: Config) -> Fingerprint:
     # Pillow is supplied by AstrBot >=4.28. Do not change its global decoder limits.
-    from PIL import Image, ImageOps
+    try:
+        from PIL import Image, ImageOps
+    except ImportError:
+        raise ImageProcessingUnavailable("image decoder unavailable") from None
 
     try:
         with Image.open(io.BytesIO(data)) as source:
@@ -77,7 +84,7 @@ class ImageStore:
     ):
         directory.mkdir(parents=True, exist_ok=True)
         self.config, self.namespace, self.clock = config, namespace, clock
-        self.db = sqlite3.connect(directory / "images.sqlite3", timeout=0.05)
+        self.db = open_private_database(directory / "images.sqlite3", timeout=0.05)
         try:
             self.db.execute("PRAGMA auto_vacuum=FULL")
             self.db.execute("PRAGMA journal_mode=DELETE")
@@ -121,12 +128,23 @@ class ImageStore:
     def lookup(self, entry: str, fp: Fingerprint, description: str) -> str | None:
         with self.db:
             self._prune()
+            scope = (self.namespace, stable_key(entry), stable_key(description))
+            exact = self.db.execute(
+                "SELECT rowid, media FROM images WHERE scope=? AND entry=? AND description=? AND sha=?",
+                (*scope, fp.sha256),
+            ).fetchone()
+            if exact:
+                self.db.execute(
+                    "UPDATE images SET accessed=? WHERE rowid=?", (self.clock(), exact[0])
+                )
+                return exact[1]
+            if not self.config.image_perceptual_reuse:
+                return None
             rows = self.db.execute(
-                "SELECT rowid, sha, media, dhash, red, green, blue, width, height, animated FROM images WHERE scope=? AND entry=? AND description=? ORDER BY accessed DESC",
-                (self.namespace, stable_key(entry), stable_key(description)),
+                "SELECT rowid, media, dhash, red, green, blue, width, height, animated FROM images WHERE scope=? AND entry=? AND description=? ORDER BY accessed DESC",
+                scope,
             ).fetchall()
-            for rowid, sha, media, dhash, r, g, b, width, height, animated in rows:
-                exact = sha == fp.sha256
+            for rowid, media, dhash, r, g, b, width, height, animated in rows:
                 similar = (
                     self.config.image_perceptual_reuse
                     and not fp.animated
@@ -136,7 +154,7 @@ class ImageStore:
                     and max(abs(a - b) for a, b in zip(fp.color, (r, g, b))) <= 12
                     and (fp.dhash ^ int(dhash, 16)).bit_count() <= self.config.image_hash_threshold
                 )
-                if exact or similar:
+                if similar:
                     self.db.execute(
                         "UPDATE images SET accessed=? WHERE rowid=?", (self.clock(), rowid)
                     )

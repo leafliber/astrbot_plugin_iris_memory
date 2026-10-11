@@ -9,7 +9,7 @@ from urllib.parse import unquote, urlsplit
 import httpx
 
 from .config import Config
-from .image_store import ImageStore, inspect_image
+from .image_store import ImageProcessingUnavailable, ImageStore, inspect_image
 from .mapping import component_kind
 from .vendor.iris_client import AsyncIrisClient
 
@@ -109,6 +109,9 @@ async def attach_images(
                         content_type = image_type(data)
                         try:
                             fingerprint = await asyncio.to_thread(inspect_image, data, config)
+                        except ImageProcessingUnavailable:
+                            record("image_processing_unavailable")
+                            break
                         except ValueError:
                             record("image_filtered")
                             continue

@@ -246,13 +246,13 @@ Iris main 已提供 `prepare.entry_profile`，入口画像默认开启、检查�
 | `image_skip_solid` | `true` | 过滤合成白底后完全纯色的静态图。 |
 | `image_skip_stickers` | `false` | 开启后跳过动图和平台明确标为表情的图片；普通静态表情包无法可靠自动识别。 |
 | `image_perceptual_reuse` / `image_hash_threshold` | `false` / `4` | 默认仅 SHA-256 相同才复用；开启后允许 64 位 dHash 汉明距离不大于阈值（0–64），同时检查宽高比和平均颜色。动图仅精确复用。近似判断可能误认相似截图，按需开启。 |
-| `image_cache_ttl_hours` | `12` | 从上传起算的有效期（小时），命中不续期。 |
+| `image_cache_ttl_hours` | `12` | 从上传起算，命中不续期；可配置 1–24 小时，不超过 Iris 未引用媒体的 1 天清理宽限。 |
 | `image_cache_max_entries` / `image_cache_max_mb` | `1024` / `8` | 所有入口共享 LRU 条数上限；SQLite 元数据库最多 8 MiB（临时事务日志另占少量空间）。不保存图片字节、地址、令牌或理解正文。 |
 | `image_entry_daily_quota` / `image_global_daily_quota` | `50` / `200` | 按 AstrBot 主机本地日期计数；0 禁止新上传，命中不扣额。失败或超时也计入尝试次数，避免结果不明时突破配额。 |
 
 缓存保存于插件数据目录的 `images.sqlite3`，重启仍有效，按 Iris 服务／令牌范围、入口和宿主理解文本摘要隔离。**跨入口始终重新上传**：当前 Iris 接口允许同时有权访问两入口的令牌引用对象，本插件采用更窄的入口内复用规则。服务或令牌变化不会清空每日上传计数。首次上传成功后才保存 ID；Iris 返回缓存对象 404 时清除引用并用原去重键补交文字占位，下次出现时重新上传，不在失败链路重复上传。
 
-元数据库达到上限或不可用时停止新上传并保留文字；调低大小上限后若现有配额记录仍超限，调回较大值。缓存淘汰与 TTL 清理在使用和启动时执行，不影响 Iris 服务端媒体的生命周期。图片解码使用 AstrBot 4.28 自带的 Pillow；独立测试环境需额外安装，见下方命令。
+元数据库达到上限或不可用时停止新上传并保留文字；调低大小上限后若现有配额记录仍超限，调回较大值。缓存淘汰与 TTL 清理在使用和启动时执行，不影响 Iris 服务端媒体的生命周期。图片解码使用 AstrBot 4.28 自带的 Pillow；开发依赖组也包含 Pillow，普通 `uv run pytest` 即可收集测试。缺少解码依赖时记录独立故障码 `image_processing_unavailable`，保留图片占位。`images.sqlite3` 与提醒收件箱文件在创建及重新打开时设为 `0600`。
 
 ## 入口、可见范围与平台
 
@@ -312,7 +312,7 @@ Iris main 已提供 `prepare.entry_profile`，入口画像默认开启、检查�
 export UV_CACHE_DIR=/path/to/iris-eval-artifacts/plugin-v4/uv-cache
 export UV_PROJECT_ENVIRONMENT=/path/to/iris-eval-artifacts/plugin-v4/venv312
 uv sync --locked --python 3.12
-IRIS_CORE_PATH=/path/to/iris-core uv run --locked --with 'Pillow>=11.2.1,<13' pytest -q \
+IRIS_CORE_PATH=/path/to/iris-core uv run --locked pytest -q \
   -o cache_dir=/path/to/iris-eval-artifacts/plugin-v4/pytest-cache \
   --basetemp=/path/to/iris-eval-artifacts/plugin-v4/pytest-tmp
 uv run --locked ruff check --no-cache .

@@ -418,7 +418,7 @@
     "description": "图片缓存有效期（小时）",
     "type": "int",
     "default": 12,
-    "hint": "从上传时起算，命中不延长有效期，1–720。"
+    "hint": "从上传时起算，命中不续期，1–24 小时；不超过 Iris 未引用媒体的 1 天清理宽限。"
   },
   "image_cache_max_entries": {
     "description": "图片缓存条数",
