@@ -136,3 +136,14 @@ def test_container_mode_still_reads_token_only_from_config(monkeypatch):
     configured = Config.from_mapping({**values, "token": "iris_test_token"})
     assert configured.token == "iris_test_token"
     assert "iris_test_token" not in repr(configured)
+
+
+def test_reminder_push_defaults_on_and_can_be_disabled():
+    assert Config.from_mapping({}).reminder_push_enabled is True
+    assert Config.from_mapping({"reminder_push_enabled": False}).reminder_push_enabled is False
+
+
+@pytest.mark.parametrize("value", ["true", "false", 0, 1, None])
+def test_reminder_push_switch_requires_boolean(value):
+    with pytest.raises(ValueError, match="booleans"):
+        Config.from_mapping({"reminder_push_enabled": value})

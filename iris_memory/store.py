@@ -1,4 +1,4 @@
-"""Single-process notification inbox: checkpoint and page content commit together."""
+"""Durable notification inbox; pull and SSE share acceptance by notification ID."""
 
 import json
 import os
@@ -18,7 +18,14 @@ def open_private_database(path: Path, *, timeout: float = 5.0) -> sqlite3.Connec
     return sqlite3.connect(path, timeout=timeout)
 
 
+class InboxFull(Exception):
+    """Backpressure: do not acknowledge a notification that was not persisted."""
+
+
 class Inbox:
+    capacity = 1000
+    receipt_capacity = 2048
+
     def __init__(self, path: Path) -> None:
         self.db = open_private_database(path)
         self.db.execute("PRAGMA synchronous=FULL")
@@ -26,6 +33,8 @@ class Inbox:
             CREATE TABLE IF NOT EXISTS cursor (id INTEGER PRIMARY KEY CHECK(id=1), value INTEGER NOT NULL);
             INSERT OR IGNORE INTO cursor VALUES(1,0);
             CREATE TABLE IF NOT EXISTS inbox (id INTEGER PRIMARY KEY, payload TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS accepted (id INTEGER PRIMARY KEY);
+            INSERT OR IGNORE INTO accepted SELECT id FROM inbox WHERE id > (SELECT value FROM cursor WHERE id=1);
         """)
 
     @property
@@ -34,6 +43,43 @@ class Inbox:
 
     def count(self) -> int:
         return self.db.execute("SELECT COUNT(*) FROM inbox").fetchone()[0]
+
+    def _accept(self, item: dict[str, Any], *, covered_by_page: bool = False) -> bool:
+        number = item.get("id")
+        if type(number) is not int or number <= 0:
+            raise ValueError("invalid notification ID")
+        if (
+            number <= self.cursor
+            or self.db.execute("SELECT 1 FROM accepted WHERE id=?", (number,)).fetchone()
+        ):
+            return False
+        receipts = self.db.execute("SELECT COUNT(*) FROM accepted").fetchone()[0]
+        if self.count() >= self.capacity or (
+            not covered_by_page and receipts >= self.receipt_capacity
+        ):
+            raise InboxFull()
+        self.db.execute(
+            "INSERT INTO inbox VALUES(?,?)", (number, json.dumps(item, ensure_ascii=False))
+        )
+        # Retain this ID even after delivery, until pull has covered its range.
+        self.db.execute("INSERT INTO accepted VALUES(?)", (number,))
+        return True
+
+    def accept(self, item: dict[str, Any]) -> bool:
+        with self.db:
+            return self._accept(item)
+
+    def _advance(self, value: int) -> None:
+        self.db.execute("UPDATE cursor SET value=MAX(value,?) WHERE id=1", (value,))
+        self.db.execute("DELETE FROM accepted WHERE id<=?", (value,))
+
+    def advance(self, value: int) -> None:
+        # Only a fully accepted pull page can advance this watermark; an SSE
+        # frame ID or the largest notification ID is never a pull cursor.
+        if type(value) is not int or value < 0:
+            raise ValueError("invalid notification cursor")
+        with self.db:
+            self._advance(value)
 
     def save_page(self, page: dict[str, Any]) -> None:
         value = page["next_cursor"]
@@ -44,12 +90,10 @@ class Inbox:
                 raise ValueError("invalid notification ID")
         with self.db:
             for item in page["items"]:
-                if item["id"] > self.cursor:
-                    self.db.execute(
-                        "INSERT OR IGNORE INTO inbox VALUES(?,?)",
-                        (item["id"], json.dumps(item, ensure_ascii=False)),
-                    )
-            self.db.execute("UPDATE cursor SET value=? WHERE id=1", (value,))
+                # These IDs are removed by _advance in this same transaction.
+                # A full SSE receipt set must not block pull from filling gaps.
+                self._accept(item, covered_by_page=True)
+            self._advance(value)
 
     def pending(self) -> list[dict[str, Any]]:
         return [json.loads(r[0]) for r in self.db.execute("SELECT payload FROM inbox ORDER BY id")]

@@ -1,3 +1,7 @@
+function reminderTransport(value) {
+  if (!value) return 'stopped · disabled';
+  return `${value.mode} · ${value.reason}${value.hint ? ' · ' + value.hint : ''}`;
+}
 const bridge = window.AstrBotPluginPage;
 const el = (id) => document.getElementById(id);
 const tabs = ['logs', 'prepares', 'sessions'];
@@ -41,6 +45,7 @@ function render(data) {
   el('diagnostics-summary').textContent = data.enabled ?
     `本次采集开始于 ${data.started_at}；最多保留 ${data.limits.logs} 条告警／故障日志、${data.limits.prepares} 次 prepare、${data.limits.sessions} 个活跃诊断会话。重启清空，页面刷新不调用 Iris。` :
     '诊断采集已关闭；在插件配置开启 diagnostics_enabled 后重载。';
+  el('diagnostics-summary').textContent += ` 提醒通道：${reminderTransport(data.reminder_transport)}`;
   rows('diagnostics-logs', [...data.logs].reverse(), [r => r.at, r => r.code], '尚无告警或故障。');
   rows('diagnostics-counts', Object.entries(data.counts || {}).sort(([a], [b]) => a.localeCompare(b)), [r => r[0], r => String(r[1])], '尚无事件计数。');
   rows('diagnostics-prepares', [...data.prepares].reverse(), [

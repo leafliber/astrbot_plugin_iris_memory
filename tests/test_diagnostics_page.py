@@ -42,6 +42,7 @@ globalThis.document={getElementById(id){ if(!ids.has(id))ids.set(id,new Element(
 let calls=0;
 const mode=process.argv[3];
 const data={enabled:mode!=='disabled',started_at:'2030-01-01T00:00:00Z',limits:{logs:200,prepares:50,sessions:200},
+ reminder_transport:{mode:'stopped',reason:'unauthorized',hint:'请检查令牌'},
  counts:{message_received:100,image_filtered:2},
  logs:[{at:'2030-01-01T00:00:00Z',code:'<script>example</script>'}],
  prepares:[{at:'2030-01-01T00:00:00Z',entry_ref:'entry-test',purpose:'proactive',outcome:'ok',duration_ms:25,partitions:{memories:2},judgment:'degraded',entry_profile_version:3,entry_profile_stale:true}],
@@ -51,6 +52,9 @@ await import('data:text/javascript;base64,'+Buffer.from(fs.readFileSync(process.
 assert.equal(calls,1);
 assert.equal(document.getElementById('diagnostics-refresh').disabled,false);
 assert.ok(![...ids.values()].map(x=>x.textContent).join('').includes('iris_test_token'));
+if(mode!=='error') {
+ assert.ok(document.getElementById('diagnostics-summary').textContent.includes('stopped · unauthorized · 请检查令牌'));
+}
 if(mode==='ready') {
  assert.ok(document.getElementById('diagnostics-logs').textContent.includes('<script>example</script>'));
  assert.ok(document.getElementById('diagnostics-counts').textContent.includes('message_received'));

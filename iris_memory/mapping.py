@@ -8,8 +8,7 @@ from typing import Any
 from urllib.parse import quote
 from uuid import uuid4
 
-from .config import Config
-from .vendor.iris_client.compat import validate_entry_id
+from .config import Config, validate_entry_id
 from .vendor.iris_client.types import Message
 
 

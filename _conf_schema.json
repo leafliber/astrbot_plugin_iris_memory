@@ -225,14 +225,20 @@
   "reminders_enabled": {
     "type": "bool",
     "default": true,
-    "description": "拉取 Iris 提醒",
-    "hint": "提醒与游标持久保存在插件数据目录。"
+    "description": "接收 Iris 提醒",
+    "hint": "提醒总开关。推送和补拉写入同一持久队列，默认仅注入上下文。"
+  },
+  "reminder_push_enabled": {
+    "description": "推送 Iris 提醒（SSE）",
+    "type": "bool",
+    "default": true,
+    "hint": "默认开启；旧服务不支持时自动改为轮询。401／403 停止重试，请检查令牌并重载。关闭后仅按 reminder_interval 轮询。"
   },
   "reminder_interval": {
     "type": "float",
     "default": 30.0,
     "description": "提醒轮询间隔（秒）",
-    "hint": "每次最多拉取 30 条。"
+    "hint": "秒。SSE 模式的低频补拉、纯轮询与待发送提醒重试间隔；默认 30 秒。"
   },
   "reminder_mode": {
     "type": "string",

@@ -23,6 +23,7 @@ from .mapping import (
 )
 from .media import attach_images
 from .prompt import render
+from .reminders import ReminderConsumer
 from .store import Inbox
 from .vendor.iris_client import AsyncIrisClient, IrisError
 
@@ -57,6 +58,7 @@ class Bridge:
         self.entries: OrderedDict[str, Entry] = OrderedDict()
         self.poll_lock = asyncio.Lock()
         self.counts: dict[str, int] = {}
+        self.reminders = ReminderConsumer(self, namespace)
         self.images = None
         if config.images_enabled:
             try:
@@ -75,8 +77,7 @@ class Bridge:
         if self.tasks or self.closed:
             return
         self.tasks.append(asyncio.create_task(self._worker()))
-        if self.config.reminders_enabled:
-            self.tasks.append(asyncio.create_task(self._reminders()))
+        self.reminders.start()
 
     def enqueue(
         self, call: Callable[[], Awaitable[Any]], *, timeout: float | None = None
@@ -297,7 +298,7 @@ class Bridge:
 
     async def poll(self) -> None:
         async with self.poll_lock:
-            capacity = 1000 - self.inbox.count()
+            capacity = self.inbox.capacity - self.inbox.count()
             if capacity > 0:
                 async with asyncio.timeout(self.config.request_timeout):
                     page = await self.client.pull_notifications(
@@ -306,45 +307,43 @@ class Bridge:
                 self.inbox.save_page(page)
             else:
                 self.record("reminder_inbox_full")
-            # Dedup receipts are control notifications, never reminders to users.
-            for notice in self.inbox.pending():
-                if notice.get("kind") == "goal_dedup_result":
-                    self.record("goal_dedup_result")
-                    self.inbox.consume([notice["id"]])
-            if self.config.reminder_mode == "active":
-                for notice in self.inbox.pending():
-                    if notice.get("kind") != "goal_reminder":
-                        continue
-                    text = "提醒：" + str(notice.get("content", ""))
-                    if self.config.strip_markdown:
-                        text = strip_markdown(text)
-                    async with asyncio.timeout(self.config.request_timeout):
-                        accepted = await self.send_active(self.config.reminder_target, text)
-                    if not accepted:
-                        self.record("reminder_send_unconfirmed")
-                        break
-                    self.inbox.consume([notice["id"]])
-                    parts = self.config.reminder_target.split(":", 2)
-                    entry = Entry(
-                        self.config.reminder_entry_id,
-                        "astrbot:" + parts[0],
-                        "private" if parts[1] == "FriendMessage" else "group",
-                        self.config.reminder_target,
-                    )
-                    self.submit_output(entry, text, f"notification:{notice['id']}")
+            await self.deliver_reminders()
 
-    async def _reminders(self) -> None:
-        while True:
-            try:
-                await self.poll()
-            except Exception:
-                self.record("reminder_poll_failed")
-            await asyncio.sleep(self.config.reminder_interval)
+    async def deliver_reminders(self) -> None:
+        # Caller holds poll_lock: push and pull cannot send the same ID twice.
+        # Dedup receipts are control notifications, never reminders to users.
+        for notice in self.inbox.pending():
+            if notice.get("kind") == "goal_dedup_result":
+                self.record("goal_dedup_result")
+                self.inbox.consume([notice["id"]])
+        if self.config.reminder_mode == "active":
+            for notice in self.inbox.pending():
+                if notice.get("kind") != "goal_reminder":
+                    continue
+                text = "提醒：" + str(notice.get("content", ""))
+                if self.config.strip_markdown:
+                    text = strip_markdown(text)
+                async with asyncio.timeout(self.config.request_timeout):
+                    accepted = await self.send_active(self.config.reminder_target, text)
+                if not accepted:
+                    self.record("reminder_send_unconfirmed")
+                    break
+                self.inbox.consume([notice["id"]])
+                self.record("reminder_sent")
+                parts = self.config.reminder_target.split(":", 2)
+                entry = Entry(
+                    self.config.reminder_entry_id,
+                    "astrbot:" + parts[0],
+                    "private" if parts[1] == "FriendMessage" else "group",
+                    self.config.reminder_target,
+                )
+                self.submit_output(entry, text, f"notification:{notice['id']}")
 
     async def close(self) -> None:
         if self.closed:
             return
         self.closed = True
+        await self.reminders.close()
         for task in self.tasks:
             task.cancel()
         await asyncio.gather(*self.tasks, return_exceptions=True)
