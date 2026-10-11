@@ -402,6 +402,18 @@
     "description": "set_cooldown 工具",
     "hint": "仅允许管理员会话上下文调用，1—120 分钟，同时受 tools_enabled 控制。"
   },
+  "input_cleanup_enabled": {
+    "type": "bool",
+    "default": true,
+    "description": "消息与模型材料清理",
+    "hint": "清理控制字符和重复噪声；仅明确的原始 CQ 协议字符串转换平台码，保留手打字面量、指令式原话与代码，不进行提示词注入检测删改。正文与引用各限 32768 UTF-8 字节。"
+  },
+  "input_cleanup_repeat_limit": {
+    "type": "int",
+    "default": 64,
+    "description": "重复噪声阈值",
+    "hint": "16–4096；达到阈值的连续感叹号、问号、省略号、波浪号及哈/呵/啊/呜保留 8 个并标注原数量；代码块、数字、标识符不压缩。"
+  },
   "image_perceptual_reuse": {
     "description": "近似图片复用",
     "type": "bool",

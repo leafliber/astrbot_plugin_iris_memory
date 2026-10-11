@@ -7,6 +7,7 @@ from string import Template
 from typing import Any
 
 from .config import SECTIONS, Config
+from .input_cleanup import clean_material
 
 
 def safe_hints(hints: list[dict[str, Any]]) -> list[str]:
@@ -137,6 +138,7 @@ def render(prepared: dict[str, Any], reminders: list[dict[str, Any]], config: Co
             project(n, ("id", "content", "deadline_at", "reminder_kind")) for n in reminders
         ],
     }
+    data = clean_material(data, config)
     # Fair section quotas prevent recent messages from crowding out state/goals.
     # Entire memory/reminder records are either present or absent; never report
     # clipped/omitted memories as used or clipped reminders as offered.

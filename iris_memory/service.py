@@ -5,6 +5,8 @@ import json
 from typing import Any
 
 from .bridge import Bridge
+from .config import Config
+from .input_cleanup import clean_material
 from .mapping import input_message, map_entry, stable_key
 from .prompt import memory_material
 from .vendor.iris_client import IrisError
@@ -34,9 +36,9 @@ def error_text(error: Exception) -> str:
     return "Iris 请求未完成，请检查服务是否启动，或稍后重试。"
 
 
-def memories_text(data: dict) -> str:
+def memories_text(data: dict, config: Config) -> str:
     # Preserve uncertainty and provenance; never present a search as a new fact.
-    rows = [memory_material(memory) for memory in data.get("memories", [])]
+    rows = clean_material([memory_material(memory) for memory in data.get("memories", [])], config)
     if not rows:
         return "当前入口可见范围内未找到相关记忆。"
     return "以下是检索材料，需结合立场与相信程度判断：\n" + json.dumps(rows, ensure_ascii=False)
@@ -146,13 +148,16 @@ class MemoryService:
                             args.get("query", ""),
                             args.get("person", ""),
                             args.get("include_forgotten", False),
-                        )
+                        ),
+                        self.config,
                     )
                 if name in {"get_profile", "search_knowledge_graph"}:
                     person = args.get("person", "").strip()
                     if not person:
                         return "请提供人物名字或 Iris 主体 ID；不提供独立知识图谱。"
-                    return memories_text(await self.search(event, args.get("query", ""), person))
+                    return memories_text(
+                        await self.search(event, args.get("query", ""), person), self.config
+                    )
                 if name in {"save_memory", "correct_memory"}:
                     # Arguments describe intent only. Learn actual received dialogue,
                     # never fabricate a user message from generated tool arguments.

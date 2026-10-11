@@ -9,7 +9,16 @@ from uuid import uuid4
 from .config import Config
 from .extras import strip_markdown
 from .image_store import ImageStore
-from .mapping import Entry, content_text, input_message, map_entry, output_message, stable_key
+from .input_cleanup import clean_message, clean_text
+from .mapping import (
+    Entry,
+    content_text,
+    input_message,
+    map_entry,
+    output_message,
+    raw_message,
+    stable_key,
+)
 from .media import attach_images
 from .prompt import render
 from .store import Inbox
@@ -124,6 +133,14 @@ class Bridge:
             cached = await attach_images(
                 event, entry.id, message, self.client, self.config, self.record, self.images
             )
+        # Parsed components are ordinary text. Only a known OneBot wire string
+        # may supply CQ syntax, and only when no component chain is available.
+        if event.get_platform_name() in {"aiocqhttp", "onebot"} and not event.get_messages():
+            wire = raw_message(event).get("message")
+            if isinstance(wire, str):
+                message["content"] = clean_text(wire, self.config, raw_cq=True)
+        # Keep attachments in the cleaned copy, including any 404 retry below.
+        message = clean_message(message, self.config)
         try:
             async with asyncio.timeout(self.config.request_timeout):
                 await self.client.receive_message(entry.id, message)
@@ -173,7 +190,7 @@ class Bridge:
 
     def submit_output(self, entry: Entry, text: str, key: str) -> asyncio.Future[bool]:
         """Call only after a successful send; share dedupe and queue semantics."""
-        message = output_message(entry, text, key)
+        message = clean_message(output_message(entry, text, key), self.config)
         return self.enqueue(lambda: self.client.receive_message(entry.id, message))
 
     def prepare_options(self) -> dict:
