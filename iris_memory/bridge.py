@@ -8,8 +8,16 @@ from uuid import uuid4
 
 from .config import Config
 from .extras import strip_markdown
-from .input_cleanup import clean_message
-from .mapping import Entry, content_text, input_message, map_entry, output_message, stable_key
+from .input_cleanup import clean_message, clean_text
+from .mapping import (
+    Entry,
+    content_text,
+    input_message,
+    map_entry,
+    output_message,
+    raw_message,
+    stable_key,
+)
 from .media import attach_images
 from .prompt import render
 from .store import Inbox
@@ -115,6 +123,12 @@ class Bridge:
     async def _ingest(self, event: Any, entry: Entry, message: dict) -> None:
         if self.config.images_enabled:
             await attach_images(event, entry.id, message, self.client, self.config, self.record)
+        # Parsed components are ordinary text. Only a known OneBot wire string
+        # may supply CQ syntax, and only when no component chain is available.
+        if event.get_platform_name() in {"aiocqhttp", "onebot"} and not event.get_messages():
+            wire = raw_message(event).get("message")
+            if isinstance(wire, str):
+                message["content"] = clean_text(wire, self.config, raw_cq=True)
         message = clean_message(message, self.config)
         async with asyncio.timeout(self.config.request_timeout):
             await self.client.receive_message(entry.id, message)

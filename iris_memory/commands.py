@@ -52,7 +52,7 @@ async def run_command(plugin, event) -> str:
             if action == "search":
                 if not argument.strip():
                     return "用法：/iris_mem search 关键词"
-                return memories_text(await service.search(event, argument.strip()))
+                return memories_text(await service.search(event, argument.strip()), service.config)
             if action == "persona":
                 await service.ensure_received(event)
                 data = await service.client.prepare(
