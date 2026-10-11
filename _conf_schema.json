@@ -401,5 +401,29 @@
     "default": true,
     "description": "set_cooldown 工具",
     "hint": "仅允许管理员会话上下文调用，1—120 分钟，同时受 tools_enabled 控制。"
+  },
+  "forward_enabled": {
+    "type": "bool",
+    "default": true,
+    "description": "展开合并转发",
+    "hint": "展开为 quote_content，原作者逐行标明；其中图片只记数量，不上传。"
+  },
+  "forward_max_depth": {
+    "type": "int",
+    "default": 3,
+    "description": "合并转发最大嵌套深度",
+    "hint": "1—8；超限标注已截断。"
+  },
+  "forward_max_nodes": {
+    "type": "int",
+    "default": 200,
+    "description": "合并转发最多消息数",
+    "hint": "1—1000；总内容不超过 32768 UTF-8 字节。"
+  },
+  "forward_timeout": {
+    "type": "float",
+    "default": 3.0,
+    "description": "合并转发展开总预算（秒）",
+    "hint": "大于 0、最多 30；OneBot 拉取与全部嵌套共用预算，失败保留原消息与占位。"
   }
 }

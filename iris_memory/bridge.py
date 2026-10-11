@@ -8,6 +8,7 @@ from uuid import uuid4
 
 from .config import Config
 from .extras import strip_markdown
+from .forwarded import attach_forwarded
 from .mapping import Entry, content_text, input_message, map_entry, output_message, stable_key
 from .media import attach_images
 from .prompt import render
@@ -104,7 +105,12 @@ class Bridge:
                 "iris_received",
                 self.enqueue(
                     lambda: self._ingest(event, entry, message),
-                    timeout=self.config.image_timeout + self.config.request_timeout + 0.1,
+                    timeout=(
+                        self.config.image_timeout
+                        + self.config.request_timeout
+                        + 0.1
+                        + (self.config.forward_timeout if self.config.forward_enabled else 0)
+                    ),
                 ),
             )
             self._observe_send(event, entry)
@@ -112,6 +118,7 @@ class Bridge:
             self.record("receive_failed")
 
     async def _ingest(self, event: Any, entry: Entry, message: dict) -> None:
+        await attach_forwarded(event, message, self.config, self.record)
         if self.config.images_enabled:
             await attach_images(event, entry.id, message, self.client, self.config, self.record)
         async with asyncio.timeout(self.config.request_timeout):

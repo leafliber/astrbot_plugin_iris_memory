@@ -78,6 +78,10 @@ class Config:
     queue_size: int = 256
     judge: bool = True
     judge_budget_seconds: float = 5.0
+    forward_enabled: bool = True
+    forward_max_depth: int = 3
+    forward_max_nodes: int = 200
+    forward_timeout: float = 3.0
     images_enabled: bool = True
     image_timeout: float = 2.0
     max_images: int = 4
@@ -153,6 +157,7 @@ class Config:
             "allow_container_host",
             "judge",
             "images_enabled",
+            "forward_enabled",
             "inject_memory",
             "force_non_streaming",
             "assume_injected_used",
@@ -186,6 +191,7 @@ class Config:
             self.request_timeout,
             self.reminder_interval,
             self.image_timeout,
+            self.forward_timeout,
             self.judge_budget_seconds,
         ):
             if type(value) not in (int, float) or not math.isfinite(value) or value <= 0:
@@ -202,6 +208,8 @@ class Config:
             ("proactive_delay_max_minutes", 1, 120),
             ("proactive_initiate_limit", 0, 20),
             ("proactive_initiate_interval_minutes", 1, 1440),
+            ("forward_max_depth", 1, 8),
+            ("forward_max_nodes", 1, 1000),
             ("max_images", 1, 100),
             ("max_prompt_chars", 512, 64000),
             ("queue_size", 1, 4096),
@@ -238,6 +246,8 @@ class Config:
         _validate_base_url(self.base_url, self.allow_container_host)
         if any(ord(c) < 32 or 127 <= ord(c) <= 159 for c in self.token):
             raise ValueError("invalid token")
+        if self.forward_timeout > 30:
+            raise ValueError("forward timeout out of range")
         if self.judge_budget_seconds > 10:
             raise ValueError("judge budget out of range")
         if (

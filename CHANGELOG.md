@@ -2,6 +2,8 @@
 
 ## 4.0.0-dev — 2026-10-11
 
+- 展开标准 Node／Nodes 与 OneBot 合并转发为有界引用原话，保留作者和顺序，限制嵌套／数量／UTF-8 字节／耗时；转发图片只记数量占位。
+
 - 增加默认关闭的 `allow_container_host`，支持同一可信 Docker 网络的单一主机名 HTTP(S) origin；严格校验地址，日志与 Pages 提示 HTTP 明文令牌传输。
 - README 测试版统一安装 `dev.4`，补充 Iris 0.0.1 镜像的宿主机／容器两种部署、首次设置码与管理页令牌配置，更新入口画像、批量操作和定时备份状态。
 - 清空 dev.4 旧实现并保留 Git 历史，基于 iris-connectors `a532e2b` 的 Python 客户端与 AstrBot 接线重建。
