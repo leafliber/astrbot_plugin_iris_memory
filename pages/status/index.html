@@ -23,8 +23,10 @@
 <button role="tab" id="diagnostics-tab-sessions" aria-controls="diagnostics-panel-sessions" aria-selected="false">主动决策统计</button>
 </div>
 <div role="tabpanel" id="diagnostics-panel-logs" aria-labelledby="diagnostics-tab-logs" tabindex="0">
-<p class="muted">仅本插件环形日志，不读取 AstrBot 的全局日志文件。最新事件在前。</p>
-<table><thead><tr><th>时间（UTC）</th><th>事件码</th></tr></thead><tbody id="diagnostics-logs"></tbody></table></div>
+<p class="muted">环形日志仅保留本插件告警和故障，最新在前；正常接收、缓存命中和图片过滤等只累计计数，不挤占日志。</p>
+<table><thead><tr><th>时间（UTC）</th><th>事件码</th></tr></thead><tbody id="diagnostics-logs"></tbody></table>
+<h3>事件累计计数</h3><p class="muted">含常规事件、告警与故障，本次进程内累计。</p>
+<table><thead><tr><th>事件码</th><th>次数</th></tr></thead><tbody id="diagnostics-counts"></tbody></table></div>
 <div role="tabpanel" id="diagnostics-panel-prepares" aria-labelledby="diagnostics-tab-prepares" tabindex="0" hidden>
 <p class="muted">分区数量为 Iris 返回值，尚未套用注入预算；返回、注入和实际使用不同。耗时只计算 prepare 请求，不含接收排队或 Provider。失败／取消时没有分区材料。</p>
 <div class="diagnostics-table"><table><thead><tr><th>时间（UTC）</th><th>入口摘要</th><th>用途／结果</th><th>耗时</th><th>召回判断</th><th>分区条数</th><th>画像版本</th></tr></thead><tbody id="diagnostics-prepares"></tbody></table></div></div>

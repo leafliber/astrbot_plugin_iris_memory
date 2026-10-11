@@ -137,4 +137,6 @@ async def test_dedup_notice_never_sent_as_reminder(bridge_factory):
     }
     await bridge.poll()
     assert bridge.inbox.count() == 0 and bridge.inbox.cursor == 1
-    assert not sends and "Iris: goal_dedup_result" in logs
+    assert not sends and not logs
+    assert bridge.counts["goal_dedup_result"] == 1
+    assert bridge.diagnostics.snapshot()["counts"]["goal_dedup_result"] == 1

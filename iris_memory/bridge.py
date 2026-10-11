@@ -8,7 +8,7 @@ from typing import Any
 from uuid import uuid4
 
 from .config import Config
-from .diagnostics import Diagnostics
+from .diagnostics import ROUTINE_CODES, Diagnostics
 from .extras import strip_markdown
 from .mapping import Entry, content_text, input_message, map_entry, output_message, stable_key
 from .media import attach_images
@@ -52,7 +52,8 @@ class Bridge:
         code = self.diagnostics.record(code)
         self.counts[code] = self.counts.get(code, 0) + 1
         # Codes come from this module, never exceptions, payloads, or config.
-        self.log("Iris: " + code)
+        if code not in ROUTINE_CODES:
+            self.log("Iris: " + code)
 
     def start(self) -> None:
         if self.tasks or self.closed:

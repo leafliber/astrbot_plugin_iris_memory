@@ -18,7 +18,14 @@ reminder_send_unconfirmed reminder_poll_failed image_upload_failed image_upload_
 proactive_goals_unavailable proactive_task_failed proactive_decision_failed proactive_scheduler_failed
 message_received prepare_received prepare_failed prepare_cancelled proactive_call proactive_sent
 forward_degraded forward_expanded image_filtered image_cache_hit image_quota_exhausted
-image_storage_unavailable image_cache_stale""".split()
+image_storage_unavailable image_cache_stale image_processing_unavailable
+command_request_failed tool_request_failed""".split()
+)
+# Routine activity is useful as counters, but must not evict fault evidence.
+ROUTINE_CODES = frozenset(
+    """disabled_or_missing_token goal_dedup_result message_received prepare_received
+proactive_call proactive_sent forward_expanded image_filtered image_cache_hit
+image_quota_exhausted""".split()
 )
 MOTIVES = frozenset(("chime_in", "follow_up", "initiate", "watch", "reminder"))
 REASONS = (
@@ -49,6 +56,7 @@ class Diagnostics:
     def __init__(self, config: Config):
         self.config = config
         self.started_at = stamp()
+        self.counts: dict[str, int] = {}
         self.logs = deque(maxlen=config.diagnostics_log_limit)
         self.prepares = deque(maxlen=config.diagnostics_prepare_limit)
         self.sessions = OrderedDict()
@@ -56,7 +64,9 @@ class Diagnostics:
     def record(self, code: str) -> str:
         code = code if isinstance(code, str) and code in CODES else "unknown_event"
         if self.config.diagnostics_enabled:
-            self.logs.append({"at": stamp(), "code": code})
+            self.counts[code] = self.counts.get(code, 0) + 1
+            if code not in ROUTINE_CODES:
+                self.logs.append({"at": stamp(), "code": code})
         return code
 
     def prepared(
@@ -155,6 +165,7 @@ class Diagnostics:
                     "prepares": self.prepares.maxlen,
                     "sessions": self.config.diagnostics_session_limit,
                 },
+                "counts": self.counts,
                 "logs": list(self.logs),
                 "prepares": list(self.prepares),
                 "sessions": list(self.sessions.values()),

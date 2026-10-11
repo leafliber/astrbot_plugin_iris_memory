@@ -58,7 +58,7 @@
     "type": "float",
     "default": 8.0,
     "description": "回复准备总预算（秒）",
-    "hint": "包括等待当前消息接收和 prepare；超时沿用 AstrBot 原提示。"
+    "hint": "包括排队、消息接收和 prepare（召回判断也包含在内）；图片预算 2 秒、请求预算 1 秒、召回预算 5 秒时建议 11 秒，详见 README 时间预算。超时沿用 AstrBot 原提示。"
   },
   "request_timeout": {
     "type": "float",
@@ -411,7 +411,7 @@
   "diagnostics_log_limit": {
     "type": "int",
     "default": 200,
-    "description": "环形日志条数",
+    "description": "环形告警／故障日志条数",
     "hint": "1–5000；仅插件固定事件码，不读取 AstrBot 日志文件。"
   },
   "diagnostics_prepare_limit": {

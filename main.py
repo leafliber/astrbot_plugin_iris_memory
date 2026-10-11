@@ -13,7 +13,7 @@ from .iris_memory import PLUGIN_NAME, VERSION
 from .iris_memory.bridge import Bridge
 from .iris_memory.commands import run_command
 from .iris_memory.config import Config
-from .iris_memory.diagnostics import Diagnostics, reference
+from .iris_memory.diagnostics import ROUTINE_CODES, Diagnostics, reference
 from .iris_memory.extras import decorate_result, prepare_pure_mention
 from .iris_memory.proactive import create_proactive
 from .iris_memory.service import TOOL_NAMES, MemoryService
@@ -86,8 +86,8 @@ class IrisMemoryPlugin(Star):
 
     def _record(self, code: str) -> None:
         code = self.diagnostics.record(code)
-        log = logger.info if code == "disabled_or_missing_token" else logger.warning
-        log("Iris: " + code + (" — " + WARNINGS[code] if code in WARNINGS else ""))
+        if code not in ROUTINE_CODES:
+            logger.warning("Iris: " + code + (" — " + WARNINGS[code] if code in WARNINGS else ""))
 
     def check_host_config(self, event=None) -> None:
         try:

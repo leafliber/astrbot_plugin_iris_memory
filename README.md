@@ -238,9 +238,9 @@ Iris main 已提供 `prepare.entry_profile`，入口画像默认开启、检查�
 
 ## Pages 诊断
 
-在 AstrBot 插件 Pages 的状态页下方打开“运行与检索诊断”，可切换运行日志、检索诊断、主动决策统计，独立刷新。接口 `GET /astrbot_plugin_iris_memory/diagnostics` 复用 AstrBot 登录校验，响应为 `no-store`；刷新只读本地内存，不发起 Iris 或 Provider 请求，Iris 停机时也可检查已有记录。
+在 AstrBot 插件 Pages 的状态页下方打开“运行与检索诊断”，可切换运行日志、检索诊断、主动决策统计，独立刷新。接口 `GET /api/plug/astrbot_plugin_iris_memory/diagnostics` 复用 AstrBot 登录校验，响应为 `no-store`；刷新只读本地内存，不发起 Iris 或 Provider 请求，Iris 停机时也可检查已有记录。
 
-- **运行日志**：只采集本插件固定事件码及 UTC 时间，不读取 AstrBot 全局日志，不接收异常原文。未知事件统一为 `unknown_event`。日志、检索记录、计数均不采集消息、记忆、图片理解、提示词、模型输出或令牌正文；页面没有开启正文的选项。
+- **运行日志**：环形日志只保留本插件告警／故障的固定事件码及 UTC 时间；正常接收、prepare 返回、图片缓存命中／过滤／配额用尽等仅计数，集中显示在“事件累计计数”，不输出 WARNING，也不挤占日志，不读取 AstrBot 全局日志，不接收异常原文。未知事件统一为 `unknown_event`。日志、检索记录、计数均不采集消息、记忆、图片理解、提示词、模型输出或令牌正文；页面没有开启正文的选项。
 - **检索诊断**：最近 N 次普通／主动 prepare 的请求耗时、结果（返回成功／失败／取消）、七个分区条数、召回判断（应用／未启用／降级／未报告）、入口画像版本与可能过时标记。分区条数是服务返回值，未套用注入预算，也不代表实际使用；耗时不含接收排队或 AstrBot Provider。画像缺失／null 显示无版本，未知诊断字段不透传。
 - **主动统计**：分别计数消息门控、定时检查、决策入口检查、Provider 调用、成功发言、决策结果和提醒门控。多阶段检查不等于多次模型调用；调用失败也算调用，只有平台确认成功才算发言。`no_signal` 为无信号，`cooldown` 为冷却，`quiet_hours` 为静音，`daily_limit` 为每日限额，`new_activity` 为期间出现新活动；自动预约的 `reserved` 与概率未通过的 `probability` 分开。
 
@@ -249,7 +249,7 @@ Iris main 已提供 `prepare.entry_profile`，入口画像默认开启、检查�
 | 配置 | 默认值 | 上限与含义 |
 | --- | --- | --- |
 | `diagnostics_enabled` | `true` | 开启内存诊断；关闭后不采集，不落盘。 |
-| `diagnostics_log_limit` | `200` | 环形事件条数，1–5000。 |
+| `diagnostics_log_limit` | `200` | 环形告警／故障条数，1–5000。 |
 | `diagnostics_prepare_limit` | `50` | 最近 prepare 次数，1–500。 |
 | `diagnostics_session_limit` | `200` | 活跃诊断会话的 LRU 上限，1–1000。 |
 
@@ -280,6 +280,14 @@ Iris main 已提供 `prepare.entry_profile`，入口画像默认开启、检查�
 会话设置、冷却、统计和滚动发起记录保存在插件数据目录的独立 SQLite 文件，按服务／令牌摘要隔离；不保存令牌、完整模型提示或原始决策。换令牌会重新默认关闭会话。默认意愿和静音时段在首次观察会话时写入；已有会话保留设置，通过指令／Pages 调整。
 
 消息与输出队列仅在内存中，溢出／后台失败记固定故障码，需要平台重放；不承诺持久补发、恰好一次送达或 24 小时稳定性。缺少平台消息 ID 时仅保证同事件内去重。日志不记录令牌、HTTP 头、异常原文或聊天内容。
+
+## 接收与 prepare 的时间预算
+
+`prepare_timeout` 默认 8 秒，是**等待当前消息接收（含排队）与 Iris prepare 共用的总上限**；其中召回判断 `judge_budget_seconds` 默认最多 5 秒，不是额外追加的时间。图片缓存失效可能补交一次文字，合入图片功能后的单条接收 worker 预算 `B = image_timeout + 2 × request_timeout + 0.1`，默认为 `2 + 2 × 1 + 0.1 = 4.1` 秒。#20 转发展开仍暂停，当前没有这项耗时；若未来启用，它的 `forward_timeout` 也应加到 B 中。
+
+因此 8 秒不能保证同时容纳最慢的 4.1 秒接收和 5 秒召回判断。本版保留 8 秒以维持现有回复延迟上限，由管理员按实际负载调整：**建议 `prepare_timeout ≥ 预计排队等待 + B + judge_budget_seconds + 网络／检索余量`**。无排队且预留 1 秒余量时，当前默认组合建议设为 **11 秒**；未来若另有 3 秒转发预算，则至少相应调整为 **14 秒**。这些数值是配置起点；队列或检索更慢时需继续增大总预算或降低图片／召回预算，关闭召回判断时可不计其 5 秒。
+
+超出总预算时，本次普通回复沿用 AstrBot 原提示和上下文，记录 `prepare_degraded`；接收任务被 shield 保护，仍在它自己的预算内继续，不因放弃注入而丢掉已经排队的输入。主动决策也共用上述接收＋prepare 预算，Provider 决策另受 `proactive_decision_timeout` 限制。诊断页的 prepare 耗时仅统计 Iris 请求，**不含前面的排队和消息接收**，排查时需结合 `prepare_degraded`／`prepare_cancelled` 计数。
 
 ## 常见问题
 

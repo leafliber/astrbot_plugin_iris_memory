@@ -39,9 +39,10 @@ function rows(id, records, columns, empty) {
 }
 function render(data) {
   el('diagnostics-summary').textContent = data.enabled ?
-    `本次采集开始于 ${data.started_at}；最多保留 ${data.limits.logs} 条日志、${data.limits.prepares} 次 prepare、${data.limits.sessions} 个活跃诊断会话。重启清空，页面刷新不调用 Iris。` :
+    `本次采集开始于 ${data.started_at}；最多保留 ${data.limits.logs} 条告警／故障日志、${data.limits.prepares} 次 prepare、${data.limits.sessions} 个活跃诊断会话。重启清空，页面刷新不调用 Iris。` :
     '诊断采集已关闭；在插件配置开启 diagnostics_enabled 后重载。';
-  rows('diagnostics-logs', [...data.logs].reverse(), [r => r.at, r => r.code], '尚无运行事件。');
+  rows('diagnostics-logs', [...data.logs].reverse(), [r => r.at, r => r.code], '尚无告警或故障。');
+  rows('diagnostics-counts', Object.entries(data.counts || {}).sort(([a], [b]) => a.localeCompare(b)), [r => r[0], r => String(r[1])], '尚无事件计数。');
   rows('diagnostics-prepares', [...data.prepares].reverse(), [
     r => r.at,
     r => r.entry_ref,

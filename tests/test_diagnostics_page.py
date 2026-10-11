@@ -18,6 +18,7 @@ def test_diagnostics_page_render_tabs_refresh_and_safe_text(tmp_path, mode):
         "diagnostics-notice",
         "diagnostics-summary",
         "diagnostics-logs",
+        "diagnostics-counts",
         "diagnostics-prepares",
         "diagnostics-sessions",
     ):
@@ -41,6 +42,7 @@ globalThis.document={getElementById(id){ if(!ids.has(id))ids.set(id,new Element(
 let calls=0;
 const mode=process.argv[3];
 const data={enabled:mode!=='disabled',started_at:'2030-01-01T00:00:00Z',limits:{logs:200,prepares:50,sessions:200},
+ counts:{message_received:100,image_filtered:2},
  logs:[{at:'2030-01-01T00:00:00Z',code:'<script>example</script>'}],
  prepares:[{at:'2030-01-01T00:00:00Z',entry_ref:'entry-test',purpose:'proactive',outcome:'ok',duration_ms:25,partitions:{memories:2},judgment:'degraded',entry_profile_version:3,entry_profile_stale:true}],
  sessions:[{session_ref:'session-test',entry_ref:'entry-test',since:'2030-01-01T00:00:00Z',counts:{message:{cooldown:2},calls:{chime_in:1},outcome:{sent:1}}}]};
@@ -51,6 +53,8 @@ assert.equal(document.getElementById('diagnostics-refresh').disabled,false);
 assert.ok(![...ids.values()].map(x=>x.textContent).join('').includes('iris_test_token'));
 if(mode==='ready') {
  assert.ok(document.getElementById('diagnostics-logs').textContent.includes('<script>example</script>'));
+ assert.ok(document.getElementById('diagnostics-counts').textContent.includes('message_received'));
+ assert.ok(document.getElementById('diagnostics-counts').textContent.includes('100'));
  assert.ok(document.getElementById('diagnostics-prepares').textContent.includes('降级'));
  assert.ok(document.getElementById('diagnostics-prepares').textContent.includes('25'));
  assert.ok(document.getElementById('diagnostics-sessions').textContent.includes('cooldown'));

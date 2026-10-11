@@ -1,12 +1,14 @@
+import ast
 import asyncio
 import json
 from dataclasses import replace
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
 from iris_memory.config import Config
-from iris_memory.diagnostics import Diagnostics, reference
+from iris_memory.diagnostics import CODES, Diagnostics, reference
 from tests.conftest import Context, HostEvent
 from tests.test_bridge import prepared
 from tests.test_proactive import enable, settle
@@ -172,7 +174,8 @@ async def test_disabled_plugin_has_safe_startup_log(plugin_module):
     module, logs = plugin_module
     plugin = module.IrisMemoryPlugin(Context(), {"enabled": False})
     page = await plugin.page_diagnostics()
-    assert page["logs"][0]["code"] == "disabled_or_missing_token"
+    assert page["logs"] == []
+    assert page["counts"]["disabled_or_missing_token"] == 1
     await plugin.terminate()
 
 
@@ -276,3 +279,79 @@ async def test_observation_and_failed_send_statistics(setup):
     row = plugin.diagnostics.snapshot()["sessions"][0]
     assert row["counts"]["outcome"]["send_unconfirmed"] == 1
     assert not row["counts"]["sends"]
+
+
+def test_every_record_literal_in_plugin_source_is_registered():
+    root = Path(__file__).parents[1]
+    seen = set()
+    paths = [root / "main.py", *(root / "iris_memory").rglob("*.py")]
+    for path in paths:
+        if "vendor" in path.parts:
+            continue
+        for node in ast.walk(ast.parse(path.read_text())):
+            if not isinstance(node, ast.Call) or not node.args:
+                continue
+            name = (
+                node.func.attr
+                if isinstance(node.func, ast.Attribute)
+                else getattr(node.func, "id", "")
+            )
+            if (
+                name in {"record", "_record"}
+                and isinstance(node.args[0], ast.Constant)
+                and isinstance(node.args[0].value, str)
+            ):
+                seen.add(node.args[0].value)
+    assert {"command_request_failed", "tool_request_failed"} <= seen
+    assert seen <= CODES, "Unregistered fixed event codes: " + str(sorted(seen - CODES))
+
+
+def test_routine_events_only_count_and_do_not_evict_warnings():
+    diagnostics = Diagnostics(Config(diagnostics_log_limit=2))
+    diagnostics.record("receive_failed")
+    normal = [
+        "message_received",
+        "prepare_received",
+        "image_cache_hit",
+        "image_filtered",
+        "image_quota_exhausted",
+        "goal_dedup_result",
+        "proactive_call",
+        "proactive_sent",
+        "forward_expanded",
+    ]
+    for _ in range(100):
+        for code in normal:
+            diagnostics.record(code)
+    data = diagnostics.snapshot()
+    assert [row["code"] for row in data["logs"]] == ["receive_failed"]
+    assert all(data["counts"][code] == 100 for code in normal)
+    assert data["counts"]["receive_failed"] == 1
+    data["counts"]["image_cache_hit"] = 0
+    assert diagnostics.snapshot()["counts"]["image_cache_hit"] == 100
+    disabled = Diagnostics(Config(diagnostics_enabled=False))
+    disabled.record("message_received")
+    assert disabled.snapshot()["counts"] == {} and disabled.snapshot()["logs"] == []
+
+
+async def test_bridge_warns_only_for_faults_and_preserves_command_tool_codes(
+    plugin_factory, plugin_module
+):
+    plugin = await plugin_factory()
+    _, logs = plugin_module
+    logs.clear()
+    for code in [
+        "message_received",
+        "prepare_received",
+        "image_cache_hit",
+        "image_filtered",
+        "image_quota_exhausted",
+    ]:
+        plugin.bridge.record(code)
+        assert plugin.bridge.counts[code] == 1
+    assert logs == [] and plugin.diagnostics.snapshot()["logs"] == []
+    for code in ["command_request_failed", "tool_request_failed", "image_processing_unavailable"]:
+        plugin.bridge.record(code)
+        assert logs[-1] == "Iris: " + code
+        assert plugin.diagnostics.snapshot()["logs"][-1]["code"] == code
+        assert plugin.diagnostics.snapshot()["counts"][code] == 1
