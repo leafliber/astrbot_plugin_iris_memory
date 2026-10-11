@@ -89,6 +89,8 @@ class Config:
     pure_at_reply: bool = False
     error_friendly: bool = True
     strip_markdown: bool = True
+    input_cleanup_enabled: bool = True
+    input_cleanup_repeat_limit: int = 64
     tools_enabled: bool = True
     search_memory_enabled: bool = True
     save_memory_enabled: bool = True
@@ -161,6 +163,7 @@ class Config:
             "pure_at_reply",
             "error_friendly",
             "strip_markdown",
+            "input_cleanup_enabled",
             "tools_enabled",
             "search_memory_enabled",
             "save_memory_enabled",
@@ -203,6 +206,7 @@ class Config:
             ("proactive_initiate_limit", 0, 20),
             ("proactive_initiate_interval_minutes", 1, 1440),
             ("max_images", 1, 100),
+            ("input_cleanup_repeat_limit", 16, 4096),
             ("max_prompt_chars", 512, 64000),
             ("queue_size", 1, 4096),
             ("recent_limit", 0, 100),

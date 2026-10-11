@@ -8,6 +8,7 @@ from uuid import uuid4
 
 from .config import Config
 from .extras import strip_markdown
+from .input_cleanup import clean_message
 from .mapping import Entry, content_text, input_message, map_entry, output_message, stable_key
 from .media import attach_images
 from .prompt import render
@@ -114,6 +115,7 @@ class Bridge:
     async def _ingest(self, event: Any, entry: Entry, message: dict) -> None:
         if self.config.images_enabled:
             await attach_images(event, entry.id, message, self.client, self.config, self.record)
+        message = clean_message(message, self.config)
         async with asyncio.timeout(self.config.request_timeout):
             await self.client.receive_message(entry.id, message)
 
@@ -149,7 +151,7 @@ class Bridge:
 
     def submit_output(self, entry: Entry, text: str, key: str) -> asyncio.Future[bool]:
         """Call only after a successful send; share dedupe and queue semantics."""
-        message = output_message(entry, text, key)
+        message = clean_message(output_message(entry, text, key), self.config)
         return self.enqueue(lambda: self.client.receive_message(entry.id, message))
 
     def prepare_options(self) -> dict:
