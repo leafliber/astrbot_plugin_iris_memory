@@ -40,9 +40,9 @@ async def test_real_core_receive_prepare_search_goals_notifications(tmp_path):
         str(python),
         "-B",
         "-c",
-        # Suppress the fresh service's setup-code log before any handlers exist.
-        # No generated credential may reach terminal output or artifact logs.
-        "import logging; logging.getLogger('iris.auth').disabled = True; "
+        # Uvicorn's logging config re-enables disabled loggers, but retains
+        # logger filters. Keep setup codes out of both console and file handlers.
+        "import logging; logging.getLogger('iris.auth').addFilter(lambda record: False); "
         "from iris.cli import main; raise SystemExit(main())",
         "--data-dir",
         str(tmp_path / "data"),
@@ -207,8 +207,8 @@ async def test_real_core_receive_prepare_search_goals_notifications(tmp_path):
         except subprocess.TimeoutExpired:
             process.kill()
             output, _ = process.communicate(timeout=5)
-        if credential.encode() in output:
-            pytest.fail("Core emitted the ephemeral credential; log withheld", pytrace=False)
+        if credential.encode() in output or "首次设置码".encode() in output:
+            pytest.fail("Core emitted a temporary credential; log withheld", pytrace=False)
         (tmp_path / "core-service.log").write_bytes(output)
         credential = None
 
