@@ -129,6 +129,7 @@ class Config:
     tool_timeout: float = 8.0
     inject_memory: bool = True
     force_non_streaming: bool = True
+    other_output_capture: str = "event"
     assume_injected_used: bool = False
     reminders_enabled: bool = True
     reminder_push_enabled: bool = True
@@ -327,6 +328,8 @@ class Config:
             > self.max_prompt_chars
         ):
             raise ValueError("prompt template exceeds limit")
+        if self.other_output_capture not in ("event", "off"):
+            raise ValueError("invalid other output capture mode")
         if self.reminder_mode not in {"context", "active"}:
             raise ValueError("invalid reminder mode")
         # Current notification payload has no entry_id. Never guess a destination.
