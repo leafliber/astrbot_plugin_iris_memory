@@ -14,9 +14,12 @@ from .image_store import ImageStore
 from .input_cleanup import clean_message, clean_text
 from .mapping import (
     Entry,
+    SenderNameCache,
     content_text,
     input_message,
+    is_notice,
     map_entry,
+    other_output_message,
     output_message,
     raw_message,
     stable_key,
@@ -56,6 +59,7 @@ class Bridge:
         self.tasks: list[asyncio.Task[None]] = []
         self.closed = False
         self.entries: OrderedDict[str, Entry] = OrderedDict()
+        self.sender_names = SenderNameCache()
         self.poll_lock = asyncio.Lock()
         self.counts: dict[str, int] = {}
         self.reminders = ReminderConsumer(self, namespace)
@@ -117,7 +121,7 @@ class Bridge:
             self.entries.move_to_end(entry.origin)
             if len(self.entries) > 200:
                 self.entries.popitem(last=False)
-            message = input_message(event, entry)
+            message = input_message(event, entry, self.sender_names)
             event.set_extra("iris_entry", entry)
             if self.config.force_non_streaming:
                 # Verified per-event override in AstrBot 4.28.2. Native streaming
@@ -136,13 +140,18 @@ class Bridge:
 
     async def _ingest(self, event: Any, entry: Entry, message: dict) -> None:
         cached = set()
-        if self.config.images_enabled:
+        notice = is_notice(event)
+        if self.config.images_enabled and not notice:
             cached = await attach_images(
                 event, entry.id, message, self.client, self.config, self.record, self.images
             )
         # Parsed components are ordinary text. Only a known OneBot wire string
         # may supply CQ syntax, and only when no component chain is available.
-        if event.get_platform_name() in {"aiocqhttp", "onebot"} and not event.get_messages():
+        if (
+            not notice
+            and event.get_platform_name() in {"aiocqhttp", "onebot"}
+            and not event.get_messages()
+        ):
             wire = raw_message(event).get("message")
             if isinstance(wire, str):
                 message["content"] = clean_text(wire, self.config, raw_cq=True)
@@ -180,15 +189,25 @@ class Bridge:
                 text = content_text(chain.chain)
             except Exception:
                 text = ""
+            # Snapshot provenance as well: an adapter may clear/mutate the result.
+            # Missing/unsupported/failed classification is non-role output.
+            try:
+                llm_result = event.get_result()
+                is_llm = llm_result is not None and llm_result.is_llm_result() is True
+            except Exception:
+                is_llm = False
             result = await original(chain)  # failure/cancellation propagates to AstrBot
             try:
                 if text and result is not False and not self.closed:
                     sequence += 1
-                    self.submit_output(entry, text, f"{event_key}:{sequence}")
+                    key = f"{event_key}:{sequence}"
                     event.set_extra("iris_confirmed_send", True)
-                    llm_result = event.get_result()
-                    if llm_result is not None and llm_result.is_llm_result():
+                    if is_llm:
+                        self.submit_output(entry, text, key)
                         self._used(event)
+                    elif self.config.other_output_capture == "event":
+                        message = clean_message(other_output_message(entry, text, key), self.config)
+                        self.enqueue(lambda: self.client.receive_message(entry.id, message))
             except Exception:
                 self.record("output_capture_failed")
             return result

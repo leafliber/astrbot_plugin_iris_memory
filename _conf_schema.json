@@ -216,6 +216,16 @@
     "description": "覆盖为非流式回复",
     "hint": "默认开启以便确认发送后回流；原生流式发送无法保证捕获。"
   },
+  "other_output_capture": {
+    "type": "string",
+    "default": "event",
+    "description": "机器人账号的非角色输出",
+    "hint": "event：把其他插件、指令及来源不明的成功发送作为场景事件，正文标明非角色发言；off：不提交。LLM 回复、Iris 提醒和主动发言仍作为角色输出。",
+    "options": [
+      "event",
+      "off"
+    ]
+  },
   "assume_injected_used": {
     "type": "bool",
     "default": false,

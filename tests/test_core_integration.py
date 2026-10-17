@@ -8,8 +8,10 @@ import asyncio
 import json
 import os
 import socket
+import sqlite3
 import subprocess
 import time
+from contextlib import closing
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -18,6 +20,9 @@ import pytest
 from iris_memory.bridge import Bridge
 from iris_memory.config import Config
 from iris_memory.vendor.iris_client import AsyncIrisClient, RetryPolicy
+from tests.conftest import Result
+from tests.test_bridge import Event
+from tests.test_capture import notice_event
 
 
 @pytest.mark.integration
@@ -35,6 +40,9 @@ async def test_real_core_receive_prepare_search_goals_notifications(tmp_path):
         str(python),
         "-B",
         "-c",
+        # Uvicorn's logging config re-enables disabled loggers, but retains
+        # logger filters. Keep setup codes out of both console and file handlers.
+        "import logging; logging.getLogger('iris.auth').addFilter(lambda record: False); "
         "from iris.cli import main; raise SystemExit(main())",
         "--data-dir",
         str(tmp_path / "data"),
@@ -153,6 +161,7 @@ async def test_real_core_receive_prepare_search_goals_notifications(tmp_path):
             assert completed["state"] == "completed"
             final_status = await client.status()
             assert final_status["usage"]["today"]["calls"] == 0
+            await verify_output_notice_capture(f"http://127.0.0.1:{port}", credential, tmp_path)
             latency = await verify_live_sse(
                 f"http://127.0.0.1:{port}",
                 credential,
@@ -180,6 +189,8 @@ async def test_real_core_receive_prepare_search_goals_notifications(tmp_path):
                             "goals",
                             "notifications",
                             "complete",
+                            "output_provenance_and_scene_sender",
+                            "notice_cached_name_and_no_account_named_people",
                             "sse_enqueue",
                             "sse_and_poll_single_send",
                             "sse_unload",
@@ -196,8 +207,8 @@ async def test_real_core_receive_prepare_search_goals_notifications(tmp_path):
         except subprocess.TimeoutExpired:
             process.kill()
             output, _ = process.communicate(timeout=5)
-        if credential.encode() in output:
-            pytest.fail("Core emitted the ephemeral credential; log withheld", pytrace=False)
+        if credential.encode() in output or "首次设置码".encode() in output:
+            pytest.fail("Core emitted a temporary credential; log withheld", pytrace=False)
         (tmp_path / "core-service.log").write_bytes(output)
         credential = None
 
@@ -264,3 +275,87 @@ async def verify_live_sse(base_url, credential, entry, pull_cursor, tmp_path):
         release.set()
         await bridge.close()
         assert all(task.done() for task in bridge.tasks + bridge.reminders.tasks)
+
+
+async def verify_output_notice_capture(base_url, credential, tmp_path):
+    """Exercise the bridge over real HTTP, then inspect only this fresh test DB."""
+    client = AsyncIrisClient(
+        base_url, token=credential, timeout=2, retry=RetryPolicy(max_retries=0)
+    )
+    config = Config(
+        base_url=base_url,
+        token=credential,
+        request_timeout=2,
+        images_enabled=False,
+        reminders_enabled=False,
+    )
+    logs = []
+
+    async def no_active_send(*args):
+        raise AssertionError("capture test does not send active reminders")
+
+    def people():
+        uri = (tmp_path / "data/iris.db").as_uri() + "?mode=ro"
+        with closing(sqlite3.connect(uri, uri=True)) as db:
+            return dict(db.execute("SELECT id,name FROM subjects WHERE kind='person'"))
+
+    # Core's pre-existing scene subject is itself kind=person. Compare identities
+    # before/after so the assertion checks creations rather than reserved labels.
+    original_people = people()
+    bridge = Bridge(config, client, tmp_path / "plugin-capture", logs.append, no_active_send)
+    bridge.start()
+    try:
+        for kind in ("poke", "group_increase", "group_request", "group_recall"):
+            event = notice_event(kind, name="10001", instance="capture", message_id=kind)
+            await bridge.receive(event)
+            assert await event.get_extra("iris_received")
+        entry = event.get_extra("iris_entry")
+        scene = await client.prepare(entry.id, {"judge": False})
+        assert len(scene["recent_messages"]) == 4
+        assert all(
+            m["kind"] == "event" and m["sender_subject_id"] == "scene"
+            for m in scene["recent_messages"]
+        )
+        assert all(
+            "10001" not in m["content"] and m["quote_author_subject_id"] is None
+            for m in scene["recent_messages"]
+        )
+        assert people() == original_people
+
+        chat = Event(user="10004", instance="capture", message_id="named-chat")
+        chat.get_sender_name = lambda: "测试昵称"
+        await bridge.receive(chat)
+        chat.result = Result("其他插件的复读")
+        await chat.send(chat.result)
+        chat.result = None  # Unknown source is also non-role output.
+        await chat.send(Result("来源不明的输出"))
+        chat.result = Result("Iris 的 LLM 回复", llm=True)
+        await chat.send(chat.result)
+        cached = notice_event("poke", name="10004", instance="capture", message_id="cached")
+        cached.user = "10004"
+        await bridge.receive(cached)
+        await bridge.queue.join()
+        assert not logs
+        recent = (await client.prepare(entry.id, {"judge": False, "recent_limit": 100}))[
+            "recent_messages"
+        ]
+        outputs = [m for m in recent if m["content"].startswith("［机器人账号发送，非角色发言］")]
+        assert len(outputs) == 2
+        assert all(
+            m["kind"] == "event" and m["sender_subject_id"] == "scene" and m["sender_name"] != "我"
+            for m in outputs
+        )
+        own = [m for m in recent if m["sender_subject_id"] == "self"]
+        assert len(own) == 1 and own[0]["content"] == "Iris 的 LLM 回复"
+        assert own[0]["kind"] == "self_output"
+        last = recent[-1]
+        assert last["sender_name"] == "测试昵称" and last["kind"] == "message"
+        assert last["content"] == "有成员戳了戳某人"
+        current_people = people()
+        assert len(current_people) == len(original_people) + 1
+        assert {
+            name for subject, name in current_people.items() if subject not in original_people
+        } == {"测试昵称"}
+        assert not any(name.isdecimal() for name in current_people.values())
+    finally:
+        await bridge.close()
