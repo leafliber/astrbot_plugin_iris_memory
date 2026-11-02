@@ -540,12 +540,21 @@ class IrisMemoryPlugin(Star):
     async def _kv_load(self, key: str) -> Any:
         return await self.get_kv_data(key, None)
 
-    def _get_group_id(self, event) -> str | None:
+    def _get_session_key(self, event) -> str | None:
+        """返回会话键：群聊为群 ID，私聊为 ``private:<uid>``。
+
+        主动回复引擎内部只把该键当作不透明字符串使用，真正发送时再通过
+        ``_group_umo`` 映射到 unified_msg_origin，因此私聊无需改动引擎。
+        """
         group_id = event.get_group_id()
-        if not group_id:
-            event.set_result("无法获取群ID")
-            return None
-        return group_id
+        if group_id:
+            return group_id
+        if event.is_private_chat():
+            sender_id = event.get_sender_id()
+            if sender_id:
+                return f"private:{sender_id}"
+        event.set_result("无法获取会话标识")
+        return None
 
     async def _get_provider_id(self, event, preferred: str = "") -> str | None:
         if preferred:
@@ -600,13 +609,13 @@ class IrisMemoryPlugin(Star):
 
     @filter.command_group("iris_reply")
     @filter.permission_type(filter.PermissionType.ADMIN)
-    @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)
+    @filter.event_message_type(filter.EventMessageType.ALL)
     def iris_reply_group(self):
         pass
 
     @iris_reply_group.command("enable")
     async def cmd_enable(self, event) -> None:
-        group_id = self._get_group_id(event)
+        group_id = self._get_session_key(event)
         if not group_id:
             return
         self._state.add_to_whitelist(group_id)
@@ -615,7 +624,7 @@ class IrisMemoryPlugin(Star):
 
     @iris_reply_group.command("disable")
     async def cmd_disable(self, event) -> None:
-        group_id = self._get_group_id(event)
+        group_id = self._get_session_key(event)
         if not group_id:
             return
         self._state.remove_from_whitelist(group_id)
@@ -626,7 +635,7 @@ class IrisMemoryPlugin(Star):
 
     @iris_reply_group.command("status")
     async def cmd_status(self, event) -> None:
-        group_id = self._get_group_id(event)
+        group_id = self._get_session_key(event)
         if not group_id:
             return
         text = self._admin.get_status(group_id)
@@ -634,7 +643,7 @@ class IrisMemoryPlugin(Star):
 
     @iris_reply_group.command("reset")
     async def cmd_reset(self, event) -> None:
-        group_id = self._get_group_id(event)
+        group_id = self._get_session_key(event)
         if not group_id:
             return
         msg = self._admin.reset_group(group_id)
@@ -644,7 +653,7 @@ class IrisMemoryPlugin(Star):
 
     @iris_reply_group.command("cooldown")
     async def cmd_cooldown(self, event, minutes: int = 5) -> None:
-        group_id = self._get_group_id(event)
+        group_id = self._get_session_key(event)
         if not group_id:
             return
         msg = self._admin.set_cooldown(group_id, minutes)
@@ -653,7 +662,7 @@ class IrisMemoryPlugin(Star):
 
     @iris_reply_group.command("willingness")
     async def cmd_willingness(self, event, level: str = "") -> None:
-        group_id = self._get_group_id(event)
+        group_id = self._get_session_key(event)
         if not group_id:
             return
         if not level.strip():
@@ -666,7 +675,7 @@ class IrisMemoryPlugin(Star):
 
     @iris_reply_group.command("initiate")
     async def cmd_initiate(self, event) -> None:
-        group_id = self._get_group_id(event)
+        group_id = self._get_session_key(event)
         if not group_id:
             return
         result = await self._proactive.attempt_initiate(group_id, force=True)
@@ -676,7 +685,7 @@ class IrisMemoryPlugin(Star):
     # AstrBot 钩子
     # ========================================================================
 
-    @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)
+    @filter.event_message_type(filter.EventMessageType.ALL)
     async def on_message(self, event) -> None:
         """主动回复消息唤醒：门控 → 标记 → 交由 on_llm_request 决策"""
         if await self._prepare_pure_at_request(event):
@@ -688,9 +697,14 @@ class IrisMemoryPlugin(Star):
         if not self._gatekeeper.should_process(event):
             return
 
-        group_id = event.get_group_id()
+        group_id = self._get_session_key(event)
         if not group_id:
             return
+
+        # 私聊首次通过门控后登记到白名单，调度循环才能遍历到该会话
+        if event.is_private_chat() and not self._state.is_whitelisted(group_id):
+            self._state.add_to_whitelist(group_id)
+            await self._state.save_dirty(self._kv_save)
 
         # 缓存会话标识与自身 ID，供主动发起通路使用
         umo = getattr(event, "unified_msg_origin", "")

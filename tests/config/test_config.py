@@ -89,6 +89,8 @@ class TestConfig:
             "proactive.proactive_enabled",
             "proactive.stats_enabled",
             "proactive.provider_id",
+            "proactive.private_enabled",
+            "proactive.private_whitelist",
         }
         assert not schema_only, f"schema 存在 Defaults 未覆盖的键：{schema_only}"
 
