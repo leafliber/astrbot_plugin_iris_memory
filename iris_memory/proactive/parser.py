@@ -27,6 +27,7 @@ class Decision:
     drifted: bool = False
     cooldown_minutes: int = 0
     parse_failed: bool = False
+    item_id: str | None = None  # 主动发起围绕的连续性候选事项（由调用方按候选集校验）
 
     @property
     def should_speak(self) -> bool:
@@ -143,6 +144,12 @@ def parse_decision(text: str, mode: str = "") -> Decision:
     why = str(obj.get("why", obj.get("interest_reason", "")))
     drifted = parse_bool(obj.get("drifted", obj.get("topic_drifted", False)))
     cooldown = _parse_cooldown(obj.get("cooldown", 0))
+    raw_item_id = obj.get("item_id")
+    item_id = (
+        str(raw_item_id).strip()
+        if isinstance(raw_item_id, (str, int)) and not isinstance(raw_item_id, bool)
+        else ""
+    )
 
     # 防御：不要求发言时忽略 message/topic；drifted 时不应发言
     if action != "speak":
@@ -179,4 +186,5 @@ def parse_decision(text: str, mode: str = "") -> Decision:
         why=why,
         drifted=drifted,
         cooldown_minutes=cooldown,
+        item_id=(item_id or None) if action == "speak" else None,
     )

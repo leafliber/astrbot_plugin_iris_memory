@@ -9,7 +9,7 @@ Iris Chat Memory - 默认配置定义
 """
 
 from dataclasses import dataclass, field, asdict
-from typing import Literal, Optional, Dict
+from typing import Literal, Optional, Dict, List
 
 
 @dataclass
@@ -1202,6 +1202,40 @@ class PersonaEvolutionConfig:
 
 
 @dataclass
+class ContinuityConfig:
+    """连续性层配置（用户可见选项，与 _conf_schema.json 的 continuity 分组一致）
+
+    运行时由 ``iris_memory.continuity.service.ContinuityConfig.from_config``
+    统一做类型收敛与范围钳制；``enable=false`` 为软回滚。
+    """
+
+    enable: bool = True
+    items_enable: bool = True
+    proactive_topics_enable: bool = True
+    closure_enable: bool = True
+    batching_enable: bool = True
+    channel_ingest_enable: bool = False
+    digest_enable: bool = False
+    observe_chat_ids: List[str] = field(default_factory=list)
+    owner_channel_ids: List[str] = field(default_factory=list)
+    merge_quiet_ms: int = 1200
+    merge_cap_ms: int = 2000
+    explicit_wait_timeout_s: int = 180
+    closure_cooldown_minutes: int = 120
+    inject_max_items: int = 3
+    inject_max_chars: int = 600
+    extract_debounce_s: int = 6
+    extract_timeout_s: int = 30
+    extract_queue_max: int = 50
+    digest_interval_hours: int = 3
+    sticker_understanding_enable: bool = True
+    image_understanding_enable: bool = True
+    sticker_send_enable: bool = True
+    sticker_groups_enable: bool = False
+    sticker_describe_daily_cap: int = 100
+
+
+@dataclass
 class Defaults:
     """所有默认配置的统一入口
 
@@ -1220,6 +1254,7 @@ class Defaults:
     persona_evolution: PersonaEvolutionConfig = field(
         default_factory=PersonaEvolutionConfig
     )
+    continuity: ContinuityConfig = field(default_factory=ContinuityConfig)
     hidden: HiddenConfig = field(default_factory=HiddenConfig)
 
     def get_by_flat_key(self, flat_key: str) -> Optional[object]:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import random
+import re
 import time
 from collections.abc import Awaitable, Callable
 
@@ -17,7 +18,7 @@ from .decision import (
 )
 from .parser import Decision
 from .perception import ContextPackager, SlidingWindow, WindowMessage
-from .prompts import SPEAK_HINTS
+from .prompts import PRIVATE_SPEAK_HINT_INITIATE, SPEAK_HINTS, SPEAK_SPLIT_NOTE
 from .signals import SignalGate
 from .state import GroupState, StateManager
 from .stats import StatsCollector
@@ -26,6 +27,71 @@ from ..llm_modules import PROACTIVE_REPLY_INITIATE
 
 # 发起评估被 LLM 否决后的重试间隔（秒），仅内存记录
 _SKIP_RETRY_SECONDS = 30 * 60
+# 接入连续性桥接时：分段上限与重启后过期候选的重新抽样区间（秒）
+_MAX_SPEECH_PARTS = 3
+_RESTART_RESAMPLE_SECONDS = (30.0, 180.0)
+# 未接入桥接时的独立禁发频道（与 continuity.proactive_bridge.DEFAULT_FORBIDDEN_CHATS 一致）
+_LEGACY_FORBIDDEN_CHATS: frozenset = frozenset()
+
+
+def _legacy_chat_variants(chat_id) -> set[str]:
+    s = str(chat_id or "").strip()
+    if not s:
+        return set()
+    out = {s}
+    if s.startswith("-100") and len(s) > 4:
+        out.add(s[4:])
+    elif s.startswith("-"):
+        out.add(s[1:])
+    else:
+        out.add("-100" + s)
+        out.add("-" + s)
+    return out
+
+
+def _is_silent_or_forbidden(chat_id, silent_sessions) -> bool:
+    try:
+        from ..continuity.service import is_silent_or_forbidden
+
+        return bool(is_silent_or_forbidden(chat_id, silent_sessions))
+    except Exception:
+        pass
+    ids = _legacy_chat_variants(chat_id)
+    if not ids:
+        return False
+    blocked = {str(x).strip() for x in (silent_sessions or ()) if str(x).strip()}
+    if str(chat_id).strip() in blocked:
+        return True
+    return any(ids & _legacy_chat_variants(c) for c in _LEGACY_FORBIDDEN_CHATS | blocked)
+
+
+def _topic_matches(topic: str, avoided: list[str]) -> bool:
+    """决策话题与「不要主动提起」话题规范化后相同或互相包含（≥2 字）"""
+    from ..continuity.models import norm_topic
+
+    t = norm_topic(topic)
+    if len(t) < 2:
+        return False
+    for a in avoided or ():
+        n = norm_topic(a)
+        if len(n) >= 2 and (n == t or n in t or t in n):
+            return True
+    return False
+
+
+def _avoid_block(topics: list[str]) -> str:
+    if not topics:
+        return ""
+    lines = "\n".join(f"- {t}" for t in topics)
+    return f"【不要主动提起】\n以下话题对方已拒绝、已完成或已取消，不要主动提起，也不要换个说法绕回去：\n{lines}"
+
+
+def split_speech_parts(text: str, max_parts: int = _MAX_SPEECH_PARTS) -> list[str]:
+    """按空行切分为不超过 max_parts 段；多出的段并入最后一段。"""
+    chunks = [c.strip() for c in re.split(r"\n\s*\n", text or "") if c.strip()]
+    if len(chunks) <= max_parts:
+        return chunks
+    return chunks[: max_parts - 1] + ["\n\n".join(chunks[max_parts - 1:])]
 
 
 def _record_initiate_send(group_id: str, text: str, success: bool, error: str = "") -> None:
@@ -73,6 +139,8 @@ class ProactiveEngine:
         save_fn: Callable[[], Awaitable[None]],
         on_initiate_sent: Callable[[str, str], Awaitable[None]] | None = None,
         text_transform: Callable[[str], str] | None = None,
+        profile_get: Callable[[str, str], Awaitable[str]] | None = None,
+        bridge=None,
     ) -> None:
         self._context = context
         self._config = config
@@ -89,10 +157,43 @@ class ProactiveEngine:
         self._save_fn = save_fn
         self._on_initiate_sent = on_initiate_sent
         self._text_transform = text_transform
+        self._profile_get = profile_get
+        # 连续性桥接（iris_memory.continuity.proactive_bridge.ProactiveBridge）；
+        # None 时完全保持原有行为（context.send_message 直发）。
+        self._bridge = bridge
+        if bridge is not None:
+            # 私聊暂停只能由本人新私聊消息或管理员重置解除，不按 24h 自动清零
+            state.time_reset_private = False
         self._task: asyncio.Task | None = None
         self._wake_event = asyncio.Event()
         self._initiating: set[str] = set()
         self._skip_retry_after: dict[str, float] = {}
+        self._avoid_cache: dict[str, list[str]] = {}
+
+    def _legacy_target_refusal(self, group_id: str) -> str:
+        """未接入桥接时的发送目标硬拦截（禁发频道 / silent_sessions / 私聊白名单）。"""
+        scope = str(group_id or "").strip()
+        if not scope:
+            return "目标会话无效"
+        try:
+            silent = list(getattr(self._config, "silent_sessions", None) or [])
+        except Exception:
+            silent = []
+        if scope.startswith("private:"):
+            uid = scope.split(":", 1)[1].strip()
+            try:
+                allowed = {str(x).strip() for x in self._config.private_whitelist}
+            except Exception:
+                allowed = set()
+            if not uid or uid not in allowed:
+                return "私聊对象不在白名单"
+            if _is_silent_or_forbidden(uid, silent):
+                return "目标会话禁止发言"
+            return ""
+        peer = scope.partition("#")[0].strip()
+        if scope in {str(x).strip() for x in silent} or _is_silent_or_forbidden(peer, silent):
+            return "目标会话禁止发言"
+        return ""
 
     def is_initiating(self, group_id: str) -> bool:
         return group_id in self._initiating
@@ -101,6 +202,8 @@ class ProactiveEngine:
         if not self._config.proactive_enabled:
             logger.info("Iris Reply: proactive engine disabled by config")
             return
+        if self._bridge is not None:
+            await self._bridge_startup()
         self._task = asyncio.create_task(self._loop())
         logger.info(
             "Iris Reply: proactive engine started (interval=%dmin)",
@@ -115,6 +218,39 @@ class ProactiveEngine:
             except asyncio.CancelledError:
                 pass
         self._task = None
+
+    async def _bridge_startup(self) -> None:
+        """启动时：对账遗留发送、恢复持久化窗口、过期候选重新抽样（不集中补发）。"""
+        try:
+            await self._bridge.reconcile(force_query=True)
+        except Exception as e:
+            logger.warning("Iris Reply: bridge reconcile at startup failed: %s", type(e).__name__)
+        try:
+            await self._bridge.restore_windows(self._window)
+        except Exception as e:
+            logger.warning("Iris Reply: bridge restore_windows failed: %s", type(e).__name__)
+        now = time.time()
+        for group_id in self._state.get_whitelist():
+            when = self._state.get_next_initiate_check(group_id)
+            if 0 < when <= now:
+                self._state.set_next_initiate_check(
+                    group_id,
+                    max(now + random.uniform(*_RESTART_RESAMPLE_SECONDS), when),
+                )
+
+    async def _bridge_reconcile(self) -> None:
+        if self._bridge is None:
+            return
+        try:
+            await self._bridge.reconcile()
+        except Exception as e:
+            logger.warning("Iris Reply: bridge reconcile failed: %s", type(e).__name__)
+
+    def _is_paused(self, group_id: str, force: bool) -> bool:
+        if force:
+            return False
+        data = self._state.get_state(group_id)
+        return data.initiate_no_reply_streak >= self._config.proactive_max_streak
 
     def notify_human_message(self, group_id: str, timestamp: float | None = None) -> None:
         """让旧候选失效，并从这条真实消息之后为单群独立预约。"""
@@ -167,6 +303,7 @@ class ProactiveEngine:
                     self._wake_event.clear()
                 except asyncio.TimeoutError:
                     pass
+                await self._bridge_reconcile()
                 await self._scan_due()
             except Exception as e:
                 logger.warning("Iris Reply: proactive scan error: %s", e)
@@ -242,6 +379,11 @@ class ProactiveEngine:
         if not force and not self._state.is_whitelisted(group_id):
             return "该群未启用"
 
+        if self._bridge is None:
+            refusal = self._legacy_target_refusal(group_id)
+            if refusal:
+                return f"已拒绝发起：{refusal}"
+
         umo = self._umo_get(group_id)
         if not umo:
             return "暂无该群的会话标识（等群里有过消息后再试）"
@@ -263,17 +405,43 @@ class ProactiveEngine:
         )
 
         self._initiating.add(group_id)
+        bridge = self._bridge
+        turn_id = ""
+        turn_reason = "aborted"
         try:
             self._state.record_detect_time(group_id)
+            candidates = None
+            avoid: list[str] = []
+            private = bridge is not None and group_id.startswith("private:")
+            self._avoid_cache.pop(group_id, None)
+            if bridge is not None:
+                start = await bridge.begin_turn(group_id, force)
+                if start.turn is None:
+                    return f"已跳过发起：{start.reason}"
+                turn_id = start.turn["turn_id"]
+                candidates = start.candidates or None
+                if private:
+                    try:
+                        avoid = list(await bridge.avoid_topics(group_id) or [])
+                    except Exception as e:
+                        logger.warning(
+                            "Iris Reply: avoid_topics failed for %s: %s", group_id, type(e).__name__,
+                        )
+                        avoid = []
+                    self._avoid_cache[group_id] = avoid
             req = DecisionRequest(
                 group_id=group_id,
                 wake="timer",
                 motive="initiate",
                 quiet_minutes=quiet_minutes,
+                private=private,
+                candidates=candidates,
+                avoid_topics=avoid or None,
             )
             outcome = await self._core.decide(req, self._llm_manager, provider_id)
 
             if outcome.error or outcome.decision is None:
+                turn_reason = "decision_error"
                 self._stats.record_decision_error(group_id, "initiate")
                 self._skip_retry_after[group_id] = time.time() + _SKIP_RETRY_SECONDS
                 if outcome.error_kind == "input_content_safety_1026":
@@ -328,11 +496,13 @@ class ProactiveEngine:
                     self._state.record_drift(group_id)
 
             if decision.parse_failed:
+                turn_reason = "decision_parse_failed"
                 self._skip_retry_after[group_id] = time.time() + _SKIP_RETRY_SECONDS
                 await self._save_fn()
                 return "决策结果解析失败"
 
             if not decision.should_speak:
+                turn_reason = "llm_declined"
                 # LLM 否决：重置概率时钟，避免短时间连续询问模型。
                 async with self._state.get_lock(group_id):
                     self._state.reset_initiate_drive(group_id)
@@ -340,23 +510,46 @@ class ProactiveEngine:
                 await self._save_fn()
                 return "LLM 决定暂不发起"
 
+            # 决策明确选中了本回合的有效候选事项时，不做话题回避判定：
+            # 例如“面试”已完成、“面试结果”仍是待续候选，跟进候选是合法的。
+            chosen_candidate = bool(decision.item_id) and any(
+                str(c.get("item_id")) == str(decision.item_id) for c in (candidates or [])
+            )
+            if avoid and not chosen_candidate and _topic_matches(decision.topic, avoid):
+                turn_reason = "avoided_topic"
+                self._skip_retry_after[group_id] = time.time() + _SKIP_RETRY_SECONDS
+                await self._save_fn()
+                return "已跳过发起：avoided_topic"
+
             guard = self._initiate_guard_reason(
                 group_id, context_cutoff, require_quiet=not force
             )
             if guard:
+                turn_reason = "guard"
                 await self._save_fn()
                 return f"已取消发起：{guard}"
+
+            if bridge is not None:
+                await bridge.mark_turn(
+                    turn_id, "generating", item_id=decision.item_id, llm_calls=1
+                )
 
             # 发言文本走主管线人格生成（决策只给切入角度，不直出消息）
             text = await self._generate_speech(group_id, umo, provider_id, decision)
             if not text:
                 text = decision.message.strip()
             if not text:
+                turn_reason = "speech_failed"
                 self._skip_retry_after[group_id] = time.time() + _SKIP_RETRY_SECONDS
                 await self._save_fn()
                 return "发言文本生成失败"
 
             text = text[: self._config.proactive_max_message_len]
+            if bridge is not None:
+                turn_reason = "send_aborted"
+                return await self._send_via_bridge(
+                    group_id, umo, turn_id, text, decision, context_cutoff, force
+                )
             if self._text_transform is not None:
                 # 直发通路不触发 on_decorating_result，消息始终以纯文本发送，
                 # 由调用方补齐与管线一致的文本处理（如 Markdown 去除）
@@ -375,6 +568,9 @@ class ProactiveEngine:
             if guard:
                 await self._save_fn()
                 return f"已取消发起：{guard}"
+            refusal = self._legacy_target_refusal(group_id)
+            if refusal:
+                return f"已拒绝发起：{refusal}"
             ok = await self._context.send_message(umo, chain)
             if not ok:
                 _record_initiate_send(group_id, text, False, "未找到匹配的消息平台")
@@ -417,7 +613,148 @@ class ProactiveEngine:
             logger.error("Iris Reply: initiate failed for group %s: %s", group_id, e)
             return f"发起异常: {e}"
         finally:
+            if bridge is not None and turn_id:
+                # 未走到发送记账的回合（否决/失败/取消/异常）在此收尾；已终结则无操作
+                try:
+                    await bridge.close_turn(turn_id, "skipped", turn_reason)
+                except Exception as e:
+                    logger.warning(
+                        "Iris Reply: close_turn failed for group %s: %s",
+                        group_id, type(e).__name__,
+                    )
             self._initiating.discard(group_id)
+
+    def _transform(self, group_id: str, text: str) -> str:
+        if self._text_transform is None:
+            return text
+        try:
+            return self._text_transform(text) or text
+        except Exception as e:
+            logger.warning(
+                "Iris Reply: text_transform error for group %s: %s", group_id, e,
+            )
+            return text
+
+    async def _send_via_bridge(
+        self,
+        group_id: str,
+        umo: str,
+        turn_id: str,
+        text: str,
+        decision: Decision,
+        context_cutoff: float,
+        force: bool,
+    ) -> str:
+        """连续性桥接发送：分段（≤3）、每段前复查、带回执发送、按 §5.9 记账。"""
+        bridge = self._bridge
+        parts = [
+            p for p in (self._transform(group_id, raw).strip() for raw in split_speech_parts(text))
+            if p
+        ]
+        if not parts:
+            self._skip_retry_after[group_id] = time.time() + _SKIP_RETRY_SECONDS
+            await self._save_fn()
+            return "发言文本生成失败"
+        await bridge.mark_turn(turn_id, "sending", parts_total=len(parts), llm_calls=2)
+        stop_reason = ""
+        try:
+            for idx, part in enumerate(parts):
+                guard = self._initiate_guard_reason(
+                    group_id, context_cutoff, require_quiet=not force
+                )
+                if guard:
+                    stop_reason = "guard"
+                    break
+                check = await bridge.presend_check(
+                    turn_id, umo, paused=self._is_paused(group_id, force)
+                )
+                if not check.ok:
+                    stop_reason = check.reason
+                    break
+                outcome = await bridge.send_part(turn_id, umo, part, idx)
+                if not outcome.sent:
+                    stop_reason = outcome.error or f"send_{outcome.status}"
+                    break
+        except Exception as e:
+            # 已发出的分段仍要记账；异常只终止剩余分段
+            stop_reason = stop_reason or "send_exception"
+            logger.warning(
+                "Iris Reply: bridge send error for group %s: %s", group_id, type(e).__name__,
+            )
+        result = await bridge.finish_turn(turn_id, stop_reason=stop_reason)
+        return await self._account_bridge_result(group_id, decision, result)
+
+    async def _owner_answered(self, result) -> bool:
+        """首段发出后本人已回复（因新消息中止，或水位已越过回合起点）"""
+        reason = str(getattr(result, "reason", "") or "")
+        if reason == "new_inbound" or reason.startswith("stale"):
+            return True
+        checker = getattr(self._bridge, "owner_replied_since", None)
+        if checker is None:
+            return False
+        try:
+            return bool(await checker(result.turn_id))
+        except Exception:
+            return False
+
+    async def _account_bridge_result(self, group_id: str, decision: Decision, result) -> str:
+        now = time.time()
+        if result.parts_sent >= 1:
+            # 至少一段真实发出：额度只计 1 次；pending=now，
+            # 除非本人已在首段之后回复（已接话，不再等待、不计未回复）
+            answered = await self._owner_answered(result)
+            sent_text = "\n\n".join(result.sent_texts)
+            _record_initiate_send(group_id, sent_text, True)
+            self._window.append(group_id, WindowMessage(
+                sender_id=self._self_id_get() or "iris",
+                sender_name="我",
+                content=sent_text,
+                timestamp=now,
+            ))
+            async with self._state.get_lock(group_id):
+                self._state.record_initiate(
+                    group_id,
+                    topic=decision.topic or decision.observation,
+                    bot_message=sent_text,
+                    users=decision.watch or None,
+                    keywords=decision.watch_keywords or None,
+                    reason=decision.why_now or decision.why,
+                    set_pending=not answered,
+                )
+            self._schedule_group(
+                group_id,
+                now=now,
+                not_before=now + self._config.proactive_min_interval * 60.0,
+            )
+            await self._save_fn()
+            if self._on_initiate_sent is not None:
+                try:
+                    await self._on_initiate_sent(group_id, sent_text)
+                except Exception as e:
+                    logger.warning(
+                        "Iris Reply: on_initiate_sent callback error for group %s: %s",
+                        group_id, e,
+                    )
+            return f"已发起: {sent_text[:50]}"
+        if result.state == "uncertain":
+            # 结果不确定：bridge 已预占额度（不设 pending）；等对账，min_interval 内不再发起
+            _record_initiate_send(group_id, "", False, "发送结果不确定，等待对账")
+            self._schedule_group(
+                group_id,
+                now=now,
+                not_before=now + self._config.proactive_min_interval * 60.0,
+            )
+            await self._save_fn()
+            return "发送结果不确定，等待对账"
+        reason = result.reason or result.state
+        if result.state == "failed":
+            # 确认失败：不扣额度、不计未回复；短期内不重试
+            _record_initiate_send(group_id, "", False, reason)
+            self._skip_retry_after[group_id] = now + _SKIP_RETRY_SECONDS
+            await self._save_fn()
+            return f"发送失败：{reason}"
+        await self._save_fn()
+        return f"已取消发起：{reason}"
 
     def _initiate_guard_reason(
         self,
@@ -474,12 +811,23 @@ class ProactiveEngine:
 
         messages = self._window.get_messages(group_id)
         context_block = self._packager.package(group_id, messages, "initiate")
-        topic = decision.topic.strip() or "自由选择一个轻松、大家能接上话的角度"
-        hint = SPEAK_HINTS["initiate"].format(
-            topic=topic,
-            why_now=decision.why_now or "当前群聊出现了自然的交流空档",
-            topic_source=decision.topic_source or "recent_context",
-        )
+        bridged = self._bridge is not None
+        private = bridged and group_id.startswith("private:")
+        if private:
+            hint = PRIVATE_SPEAK_HINT_INITIATE.format(
+                topic=decision.topic.strip() or "顺着你们最近的私聊自然地开口",
+                why_now=decision.why_now or "你们的私聊出现了自然的空档",
+                topic_source=decision.topic_source or "recent_context",
+            )
+        else:
+            topic = decision.topic.strip() or "自由选择一个轻松、大家能接上话的角度"
+            hint = SPEAK_HINTS["initiate"].format(
+                topic=topic,
+                why_now=decision.why_now or "当前群聊出现了自然的交流空档",
+                topic_source=decision.topic_source or "recent_context",
+            )
+        if bridged:
+            hint = f"{hint}\n{SPEAK_SPLIT_NOTE}"
         prompt = f"{context_block}\n\n{hint}"
 
         # 直连 llm_generate 不经过主管线，需自行注入当前时间，
@@ -488,6 +836,29 @@ class ProactiveEngine:
         time_hint = wrap_system_reminder(resolve_datetime_reminder(self._context, umo))
         if time_hint:
             system_prompt = f"{time_hint}\n\n{system_prompt}".strip()
+
+        # 接入桥接时：连续性上下文（与普通回复同一组装逻辑，已含私聊画像）
+        continuity = ""
+        if bridged:
+            continuity = await self._bridge.speech_context(group_id, decision.item_id)
+            if continuity:
+                system_prompt = f"{system_prompt}\n\n{continuity}".strip()
+            avoid_text = _avoid_block(self._avoid_cache.get(group_id) or []) if private else ""
+            if avoid_text:
+                system_prompt = f"{system_prompt}\n\n{avoid_text}".strip()
+
+        # 直连 generate_direct 不会触发 on_llm_request，画像需要在此手动注入，
+        # 否则主动消息只能看到人格，看不到长期记忆。
+        if self._profile_get and not continuity:
+            try:
+                profile_text = await self._profile_get(group_id, umo)
+            except Exception as e:
+                profile_text = ""
+                logger.warning("Iris Reply: profile resolve failed for %s: %s", group_id, e)
+            if profile_text:
+                system_prompt = (
+                    f"{system_prompt}\n\n【你记得的关于对方的信息】\n{profile_text}"
+                ).strip()
 
         try:
             text = await self._llm_manager.generate_direct(

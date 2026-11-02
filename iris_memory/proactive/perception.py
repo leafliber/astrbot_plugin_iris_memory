@@ -40,14 +40,24 @@ class Gatekeeper:
             return False
         if message_str.startswith("/"):
             return False
-        if event.is_private_chat():
-            return False
         if self._state.is_muted():
             return False
+        if event.is_private_chat():
+            return self._allow_private(event)
         group_id = event.get_group_id()
         if not self._state.is_whitelisted(group_id):
             return False
         return True
+
+    def _allow_private(self, event: AstrMessageEvent) -> bool:
+        """私聊放行：需显式开启开关，且发送者在私聊白名单内。"""
+        if not self._config.private_enabled:
+            return False
+        allowed = set(self._config.private_whitelist)
+        if not allowed:
+            return False
+        sender_id = str(event.get_sender_id() or "").strip()
+        return bool(sender_id) and sender_id in allowed
 
     def quality_score(self, text: str) -> float:
         if not text or not text.strip():

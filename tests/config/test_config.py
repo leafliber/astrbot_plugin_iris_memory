@@ -89,6 +89,11 @@ class TestConfig:
             "proactive.proactive_enabled",
             "proactive.stats_enabled",
             "proactive.provider_id",
+            "proactive.private_enabled",
+            "proactive.private_whitelist",
+            # 只读会话由 main.py / continuity 以 config.get(..., []) 读取，
+            # 与 proactive 分组其他键一样不进入 Defaults dataclass
+            "proactive.silent_sessions",
         }
         assert not schema_only, f"schema 存在 Defaults 未覆盖的键：{schema_only}"
 
@@ -114,6 +119,8 @@ class TestConfig:
             schema_flat.get("proactive.provider_id")
             == reply_defaults.get("provider_id")
         )
+        # silent_sessions 缺省为空列表（运行时读取的回退值同为 []）
+        assert schema_flat.get("proactive.silent_sessions") == []
 
     def test_legacy_dream_switches_do_not_map_to_new_stages(self, tmp_path: Path):
         astrbot_config = {

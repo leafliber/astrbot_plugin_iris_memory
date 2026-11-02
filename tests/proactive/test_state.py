@@ -369,3 +369,37 @@ class TestDetectRateLimit:
         state.get_state(GID).last_detect_time = time.time() - 20
         assert state.can_detect(GID) is False
         assert state.can_detect(GID, follow_up=True) is True
+
+
+class TestPrivateStreakNoTimeReset:
+    """F1：接入连续性桥接后私聊暂停不按 24h 自动解除；群聊保持滚动恢复。"""
+
+    @staticmethod
+    def _paused(state, gid):
+        data = state.get_state(gid)
+        data.initiate_no_reply_streak = 2
+        data.last_initiate_time = time.time() - 25 * 3600
+        return data
+
+    def test_private_streak_survives_24h_when_disabled(self, state):
+        state.time_reset_private = False
+        self._paused(state, "private:100000001")
+        assert state.get_state("private:100000001").initiate_no_reply_streak == 2
+        # 只有本人新私聊消息（或管理员重置）才解除
+        assert state.resume_after_owner_message("private:100000001") is True
+        assert state.get_state("private:100000001").initiate_no_reply_streak == 0
+
+    def test_group_still_resets_after_24h(self, state):
+        state.time_reset_private = False
+        self._paused(state, GID)
+        assert state.get_state(GID).initiate_no_reply_streak == 0
+
+    def test_default_keeps_old_behaviour(self, state):
+        self._paused(state, "private:1")
+        assert state.get_state("private:1").initiate_no_reply_streak == 0
+
+    def test_admin_reset_clears_private_streak(self, state):
+        state.time_reset_private = False
+        self._paused(state, "private:100000001")
+        state.reset_group("private:100000001")
+        assert state.get_state("private:100000001").initiate_no_reply_streak == 0

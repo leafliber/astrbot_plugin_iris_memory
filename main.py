@@ -26,13 +26,16 @@ import asyncio
 import hashlib
 import re
 import time
+from datetime import datetime
 from typing import Any, Optional
 
 from .iris_memory.config import init_config, Config
 
 from astrbot.api import AstrBotConfig
 from astrbot.api.event import filter, AstrMessageEvent
-from astrbot.api.message_components import At
+from pathlib import Path
+
+from astrbot.api.message_components import At, Plain
 from astrbot.api.star import Context, Star, StarTools
 from astrbot.core.agent.message import TextPart
 from astrbot.core.provider.entities import LLMResponse, ProviderRequest
@@ -53,6 +56,22 @@ from .iris_memory.core import (
     get_run_log_manager,
 )
 from .iris_memory.tools import register_llm_tools
+from .iris_memory.stickers.library import (
+    StickerLibrary,
+    StickerSendError,
+    has_marker,
+    parse_marker,
+    prompt_block,
+)
+from .iris_memory.stickers.store import StickerStore
+from .iris_memory.stickers.understanding import (
+    StickerUnderstanding,
+    extract_photo_meta,
+    extract_sticker_meta,
+    frame_getter_from_event,
+    make_describe_image,
+    rewrite_event,
+)
 from .iris_memory.utils.token_counter import warm_up_encoders_async
 from .iris_memory.web import register_all_routes
 from .iris_memory.llm import LLMManager
@@ -86,7 +105,11 @@ from .iris_memory.proactive.perception import (
     SlidingWindow,
     WindowMessage,
 )
-from .iris_memory.proactive.prompts import SPEAK_HINTS
+from .iris_memory.proactive.prompts import (
+    GROUP_CONTEXT_NOTE,
+    GROUP_SPEAK_HINT,
+    SPEAK_HINTS,
+)
 from .iris_memory.proactive.proactive import ProactiveEngine
 from .iris_memory.proactive.signals import SignalGate
 from .iris_memory.proactive.state import StateManager
@@ -95,6 +118,18 @@ from .iris_memory.proactive.tickets import DecisionTicketRegistry
 from .iris_memory.proactive.time_hint import resolve_datetime_reminder
 from .iris_memory.proactive.tools import ToolContext
 from .iris_memory.extras import ErrorFriendlyProcessor, MarkdownStripper
+from .iris_memory.continuity.service import (
+    ContinuityConfig,
+    ContinuityService,
+    base_chat_id,
+    event_has_media,
+    is_silent_or_forbidden,
+)
+from .iris_memory.core.llm_response_hook import (
+    PENDING_ASSISTANT_EXTRA,
+    commit_pending_assistant,
+    commit_pending_learning,
+)
 
 logger = get_logger("main")
 
@@ -104,7 +139,16 @@ PLUGIN_NAME = "astrbot_plugin_iris_memory"
 LEGACY_MIGRATION_ENABLED = True
 
 _IRIS_ACTIVE_TIMEOUT = 120
+# 已认领但迟迟没进入决策的群（事件在 on_llm_request 之前被别处 stop）：
+# 下一条消息到来时就地释放，而不是干等周期清理。
+_TRIGGER_UNDECIDED_TIMEOUT = 45
+_GROUP_HINT_WINDOW = 12
 _UMO_KV_KEY = "iris_reply:group_umo"
+
+# 连续性（DESIGN §6）：Telethon 补丁在真实发出后写入的回执 extra
+_RECEIPT_PLATFORM = "telethon_userbot"
+_SENT_IDS_EXTRA = "telethon_sent_message_ids"
+_REPLY_TEXT_EXTRA = "iris_continuity_reply"
 
 _PASSIVE_WATCH_SIGNAL = re.compile(
     r"[?？]|"
@@ -148,6 +192,55 @@ def _is_pure_at_self(event: AstrMessageEvent) -> bool:
         )
     except Exception:
         return False
+
+
+def _message_meta(event) -> tuple[Optional[int], float, Optional[int]]:
+    """平台消息 id / 原始发送时间 / 被回复消息 id（取不到时 id 为 None、时间为当前）。"""
+    msg_id: Optional[int] = None
+    msg_ts: Optional[float] = None
+    reply_to: Optional[int] = None
+    try:
+        message_obj = getattr(event, "message_obj", None)
+        raw = getattr(message_obj, "raw_message", None) if message_obj is not None else None
+        for cand in (
+            getattr(message_obj, "message_id", None) if message_obj is not None else None,
+            getattr(raw, "id", None) if raw is not None else None,
+        ):
+            if isinstance(cand, bool) or cand in (None, ""):
+                continue
+            try:
+                msg_id = int(cand)
+                break
+            except (TypeError, ValueError):
+                continue
+        date = getattr(raw, "date", None) if raw is not None else None
+        if isinstance(date, datetime):
+            msg_ts = float(date.timestamp())
+        if msg_ts is None and message_obj is not None:
+            stamp = getattr(message_obj, "timestamp", None)
+            if isinstance(stamp, (int, float)) and not isinstance(stamp, bool) and stamp > 0:
+                msg_ts = float(stamp)
+        header = getattr(raw, "reply_to", None) if raw is not None else None
+        rid = getattr(header, "reply_to_msg_id", None) if header is not None else None
+        if isinstance(rid, int) and not isinstance(rid, bool) and rid > 0:
+            reply_to = rid
+    except Exception:
+        pass
+    return msg_id, (msg_ts if msg_ts is not None else time.time()), reply_to
+
+
+def _int_ids(values) -> list[int]:
+    out: list[int] = []
+    if not isinstance(values, (list, tuple)):
+        return out
+    for v in values:
+        if isinstance(v, bool):
+            continue
+        try:
+            out.append(int(v))
+        except (TypeError, ValueError):
+            continue
+    return out
 
 
 class IrisMemoryPlugin(Star):
@@ -217,6 +310,10 @@ class IrisMemoryPlugin(Star):
             self._self_id: str = ""
             self._save_task: asyncio.Task | None = None
             self._save_interval = 30
+            # 连续性服务（DESIGN §1）：构造失败时为 None，全部回到原有行为
+            self._continuity: Optional[ContinuityService] = self._build_continuity()
+            # 贴纸理解 + 主人限定表情包（DESIGN §13）：构造失败只影响贴纸功能
+            self._init_stickers(data_dir)
             self._proactive = ProactiveEngine(
                 self.context,
                 self._reply_config,
@@ -233,6 +330,8 @@ class IrisMemoryPlugin(Star):
                 save_fn=lambda: self._state.save_dirty(self._kv_save),
                 on_initiate_sent=self._on_initiate_sent,
                 text_transform=self._strip_initiate_text,
+                profile_get=self._profile_text_for,
+                bridge=self._continuity.bridge if self._continuity else None,
             )
 
             # ── 外部注册动作（依赖就绪后在构造函数末尾统一执行） ──
@@ -323,6 +422,501 @@ class IrisMemoryPlugin(Star):
         except Exception as exc:
             logger.error(f"纯 @ 消息接管失败，已回退 AstrBot 默认流程：{exc}", exc_info=True)
             return False
+
+    # ========================================================================
+    # 连续性服务装配
+    # ========================================================================
+
+    def _build_continuity(self) -> Optional[ContinuityService]:
+        try:
+            return ContinuityService(
+                context=self.context,
+                config_source=self.config,
+                state=self._state,
+                owner_ids_get=lambda: self._reply_config.private_whitelist,
+                silent_sessions_get=lambda: self.config.get("proactive.silent_sessions", []) or [],
+                data_dir=self.config.data_dir,
+                llm_manager=self._llm_manager,
+                umo_get=lambda gid: self._group_umo.get(gid),
+                profile_text=lambda sk: self._profile_text_for(sk, self._group_umo.get(sk, "")),
+                l1_recent=self._l1_recent_for,
+                save_fn=lambda: self._state.save_dirty(self._kv_save),
+                platform_id_get=self._continuity_platform_id,
+                resume_cb=self._continuity_resume,
+            )
+        except Exception:
+            logger.error("连续性服务初始化失败，已降级为原有行为", exc_info=True)
+            return None
+
+    def _continuity_resume(self, scope: str) -> bool:
+        """离线补采推进了主人水位：与实时消息同一条规则恢复主动（只恢复一次）。"""
+        try:
+            if self._state.resume_after_owner_message(scope):
+                logger.info(f"[continuity] scope={scope} proactive resumed by offline owner message")
+                return True
+        except Exception as e:
+            logger.warning(f"[continuity] resume failed: {type(e).__name__}")
+        return False
+
+    def _continuity_platform_id(self) -> str:
+        """主人私聊 UMO 的平台 ID（频道采集复用该适配器的 client）。"""
+        try:
+            for owner in self._reply_config.private_whitelist or []:
+                umo = self._group_umo.get(f"private:{owner}")
+                if umo and ":" in umo:
+                    return umo.split(":", 1)[0]
+        except Exception:
+            pass
+        return "userbot"
+
+    def _l1_recent_for(self, session_key: str, limit: int) -> list[tuple[str, str]]:
+        if not self.component_manager:
+            return []
+        buffer = self.component_manager.get_available_component("l1_buffer")
+        if buffer is None:
+            return []
+        messages = buffer.get_context(session_key, limit) or []
+        return [
+            (str(getattr(m, "role", "")), str(getattr(m, "content", "")))
+            for m in messages
+        ]
+
+    @staticmethod
+    def _session_key_quiet(event) -> str | None:
+        """同 _get_session_key，但取不到时不写 event result（无副作用）。"""
+        try:
+            group_id = event.get_group_id()
+            if group_id:
+                return str(group_id)
+            if event.is_private_chat():
+                sender_id = event.get_sender_id()
+                if sender_id:
+                    return f"private:{sender_id}"
+        except Exception:
+            pass
+        return None
+
+    @staticmethod
+    def _is_self_message(event) -> bool:
+        """本账号发出的消息（其他设备手动发言以 outgoing 事件进入）。"""
+        try:
+            message_obj = getattr(event, "message_obj", None)
+            raw = getattr(message_obj, "raw_message", None) if message_obj is not None else None
+            if raw is not None and getattr(raw, "out", None) is True:
+                return True
+            sender_id = event.get_sender_id()
+            self_id = event.get_self_id()
+            if not isinstance(sender_id, (str, int)) or not isinstance(self_id, (str, int)):
+                return False
+            return bool(str(sender_id)) and str(sender_id) == str(self_id)
+        except Exception:
+            return False
+
+    @staticmethod
+    def _outgoing_scope(event) -> str | None:
+        """outgoing 事件的会话键：群为群 ID，私聊为对端 ``private:<peer>``。"""
+        try:
+            group_id = event.get_group_id()
+            if group_id:
+                return str(group_id)
+            message_obj = getattr(event, "message_obj", None)
+            peer = getattr(message_obj, "session_id", None) if message_obj is not None else None
+            if not peer:
+                peer = getattr(event, "session_id", None)
+            if isinstance(peer, (str, int)) and str(peer):
+                return f"private:{peer}"
+        except Exception:
+            pass
+        return None
+
+    def _is_receipt_platform(self, event) -> bool:
+        """平台能给出真实发送回执（打过回执补丁的 Telethon 适配器）。"""
+        try:
+            if event.get_platform_name() != _RECEIPT_PLATFORM:
+                return False
+            inst = self.context.get_platform_inst(event.get_platform_id())
+            return callable(getattr(inst, "send_with_receipt", None))
+        except Exception:
+            return False
+
+    def _blocked_send_target(self, event) -> bool:
+        """只读会话 / 内置禁发频道：任何被动回复都不得发出。"""
+        try:
+            group_id = event.get_group_id()
+        except Exception:
+            return False
+        if not group_id or not isinstance(group_id, (str, int)):
+            return False
+        try:
+            config = getattr(self, "config", None)
+            silent = config.get("proactive.silent_sessions", []) if config is not None else []
+        except Exception:
+            silent = []  # 配置读取失败：内置禁发频道仍然拦截
+        return is_silent_or_forbidden(group_id, silent or [])
+
+    async def _continuity_on_owner_message(self, event) -> None:
+        """主人私聊新消息：推进水位（重放不推进）→ 推进时恢复主动；收件箱/收尾由服务按开关处理。"""
+        svc = getattr(self, "_continuity", None)
+        if svc is None:
+            return
+        try:
+            if not event.is_private_chat() or self._is_self_message(event):
+                return
+            sender_id = str(event.get_sender_id() or "")
+            scope = svc.owner_scope(sender_id)
+            if not scope:
+                return
+            msg_id, msg_ts, reply_to = _message_meta(event)
+            if msg_id is None:
+                return
+            advanced = await svc.note_owner_message(
+                scope,
+                msg_id,
+                msg_ts,
+                text=event.message_str or "",
+                sender_id=sender_id,
+                reply_to_msg_id=reply_to,
+                has_media=event_has_media(event),
+                media_only=self._is_media_only_message(event),
+            )
+            if advanced and self._state.resume_after_owner_message(scope):
+                logger.info(f"[continuity] scope={scope} proactive resumed by owner message")
+        except Exception as e:
+            logger.warning(f"[continuity] owner message bookkeeping failed: {type(e).__name__}")
+
+    async def _inject_continuity(self, event, req) -> None:
+        """普通回复：追加连续性上下文与收尾提示（临时内容，不进对话历史）。"""
+        svc = getattr(self, "_continuity", None)
+        if svc is None:
+            return
+        try:
+            scope = self._session_key_quiet(event)
+            if not scope:
+                return
+            sender_id = event.get_sender_id()
+            text = await svc.assemble(scope, purpose="reply", sender_id=sender_id)
+            if text:
+                req.extra_user_content_parts.append(TextPart(text=text).mark_as_temp())
+            hint = await svc.closure_hint(scope)
+            if hint and svc.owner_scope(sender_id) == scope:
+                req.extra_user_content_parts.append(TextPart(text=hint).mark_as_temp())
+        except Exception as e:
+            logger.warning(f"[continuity] context injection failed: {type(e).__name__}")
+
+    async def _continuity_after_sent(self, event) -> None:
+        """发送后：只有拿到 Telegram 回执才把助手回复写入 L1，并做出站记账。
+
+        回执平台上没拿到回执（发送失败）：stop_event，让 AstrBot 跳过
+        ``_save_to_history``（它在 Respond/after_message_sent 之后、且仅在事件未停止时
+        才保存对话历史），没发出去的草稿不会成为“已经说过的话”；学习采集同样丢弃。
+        """
+        try:
+            pending = event.get_extra(PENDING_ASSISTANT_EXTRA)
+            reply_text = event.get_extra(_REPLY_TEXT_EXTRA)
+        except Exception:
+            return
+        if not pending and not reply_text:
+            return
+        try:
+            ids = _int_ids(event.get_extra(_SENT_IDS_EXTRA))
+            inbound_id, _, _ = _message_meta(event)
+            turn = f"reply:{inbound_id}" if inbound_id is not None else ""
+            if not ids and self._is_receipt_platform(event):
+                event.stop_event()
+                logger.info("[continuity] reply has no send receipt; not saved to conversation history")
+            if pending:
+                if ids and self.component_manager:
+                    await commit_pending_assistant(event, self.component_manager, ids, turn)
+                else:
+                    event.set_extra(PENDING_ASSISTANT_EXTRA, None)
+                    logger.info("[continuity] reply has no send receipt; assistant turn not written to L1")
+            try:
+                await commit_pending_learning(event, self.component_manager, bool(ids))
+            except Exception as e:
+                logger.warning(f"[continuity] deferred learning failed: {type(e).__name__}")
+            event.set_extra(_REPLY_TEXT_EXTRA, None)
+            svc = getattr(self, "_continuity", None)
+            scope = self._session_key_quiet(event)
+            if svc is None or not reply_text or not scope:
+                return
+            result = event.get_result()
+            sent_text = ""
+            if result is not None:
+                try:
+                    parts = [
+                        str(getattr(c, "text", "") or "").strip()
+                        for c in (getattr(result, "chain", None) or [])
+                        if type(c).__name__ == "Plain"
+                    ]
+                    sent_text = "\n".join(p for p in parts if p) or (
+                        result.get_plain_text() or ""
+                    ).strip()
+                except Exception:
+                    sent_text = ""
+            await svc.record_reply_sent(
+                scope,
+                sent_text or str(reply_text),
+                ids,
+                receipt_supported=self._is_receipt_platform(event),
+                reply_to_msg_id=inbound_id,
+            )
+        except Exception as e:
+            logger.warning(f"[continuity] after-sent bookkeeping failed: {type(e).__name__}")
+
+    # ========================================================================
+    # 贴纸：理解（入站）与主人限定表情包（出站）
+    # ========================================================================
+
+    def _init_stickers(self, data_dir) -> None:
+        self._sticker_store = None
+        self._sticker_understanding = None
+        self._sticker_library = None
+        try:
+            base = Path(str(data_dir)) / "stickers"
+            base.mkdir(parents=True, exist_ok=True)
+            cfg = ContinuityConfig.from_config(self.config)
+            self._sticker_store = StickerStore.for_data_dir(data_dir)
+            self._sticker_understanding = StickerUnderstanding(
+                self._sticker_store,
+                make_describe_image(
+                    self._llm_manager,
+                    lambda: (str(self.config.get("l1_buffer.summary_provider", "") or "").strip() or None),
+                ),
+                timeout=15.0,
+                daily_cap=cfg.sticker_describe_daily_cap,
+            )
+            self._sticker_library = StickerLibrary(base / "stickers_library.db")
+        except Exception as e:
+            logger.warning(f"[stickers] init failed, sticker features off: {type(e).__name__}: {e}")
+
+    def _sticker_cfg(self) -> ContinuityConfig:
+        return ContinuityConfig.from_config(self.config)
+
+    def _owner_id_list(self) -> list[str]:
+        try:
+            return [str(x) for x in (self._reply_config.private_whitelist or [])]
+        except Exception:
+            return []
+
+    def _sticker_inbound_allowed(self, event) -> bool:
+        """只理解主人私聊与已启用群里的贴纸；频道 / silent 会话不处理。"""
+        try:
+            if event.is_private_chat():
+                return str(event.get_sender_id()) in set(self._owner_id_list())
+            group_id = event.get_group_id()
+            if not group_id or self._blocked_send_target(event):
+                return False
+            return self._state.is_whitelisted(str(group_id))
+        except Exception:
+            return False
+
+    async def _sticker_entries(self, event) -> tuple[Optional[str], list[dict]]:
+        lib = getattr(self, "_sticker_library", None)
+        if lib is None:
+            return None, []
+        try:
+            cfg = self._sticker_cfg()
+            if not cfg.sticker_send_enable:
+                return None, []
+            scope = self._session_key_quiet(event)
+            if not scope or "#" in scope:
+                return None, []
+            if self._blocked_send_target(event) or not self._is_receipt_platform(event):
+                return None, []
+            silent = [str(x) for x in (self.config.get("proactive.silent_sessions", []) or [])]
+            entries = await asyncio.to_thread(
+                lib.allowed_for,
+                scope,
+                self._owner_id_list(),
+                cfg.sticker_groups_enable,
+                blocked_scopes=silent,
+            )
+            return scope, list(entries or [])
+        except Exception as e:
+            logger.warning(f"[stickers] entries failed: {type(e).__name__}")
+            return None, []
+
+    async def _inject_sticker_prompt(self, event, req) -> None:
+        _, entries = await self._sticker_entries(event)
+        if not entries:
+            return
+        block = prompt_block(entries)
+        if block:
+            req.system_prompt = f"{req.system_prompt or ''}\n\n{block}".strip()
+
+    async def _take_sticker_marker(self, event, resp) -> None:
+        """回复文本里的 [表情:标签] 标记：剥离；合法标签暂存，待文字确认发出后再发。"""
+        text = getattr(resp, "completion_text", "") or ""
+        # 只出现“表情”二字（如代码、讨论）而没有标记：原样不动，不论开关
+        if "表情" not in text or not has_marker(text):
+            return
+        try:
+            scope, entries = await self._sticker_entries(event)
+            labels = [e["label"] for e in entries]
+            clean, label = parse_marker(text, labels)
+            resp.completion_text = clean
+            if not label:
+                return
+            if clean.strip():
+                event.set_extra("iris_sticker_pending", label)
+            else:
+                # 只有表情、没有文字：没有文字回执可等，直接按同样的边界发送
+                await self._send_sticker(event, label)
+        except Exception as e:
+            logger.warning(f"[stickers] marker handling failed: {type(e).__name__}")
+
+    async def _send_pending_sticker(self, event) -> None:
+        try:
+            label = event.get_extra("iris_sticker_pending")
+        except Exception:
+            return
+        if not label:
+            return
+        event.set_extra("iris_sticker_pending", None)
+        if not _int_ids(event.get_extra(_SENT_IDS_EXTRA)):
+            logger.info("[stickers] text reply not confirmed sent; sticker skipped")
+            return
+        await self._send_sticker(event, label)
+
+    async def _send_sticker(self, event, label: str) -> None:
+        lib = getattr(self, "_sticker_library", None)
+        if lib is None:
+            return
+        scope, entries = await self._sticker_entries(event)  # 发送时重新校验权限
+        entry = next((e for e in entries if e.get("label") == label), None)
+        if not scope or entry is None:
+            return
+        try:
+            if not await asyncio.to_thread(lib.should_send, scope):
+                return
+            inst = self.context.get_platform_inst(event.get_platform_id())
+            client = inst.get_client() if inst is not None else None
+            if client is None:
+                return
+            peer = int(str(event.get_group_id() or event.get_sender_id()))
+            ids = await lib.send(client, peer, entry, scope_key=scope)
+        except StickerSendError as e:
+            logger.warning(f"[stickers] send failed: {e}")
+            return
+        except Exception as e:
+            logger.warning(f"[stickers] send failed: {type(e).__name__}")
+            return
+        svc = getattr(self, "_continuity", None)
+        store = getattr(svc, "store", None) if svc is not None else None
+        if store is None or not ids:
+            return
+        try:
+            oid = await asyncio.to_thread(
+                store.add_outbound, scope, "reply", f"[贴纸：{label}]", "sending", "bot"
+            )
+            await asyncio.to_thread(store.mark_outbound, oid, "sent", ids)
+        except Exception as e:
+            logger.warning(f"[stickers] outbound bookkeeping failed: {type(e).__name__}")
+
+    async def _run_l2_probe(self) -> None:
+        """运维验收（T16）：宿主机 root 写入 ``continuity/l2_probe.json`` 触发一次 L2 操作。
+
+        - ``{"op":"write","text":"【验收测试记忆】..."}``：写入一条只属于主人私聊（group_id=""）的测试记忆；
+        - ``{"op":"search","query":"..."}``：私聊口径检索 + 群口径检索（验证群里召回不到）；
+        - ``{"op":"delete","memory_id":"...","query":"定位用检索词"}``：只允许删除正文带【验收测试记忆】标记的条目。
+        文件读到即删除；结果写入 ``l2_probe.result.json``（只含 id、命中与否、分数，不含其它记忆正文）。
+        """
+        cm = getattr(self, "component_manager", None)
+        svc = getattr(self, "_continuity", None)
+        store = getattr(svc, "store", None) if svc is not None else None
+        if cm is None or store is None:
+            return
+        base = store.db_path.parent
+        path = base / "l2_probe.json"
+        if not path.exists():
+            return
+        import json as _json
+
+        try:
+            raw = path.read_text(encoding="utf-8")
+        finally:
+            try:
+                path.unlink()
+            except OSError:
+                pass
+        marker = "【验收测试记忆】"
+        result: dict = {"at": time.time(), "ok": False}
+        try:
+            req = _json.loads(raw) or {}
+            op = str(req.get("op", ""))
+            result["op"] = op
+            adapter = cm.get_available_component("l2_memory")
+            if adapter is None:
+                result["error"] = "l2_unavailable"
+            elif op == "write":
+                text = str(req.get("text", "")).strip()
+                owners = self._owner_id_list()
+                if not text.startswith(marker) or len(text) > 200 or not owners:
+                    result["error"] = "bad_text"
+                else:
+                    mid, created = await adapter.add_memory_with_result(
+                        text,
+                        metadata={"group_id": "", "user_id": owners[0], "source": "acceptance_probe"},
+                        skip_dedup=True,
+                    )
+                    result.update(ok=bool(mid), memory_id=mid, created=created)
+            elif op == "search":
+                query = str(req.get("query", "")).strip()[:100]
+                private_hits = await adapter.retrieve(query, group_id=None, top_k=5)
+                probe_gid = str(req.get("group_id", "") or "").strip()
+                group_hits = (
+                    await adapter.retrieve(query, group_id=probe_gid, top_k=5)
+                    if probe_gid else []
+                )
+
+                def _brief(hits):
+                    out = []
+                    for h in hits or []:
+                        content = str(getattr(h.entry, "content", "") or "")
+                        out.append({
+                            "memory_id": getattr(h.entry, "id", ""),
+                            "score": round(float(getattr(h, "score", 0.0) or 0.0), 3),
+                            "is_probe": content.startswith(marker),
+                        })
+                    return out
+
+                result.update(ok=True, private=_brief(private_hits), group=_brief(group_hits))
+            elif op == "delete":
+                mid = str(req.get("memory_id", ""))
+                locate = str(req.get("query", "") or marker)[:100]
+                hits = await adapter.retrieve(locate, group_id=None, top_k=20)
+                allowed = {
+                    getattr(h.entry, "id", "")
+                    for h in hits or []
+                    if str(getattr(h.entry, "content", "") or "").startswith(marker)
+                }
+                if mid not in allowed:
+                    result["error"] = "not_a_probe_memory"
+                else:
+                    result.update(ok=bool(await adapter.delete_entries([mid])), memory_id=mid)
+            else:
+                result["error"] = "bad_op"
+        except Exception as e:
+            result["error"] = type(e).__name__
+        logger.info(f"[continuity] l2 probe op={result.get('op')} ok={result.get('ok')} err={result.get('error', '-')}")
+        try:
+            (base / "l2_probe.result.json").write_text(_json.dumps(result, ensure_ascii=False), encoding="utf-8")
+        except OSError:
+            pass
+
+    async def _close_stickers(self) -> None:
+        su = getattr(self, "_sticker_understanding", None)
+        if su is not None:
+            try:
+                await su.aclose()
+            except Exception:
+                pass
+        for obj in (getattr(self, "_sticker_store", None), getattr(self, "_sticker_library", None)):
+            if obj is not None:
+                try:
+                    obj.close()
+                except Exception:
+                    pass
 
     # ========================================================================
     # 记忆侧注册
@@ -417,6 +1011,10 @@ class IrisMemoryPlugin(Star):
             window=self._sliding_window,
             kv_save=self._kv_save,
         )
+        # 连续性服务须在引擎启动前打开账本：引擎启动时会对账并恢复滑动窗口
+        # （restore_windows 发生在 load_all 之后）
+        if getattr(self, "_continuity", None) is not None:
+            await self._continuity.start()
         await self._proactive.start()
 
         # 4. 功能重叠插件检测（重复注入/门控警告）
@@ -452,6 +1050,11 @@ class IrisMemoryPlugin(Star):
                 pass
         await self._state.save_all(self._kv_save)
         await self._kv_save(_UMO_KV_KEY, dict(self._group_umo))
+        continuity = getattr(self, "_continuity", None)
+        if continuity is not None:
+            await continuity.save_windows(self._sliding_window, self._state.get_whitelist())
+            await continuity.stop()
+        await self._close_stickers()
         self._follow_pending.clear()
         self._reply_in_progress.clear()
         self._passive_active.clear()
@@ -478,6 +1081,13 @@ class IrisMemoryPlugin(Star):
                 self._sliding_window.cleanup(self._state.get_whitelist())
                 self._cleanup_stale_active()
                 sync_stats_group_state(self._state, self._stats)
+                continuity = getattr(self, "_continuity", None)
+                if continuity is not None:
+                    await continuity.save_windows(
+                        self._sliding_window, self._state.get_whitelist()
+                    )
+                    await continuity.run_acceptance_probe()
+                await self._run_l2_probe()
             except Exception as e:
                 logger.warning(f"Iris Reply: periodic save error: {e}")
 
@@ -527,6 +1137,36 @@ class IrisMemoryPlugin(Star):
         registry.release(group_id, ticket_id)
         self._triggering.pop(group_id, None)
 
+    def _release_claim(self, event) -> None:
+        """事件在到达 on_llm_request 前被 Iris 自己 stop 时，释放 on_message 的认领。"""
+        info = event.get_extra("iris_decision") or {}
+        key = str(info.get("session_key") or "") if isinstance(info, dict) else ""
+        key = key or self._session_key_quiet(event) or ""
+        if not key:
+            return
+        if info:
+            self._release_decision_ticket(key, str(info.get("ticket_id") or ""))
+            try:
+                self._tool_ctx.clear_context()
+            except Exception:
+                pass
+            event.set_extra("iris_decision", None)
+        if event.get_extra("iris_mode") == "passive":
+            self._passive_active.pop(key, None)
+
+    def _release_undecided_claim(self, group_id: str, now: float) -> None:
+        ts = self._triggering.get(group_id)
+        if (
+            ts is not None
+            and group_id not in self._reply_in_progress
+            and now - ts > _TRIGGER_UNDECIDED_TIMEOUT
+        ):
+            logger.info(
+                f"Iris Reply: releasing undecided claim for group {group_id} "
+                f"(held {now - ts:.0f}s without reaching a decision)"
+            )
+            self._release_decision_ticket(group_id)
+
     def _is_busy(self, group_id: str) -> bool:
         return (
             group_id in self._reply_in_progress
@@ -540,12 +1180,49 @@ class IrisMemoryPlugin(Star):
     async def _kv_load(self, key: str) -> Any:
         return await self.get_kv_data(key, None)
 
-    def _get_group_id(self, event) -> str | None:
+    async def _profile_text_for(self, session_key: str, umo: str) -> str:
+        """为主动消息生成画像摘要；仅私聊有对应用户，失败返回空串。"""
+        if not self.component_manager or not str(session_key).startswith("private:"):
+            return ""
+        user_id = str(session_key).split(":", 1)[1]
+        try:
+            storage = self.component_manager.get_available_component("profile")
+            if storage is None:
+                return ""
+            profile = await storage.get_user_profile(user_id, "default", "default")
+        except Exception as exc:
+            logger.warning(f"[iris] 主动消息画像读取失败：{exc}")
+            return ""
+        if profile is None:
+            return ""
+        parts = []
+        if getattr(profile, "interests", None):
+            parts.append("兴趣：" + "、".join(profile.interests[:8]))
+        if getattr(profile, "occupation", None):
+            parts.append("身份：" + profile.occupation)
+        if getattr(profile, "communication_style", None):
+            parts.append("沟通偏好：" + profile.communication_style)
+        if getattr(profile, "important_events", None):
+            parts.append("经历过：" + "；".join(profile.important_events[-3:]))
+        if getattr(profile, "taboo_topics", None):
+            parts.append("避开的话题：" + "、".join(profile.taboo_topics[:4]))
+        return "\n".join(parts)
+
+    def _get_session_key(self, event) -> str | None:
+        """返回会话键：群聊为群 ID，私聊为 ``private:<uid>``。
+
+        主动回复引擎内部只把该键当作不透明字符串使用，真正发送时再通过
+        ``_group_umo`` 映射到 unified_msg_origin，因此私聊无需改动引擎。
+        """
         group_id = event.get_group_id()
-        if not group_id:
-            event.set_result("无法获取群ID")
-            return None
-        return group_id
+        if group_id:
+            return group_id
+        if event.is_private_chat():
+            sender_id = event.get_sender_id()
+            if sender_id:
+                return f"private:{sender_id}"
+        event.set_result("无法获取会话标识")
+        return None
 
     async def _get_provider_id(self, event, preferred: str = "") -> str | None:
         if preferred:
@@ -600,13 +1277,13 @@ class IrisMemoryPlugin(Star):
 
     @filter.command_group("iris_reply")
     @filter.permission_type(filter.PermissionType.ADMIN)
-    @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)
+    @filter.event_message_type(filter.EventMessageType.ALL)
     def iris_reply_group(self):
         pass
 
     @iris_reply_group.command("enable")
     async def cmd_enable(self, event) -> None:
-        group_id = self._get_group_id(event)
+        group_id = self._get_session_key(event)
         if not group_id:
             return
         self._state.add_to_whitelist(group_id)
@@ -615,7 +1292,7 @@ class IrisMemoryPlugin(Star):
 
     @iris_reply_group.command("disable")
     async def cmd_disable(self, event) -> None:
-        group_id = self._get_group_id(event)
+        group_id = self._get_session_key(event)
         if not group_id:
             return
         self._state.remove_from_whitelist(group_id)
@@ -626,7 +1303,7 @@ class IrisMemoryPlugin(Star):
 
     @iris_reply_group.command("status")
     async def cmd_status(self, event) -> None:
-        group_id = self._get_group_id(event)
+        group_id = self._get_session_key(event)
         if not group_id:
             return
         text = self._admin.get_status(group_id)
@@ -634,7 +1311,7 @@ class IrisMemoryPlugin(Star):
 
     @iris_reply_group.command("reset")
     async def cmd_reset(self, event) -> None:
-        group_id = self._get_group_id(event)
+        group_id = self._get_session_key(event)
         if not group_id:
             return
         msg = self._admin.reset_group(group_id)
@@ -644,7 +1321,7 @@ class IrisMemoryPlugin(Star):
 
     @iris_reply_group.command("cooldown")
     async def cmd_cooldown(self, event, minutes: int = 5) -> None:
-        group_id = self._get_group_id(event)
+        group_id = self._get_session_key(event)
         if not group_id:
             return
         msg = self._admin.set_cooldown(group_id, minutes)
@@ -653,7 +1330,7 @@ class IrisMemoryPlugin(Star):
 
     @iris_reply_group.command("willingness")
     async def cmd_willingness(self, event, level: str = "") -> None:
-        group_id = self._get_group_id(event)
+        group_id = self._get_session_key(event)
         if not group_id:
             return
         if not level.strip():
@@ -666,7 +1343,7 @@ class IrisMemoryPlugin(Star):
 
     @iris_reply_group.command("initiate")
     async def cmd_initiate(self, event) -> None:
-        group_id = self._get_group_id(event)
+        group_id = self._get_session_key(event)
         if not group_id:
             return
         result = await self._proactive.attempt_initiate(group_id, force=True)
@@ -676,9 +1353,85 @@ class IrisMemoryPlugin(Star):
     # AstrBot 钩子
     # ========================================================================
 
-    @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)
+    @filter.event_message_type(filter.EventMessageType.ALL, priority=1000)
+    async def on_self_outgoing(self, event: AstrMessageEvent) -> None:
+        """本账号在其他设备手动发出的消息：记为 manual 出站并终止事件。
+
+        优先级高于所有入站处理器（含其他插件），不当作用户输入写入 L1、
+        不触发 LLM，也不算 bot 生成。
+        """
+        if not self._is_self_message(event):
+            return
+        try:
+            continuity = getattr(self, "_continuity", None)
+            if continuity is not None:
+                scope = self._outgoing_scope(event)
+                msg_id, _, _ = _message_meta(event)
+                if scope and msg_id is not None:
+                    await continuity.record_manual(scope, msg_id, event.message_str or "")
+        except Exception as e:
+            logger.warning(f"[continuity] manual outgoing record failed: {type(e).__name__}")
+        finally:
+            event.stop_event()
+
+    @filter.event_message_type(filter.EventMessageType.ALL, priority=900)
+    async def on_sticker_understanding(self, event: AstrMessageEvent) -> None:
+        """贴纸/照片先变成文字描述（在媒体门控与 L1 记录之前），门控与记忆都能“看到”它。"""
+        su = getattr(self, "_sticker_understanding", None)
+        if su is None or self._is_self_message(event):
+            return
+        try:
+            if not self._sticker_inbound_allowed(event):
+                return
+            cfg = self._sticker_cfg()
+            raw = getattr(event.message_obj, "raw_message", None)
+            meta = extract_sticker_meta(raw) if cfg.sticker_understanding_enable else None
+            if meta is None and cfg.image_understanding_enable:
+                meta = extract_photo_meta(raw)
+            if meta is None:
+                return
+            desc = await su.describe(meta, frame_getter_from_event(event))
+            rewrite_event(event, desc, meta)
+        except Exception as e:
+            logger.warning(f"[stickers] understanding failed: {type(e).__name__}")
+
+    @filter.permission_type(filter.PermissionType.ADMIN)
+    @filter.command("sticker")
+    async def sticker_cmd(self, event: AstrMessageEvent):
+        """主人在私聊管理表情包库：/sticker add <标签> [说明]（回复一张贴纸）| list | del | scope | help"""
+        lib = getattr(self, "_sticker_library", None)
+        if lib is None:
+            yield event.plain_result("表情包功能未启用。")
+            return
+        raw = getattr(event.message_obj, "raw_message", None)
+        replied = None
+        try:
+            if raw is not None and getattr(raw, "reply_to", None) is not None:
+                replied = await raw.get_reply_message()
+        except Exception:
+            replied = None
+        parts = (event.message_str or "").strip().lstrip("/").split()
+        args = parts[1:] if parts and parts[0].lower() == "sticker" else parts
+        try:
+            text = await asyncio.to_thread(
+                lib.handle_command,
+                args,
+                replied,
+                str(event.get_sender_id()),
+                self._owner_id_list(),
+                is_group=bool(event.get_group_id()),
+            )
+        except Exception as e:
+            logger.warning(f"[stickers] command failed: {type(e).__name__}")
+            text = "操作失败了，稍后再试。"
+        yield event.plain_result(text)
+
+    @filter.event_message_type(filter.EventMessageType.ALL)
     async def on_message(self, event) -> None:
         """主动回复消息唤醒：门控 → 标记 → 交由 on_llm_request 决策"""
+        # 连续性：主人私聊水位 / 暂停恢复 / 事项收件箱（与主动回复开关无关）
+        await self._continuity_on_owner_message(event)
+
         if await self._prepare_pure_at_request(event):
             return
 
@@ -688,9 +1441,14 @@ class IrisMemoryPlugin(Star):
         if not self._gatekeeper.should_process(event):
             return
 
-        group_id = event.get_group_id()
+        group_id = self._get_session_key(event)
         if not group_id:
             return
+
+        # 私聊首次通过门控后登记到白名单，调度循环才能遍历到该会话
+        if event.is_private_chat() and not self._state.is_whitelisted(group_id):
+            self._state.add_to_whitelist(group_id)
+            await self._state.save_dirty(self._kv_save)
 
         # 缓存会话标识与自身 ID，供主动发起通路使用
         umo = getattr(event, "unified_msg_origin", "")
@@ -726,18 +1484,37 @@ class IrisMemoryPlugin(Star):
         self._proactive.notify_human_message(group_id, message_timestamp)
 
         if event.is_at_or_wake_command:
+            if not event.is_private_chat() and str(sender_id) not in set(self._owner_id_list()):
+                # 群友明确找她：开放有限时长的跟进窗口
+                self._signals.mark_engaged(group_id, sender_id, message_timestamp)
             self._release_decision_ticket(group_id)
             self._state.increment_msg_count(group_id)
             self._passive_active[group_id] = time.time()
             event.set_extra("iris_mode", "passive")
             return
 
+        self._release_undecided_claim(group_id, message_timestamp)
         if self._is_busy(group_id) or self._proactive.is_initiating(group_id):
-            logger.debug(f"Iris Reply: reply already in progress for group {group_id}")
+            logger.info(
+                f"Iris Reply: group {group_id} busy, message not evaluated "
+                f"(reply_in_progress={group_id in self._reply_in_progress}, "
+                f"triggering={group_id in self._triggering}, "
+                f"passive={group_id in self._passive_active})"
+            )
             return
 
+        trigger = ""
         async with self._state.get_lock(group_id):
-            motive = self._signals.evaluate_message(group_id, sender_id, message_str)
+            if event.is_private_chat():
+                motive = self._signals.evaluate_message(group_id, sender_id, message_str)
+            else:
+                motive, trigger = self._signals.evaluate_group_message(
+                    group_id,
+                    sender_id,
+                    message_str,
+                    set(self._owner_id_list()),
+                    message_timestamp,
+                )
 
         if not motive and pending_reply:
             motive = "follow_up"
@@ -790,6 +1567,9 @@ class IrisMemoryPlugin(Star):
 
         event.set_extra("iris_decision", {
             "motive": motive,
+            "session_key": group_id,
+            "trigger": trigger,
+            "trigger_user": str(sender_id or ""),
             "provider_id": provider_id,
             "event_id": event_id,
             "ticket_id": ticket.ticket_id if ticket else "",
@@ -801,7 +1581,8 @@ class IrisMemoryPlugin(Star):
             event.set_extra("selected_provider", provider_id)
         self._tool_ctx.set_context(group_id)
         logger.info(
-            f"Iris Reply: {motive} candidate activated for group {group_id}, deferred to on_llm_request"
+            f"Iris Reply: {motive} candidate activated for group {group_id}"
+            f"{f' (trigger={trigger})' if trigger else ''}, deferred to on_llm_request"
         )
 
     @filter.event_message_type(filter.EventMessageType.ALL)
@@ -809,6 +1590,110 @@ class IrisMemoryPlugin(Star):
         """记忆侧：全类型消息入 L1 缓冲、图片入队"""
         if self.component_manager:
             await handle_user_message(event, self.component_manager)
+
+        # 只记录、不发言的会话（例如 Telegram 广播频道：成员无法发言）
+        # （话题群的会话 id 带 #thread 后缀：按所属群比较）
+        silent = self.config.get("proactive.silent_sessions", []) or []
+        if silent:
+            gid = base_chat_id(event.get_group_id() or "")
+            if gid and gid in {base_chat_id(x) for x in silent}:
+                self._release_claim(event)
+                event.stop_event()
+                return
+
+        # 纯媒体消息（贴纸/图片/语音，没有实际文字）：先记录，再交给模型判断
+        # 要不要回应——贴纸往往只是情绪表达，逐条回应会显得聒噪。
+        # 已带群聊决策认领的事件交给决策层（speak/none）判断，不再额外过媒体门控：
+        # 否则门控 stop 后认领不会释放，整个群会被锁住。
+        if (
+            self._is_media_only_message(event)
+            and not event.get_extra("iris_decision")
+            and not await self._should_reply_to_media(event)
+        ):
+            self._release_claim(event)
+            event.stop_event()
+
+    @filter.event_message_type(filter.EventMessageType.ALL, priority=-10)
+    async def on_continuity_batch(self, event: AstrMessageEvent) -> None:
+        """主人私聊连续短消息合批 / “等我说完”（在 Iris 记录 L1 之后执行）。
+
+        被合并的早先事件 stop_event；最后一个事件的 message_str 改为合并文本。
+        """
+        continuity = getattr(self, "_continuity", None)
+        if continuity is None:
+            return
+        try:
+            if not event.is_private_chat() or self._is_self_message(event):
+                return
+            scope = continuity.owner_scope(event.get_sender_id())
+            text = (event.message_str or "").strip()
+            if not scope or not text or text.startswith("/"):
+                return
+        except Exception:
+            return
+        await continuity.gate_batch(scope, event)
+
+    async def _should_reply_to_media(self, event: AstrMessageEvent) -> bool:
+        """让模型判断一条纯媒体消息是否值得回应；判断失败时默认不回应。"""
+        manager = None
+        if self.component_manager:
+            manager = self.component_manager.get_available_component("llm_manager")
+        if manager is None:
+            return False
+
+        recent = ""
+        try:
+            buffer = self.component_manager.get_available_component("l1_buffer")
+            if buffer is not None:
+                from .iris_memory.platform import get_adapter
+
+                adapter = get_adapter(event)
+                session_id = adapter.get_session_id(event)
+                messages = buffer.get_context(session_id, 6) or []
+                recent = "\n".join(
+                    f"{getattr(m, 'sender_name', '')}: {getattr(m, 'content', '')}"
+                    for m in messages[-6:]
+                )
+        except Exception:
+            recent = ""
+
+        prompt = (
+            "你收到一条只含贴纸/图片、没有文字的消息。请判断此刻要不要回一句。\n"
+            "原则：贴纸大多只是情绪表达，默认不回；只有当它明显在等你接话、"
+            "或与刚聊的内容强相关、或对方连续发来像在求关注时，才需要回应。\n"
+            "只输出 JSON，不要解释：{\"reply\": true} 或 {\"reply\": false}\n\n"
+            f"最近对话：\n{recent or '（无）'}\n\n"
+            f"本条消息：{event.message_str}"
+        )
+        try:
+            provider_id = await self._get_provider_id(event)
+            out = await manager.generate(
+                prompt,
+                module="media_reply_gate",
+                provider_id=provider_id or None,
+                timeout=30,
+            )
+        except Exception as exc:
+            logger.warning(f"[iris] 媒体回应判断失败，默认不回复：{exc}")
+            return False
+        return '"reply":true' in out.replace(" ", "").lower()
+
+    @staticmethod
+    def _is_media_only_message(event: AstrMessageEvent) -> bool:
+        """判断消息是否只有媒体占位符、没有真实文字。"""
+        text = (event.message_str or "").strip()
+        if not text:
+            return True
+        try:
+            if event.get_extra("iris_sticker") or event.get_extra("iris_photo"):
+                text = re.sub(r"\[(?:贴纸|图片)[^\]]*\]", " ", text)
+        except Exception:
+            pass
+        # 去掉 [图片]/[贴纸]/[视频]/[语音]/[文件] 一类占位符
+        rest = re.sub(r"\[[^\]]{1,8}\]", " ", text)
+        # 去掉 emoji 与标点等非文字符号；中文/字母/数字会保留
+        rest = re.sub(r"[\W_]+", "", rest, flags=re.UNICODE)
+        return not rest.strip()
 
     @filter.permission_type(filter.PermissionType.ADMIN)
     @filter.command("iris_mem")
@@ -848,8 +1733,18 @@ class IrisMemoryPlugin(Star):
             )
             await preprocess_llm_request(event, req, self.component_manager)
 
+        # 2.5 连续性上下文 + 收尾提示（在记忆注入之后、发言提示之前）
+        await self._inject_continuity(event, req)
+        await self._inject_sticker_prompt(event, req)
+
         # 3. 主动回复发言提示：决策通过后由 _handle_reply_decision 暂存，
         # 在记忆注入之后追加，保证 LLM 先看到上下文、再看到发言指令
+        if event.get_group_id() and not event.is_private_chat():
+            note = GROUP_CONTEXT_NOTE.format(
+                sender_name=event.get_sender_name() or event.get_sender_id(),
+                sender_id=event.get_sender_id(),
+            )
+            req.extra_user_content_parts.append(TextPart(text=note).mark_as_temp())
         hint = event.get_extra("iris_speak_hint")
         if hint:
             req.extra_user_content_parts.append(TextPart(text=hint).mark_as_temp())
@@ -936,7 +1831,13 @@ class IrisMemoryPlugin(Star):
                 event.stop_event()
                 return True
 
-        req = DecisionRequest(group_id=group_id, wake="message", motive=motive)
+        req = DecisionRequest(
+            group_id=group_id,
+            wake="message",
+            motive=motive,
+            trigger=str(info.get("trigger") or ""),
+            trigger_user=str(info.get("trigger_user") or ""),
+        )
         outcome = await self._decision_core.decide(req, self._llm_manager, provider_id)
 
         if outcome.error or outcome.decision is None:
@@ -1061,12 +1962,45 @@ class IrisMemoryPlugin(Star):
         event.set_extra("iris_llm_provider_id", provider_id)
         event.set_extra("iris_decision_obs", decision.observation)
 
-        hint = SPEAK_HINTS.get(motive, SPEAK_HINTS["chime_in"])
+        if motive in ("chime_in", "follow_up"):
+            hint = self._build_group_speak_hint(group_id, motive, decision)
+        else:
+            hint = SPEAK_HINTS.get(motive, SPEAK_HINTS["chime_in"])
         # 发言提示延迟到记忆注入之后追加（见 on_llm_request），
         # 保持「上下文在前、指令在后」的提示顺序
         event.set_extra("iris_speak_hint", hint)
         logger.info(f"Iris Reply: decision speak ({motive}) for group {group_id}")
         return False
+
+    def _build_group_speak_hint(self, group_id: str, motive: str, decision) -> str:
+        """群聊接话/跟进：把决策看到的同群窗口与决定交给回复模型（只含本群内容）。"""
+        self_id = str(self._self_id or "")
+        lines = []
+        try:
+            messages = list(self._sliding_window.get_messages(group_id))[-_GROUP_HINT_WINDOW:]
+        except Exception:
+            messages = []
+        for msg in messages:
+            is_self = (self_id and str(msg.sender_id) == self_id) or msg.sender_name == "我"
+            name = "我" if is_self else (msg.sender_name or msg.sender_id)
+            content = (msg.content or "").strip().replace("\n", " ")
+            if len(content) > 200:
+                content = content[:200] + "…"
+            lines.append(f"[{name}({msg.sender_id})] {content}")
+        window_block = (
+            "群里最近的消息（较早在前，[我] 是你自己说的）：\n" + "\n".join(lines) + "\n"
+            if lines else ""
+        )
+        why = (decision.why or decision.observation or "").strip()
+        why_block = f"你决定开口的原因：{why}\n" if why else ""
+        draft = (decision.message or "").strip()
+        draft_block = f"可参考的思路（可以改写，不必照抄）：{draft}\n" if draft else ""
+        return GROUP_SPEAK_HINT.format(
+            mode_label="接话" if motive == "chime_in" else "跟进",
+            window_block=window_block,
+            why_block=why_block,
+            draft_block=draft_block,
+        )
 
     async def _clear_rejected_reply_context(
         self,
@@ -1125,15 +2059,33 @@ class IrisMemoryPlugin(Star):
             except Exception as e:
                 logger.warning(f"Iris Reply: 主管线 LLM 统计失败：{e}")
 
-        # 1. 记忆侧：bot 回复入 L1
+        # 0. 表情包标记：先剥离，L1 与出站记录都不保存标记本身
+        await self._take_sticker_marker(event, resp)
+        # 1. 记忆侧：bot 回复入 L1。能给出发送回执的平台延迟到 after_message_sent
+        #    确认真实发出后再写（DESIGN §6）；其他平台保持立即写入。
         if self.component_manager:
-            await handle_llm_response(event, resp, self.component_manager)
+            await handle_llm_response(
+                event,
+                resp,
+                self.component_manager,
+                defer_assistant=self._is_receipt_platform(event),
+            )
+        if getattr(self, "_continuity", None) is not None:
+            completion = resp.completion_text or ""
+            if completion.strip():
+                event.set_extra(_REPLY_TEXT_EXTRA, completion)
         # 2. 主动回复侧：按 iris_mode 记账
         await self._reply_on_llm_response(event, resp)
 
     async def _reply_on_llm_response(self, event: AstrMessageEvent, response: LLMResponse) -> None:
         group_id = event.get_group_id()
         if not group_id:
+            # 私聊：on_message 以 private:<uid> 登记了 passive 标记，这里必须释放，
+            # 否则 120s 内 _is_busy 为真，会挡住该会话的主动发起
+            session_key = self._session_key_quiet(event)
+            if session_key:
+                self._passive_active.pop(session_key, None)
+                self._reply_in_progress.pop(session_key, None)
             return
 
         event.set_extra("iris_llm_replied", True)
@@ -1182,6 +2134,10 @@ class IrisMemoryPlugin(Star):
     @filter.after_message_sent()
     async def on_message_sent(self, event) -> None:
         """主动回复侧：bot 消息入滑动窗口 + 写 ThreadAnchor"""
+        # 连续性：凭发送回执写 L1 助手回复 + 出站记账（先于原有逻辑）
+        await self._continuity_after_sent(event)
+        await self._send_pending_sticker(event)
+
         group_id = event.get_group_id()
         if not group_id:
             return
@@ -1222,7 +2178,7 @@ class IrisMemoryPlugin(Star):
             logger.debug(f"Iris Reply: anchor written ({mode}) for group {group_id}")
         elif mode == "passive":
             provider_id = self._reply_config.provider_id or await self._get_provider_id(event)
-            if provider_id:
+            if provider_id and getattr(self._reply_config, "passive_watch_enabled", True):
                 await self._passive_watch_eval(group_id, provider_id, sender_id, bot_text)
             else:
                 async with self._state.get_lock(group_id):
@@ -1372,10 +2328,30 @@ class IrisMemoryPlugin(Star):
 
     @filter.on_decorating_result()
     async def on_decorating_result(self, event: AstrMessageEvent) -> None:
-        """消息发送前处理：错误友好化 + Markdown 去除"""
+        """消息发送前处理：只读会话拦截 + 错误友好化 + Markdown 去除"""
+        # 发送边界硬拦截：只读频道 / silent_sessions 永不作为回复目标
+        if self._blocked_send_target(event):
+            blocked = event.get_result()
+            if blocked is not None:
+                try:
+                    blocked.chain = []
+                except Exception:
+                    pass
+            event.stop_event()
+            logger.info("[continuity] reply to read-only session blocked")
+            return
+
         result = event.get_result()
         if not result:
             return
+
+        # 兜底：表情包标记永远不以文字形式发出
+        try:
+            for comp in result.chain or []:
+                if isinstance(comp, Plain) and has_marker(comp.text or ""):
+                    comp.text, _ = parse_marker(comp.text, [])
+        except Exception:
+            pass
 
         if self._error_processor and self._error_processor.should_process(event):
             self._error_processor.process_result(result)

@@ -21,3 +21,22 @@ if "astrbot_plugin_iris_memory" not in sys.modules:
 @pytest.fixture
 def tmp_data_dir(tmp_path: Path) -> Path:
     return tmp_path / "data"
+
+
+# 代码里的默认禁发频道为空（由部署方填写）；测试中注入一个示例频道，
+# 覆盖“频道永不主动发送 / 贴纸永不进入频道”等守卫。
+TEST_FORBIDDEN_CHAT = "-1001000000001"
+
+
+@pytest.fixture(autouse=True)
+def _default_forbidden_chat(monkeypatch):
+    chats = frozenset({TEST_FORBIDDEN_CHAT})
+    from astrbot_plugin_iris_memory.iris_memory.continuity import proactive_bridge, service
+    from astrbot_plugin_iris_memory.iris_memory.proactive import proactive
+    from astrbot_plugin_iris_memory.iris_memory.stickers import library
+
+    monkeypatch.setattr(proactive_bridge, "DEFAULT_FORBIDDEN_CHATS", chats)
+    monkeypatch.setattr(service, "DEFAULT_FORBIDDEN_CHATS", chats)
+    monkeypatch.setattr(proactive, "_LEGACY_FORBIDDEN_CHATS", chats)
+    monkeypatch.setattr(library, "DEFAULT_BLOCKED_SCOPES", chats)
+    yield

@@ -391,6 +391,187 @@
         "description": "决策模型 Provider",
         "hint": "主动回复统一决策使用的模型，留空则使用默认 Provider",
         "_special": "select_provider"
+      },
+      "private_enabled": {
+        "type": "bool",
+        "default": false,
+        "description": "启用私聊主动消息",
+        "hint": "开启后，白名单内的私聊会话也会参与主动回复与主动发起（沿用同一套免打扰、每日上限与连发上限）"
+      },
+      "private_whitelist": {
+        "type": "list",
+        "default": [],
+        "items": {
+          "type": "string"
+        },
+        "description": "私聊白名单（用户 ID）",
+        "hint": "填写允许主动消息的用户 ID，例如 Telegram 的纯数字 ID。留空表示不启用任何私聊"
+      },
+      "silent_sessions": {
+        "type": "list",
+        "default": [],
+        "items": {
+          "type": "string"
+        },
+        "description": "只记录不发言的会话 ID",
+        "hint": "这些会话的消息仍会写入记忆与画像，但不会触发任何回复。适合 Telegram 广播频道（成员无法发言）或只想旁听的群"
+      }
+    }
+  },
+  "continuity": {
+    "type": "object",
+    "description": "连续性（事项 / 收尾 / 合批 / 频道观察）",
+    "hint": "让对话与主动联系能接上之前的事；所有功能故障时自动降级，不影响原有私聊",
+    "items": {
+      "enable": {
+        "type": "bool",
+        "default": true,
+        "description": "启用连续性层（总开关）",
+        "hint": "关闭即软回滚：停止新增主动选题、事项抽取与注入、收尾、合批、频道采集与摘要；发送目标硬拦截、出站记账、额度与暂停恢复仍保留"
+      },
+      "items_enable": {
+        "type": "bool",
+        "default": true,
+        "description": "启用待续事项",
+        "hint": "从主人私聊中抽取计划/待出结果等事项，并注入回复上下文"
+      },
+      "proactive_topics_enable": {
+        "type": "bool",
+        "default": true,
+        "description": "主动联系使用事项选题",
+        "hint": "主动发起时可围绕一个到期事项开口"
+      },
+      "closure_enable": {
+        "type": "bool",
+        "default": true,
+        "description": "启用收尾识别",
+        "hint": "主人说晚安/先这样等收尾语时，提示简短回应，并在冷却期内不主动打扰"
+      },
+      "batching_enable": {
+        "type": "bool",
+        "default": true,
+        "description": "启用连续消息合批",
+        "hint": "主人连续发来的短消息合并后只回复一次；“等我说完”会等到说完再回复"
+      },
+      "channel_ingest_enable": {
+        "type": "bool",
+        "default": false,
+        "description": "启用频道/群观察采集",
+        "hint": "复用 Telegram 适配器连接，只读采集 observe_chat_ids 中的消息到本地（不调用模型、不下载媒体）"
+      },
+      "digest_enable": {
+        "type": "bool",
+        "default": false,
+        "description": "启用近期动态摘要",
+        "hint": "定时把采集到的频道/群内容整理成【近期动态】，只注入主人私聊"
+      },
+      "observe_chat_ids": {
+        "type": "list",
+        "default": [],
+        "items": {
+          "type": "string"
+        },
+        "description": "观察的频道/群 ID",
+        "hint": "Telegram 频道或群的数字 ID（如 -100xxxxxxxxxx），只读采集，永不作为发送目标"
+      },
+      "owner_channel_ids": {
+        "type": "list",
+        "default": [],
+        "items": {
+          "type": "string"
+        },
+        "description": "主人自己的频道 ID",
+        "hint": "这些频道里的帖子在摘要中视为主人本人发的"
+      },
+      "merge_quiet_ms": {
+        "type": "int",
+        "default": 1200,
+        "description": "合批静默窗口（毫秒）",
+        "hint": "连续消息之间超过该间隔即视为说完；0–10000"
+      },
+      "merge_cap_ms": {
+        "type": "int",
+        "default": 2000,
+        "description": "合批最长等待（毫秒）",
+        "hint": "自第一条起最多等待的时长；不小于静默窗口，最大 15000"
+      },
+      "explicit_wait_timeout_s": {
+        "type": "int",
+        "default": 180,
+        "description": "“等我说完”超时（秒）",
+        "hint": "超时后静默结束等待，不催促；10–1800"
+      },
+      "closure_cooldown_minutes": {
+        "type": "int",
+        "default": 120,
+        "description": "收尾后主动冷却（分钟）",
+        "hint": "会话收尾后这段时间内不主动发起（有到期提醒除外）；0–1440"
+      },
+      "inject_max_items": {
+        "type": "int",
+        "default": 3,
+        "description": "每次注入的事项数上限",
+        "hint": "1–10"
+      },
+      "inject_max_chars": {
+        "type": "int",
+        "default": 600,
+        "description": "事项注入总字数上限",
+        "hint": "100–4000"
+      },
+      "extract_debounce_s": {
+        "type": "int",
+        "default": 6,
+        "description": "事项抽取合批延迟（秒）",
+        "hint": "同一会话消息停顿该时长后再统一抽取；0–120"
+      },
+      "extract_timeout_s": {
+        "type": "int",
+        "default": 30,
+        "description": "事项抽取模型超时（秒）",
+        "hint": "5–300"
+      },
+      "extract_queue_max": {
+        "type": "int",
+        "default": 50,
+        "description": "事项抽取队列上限",
+        "hint": "超出时丢弃最旧的待处理信号（消息仍保存在库中）；1–1000"
+      },
+      "digest_interval_hours": {
+        "type": "int",
+        "default": 3,
+        "description": "近期动态摘要间隔（小时）",
+        "hint": "1–72"
+      },
+      "sticker_understanding_enable": {
+        "type": "bool",
+        "default": true,
+        "description": "贴纸理解（描述缓存）",
+        "hint": "收到贴纸时先用视觉模型生成一句话描述并缓存，动态贴纸取 4 帧顺序拼图；失败时退回原图直给主模型"
+      },
+      "image_understanding_enable": {
+        "type": "bool",
+        "default": true,
+        "description": "图片理解（描述缓存）",
+        "hint": "收到照片时先生成内容描述（含图中文字）并写入消息，门控、记忆与后续对话都能用；原图仍交给主模型"
+      },
+      "sticker_send_enable": {
+        "type": "bool",
+        "default": true,
+        "description": "允许发送主人限定的表情包",
+        "hint": "表情包库由主人在私聊用 /sticker add|list|del|scope 管理；每条回复最多一张"
+      },
+      "sticker_groups_enable": {
+        "type": "bool",
+        "default": false,
+        "description": "允许在群里发送 scope=all 的表情包",
+        "hint": "默认只在主人私聊发送；频道永不发送"
+      },
+      "sticker_describe_daily_cap": {
+        "type": "int",
+        "default": 100,
+        "description": "每日新贴纸识别上限",
+        "hint": "只统计未命中缓存的识别调用；0 表示不再识别新贴纸"
       }
     }
   },

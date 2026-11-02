@@ -930,7 +930,11 @@ async def _collect_user_profile(
         user_id, effective_group_id, persona_id
     )
 
-    profile_text = _format_profiles_for_injection(group_profile, user_profile)
+    # 群聊只注入称呼级字段：私聊积累的重要事件/日期、禁忌、职业、情感等
+    # 不得随主人在群里发言被带进群聊请求
+    profile_text = _format_profiles_for_injection(
+        group_profile, user_profile, is_group=bool(group_id)
+    )
 
     if profile_text:
         logger.debug(f"已收集画像信息：群聊 {group_id} 用户 {user_id}")
@@ -1457,8 +1461,21 @@ def _extract_kg_keywords(text: str) -> List[str]:
     return unique[:8]
 
 
+def _format_important_date(entry: object) -> str:
+    """important_dates 条目兼容 dict({date, description}) 与历史遗留的 str。"""
+    if isinstance(entry, dict):
+        date = str(entry.get("date") or "").strip()
+        desc = str(entry.get("description") or "").strip()
+        if date and desc:
+            return f"{date}({desc})"
+        return date or desc
+    return str(entry or "").strip()
+
+
 def _format_profiles_for_injection(
-    group_profile: "GroupProfile", user_profile: "UserProfile"
+    group_profile: "GroupProfile",
+    user_profile: "UserProfile",
+    is_group: bool = False,
 ) -> str:
     """格式化画像为注入文本
 
@@ -1467,16 +1484,12 @@ def _format_profiles_for_injection(
     Args:
         group_profile: 群聊画像对象
         user_profile: 用户画像对象
+        is_group: 群聊请求时只保留称呼级字段（ID/昵称/曾用昵称/称呼），
+            不注入性格、兴趣、职业、情感、好感度、重要日期/事件、禁忌、自定义字段
 
     Returns:
         格式化的画像文本，任一部分为空则不注入该部分
     """
-    from ..config import get_config
-    from ..profile.models import favorability_level
-
-    config = get_config()
-    favorability_enabled = config.get("profile.favorability_enable", True)
-
     sections = []
 
     user_parts = [f"【发送者】ID: {user_profile.user_id}"]
@@ -1484,37 +1497,46 @@ def _format_profiles_for_injection(
         user_parts.append(f"昵称: {user_profile.user_name}")
     if user_profile.historical_names:
         user_parts.append(f"曾用昵称: {', '.join(user_profile.historical_names)}")
-    if user_profile.personality_tags:
-        user_parts.append(f"性格: {', '.join(user_profile.personality_tags)}")
-    if user_profile.interests:
-        user_parts.append(f"兴趣: {', '.join(user_profile.interests)}")
-    if user_profile.occupation:
-        user_parts.append(f"职业: {user_profile.occupation}")
-    if user_profile.language_style:
-        user_parts.append(f"语言风格: {user_profile.language_style}")
-    if user_profile.communication_style:
-        user_parts.append(f"沟通偏好: {user_profile.communication_style}")
-    if user_profile.emotional_baseline:
-        user_parts.append(f"情感: {user_profile.emotional_baseline}")
-    if favorability_enabled and user_profile.favorability > 0:
-        level = favorability_level(user_profile.favorability)
-        user_parts.append(f"好感度: {int(user_profile.favorability)}({level})")
-    if user_profile.bot_relationship:
-        user_parts.append(f"称呼: {user_profile.bot_relationship}")
-    if user_profile.important_dates:
-        dates_str = ", ".join(
-            f"{d['date']}({d['description']})" for d in user_profile.important_dates
-        )
-        user_parts.append(f"重要日期: {dates_str}")
-    if user_profile.important_events:
-        user_parts.append(f"重要事件: {', '.join(user_profile.important_events)}")
-    if user_profile.taboo_topics:
-        user_parts.append(f"禁忌: {', '.join(user_profile.taboo_topics)}")
-    if user_profile.custom_fields:
-        custom_str = ", ".join(
-            f"{k}: {v}" for k, v in user_profile.custom_fields.items()
-        )
-        user_parts.append(custom_str)
+    if is_group:
+        rel = (user_profile.bot_relationship or "").strip()
+        # 群里只放简短称呼；描述性的关系文字（可能涉及私下相处）不进群。
+        if rel and len(rel) <= 12 and not any(ch in rel for ch in "，。,.；;！!？?"):
+            user_parts.append(f"称呼: {rel}")
+    else:
+        if user_profile.personality_tags:
+            user_parts.append(f"性格: {', '.join(user_profile.personality_tags)}")
+        if user_profile.interests:
+            user_parts.append(f"兴趣: {', '.join(user_profile.interests)}")
+        if user_profile.occupation:
+            user_parts.append(f"职业: {user_profile.occupation}")
+        if user_profile.language_style:
+            user_parts.append(f"语言风格: {user_profile.language_style}")
+        if user_profile.communication_style:
+            user_parts.append(f"沟通偏好: {user_profile.communication_style}")
+        if user_profile.emotional_baseline:
+            user_parts.append(f"情感: {user_profile.emotional_baseline}")
+        # 好感度（数值/等级）永不注入 prompt（DESIGN §12：prompt 中不出现数值评分），
+        # 与 profile.favorability_enable 无关；画像内部照常记录。
+        if user_profile.bot_relationship:
+            user_parts.append(f"称呼: {user_profile.bot_relationship}")
+        if user_profile.important_dates:
+            dates = [_format_important_date(d) for d in user_profile.important_dates]
+            dates_str = ", ".join(d for d in dates if d)
+            if dates_str:
+                user_parts.append(f"重要日期: {dates_str}")
+        if user_profile.important_events:
+            user_parts.append(
+                f"重要事件: {', '.join(str(e) for e in user_profile.important_events)}"
+            )
+        if user_profile.taboo_topics:
+            user_parts.append(
+                f"禁忌: {', '.join(str(t) for t in user_profile.taboo_topics)}"
+            )
+        if user_profile.custom_fields:
+            custom_str = ", ".join(
+                f"{k}: {v}" for k, v in user_profile.custom_fields.items()
+            )
+            user_parts.append(custom_str)
 
     if len(user_parts) > 1:
         sections.append("\n".join(user_parts))

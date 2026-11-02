@@ -39,11 +39,27 @@ _DEFAULTS = {
     "proactive_max_streak": 2,
     "proactive_instruction": "",
     "proactive_max_message_len": 300,
+    "private_enabled": False,
+    "private_whitelist": [],
+    # Frisk 群聊门控：主人发言交给决策层判断是否接话；其他人仅在明确
+    # @/回复/叫名字后的一段时间内可被跟进。
+    "owner_chime_debounce": 60,
+    "engaged_window": 60,
+    "bot_name_keywords": ["真由理", "mayuri", "まゆり", "マユリ", "frisk"],
+    # 群里冷场时由她不定时开话题；Frisk 默认关闭，只保留私聊定时发起。
+    "group_initiate_enabled": False,
 }
 
 # _conf_schema.json 中 proactive 分组内的面板键（嵌套存储，面板管理）
 _SCHEMA_GROUP = "proactive"
-_SCHEMA_KEYS = {"enabled", "proactive_enabled", "stats_enabled", "provider_id"}
+_SCHEMA_KEYS = {
+    "enabled",
+    "proactive_enabled",
+    "stats_enabled",
+    "provider_id",
+    "private_enabled",
+    "private_whitelist",
+}
 
 # 页面管理键 → 隐藏配置键（HiddenConfig 字段名）。
 # 主动发起类键名与隐藏配置字段同名，基本参数类加 reply_ 前缀，
@@ -314,3 +330,55 @@ class ConfigManager:
     @property
     def proactive_max_message_len(self) -> int:
         return max(50, min(1000, int(self._get("proactive_max_message_len"))))
+
+    @property
+    def owner_chime_debounce(self) -> int:
+        """主人群发言触发接话决策的最小间隔（秒）。"""
+        return max(0, min(3600, int(self._get("owner_chime_debounce"))))
+
+    @property
+    def engaged_window(self) -> int:
+        """非主人群友明确找过她之后，可被跟进的最长时长（分钟）。"""
+        return max(1, min(240, int(self._get("engaged_window"))))
+
+    @property
+    def group_initiate_enabled(self) -> bool:
+        return bool(self._get("group_initiate_enabled"))
+
+    @property
+    def bot_name_keywords(self) -> list[str]:
+        raw = self._get("bot_name_keywords", [])
+        if isinstance(raw, str):
+            raw = [x for x in raw.replace("，", ",").split(",")]
+        return [str(x).strip().lower() for x in (raw or []) if str(x).strip()]
+
+    @property
+    def private_enabled(self) -> bool:
+        v = self._get("private_enabled")
+        if isinstance(v, bool):
+            return v
+        return str(v).strip().lower() in ("true", "1", "yes", "on")
+
+    @property
+    def silent_sessions(self) -> list[str]:
+        """只记录不发言的会话 ID（面板 proactive.silent_sessions，直接读取，不进默认表）。"""
+        try:
+            group = self._cfg.get(_SCHEMA_GROUP)
+        except Exception:
+            group = None
+        raw = group.get("silent_sessions", []) if isinstance(group, dict) else []
+        if isinstance(raw, str):
+            raw = [part for part in raw.replace("，", ",").split(",")]
+        if not isinstance(raw, (list, tuple, set)):
+            return []
+        return [str(item).strip() for item in raw if str(item).strip()]
+
+    @property
+    def private_whitelist(self) -> list[str]:
+        """允许私聊主动消息的用户 ID 列表（字符串形式）。"""
+        raw = self._get("private_whitelist", [])
+        if isinstance(raw, str):
+            raw = [part for part in raw.replace("，", ",").split(",")]
+        if not isinstance(raw, (list, tuple, set)):
+            return []
+        return [str(item).strip() for item in raw if str(item).strip()]
