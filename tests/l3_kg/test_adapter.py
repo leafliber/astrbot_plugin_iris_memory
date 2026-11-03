@@ -243,6 +243,31 @@ class TestL3KGAdapter:
         )
 
     @pytest.mark.asyncio
+    async def test_expand_from_nodes_caps_seed_nodes(self, adapter):
+        """回归：种子节点数量也必须受 max_nodes 限制。"""
+        seed_nodes = []
+        for index in range(120):
+            node = GraphNode(
+                id="",
+                label="Person",
+                name=f"Seed{index}",
+                content=f"seed node {index}",
+            )
+            node.id = node.generate_id()
+            assert await adapter.add_node(node)
+            seed_nodes.append(node)
+
+        nodes, edges = await adapter.expand_from_nodes(
+            node_ids=[node.id for node in seed_nodes],
+            max_depth=2,
+            max_nodes=100,
+        )
+
+        assert len(nodes) == 100
+        assert len({node["id"] for node in nodes}) == 100
+        assert edges == []
+
+    @pytest.mark.asyncio
     async def test_get_stats(self, adapter):
         """测试获取统计信息"""
         stats = await adapter.get_stats()

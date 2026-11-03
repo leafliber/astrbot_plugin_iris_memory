@@ -501,26 +501,39 @@ class L3KGAdapter(Component):
     ) -> tuple[list[dict], list[dict]]:
         """路径扩展检索核心（供线程池执行）。"""
         try:
-            visited = set(node_ids)
-            frontier = list(node_ids)
+            ordered_node_ids = list(
+                dict.fromkeys(node_id for node_id in node_ids if node_id)
+            )
+            if not ordered_node_ids or max_nodes <= 0:
+                return [], []
+
+            visited = set(ordered_node_ids)
             nodes_map: dict[str, dict] = {}
             edges_list: list[dict] = []
 
             # 种子节点也必须按 group_id 过滤，否则跨群节点作为种子泄漏
-            seed_conditions = [f"id IN ({','.join('?' * len(node_ids))})"]
-            seed_params: list = [*node_ids]
+            seed_conditions = [
+                f"id IN ({','.join('?' * len(ordered_node_ids))})"
+            ]
+            seed_params: list = [*ordered_node_ids]
             if group_id:
                 seed_conditions.append("group_id = ?")
                 seed_params.append(group_id)
             if persona_id is not None:
                 seed_conditions.append("persona_id = ?")
                 seed_params.append(persona_id)
+            seed_params.append(max_nodes)
             seed_rows = self._db_fetchall(
-                f"SELECT * FROM nodes WHERE {' AND '.join(seed_conditions)}",
+                f"SELECT * FROM nodes WHERE {' AND '.join(seed_conditions)} LIMIT ?",
                 seed_params,
             )
-            for row in seed_rows:
-                nodes_map[row["id"]] = dict(row)
+            seed_by_id = {row["id"]: dict(row) for row in seed_rows}
+            frontier = [
+                node_id
+                for node_id in ordered_node_ids
+                if node_id in seed_by_id
+            ][:max_nodes]
+            nodes_map = {node_id: seed_by_id[node_id] for node_id in frontier}
 
             for _ in range(max_depth):
                 if (
