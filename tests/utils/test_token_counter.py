@@ -10,6 +10,7 @@ from astrbot_plugin_iris_memory.iris_memory.utils.token_counter import (
     count_tokens,
     get_encoder,
     count_messages_tokens,
+    truncate_text_tokens,
 )
 
 
@@ -39,6 +40,18 @@ class TestTokenCounter:
         long_text = "This is a longer piece of text. " * 100
         count = count_tokens(long_text)
         assert count > 100
+
+    def test_truncate_text_tokens_preserves_both_ends(self):
+        text = "START-重要要求\n" + ("中间内容" * 500) + "\nEND-最后的问题"
+        truncated = truncate_text_tokens(text, 80, keep_tail=True)
+
+        assert count_tokens(truncated) <= 80
+        assert "START-重要要求" in truncated
+        assert "END-最后的问题" in truncated
+        assert "已截断" in truncated
+
+    def test_truncate_text_tokens_leaves_short_text_unchanged(self):
+        assert truncate_text_tokens("短文本", 100) == "短文本"
 
     def test_get_encoder_caching(self):
         """测试编码器缓存"""

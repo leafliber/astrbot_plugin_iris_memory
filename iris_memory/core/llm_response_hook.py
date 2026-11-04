@@ -4,6 +4,8 @@ LLM 响应钩子处理模块
 负责处理 LLM 响应相关的钩子逻辑。
 """
 
+import hashlib
+import re
 from typing import TYPE_CHECKING, cast
 
 from ..core import get_logger
@@ -40,6 +42,16 @@ async def handle_llm_response(
     if not assistant_msg:
         logger.debug("LLM 响应内容为空，跳过添加")
         return
+
+    normalized = re.sub(r"\s+", " ", assistant_msg).strip()
+    digest = hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+    try:
+        if event.get_extra("iris_l1_response_digest") == digest:
+            logger.debug("同一事件已记录相同 LLM 响应，跳过重复写入 L1")
+            return
+        event.set_extra("iris_l1_response_digest", digest)
+    except Exception:
+        pass
 
     # 直接操作 L1Buffer，避免调用其他模块
     buffer = component_manager.get_available_component("l1_buffer")

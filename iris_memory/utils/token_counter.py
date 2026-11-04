@@ -149,6 +149,58 @@ def count_tokens(text: str, encoding_name: str = "cl100k_base") -> int:
     return _estimate_tokens(text)
 
 
+def _take_token_bound_chars(
+    text: str,
+    max_tokens: int,
+    *,
+    from_tail: bool = False,
+) -> str:
+    """Return the largest text slice that fits the requested token budget."""
+    if not text or max_tokens <= 0:
+        return ""
+
+    low = 0
+    high = len(text)
+    while low < high:
+        middle = (low + high + 1) // 2
+        candidate = text[-middle:] if from_tail else text[:middle]
+        if count_tokens(candidate) <= max_tokens:
+            low = middle
+        else:
+            high = middle - 1
+    return text[-low:] if from_tail else text[:low]
+
+
+def truncate_text_tokens(
+    text: str,
+    max_tokens: int,
+    *,
+    keep_tail: bool = False,
+    marker: str = "\n…[内容过长，已截断]…\n",
+) -> str:
+    """Truncate text to a token budget while preserving useful text.
+
+    Long prompts often put requirements at the beginning and the actual
+    question at the end. When ``keep_tail`` is true, both ends are retained.
+    """
+    if not text or max_tokens <= 0 or count_tokens(text) <= max_tokens:
+        return text
+
+    marker_tokens = count_tokens(marker)
+    if marker_tokens >= max_tokens:
+        return _take_token_bound_chars(text, max_tokens, from_tail=keep_tail)
+
+    content_budget = max_tokens - marker_tokens
+    if not keep_tail:
+        return _take_token_bound_chars(text, content_budget) + marker
+
+    head_budget = max(1, content_budget // 5)
+    tail_budget = max(1, content_budget - head_budget)
+    head = _take_token_bound_chars(text, head_budget)
+    tail = _take_token_bound_chars(text, tail_budget, from_tail=True)
+    return head + marker + tail
+
+
 def count_messages_tokens(
     messages: list[dict], encoding_name: str = "cl100k_base"
 ) -> int:

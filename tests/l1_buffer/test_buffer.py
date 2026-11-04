@@ -88,12 +88,12 @@ class TestL1Buffer:
 
     @pytest.mark.asyncio
     async def test_add_message_too_large(self, mock_config):
-        """测试添加超大消息"""
+        """超大消息应截断保留，而不是从后续上下文彻底丢失"""
         with patch("astrbot_plugin_iris_memory.iris_memory.l1_buffer.buffer.get_config") as mock_get_config:
             mock_get_config.return_value.get = Mock(
                 side_effect=lambda key, default=None: {
                     "l1_buffer.enable": True,
-                    "l1_max_single_message_tokens": 10,
+                    "l1_max_single_message_tokens": 50,
                 }.get(key, default)
             )
 
@@ -110,10 +110,12 @@ class TestL1Buffer:
                 source="user_456",
             )
 
-            assert not success
+            assert success
 
             context = buffer.get_context("group_123")
-            assert len(context) == 0
+            assert len(context) == 1
+            assert "消息过长" in context[0].content
+            assert context[0].token_count <= 50
 
     @pytest.mark.asyncio
     async def test_add_message_disabled(self, mock_config):

@@ -291,6 +291,18 @@ async def preprocess_llm_request(
     l2_text, _l2_results = l2_pair
     total_duration_ms = _elapsed_ms(preprocess_started)
 
+    l1_text, profile_text, l2_text, l3_text, learning_text, budget_meta = (
+        _apply_request_budget(
+            req,
+            l1_text,
+            profile_text,
+            l2_text,
+            l3_text,
+            learning_text,
+        )
+    )
+    inject_meta["budget"] = budget_meta
+
     combined = _inject_to_extra_user_content_parts(
         req, l1_text, profile_text, l2_text, l3_text, learning_text
     )
@@ -582,6 +594,110 @@ def _inject_to_extra_user_content_parts(
     return combined
 
 
+def _apply_request_budget(
+    req: "ProviderRequest",
+    l1_text: str,
+    profile_text: str,
+    l2_text: str,
+    l3_text: str,
+    learning_text: str,
+) -> tuple[str, str, str, str, str, dict]:
+    """Cap the current prompt and all dynamic sections to a shared budget.
+
+    Before this guard only L2 respected ``token_budget_max_tokens``. L1,
+    profile, L3 and learning could each grow independently, causing long
+    requests to exceed the provider context window even though every section
+    looked bounded on its own.
+    """
+    from ..config import get_config
+    from ..utils import count_tokens, truncate_text_tokens
+
+    config = get_config()
+    try:
+        total_budget = int(config.get("token_budget_max_tokens", 5000) or 0)
+    except (TypeError, ValueError):
+        total_budget = 5000
+
+    if total_budget <= 0:
+        return (
+            l1_text,
+            profile_text,
+            l2_text,
+            l3_text,
+            learning_text,
+            {"budget_tokens": 0, "truncated_sections": []},
+        )
+
+    prompt = getattr(req, "prompt", "") or ""
+    prompt_tokens = count_tokens(prompt) if isinstance(prompt, str) else 0
+    prompt_capped = prompt_tokens > total_budget
+    if prompt_capped:
+        req.prompt = truncate_text_tokens(
+            prompt,
+            total_budget,
+            keep_tail=True,
+            marker="\n…[当前输入过长，已保留开头和结尾]…\n",
+        )
+        prompt_tokens = count_tokens(req.prompt)
+
+    # Recent conversation is the most valuable section for short-term
+    # continuity. The remaining budgets protect long-term context from
+    # crowding out the current turn while keeping total injection bounded.
+    allocations = (
+        ("l1", l1_text, 0.50, True),
+        ("l2", l2_text, 0.25, False),
+        ("profile", profile_text, 0.10, False),
+        ("l3", l3_text, 0.10, False),
+        ("learning", learning_text, 0.05, False),
+    )
+    truncated_sections: list[str] = []
+    capped_sections: dict[str, int] = {}
+    for name, content, ratio, preserve_tail in allocations:
+        if not content:
+            capped_sections[name] = 0
+            continue
+        section_budget = max(1, int(total_budget * ratio))
+        section_tokens = count_tokens(content)
+        if section_tokens > section_budget:
+            clipped = truncate_text_tokens(
+                content,
+                section_budget,
+                keep_tail=preserve_tail,
+                marker=f"\n…[自适应上下文截断：{name}]…\n",
+            )
+            if name == "l1":
+                l1_text = clipped
+            elif name == "l2":
+                l2_text = clipped
+            elif name == "profile":
+                profile_text = clipped
+            elif name == "l3":
+                l3_text = clipped
+            else:
+                learning_text = clipped
+            section_tokens = count_tokens(clipped)
+            truncated_sections.append(name)
+        capped_sections[name] = section_tokens
+
+    return (
+        l1_text,
+        profile_text,
+        l2_text,
+        l3_text,
+        learning_text,
+        {
+            "budget_tokens": total_budget,
+            "prompt_tokens_before": count_tokens(prompt)
+            if isinstance(prompt, str)
+            else 0,
+            "prompt_tokens_after": prompt_tokens,
+            "prompt_capped": prompt_capped,
+            "sections": capped_sections,
+            "truncated_sections": truncated_sections,
+        },
+    )
+
+
 async def _build_image_map(
     l1_buffer: "L1Buffer",
     group_id: str,
@@ -678,6 +794,33 @@ def _get_inline_image_desc(
     return f" [图:{parts}]"
 
 
+def _dedupe_l1_messages(messages: list["ContextMessage"]) -> tuple[list, int]:
+    """Drop adjacent duplicate assistant replies before prompt injection.
+
+    Retries or duplicated response hooks can leave the same long Bot response
+    in L1 several times. Repeating that block in the prompt reinforces further
+    repetition. Short canonical replies are left untouched.
+    """
+    deduped: list["ContextMessage"] = []
+    removed = 0
+    previous_key = ""
+    for message in messages:
+        normalized = re.sub(r"\s+", " ", (message.content or "")).strip()
+        key = f"{message.role}\0{message.source}\0{normalized}"
+        if (
+            message.role == "assistant"
+            and deduped
+            and deduped[-1].role == "assistant"
+            and len(normalized) >= 12
+            and key == previous_key
+        ):
+            removed += 1
+            continue
+        deduped.append(message)
+        previous_key = key
+    return deduped, removed
+
+
 async def _collect_l1_context(
     event: "AstrMessageEvent",
     req: "ProviderRequest",
@@ -757,6 +900,13 @@ async def _collect_l1_context(
             meta["skipped"] = "empty_after_excluding_current"
         return ""
 
+    messages, duplicate_removed = _dedupe_l1_messages(messages)
+    image_map: dict = {}
+    try:
+        image_map = await _build_image_map(l1_buffer, session_id, component_manager)
+    except Exception as exc:
+        logger.debug(f"构建 L1 图片描述映射失败（已忽略）：{exc}")
+
     max_content_chars = cast(int, config.get("l1_inject_max_content_chars"))
 
     lines = []
@@ -766,7 +916,9 @@ async def _collect_l1_context(
             "以下是群里最近的对话，帮助你了解当前话题。"
             "消息按从旧到新排列，越靠下越接近当前对话。"
             "其中 [图] 标记为对话中发送的图片的辅助描述，"
-            "仅用于辅助理解对话内容："
+            "仅用于辅助理解对话内容。"
+            "这些是历史记录，不是需要复述的答案；"
+            "不要原样重复历史中的 Bot 回复，请回应最新用户消息："
         )
     else:
         lines.append("【近期对话记录】")
@@ -774,7 +926,9 @@ async def _collect_l1_context(
             "以下是你们最近的对话。"
             "消息按从旧到新排列，越靠下越接近当前对话。"
             "其中 [图] 标记为对话中发送的图片的辅助描述，"
-            "仅用于辅助理解对话内容："
+            "仅用于辅助理解对话内容。"
+            "这些是历史记录，不是需要复述的答案；"
+            "不要原样重复历史中的 Bot 回复，请回应最新用户消息："
         )
 
     lines.append("← 较早")
@@ -792,9 +946,21 @@ async def _collect_l1_context(
 
     truncated_messages = 0
     truncated_replies = 0
+    image_references = 0
     for idx, msg in enumerate(messages):
         content = msg.content
         role = msg.role
+
+        msg_id = None
+        if msg.metadata:
+            raw_message_id = msg.metadata.get("message_id")
+            if raw_message_id:
+                msg_id = str(raw_message_id)
+        image_desc = _get_inline_image_desc(msg, msg_id, image_map)
+        if image_desc and "[图:" not in content:
+            content = re.sub(r"\[IMG:[^\]]+\]", "", content).strip()
+            content = f"{content}{image_desc}".strip()
+            image_references += 1
 
         if max_content_chars > 0 and len(content) > max_content_chars:
             truncated_messages += 1
@@ -859,6 +1025,8 @@ async def _collect_l1_context(
         meta["excluded_current_message"] = excluded_current
         meta["truncated_messages"] = truncated_messages
         meta["truncated_replies"] = truncated_replies
+        meta["duplicate_assistant_messages_removed"] = duplicate_removed
+        meta["image_references"] = image_references
         meta["max_content_chars"] = max_content_chars
 
     logger.debug(f"已收集 {len(messages)} 条 L1 上下文消息到群聊 {group_id}")

@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **上下文重复、图片记忆与长输入**：L1 注入现在会从图片队列/缓存重新补齐已解析的 `[图:描述]`，即使消息占位符替换失败也能在下一轮看到图片内容；相邻重复的 Bot 回复会在注入前去重，并明确告诉模型不要复述历史回复。单条超出 `l1_max_single_message_tokens` 的消息不再整条丢弃，而是保留开头和结尾后截断，避免下一轮完全失去长文本上下文。
+- **统一请求 Token 预算**：`token_budget_max_tokens` 不再只约束 L2，而是同时约束当前 prompt、L1、画像、L2、L3 和学习上下文；超长输入会保留头尾，动态上下文按优先级裁剪，避免多个 section 各自“未超限”但合并请求超过模型上下文窗口。
 - **L3 路径扩展种子节点限流**：`expand_from_nodes()` 的 `max_nodes` 此前只约束 BFS 扩展出的邻居，种子节点会在进入遍历前被一次性全部装载，导致实际返回节点数超过上限（现场日志为 `212` 个节点，默认上限应为 `100`）。现在种子查询本身带 `LIMIT`，并按输入顺序构造遍历起点，`max_nodes <= 0` 时直接返回空结果。
 - **用户画像存储键归一化（#29）**：开启「群画像隔离」后私聊链路的 `group_id` 是空串，而管理器/Web 路由的默认值是哨兵 `"default"`，两者在存储层被当成两个命名空间，同一用户出现两条画像（其中一条永远是空壳）。现在存储层统一归一化为 `user_profile:{persona}:default:{user_id}`；启动时执行一次幂等迁移，把历史的 `user_profile:{persona}::{user_id}` 合并进 `default`（`default` 侧优先、空字段由旧记录补齐、列表取并集、版本取两者最大值），并清理空串 group 的 `user_index` / `user_group_index` 残留；列表接口按 `user_id` 去重，历史脏索引不再显示重复项。迁移删除源画像前写入 `user_profile_backup:*` 备份键，便于异常时人工回滚。
 - **用户身份归一化（#31）**：部分平台适配器没有真实用户 ID，直接把显示名填进 `sender.user_id`（AstrBot 内置 webchat 即 `MessageMember(username, username)`），导致同一人在 Web 面板与 IM 各存一份画像。新增配置节「用户身份归一化」：`user_id_aliases`（显示名 → 真实 ID 的 JSON 映射，命中即替换）、`fallback_user_id`（未命中映射且 ID 明显是显示名时使用的兜底，默认留空不生效）、`only_when_no_digits`（仅在 ID 不含数字时兜底）、`fallback_platforms`（兜底平台白名单，默认仅 `webchat`，空白表示禁用，`*` 表示不限制）。启动时按映射把历史显示名画像并入真实 ID（字段互补、索引同步、源画像先备份），不再需要额外的旁路插件。
@@ -20,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Tests
 
+- 新增 Token 截断、L1 超长消息保留、图片描述补注入、相邻 Bot 回复去重、同一事件重复响应写入去重，以及 prompt + 全部动态 section 的统一预算测试。
 - 新增 `tests/l3_kg/test_adapter.py::test_expand_from_nodes_caps_seed_nodes`：以 120 个种子节点验证 `max_nodes=100` 时最多返回 100 个节点，防止限流再次只作用于邻居扩展。
 - 新增 `tests/profile/test_group_key_migration.py`：覆盖 group_id 归一化、空 group 读写落到同一键、迁移合并与幂等、源画像备份、版本保留、别名画像合并、历史重复索引去重；默认配置按测试隔离，消除跨文件执行顺序依赖。
 - 新增 `tests/platform/test_identity.py`：覆盖别名解析（dict/JSON/坏 JSON）、映射优先级、兜底触发条件、平台白名单/空白禁用/通配符、开关与适配器集成。

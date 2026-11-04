@@ -23,7 +23,7 @@ from ..config import get_config
 from ..platform.base import PRIVATE_SESSION_PREFIX
 from ..llm.policy import CallPriority
 from ..tasks.work_queue import BoundedWorkQueue
-from ..utils import count_tokens
+from ..utils import count_tokens, truncate_text_tokens
 from .models import ContextMessage, SegmentedMessageQueue
 from .outbox import SummaryOutbox
 from .summarizer import Summarizer
@@ -327,10 +327,18 @@ class L1Buffer(Component):
 
         max_single_tokens = cast(int, config.get("l1_max_single_message_tokens", 500))
         if token_count > max_single_tokens:
-            logger.warning(
-                f"消息 Token 数 {token_count} 超过限制 {max_single_tokens}，已丢弃"
+            original_tokens = token_count
+            content = truncate_text_tokens(
+                content,
+                max_single_tokens,
+                keep_tail=True,
+                marker="\n…[消息过长，历史记录已截断]…\n",
             )
-            return False
+            token_count = count_tokens(content)
+            logger.warning(
+                f"消息 Token 数 {original_tokens} 超过限制 {max_single_tokens}，"
+                f"已截断后保留 {token_count} tokens"
+            )
 
         message = ContextMessage(
             role=role,

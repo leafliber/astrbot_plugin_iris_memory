@@ -182,7 +182,7 @@ class HiddenConfig:
     l1_max_single_message_tokens: int = field(
         default=500,
         metadata={
-            "description": "单条消息最大 Token 数，普通消息超限丢弃，合并转发消息超限截断",
+            "description": "单条消息最大 Token 数，超限时保留开头和结尾并截断",
             "group": "L1 缓冲",
         },
     )
