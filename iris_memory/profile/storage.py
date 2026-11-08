@@ -577,6 +577,70 @@ class ProfileStorage(Component):
 
     async def _run_profile_migrations(self) -> None:
         await self.migrate_empty_group_keys()
+        await self.migrate_alias_profiles()
+
+    async def migrate_alias_profiles(self) -> int:
+        """按 ``identity.user_id_aliases`` 把历史画像并入目标用户
+
+        幂等：源用户已不在索引中时跳过。删除前保留备份键。
+
+        Returns:
+            合并的画像条数
+        """
+        from ..identity import parse_user_id_aliases
+
+        aliases = parse_user_id_aliases(get_config().get("identity.user_id_aliases", ""))
+        if not aliases:
+            return 0
+
+        merged_count = 0
+        for persona_id in await self._get_known_personas():
+            group_ids = await self._storage.get_kv_data(
+                f"user_group_index:{persona_id}", []
+            )
+            for group_id in dict.fromkeys(
+                [GLOBAL_GROUP_ID, *(effective_group_id(g) for g in group_ids or [])]
+            ):
+                merged_count += await self._merge_aliases_in_group(
+                    persona_id, group_id, aliases
+                )
+
+        if merged_count:
+            logger.info(f"画像别名合并完成：{merged_count} 条画像已并入目标用户")
+        return merged_count
+
+    async def _merge_aliases_in_group(
+        self, persona_id: str, group_id: str, aliases: dict
+    ) -> int:
+        index_key = f"user_index:{persona_id}:{group_id}"
+        user_ids = list(await self._storage.get_kv_data(index_key, []) or [])
+        prefix = f"user_profile:{persona_id}:{group_id}"
+
+        merged_count = 0
+        for source_id, target_id in aliases.items():
+            if source_id == target_id or source_id not in user_ids:
+                continue
+            source_data = await self._storage.get_kv_data(f"{prefix}:{source_id}", None)
+            if not source_data:
+                continue
+
+            target_data = await self._storage.get_kv_data(f"{prefix}:{target_id}", None)
+            merged = _merge_profile_dicts(target_data or {}, source_data)
+            merged["user_id"] = target_id
+            await self._storage.put_kv_data(
+                f"user_profile_backup:{persona_id}:{group_id}:{source_id}", source_data
+            )
+            await self._storage.put_kv_data(f"{prefix}:{target_id}", merged)
+            await self._storage.delete_kv_data(f"{prefix}:{source_id}")
+
+            user_ids = [uid for uid in user_ids if uid != source_id]
+            if target_id not in user_ids:
+                user_ids.append(target_id)
+            merged_count += 1
+
+        if merged_count:
+            await self._storage.put_kv_data(index_key, user_ids)
+        return merged_count
 
     async def migrate_empty_group_keys(self) -> int:
         """把 group_id 为空串的历史画像并入 ``default`` 命名空间

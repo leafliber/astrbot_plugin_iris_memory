@@ -73,6 +73,13 @@ class IsolationConfig:
 
 
 @dataclass
+class IdentityConfig:
+    """用户身份映射配置"""
+
+    user_id_aliases: str = ""
+
+
+@dataclass
 class ScheduledTasksConfig:
     """梦境任务配置"""
 
@@ -1213,6 +1220,7 @@ class Defaults:
     l3_kg: L3KGConfig = field(default_factory=L3KGConfig)
     profile: ProfileConfig = field(default_factory=ProfileConfig)
     isolation_config: IsolationConfig = field(default_factory=IsolationConfig)
+    identity: IdentityConfig = field(default_factory=IdentityConfig)
     scheduled_tasks: ScheduledTasksConfig = field(default_factory=ScheduledTasksConfig)
     context_control: ContextControlConfig = field(default_factory=ContextControlConfig)
     extras: ExtrasConfig = field(default_factory=ExtrasConfig)
