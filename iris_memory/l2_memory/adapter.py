@@ -208,7 +208,9 @@ class L2MemoryAdapter(Component):
             stored_dim = meta.get("embedding_dimensions", 0)
 
             needs_migration = False
-            if stored_model and stored_model != self._actual_embedding_model:
+            if stored_model and not self._is_same_embedding_model(
+                stored_model, self._actual_embedding_model
+            ):
                 needs_migration = True
                 logger.warning(
                     f"嵌入模型已变更：{stored_model} -> {self._actual_embedding_model}，"
@@ -241,8 +243,10 @@ class L2MemoryAdapter(Component):
             else:
                 # 加载已有索引和数据
                 await self._load_existing(stored_dim)
-                # 补全元数据
-                if not stored_model or (not stored_dim and self._embedding_dimensions):
+                # 补全元数据，并把旧版签名升级为当前格式
+                if stored_model != self._actual_embedding_model or (
+                    not stored_dim and self._embedding_dimensions
+                ):
                     self._save_meta()
 
             self._is_available = True
@@ -788,7 +792,8 @@ class L2MemoryAdapter(Component):
         model_name = getattr(provider, "model_name", None)
         if not model_name and hasattr(provider, "meta"):
             model_name = getattr(provider.meta, "model_name", None)
-        model_name = model_name or provider_id
+        resolved_id = self._resolve_provider_id(provider, provider_id)
+        model_name = model_name or resolved_id
 
         dim = 0
         try:
@@ -797,12 +802,12 @@ class L2MemoryAdapter(Component):
             pass
 
         logger.info(
-            f"使用 AstrBot Embedding Provider: {provider_id}，"
+            f"使用 AstrBot Embedding Provider: {resolved_id}，"
             f"模型: {model_name}，维度: {dim}"
         )
 
         self._embedding_provider = provider
-        self._actual_embedding_model = f"provider:{provider_id}/{model_name}"
+        self._actual_embedding_model = f"provider:{resolved_id}/{model_name}"
         self._embedding_dimensions = dim
 
     async def _init_local_embedding(self, config) -> None:
@@ -866,6 +871,28 @@ class L2MemoryAdapter(Component):
 
         self._actual_embedding_model = model_name
         self._embedding_dimensions = dim
+
+    @staticmethod
+    def _resolve_provider_id(provider: Any, configured_id: str) -> str:
+        """返回实际使用的 Provider ID，配置留空时也能得到稳定的模型签名。"""
+        provider_config = getattr(provider, "provider_config", None)
+        if isinstance(provider_config, dict) and provider_config.get("id"):
+            return str(provider_config["id"])
+        return configured_id
+
+    @staticmethod
+    def _is_same_embedding_model(stored: str, actual: str) -> bool:
+        """判断已存向量是否由当前模型生成。
+
+        旧版本在 embedding_provider 留空时写入 ``provider:/<model>``，这类签名
+        只记录了模型名，因此按模型名匹配，避免升级后全量重嵌入。
+        """
+        if stored == actual:
+            return True
+        legacy_prefix = "provider:/"
+        if not stored.startswith(legacy_prefix) or not actual.startswith("provider:"):
+            return False
+        return actual.endswith(f"/{stored[len(legacy_prefix):]}")
 
     def _get_embedding_provider_by_id(self, provider_id: str):
         try:
