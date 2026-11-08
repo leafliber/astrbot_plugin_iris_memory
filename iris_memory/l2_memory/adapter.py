@@ -946,9 +946,12 @@ class L2MemoryAdapter(Component):
             if hasattr(self._context, "provider_manager"):
                 pm = self._context.provider_manager
                 if hasattr(pm, "embedding_provider_insts"):
-                    providers = pm.embedding_provider_insts
-                    if providers:
-                        return providers[0]
+                    # AstrBot 更新 Provider 时不会把旧实例移出该列表，旧实例的连接
+                    # 已关闭，这里按 ID 换成 inst_map 中的当前实例。
+                    for listed in pm.embedding_provider_insts:
+                        current = pm.inst_map.get(self._resolve_provider_id(listed, ""))
+                        if current is not None:
+                            return current
                 if hasattr(pm, "inst_map"):
                     for pid, p in pm.inst_map.items():
                         if hasattr(p, "get_embeddings"):
