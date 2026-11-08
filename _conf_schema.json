@@ -239,6 +239,12 @@
         "hint": "选择用于画像分析的模型，留空则使用默认 Provider",
         "_special": "select_provider"
       },
+      "timeout_ms": {
+        "type": "int",
+        "default": 0,
+        "description": "画像分析超时(ms)",
+        "hint": "0 表示沿用全局 Provider 超时；推理型模型可适当调大"
+      },
       "enable_auto_injection": {
         "type": "bool",
         "default": true,
