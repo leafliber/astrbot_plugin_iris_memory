@@ -203,6 +203,64 @@ class TestL3KGAdapter:
         assert len(edges) >= 1
 
     @pytest.mark.asyncio
+    async def _add_named_nodes(self, adapter, count, prefix="N"):
+        nodes = []
+        for index in range(count):
+            node = GraphNode(id="", label="Person", name=f"{prefix}{index}", content="c")
+            node.id = node.generate_id()
+            await adapter.add_node(node)
+            nodes.append(node)
+        return nodes
+
+    @pytest.mark.asyncio
+    async def test_expand_from_nodes_caps_seeds_in_caller_order(self, adapter):
+        """种子超限时保留调用方排在前面的节点"""
+        seeds = await self._add_named_nodes(adapter, 120)
+        ranked = list(reversed([node.id for node in seeds]))
+
+        nodes, _ = await adapter.expand_from_nodes(
+            node_ids=ranked, max_depth=2, max_nodes=100
+        )
+
+        assert {node["id"] for node in nodes} == set(ranked[:100])
+
+    @pytest.mark.asyncio
+    async def test_expand_from_nodes_caps_neighbors_in_one_hop(self, adapter):
+        """同一跳展开出的邻居也受 max_nodes 约束"""
+        hub, *leaves = await self._add_named_nodes(adapter, 151)
+        for leaf in leaves:
+            await adapter.add_edge(
+                GraphEdge(source_id=hub.id, target_id=leaf.id, relation_type="KNOWS")
+            )
+
+        nodes, _ = await adapter.expand_from_nodes(
+            node_ids=[hub.id], max_depth=2, max_nodes=100
+        )
+
+        assert len(nodes) == 100
+
+    @pytest.mark.asyncio
+    async def test_expand_from_nodes_ignores_blank_and_duplicate_seeds(self, adapter):
+        [node] = await self._add_named_nodes(adapter, 1)
+
+        nodes, _ = await adapter.expand_from_nodes(
+            node_ids=["", node.id, node.id], max_depth=1
+        )
+
+        assert [item["id"] for item in nodes] == [node.id]
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("max_nodes", [0, -1])
+    async def test_expand_from_nodes_non_positive_cap(self, adapter, max_nodes):
+        [node] = await self._add_named_nodes(adapter, 1)
+
+        result = await adapter.expand_from_nodes(
+            node_ids=[node.id], max_depth=1, max_nodes=max_nodes
+        )
+
+        assert result == ([], [])
+
+    @pytest.mark.asyncio
     async def test_expand_from_nodes_filters_seeds_by_group_id(self, adapter):
         """回归：种子节点必须按 group_id 过滤，避免跨群节点泄漏
 
