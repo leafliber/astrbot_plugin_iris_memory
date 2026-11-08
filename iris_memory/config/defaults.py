@@ -61,6 +61,7 @@ class ProfileConfig:
     analysis_provider: str = ""
     enable_auto_injection: bool = True
     favorability_enable: bool = True
+    timeout_ms: int = 0
 
 
 @dataclass
