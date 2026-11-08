@@ -54,6 +54,41 @@ USER_PROFILE_WRITABLE_FIELDS: Set[str] = {
 }
 
 
+# 用户画像「全局」命名空间的 group_id
+GLOBAL_GROUP_ID = "default"
+
+
+def effective_group_id(group_id: Optional[str]) -> str:
+    """归一化用户画像的 group_id
+
+    开启群画像隔离后私聊链路传入空串，管理器和 Web 路由使用 ``default``，
+    两者指的是同一个命名空间，必须落到同一个存储键。
+    """
+    return (group_id or "").strip() or GLOBAL_GROUP_ID
+
+
+def _merge_profile_dicts(primary: dict, secondary: dict) -> dict:
+    """合并同一用户的两份画像：primary 优先，空字段由 secondary 补齐，列表取并集"""
+    merged = dict(primary)
+    for key, value in secondary.items():
+        current = merged.get(key)
+        if isinstance(current, dict) and isinstance(value, dict):
+            merged[key] = {**value, **current}
+        elif isinstance(current, list) and isinstance(value, list):
+            merged[key] = current + [item for item in value if item not in current]
+        elif current in (None, "", 0, 0.0) and value not in (None, ""):
+            merged[key] = value
+
+    versions = [
+        int(item["version"])
+        for item in (primary, secondary)
+        if str(item.get("version", "")).isdigit()
+    ]
+    if versions:
+        merged["version"] = max(versions)
+    return merged
+
+
 def profile_lock(kind: str):
     """装饰器：为画像 read-modify-write 操作按命名空间串行化加锁。
 
@@ -128,6 +163,13 @@ class ProfileStorage(Component):
             return
 
         self._is_available = True
+
+        try:
+            await self._run_profile_migrations()
+        except Exception as e:
+            # 新写入路径已经归一化，旧键留到下次启动再迁移，不影响读写
+            logger.warning(f"画像迁移失败（不影响启动）：{e}")
+
         logger.info("画像存储组件初始化完成")
 
     async def shutdown(self) -> None:
@@ -210,6 +252,7 @@ class ProfileStorage(Component):
             return None
 
         persona_id = self._effective_persona(persona_id)
+        group_id = effective_group_id(group_id)
         key = f"user_profile:{persona_id}:{group_id}:{user_id}"
 
         try:
@@ -241,6 +284,7 @@ class ProfileStorage(Component):
             profile.version += 1
 
         persona_id = self._effective_persona(persona_id)
+        group_id = effective_group_id(group_id)
         key = f"user_profile:{persona_id}:{group_id}:{profile.user_id}"
 
         try:
@@ -291,6 +335,7 @@ class ProfileStorage(Component):
     ):
         """用户画像 RMW 串行化锁。同一 (persona, group, user) 的读-改-写不会被并发交错。"""
         persona_id = self._effective_persona(persona_id)
+        group_id = effective_group_id(group_id)
         lock = await self._get_lock(f"user:{persona_id}:{group_id}:{user_id}")
         async with lock:
             yield
@@ -408,10 +453,13 @@ class ProfileStorage(Component):
         self, group_id: str = "default", persona_id: str = "default"
     ) -> list:
         persona_id = self._effective_persona(persona_id)
+        group_id = effective_group_id(group_id)
         index_key = f"user_index:{persona_id}:{group_id}"
 
         try:
-            user_ids = await self._storage.get_kv_data(index_key, [])
+            user_ids = list(
+                dict.fromkeys(await self._storage.get_kv_data(index_key, []) or [])
+            )
 
             if not user_ids:
                 return []
@@ -463,7 +511,7 @@ class ProfileStorage(Component):
                 return []
 
             all_users = []
-            for gid in group_ids:
+            for gid in dict.fromkeys(effective_group_id(g) for g in group_ids):
                 users = await self.list_users(gid, persona_id)
                 all_users.extend(users)
 
@@ -487,6 +535,7 @@ class ProfileStorage(Component):
     async def _add_to_user_index(
         self, user_id: str, group_id: str, persona_id: str
     ) -> None:
+        group_id = effective_group_id(group_id)
         index_key = f"user_index:{persona_id}:{group_id}"
         try:
             async with self._index_lock:
@@ -526,6 +575,63 @@ class ProfileStorage(Component):
             personas = ["default", *personas]
         return personas
 
+    async def _run_profile_migrations(self) -> None:
+        await self.migrate_empty_group_keys()
+
+    async def migrate_empty_group_keys(self) -> int:
+        """把 group_id 为空串的历史画像并入 ``default`` 命名空间
+
+        幂等：索引中不再有空串 group 时直接跳过。索引最后才更新，中途失败时
+        下次启动会重新处理，合并结果不变。删除前保留
+        ``user_profile_backup:*`` 备份键，便于人工回滚。
+
+        Returns:
+            合并的画像条数
+        """
+        merged_count = 0
+        for persona_id in await self._get_known_personas():
+            ug_index_key = f"user_group_index:{persona_id}"
+            group_ids = await self._storage.get_kv_data(ug_index_key, []) or []
+            if "" not in group_ids:
+                continue
+
+            empty_index_key = f"user_index:{persona_id}:"
+            default_index_key = f"user_index:{persona_id}:{GLOBAL_GROUP_ID}"
+            user_ids = await self._storage.get_kv_data(empty_index_key, []) or []
+            default_ids = list(
+                await self._storage.get_kv_data(default_index_key, []) or []
+            )
+
+            for user_id in user_ids:
+                old_key = f"user_profile:{persona_id}::{user_id}"
+                old_data = await self._storage.get_kv_data(old_key, None)
+                if not old_data:
+                    continue
+                new_key = f"user_profile:{persona_id}:{GLOBAL_GROUP_ID}:{user_id}"
+                new_data = await self._storage.get_kv_data(new_key, None) or {}
+                await self._storage.put_kv_data(
+                    f"user_profile_backup:{persona_id}:__empty__:{user_id}", old_data
+                )
+                await self._storage.put_kv_data(
+                    new_key, _merge_profile_dicts(new_data, old_data)
+                )
+                await self._storage.delete_kv_data(old_key)
+                if user_id not in default_ids:
+                    default_ids.append(user_id)
+                merged_count += 1
+
+            await self._storage.put_kv_data(default_index_key, default_ids)
+            await self._storage.delete_kv_data(empty_index_key)
+
+            cleaned_groups = [gid for gid in group_ids if gid]
+            if GLOBAL_GROUP_ID not in cleaned_groups:
+                cleaned_groups.append(GLOBAL_GROUP_ID)
+            await self._storage.put_kv_data(ug_index_key, cleaned_groups)
+
+        if merged_count:
+            logger.info(f"画像键归一化完成：合并 {merged_count} 条空 group 画像")
+        return merged_count
+
     async def delete_user_profile(
         self, user_id: str, group_id: str = "default", persona_id: str = "default"
     ) -> bool:
@@ -543,6 +649,7 @@ class ProfileStorage(Component):
             return False
 
         persona_id = self._effective_persona(persona_id)
+        group_id = effective_group_id(group_id)
         key = f"user_profile:{persona_id}:{group_id}:{user_id}"
 
         try:
@@ -595,6 +702,7 @@ class ProfileStorage(Component):
         if not self._is_available:
             return 0
 
+        group_id = effective_group_id(group_id)
         deleted = 0
         try:
             for persona_id in await self._get_known_personas():
