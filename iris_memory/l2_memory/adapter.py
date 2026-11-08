@@ -943,11 +943,11 @@ class L2MemoryAdapter(Component):
         """计算文本嵌入向量并 L2 归一化"""
         if not texts:
             return []
-        self._embedding_request_count += 1
         self._embedded_text_count += len(texts)
         if self._embedding_source == "provider" and self._embedding_provider:
-            vectors = await self._embedding_provider.get_embeddings(texts)
+            vectors = await self._embed_in_batches(texts)
         elif self._local_model:
+            self._embedding_request_count += 1
             loop = asyncio.get_event_loop()
             vectors = await loop.run_in_executor(
                 None, lambda: self._local_model.encode(texts).tolist()
@@ -965,6 +965,19 @@ class L2MemoryAdapter(Component):
             normalized.append(arr.tolist())
 
         return normalized
+
+    async def _embed_in_batches(self, texts: list[str]) -> list[list[float]]:
+        """按批次上限调用 Embedding Provider，返回顺序与输入一致。"""
+        batch_size = max(1, int(get_config().get("l2_embedding_batch_size") or 25))
+        vectors: list[list[float]] = []
+        for start in range(0, len(texts), batch_size):
+            self._embedding_request_count += 1
+            vectors.extend(
+                await self._embedding_provider.get_embeddings(
+                    texts[start : start + batch_size]
+                )
+            )
+        return vectors
 
     def get_embedding_stats(self) -> Dict[str, int]:
         """返回进程内 Embedding 请求/文本累计数。"""
