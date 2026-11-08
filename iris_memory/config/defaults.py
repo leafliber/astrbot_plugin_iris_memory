@@ -286,6 +286,13 @@ class HiddenConfig:
         default=4000,
         metadata={"description": "L2 检索超时(ms)", "group": "L2 记忆"},
     )
+    l2_embedding_batch_size: int = field(
+        default=25,
+        metadata={
+            "description": "单次 Embedding 请求的最大文本条数，超过厂商上限时请求会被拒绝",
+            "group": "L2 记忆",
+        },
+    )
     l2_hybrid_rrf_k: int = field(
         default=60,
         metadata={
