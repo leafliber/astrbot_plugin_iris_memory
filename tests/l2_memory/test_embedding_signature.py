@@ -12,6 +12,8 @@ ADAPTER_CONFIG = "astrbot_plugin_iris_memory.iris_memory.l2_memory.adapter.get_c
 
 
 class FakeProvider:
+    """DashScope 型：通过 set_model 暴露 model_name。"""
+
     model_name = MODEL
     provider_config = {"id": "dashscope_embedding"}
 
@@ -20,6 +22,13 @@ class FakeProvider:
 
     async def get_embeddings(self, texts: list[str]) -> list[list[float]]:
         return [[1.0, 0.0, 0.0, 0.0] for _ in texts]
+
+
+class OpenAICompatibleProvider(FakeProvider):
+    """openai_embedding 型：只设置 model，model_name 为空串。"""
+
+    model_name = ""
+    model = MODEL
 
 
 def _config(tmp_path, configured_provider: str = "") -> Mock:
@@ -35,8 +44,8 @@ def _config(tmp_path, configured_provider: str = "") -> Mock:
     return config
 
 
-def _adapter() -> L2MemoryAdapter:
-    provider = FakeProvider()
+def _adapter(provider_cls=FakeProvider) -> L2MemoryAdapter:
+    provider = provider_cls()
     pm = Mock()
     pm.embedding_provider_insts = [provider]
     pm.inst_map = {"dashscope_embedding": provider}
@@ -58,30 +67,37 @@ async def test_signature_uses_resolved_provider(tmp_path, configured):
     )
 
 
-@pytest.mark.parametrize(
-    "stored,actual,expected",
-    [
-        ("provider:a/m", "provider:a/m", True),
-        ("provider:/m", "provider:a/m", True),
-        ("provider:/BAAI/bge-m3", "provider:sf/BAAI/bge-m3", True),
-        ("provider:/m1", "provider:a/m2", False),
-        ("provider:a/m", "provider:b/m", False),
-        ("local-model", "provider:a/local-model", False),
-    ],
-)
-def test_is_same_embedding_model(stored, actual, expected):
-    assert L2MemoryAdapter._is_same_embedding_model(stored, actual) is expected
+@pytest.mark.asyncio
+async def test_signature_records_model_of_openai_compatible_provider(tmp_path):
+    adapter = _adapter(OpenAICompatibleProvider)
+
+    await adapter._init_provider_embedding(_config(tmp_path))
+
+    assert (
+        adapter._actual_embedding_model == f"provider:dashscope_embedding/{MODEL}"
+    )
 
 
 @pytest.mark.asyncio
-async def test_legacy_signature_upgrades_without_reembedding(tmp_path):
-    """默认配置（留空）升级后不重嵌入，只把 meta 升级为新签名。"""
-    adapter = _adapter()
+@pytest.mark.parametrize(
+    "stored",
+    [
+        "provider:/",
+        f"provider:/{MODEL}",
+        "provider:dashscope_embedding/dashscope_embedding",
+    ],
+)
+@pytest.mark.parametrize("provider_cls", [FakeProvider, OpenAICompatibleProvider])
+async def test_legacy_signature_upgrades_without_reembedding(
+    tmp_path, stored, provider_cls
+):
+    """旧版写入的各种残缺签名升级后都不重嵌入，只把 meta 升级为新签名。"""
+    adapter = _adapter(provider_cls)
     persist_dir = tmp_path / "faiss" / "memory_default"
     persist_dir.mkdir(parents=True)
     meta_path = persist_dir / "index_meta.json"
     meta_path.write_text(
-        json.dumps({"embedding_model": f"provider:/{MODEL}", "embedding_dimensions": 4}),
+        json.dumps({"embedding_model": stored, "embedding_dimensions": 4}),
         encoding="utf-8",
     )
 
@@ -103,12 +119,21 @@ async def test_legacy_signature_upgrades_without_reembedding(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_real_model_change_still_migrates(tmp_path):
-    adapter = _adapter()
+@pytest.mark.parametrize(
+    "stored",
+    [
+        "provider:/other",
+        "provider:dashscope_embedding/other",
+        "provider:other/other",
+        "local-model",
+    ],
+)
+async def test_real_model_change_still_migrates(tmp_path, stored):
+    adapter = _adapter(OpenAICompatibleProvider)
     persist_dir = tmp_path / "faiss" / "memory_default"
     persist_dir.mkdir(parents=True)
     (persist_dir / "index_meta.json").write_text(
-        json.dumps({"embedding_model": "provider:/other", "embedding_dimensions": 4}),
+        json.dumps({"embedding_model": stored, "embedding_dimensions": 4}),
         encoding="utf-8",
     )
 

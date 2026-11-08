@@ -122,6 +122,7 @@ class L2MemoryAdapter(Component):
         self._embedding_provider = None
         self._local_model = None
         self._actual_embedding_model: str = ""
+        self._legacy_embedding_signatures: set[str] = set()
         self._embedding_dimensions: int = 0
         self._embedding_source: str = "provider"
         self._persist_dir: Optional[Path] = None
@@ -225,8 +226,10 @@ class L2MemoryAdapter(Component):
             stored_dim = meta.get("embedding_dimensions", 0)
 
             needs_migration = False
-            if stored_model and not self._is_same_embedding_model(
-                stored_model, self._actual_embedding_model
+            if (
+                stored_model
+                and stored_model != self._actual_embedding_model
+                and stored_model not in self._legacy_embedding_signatures
             ):
                 needs_migration = True
                 logger.warning(
@@ -697,6 +700,7 @@ class L2MemoryAdapter(Component):
             self._embedding_provider = None
             self._local_model = None
             self._actual_embedding_model = ""
+            self._legacy_embedding_signatures = set()
             self._embedding_source = "provider"
             self._waiting_for_provider = False
             self._reset_state()
@@ -811,11 +815,8 @@ class L2MemoryAdapter(Component):
 
         self._waiting_for_provider = False
 
-        model_name = getattr(provider, "model_name", None)
-        if not model_name and hasattr(provider, "meta"):
-            model_name = getattr(provider.meta, "model_name", None)
         resolved_id = self._resolve_provider_id(provider, provider_id)
-        model_name = model_name or resolved_id
+        model_name = self._resolve_provider_model(provider) or resolved_id
 
         dim = 0
         try:
@@ -830,6 +831,14 @@ class L2MemoryAdapter(Component):
 
         self._embedding_provider = provider
         self._actual_embedding_model = f"provider:{resolved_id}/{model_name}"
+        # 旧版本在信息缺失时写入的签名，无法与当前签名逐字比较：
+        # 配置留空且 Provider 未暴露模型名、配置留空、未暴露模型名时用 ID 占位。
+        # 这些签名都没有记录不同的模型，维度仍由后续检查把关。
+        self._legacy_embedding_signatures = {
+            "provider:/",
+            f"provider:/{model_name}",
+            f"provider:{resolved_id}/{resolved_id}",
+        }
         self._embedding_dimensions = dim
 
     async def _init_local_embedding(self, config) -> None:
@@ -903,18 +912,17 @@ class L2MemoryAdapter(Component):
         return configured_id
 
     @staticmethod
-    def _is_same_embedding_model(stored: str, actual: str) -> bool:
-        """判断已存向量是否由当前模型生成。
+    def _resolve_provider_model(provider: Any) -> str:
+        """返回 Provider 使用的模型名
 
-        旧版本在 embedding_provider 留空时写入 ``provider:/<model>``，这类签名
-        只记录了模型名，因此按模型名匹配，避免升级后全量重嵌入。
+        AstrBot 的部分 Embedding Provider（如 openai_embedding）只设置
+        ``model``，不调用 ``set_model``，``model_name`` 为空串。
         """
-        if stored == actual:
-            return True
-        legacy_prefix = "provider:/"
-        if not stored.startswith(legacy_prefix) or not actual.startswith("provider:"):
-            return False
-        return actual.endswith(f"/{stored[len(legacy_prefix):]}")
+        for attribute in ("model_name", "model"):
+            value = getattr(provider, attribute, None)
+            if isinstance(value, str) and value:
+                return value
+        return ""
 
     def _get_embedding_provider_by_id(self, provider_id: str):
         try:
