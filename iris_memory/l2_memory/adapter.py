@@ -30,6 +30,11 @@ from .models import MemoryEntry, MemorySearchResult
 
 logger = get_logger("l2_memory.adapter")
 
+
+class EmbeddingProviderNotReadyError(RuntimeError):
+    """AstrBot 中还没有可用的 Embedding Provider（可能仍在启动）。"""
+
+
 # 重要度档位阈值：强化跨档时同步 importance_level
 IMPORTANCE_LEVEL_HIGH = 0.65
 IMPORTANCE_LEVEL_LOW = 0.35
@@ -135,10 +140,15 @@ class L2MemoryAdapter(Component):
         # 进程内调用统计，供梦境任务按执行前后快照计算本轮成本。
         self._embedding_request_count: int = 0
         self._embedded_text_count: int = 0
+        self._waiting_for_provider = False
 
     @property
     def name(self) -> str:
         return "l2_memory"
+
+    @property
+    def should_retry_init(self) -> bool:
+        return self._waiting_for_provider
 
     # ========================================================================
     # 初始化与关闭
@@ -175,6 +185,13 @@ class L2MemoryAdapter(Component):
                     await self._init_provider_embedding(config)
                 else:
                     await self._init_local_embedding(config)
+            except EmbeddingProviderNotReadyError as emb_err:
+                self._is_available = False
+                self._init_error = str(emb_err)
+                if not self._waiting_for_provider:
+                    self._waiting_for_provider = True
+                    logger.warning(f"L2 记忆库暂不可用，将在后台持续重试：{emb_err}")
+                return
             except ImportError as emb_err:
                 logger.error(
                     f"嵌入模型加载失败，L2 记忆库将不可用：{emb_err}\n"
@@ -681,6 +698,7 @@ class L2MemoryAdapter(Component):
             self._local_model = None
             self._actual_embedding_model = ""
             self._embedding_source = "provider"
+            self._waiting_for_provider = False
             self._reset_state()
 
     def _mark_dirty(self) -> None:
@@ -751,12 +769,14 @@ class L2MemoryAdapter(Component):
         """初始化 AstrBot Embedding Provider 嵌入源
 
         带指数退避重试：AstrBot 启动时 Embedding Provider 可能尚未注册，
-        后台初始化期间等待 Provider 就绪。
+        后台初始化期间等待 Provider 就绪。超出等待窗口后抛出
+        EmbeddingProviderNotReadyError，由 ComponentManager 接管低频重试，
+        此后每轮只探测一次。
         """
         import asyncio
 
         provider_id = config.get("l2_memory.embedding_provider", "")
-        max_retries = 5
+        max_retries = 1 if self._waiting_for_provider else 5
         base_interval = 2.0
 
         for attempt in range(1, max_retries + 1):
@@ -764,14 +784,14 @@ class L2MemoryAdapter(Component):
 
             if provider_id:
                 provider = self._get_embedding_provider_by_id(provider_id)
-                if not provider and attempt == 1:
-                    logger.warning(
-                        f"指定的 Embedding Provider '{provider_id}' 不可用，"
-                        f"请检查 ID 是否正确"
-                    )
 
             if not provider:
                 provider = self._get_first_embedding_provider()
+                if provider and provider_id:
+                    logger.warning(
+                        f"指定的 Embedding Provider '{provider_id}' 不可用，"
+                        f"已回退到第一个可用的 Embedding Provider"
+                    )
 
             if provider:
                 break
@@ -784,10 +804,12 @@ class L2MemoryAdapter(Component):
                 )
                 await asyncio.sleep(delay)
             else:
-                raise ImportError(
-                    "未找到可用的 AstrBot Embedding Provider\n"
-                    "  → 建议：在 AstrBot「模型」页面添加 Embedding 类型的 Provider"
+                raise EmbeddingProviderNotReadyError(
+                    "未找到可用的 AstrBot Embedding Provider。AstrBot 启动期间这是正常现象；"
+                    "如果长期如此，请在「模型」页面添加 Embedding 类型的 Provider"
                 )
+
+        self._waiting_for_provider = False
 
         model_name = getattr(provider, "model_name", None)
         if not model_name and hasattr(provider, "meta"):
