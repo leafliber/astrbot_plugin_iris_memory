@@ -91,6 +91,9 @@ class TestConfig:
             "proactive.provider_id",
             "proactive.private_enabled",
             "proactive.private_whitelist",
+            "proactive.group_gate_enabled",
+            "proactive.group_initiate_enabled",
+            "proactive.bot_name_keywords",
             # 只读会话由 main.py / continuity 以 config.get(..., []) 读取，
             # 与 proactive 分组其他键一样不进入 Defaults dataclass
             "proactive.silent_sessions",

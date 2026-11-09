@@ -44,7 +44,10 @@ class FakeConfig:
     """Iris Config 风格：get("continuity.<key>", default)"""
 
     def __init__(self, **continuity) -> None:
-        self.values = {"proactive.silent_sessions": [CHANNEL, "-100777"]}
+        self.values = {
+            "proactive.silent_sessions": [CHANNEL, "-100777"],
+            "continuity.enable": True,
+        }
         for k, v in continuity.items():
             self.values[f"continuity.{k}"] = v
 
@@ -112,7 +115,8 @@ def _create_item(s: ContinuityService, topic: str = "周五交论文") -> dict:
 def test_config_defaults_match_design():
     c = ContinuityConfig.from_config(None)
     assert c == ContinuityConfig()
-    assert c.enable and c.items_enable and c.closure_enable and c.batching_enable
+    assert not c.enable  # 新子系统默认关闭，不影响现有用户
+    assert c.items_enable and c.closure_enable and c.batching_enable
     assert not c.channel_ingest_enable and not c.digest_enable
     assert (c.merge_quiet_ms, c.merge_cap_ms, c.explicit_wait_timeout_s) == (1200, 2000, 180)
     assert (c.inject_max_items, c.inject_max_chars, c.closure_cooldown_minutes) == (3, 600, 120)

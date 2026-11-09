@@ -1,5 +1,6 @@
 """Frisk 群聊修复回归：认领泄漏、冷却绕过、群内不定时发起、名字、发言提示、群内称呼。"""
 
+import asyncio
 import time
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
@@ -17,8 +18,11 @@ GID = "-100g"
 OWNER = "100000001"
 
 
+NAMES = ["真由理", "mayuri", "まゆり", "マユリ"]
+
+
 def _gate(nm_config):
-    cm = nm_config()
+    cm = nm_config(cfg={"proactive": {"bot_name_keywords": NAMES}})
     st = StateManager(cm)
     st.add_to_whitelist(GID)
     return st, SignalGate(cm, st)
@@ -48,7 +52,15 @@ def test_name_variants(nm_config, text):
 
 
 def test_group_timer_initiate_disabled(nm_config):
-    cm = nm_config(cfg={"proactive": {"enabled": True, "proactive_enabled": True}})
+    cm = nm_config(
+        cfg={
+            "proactive": {
+                "enabled": True,
+                "proactive_enabled": True,
+                "group_initiate_enabled": False,
+            }
+        }
+    )
     st = StateManager(cm)
     gate = SignalGate(cm, st)
     msgs = [WindowMessage(sender_id="u1", sender_name="a", content="hi", timestamp=time.time() - 99999)]
@@ -65,7 +77,7 @@ def _plugin():
     p._passive_active = {}
     p._tool_ctx = Mock()
     p.component_manager = None
-    p.config = {}
+    p.config = {"continuity": {"enable": True}}
     return p
 
 
@@ -100,6 +112,45 @@ def _claim(p, ev):
     p._triggering[GID] = time.time()
     ev.set_extra("iris_decision", {"motive": "follow_up", "session_key": GID, "ticket_id": t.ticket_id})
     return t
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("gate_enabled", [False, True])
+async def test_group_message_path_follows_gate_switch(gate_enabled):
+    p = _plugin()
+    p._prepare_pure_at_request = AsyncMock(return_value=False)
+    p._continuity_on_owner_message = AsyncMock()
+    p._reply_config = Mock(
+        enabled=True,
+        quality_threshold=0,
+        group_gate_enabled=gate_enabled,
+        private_whitelist=[],
+    )
+    p._gatekeeper = Mock()
+    p._gatekeeper.should_process.return_value = True
+    p._gatekeeper.quality_score.return_value = 1.0
+    p._state = Mock()
+    p._state.get_lock.return_value = asyncio.Lock()
+    p._state.consume_initiate_pending.return_value = False
+    p._state.match_anchor_user.return_value = False
+    p._state.is_whitelisted.return_value = True
+    p._group_umo = {}
+    p._self_id = "bot"
+    p._sliding_window = Mock()
+    p._proactive = Mock()
+    p._proactive.is_initiating.return_value = False
+    p._signals = Mock()
+    p._signals.evaluate_message.return_value = None
+    p._signals.evaluate_group_message.return_value = (None, "")
+    ev = _Ev(text="今天好累")
+    ev.get_sender_name = lambda: "群友"
+    ev.is_at_or_wake_command = False
+    ev.unified_msg_origin = "umo"
+
+    await p.on_message(ev)
+
+    assert p._signals.evaluate_group_message.called is gate_enabled
+    assert p._signals.evaluate_message.called is not gate_enabled
 
 
 @pytest.mark.asyncio

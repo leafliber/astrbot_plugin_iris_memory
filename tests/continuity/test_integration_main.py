@@ -25,7 +25,10 @@ GROUP = "-1001000000002"
 
 class FakeConfig:
     def __init__(self, **continuity) -> None:
-        self.values = {"proactive.silent_sessions": [CHANNEL, "-100555"]}
+        self.values = {
+            "proactive.silent_sessions": [CHANNEL, "-100555"],
+            "continuity.enable": True,
+        }
         for k, v in continuity.items():
             self.values[f"continuity.{k}"] = v
 
@@ -448,8 +451,8 @@ async def test_non_receipt_platform_learns_immediately_and_never_stopped(plugin)
     learning.on_response.assert_awaited_once()
 
 
-def test_profile_injection_never_contains_numeric_favorability(monkeypatch):
-    """P4：好感度数值永不注入，与 profile.favorability_enable 无关。"""
+def test_profile_injection_follows_favorability_switch(monkeypatch):
+    """好感度是否注入由 profile.favorability_enable 决定。"""
     import astrbot_plugin_iris_memory.iris_memory.config as config_mod
     from astrbot_plugin_iris_memory.iris_memory.core.llm_request_hook import (
         _format_profiles_for_injection,
@@ -461,7 +464,7 @@ def test_profile_injection_never_contains_numeric_favorability(monkeypatch):
         monkeypatch.setattr(config_mod, "get_config", lambda c=cfg: c)
         group, user = _profiles()
         text = _format_profiles_for_injection(group, user)
-        assert "好感" not in text and "80" not in text
+        assert ("好感度: 80" in text) is enabled
         assert "称呼: 主人" in text
 
 

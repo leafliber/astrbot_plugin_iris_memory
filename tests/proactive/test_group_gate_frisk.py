@@ -10,11 +10,22 @@ OWNER = "100000001"
 OWNERS = {OWNER}
 
 
+NAMES = {"proactive": {"bot_name_keywords": ["真由理", "frisk"]}}
+
+
 def _build(nm_config, cfg=None):
-    cm = nm_config(cfg=cfg)
+    cm = nm_config(cfg=cfg or NAMES)
     st = StateManager(cm)
     st.add_to_whitelist(GID)
     return cm, st, SignalGate(cm, st)
+
+
+def test_gate_settings_are_opt_in(nm_config):
+    """门控和名字关键词要显式配置，默认保持原有的计数采样和群内发起"""
+    cm = nm_config()
+    assert cm.group_gate_enabled is False
+    assert cm.group_initiate_enabled is True
+    assert cm.bot_name_keywords == []
 
 
 def test_owner_message_triggers_decision_with_debounce(nm_config):

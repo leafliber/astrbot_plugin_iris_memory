@@ -62,6 +62,7 @@ class ProfileConfig:
     enable_auto_injection: bool = True
     favorability_enable: bool = True
     timeout_ms: int = 0
+    group_injection_minimal: bool = False
 
 
 @dataclass
@@ -1224,7 +1225,7 @@ class ContinuityConfig:
     统一做类型收敛与范围钳制；``enable=false`` 为软回滚。
     """
 
-    enable: bool = True
+    enable: bool = False
     items_enable: bool = True
     proactive_topics_enable: bool = True
     closure_enable: bool = True

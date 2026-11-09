@@ -79,3 +79,39 @@ async def test_gate_returns_false_when_llm_call_fails():
     plugin._get_provider_id = AsyncMock(return_value=None)
     event = SimpleNamespace(message_str="[贴纸 😍]")
     assert await plugin._should_reply_to_media(event) is False
+
+
+@pytest.mark.asyncio
+async def test_media_gate_is_off_unless_continuity_enabled():
+    plugin = object.__new__(IrisMemoryPlugin)
+    plugin.component_manager = None
+    plugin.config = {}
+    plugin._should_reply_to_media = AsyncMock(return_value=False)
+    event = SimpleNamespace(
+        message_str="[贴纸 😍]",
+        get_extra=lambda *_args: None,
+        get_group_id=lambda: "",
+        stop_event=Mock(),
+    )
+
+    await plugin.on_all_message(event)
+
+    plugin._should_reply_to_media.assert_not_awaited()
+    event.stop_event.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_sticker_understanding_is_off_unless_continuity_enabled(monkeypatch):
+    monkeypatch.setattr(
+        "astrbot_plugin_iris_memory.main.extract_sticker_meta", lambda _raw: object()
+    )
+    plugin = object.__new__(IrisMemoryPlugin)
+    plugin.config = {}
+    plugin._sticker_understanding = Mock(describe=AsyncMock(return_value="描述"))
+    plugin._is_self_message = lambda _event: False
+    plugin._sticker_inbound_allowed = lambda _event: True
+    event = SimpleNamespace(message_obj=SimpleNamespace(raw_message=object()))
+
+    await plugin.on_sticker_understanding(event)
+
+    plugin._sticker_understanding.describe.assert_not_awaited()

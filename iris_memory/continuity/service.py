@@ -76,7 +76,7 @@ _INT_KEYS: dict[str, tuple[int, int, int]] = {
     "sticker_describe_daily_cap": (100, 0, 1000),
 }
 _BOOL_KEYS: dict[str, bool] = {
-    "enable": True,
+    "enable": False,
     "items_enable": True,
     "proactive_topics_enable": True,
     "closure_enable": True,
@@ -140,7 +140,7 @@ def _to_int_list(value: Any) -> tuple[int, ...]:
 
 @dataclass(frozen=True)
 class ContinuityConfig:
-    enable: bool = True
+    enable: bool = False
     items_enable: bool = True
     proactive_topics_enable: bool = True
     closure_enable: bool = True

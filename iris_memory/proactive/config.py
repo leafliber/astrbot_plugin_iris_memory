@@ -41,13 +41,14 @@ _DEFAULTS = {
     "proactive_max_message_len": 300,
     "private_enabled": False,
     "private_whitelist": [],
-    # Frisk 群聊门控：主人发言交给决策层判断是否接话；其他人仅在明确
-    # @/回复/叫名字后的一段时间内可被跟进。
+    # 群聊门控：开启后主人发言交给决策层判断是否接话，其他人仅在明确
+    # @/回复/叫名字后的一段时间内可被跟进。默认关闭，沿用计数采样。
+    "group_gate_enabled": False,
     "owner_chime_debounce": 60,
     "engaged_window": 60,
-    "bot_name_keywords": ["真由理", "mayuri", "まゆり", "マユリ", "frisk"],
-    # 群里冷场时由她不定时开话题；Frisk 默认关闭，只保留私聊定时发起。
-    "group_initiate_enabled": False,
+    "bot_name_keywords": [],
+    # 群里冷场时不定时开话题；关闭后只保留私聊定时发起。
+    "group_initiate_enabled": True,
 }
 
 # _conf_schema.json 中 proactive 分组内的面板键（嵌套存储，面板管理）
@@ -59,6 +60,9 @@ _SCHEMA_KEYS = {
     "provider_id",
     "private_enabled",
     "private_whitelist",
+    "group_gate_enabled",
+    "group_initiate_enabled",
+    "bot_name_keywords",
 }
 
 # 页面管理键 → 隐藏配置键（HiddenConfig 字段名）。
@@ -340,6 +344,10 @@ class ConfigManager:
     def engaged_window(self) -> int:
         """非主人群友明确找过她之后，可被跟进的最长时长（分钟）。"""
         return max(1, min(240, int(self._get("engaged_window"))))
+
+    @property
+    def group_gate_enabled(self) -> bool:
+        return bool(self._get("group_gate_enabled"))
 
     @property
     def group_initiate_enabled(self) -> bool:

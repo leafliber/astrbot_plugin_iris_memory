@@ -716,7 +716,7 @@ class IrisMemoryPlugin(Star):
             return None, []
         try:
             cfg = self._sticker_cfg()
-            if not cfg.sticker_send_enable:
+            if not cfg.enable or not cfg.sticker_send_enable:
                 return None, []
             scope = self._session_key_quiet(event)
             if not scope or "#" in scope:
@@ -1384,6 +1384,8 @@ class IrisMemoryPlugin(Star):
             if not self._sticker_inbound_allowed(event):
                 return
             cfg = self._sticker_cfg()
+            if not cfg.enable:
+                return
             raw = getattr(event.message_obj, "raw_message", None)
             meta = extract_sticker_meta(raw) if cfg.sticker_understanding_enable else None
             if meta is None and cfg.image_understanding_enable:
@@ -1505,7 +1507,7 @@ class IrisMemoryPlugin(Star):
 
         trigger = ""
         async with self._state.get_lock(group_id):
-            if event.is_private_chat():
+            if event.is_private_chat() or not self._reply_config.group_gate_enabled:
                 motive = self._signals.evaluate_message(group_id, sender_id, message_str)
             else:
                 motive, trigger = self._signals.evaluate_group_message(
@@ -1606,7 +1608,8 @@ class IrisMemoryPlugin(Star):
         # 已带群聊决策认领的事件交给决策层（speak/none）判断，不再额外过媒体门控：
         # 否则门控 stop 后认领不会释放，整个群会被锁住。
         if (
-            self._is_media_only_message(event)
+            self._sticker_cfg().enable
+            and self._is_media_only_message(event)
             and not event.get_extra("iris_decision")
             and not await self._should_reply_to_media(event)
         ):

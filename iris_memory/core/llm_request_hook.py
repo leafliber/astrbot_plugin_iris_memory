@@ -930,10 +930,13 @@ async def _collect_user_profile(
         user_id, effective_group_id, persona_id
     )
 
-    # 群聊只注入称呼级字段：私聊积累的重要事件/日期、禁忌、职业、情感等
-    # 不得随主人在群里发言被带进群聊请求
+    # 开启后群聊只注入称呼级字段，私聊积累的重要事件/日期、禁忌、职业、情感等
+    # 不会被带进群聊请求
     profile_text = _format_profiles_for_injection(
-        group_profile, user_profile, is_group=bool(group_id)
+        group_profile,
+        user_profile,
+        is_group=bool(group_id)
+        and bool(config.get("profile.group_injection_minimal", False)),
     )
 
     if profile_text:
@@ -1490,6 +1493,9 @@ def _format_profiles_for_injection(
     Returns:
         格式化的画像文本，任一部分为空则不注入该部分
     """
+    from ..config import get_config
+    from ..profile.models import favorability_level
+
     sections = []
 
     user_parts = [f"【发送者】ID: {user_profile.user_id}"]
@@ -1515,8 +1521,12 @@ def _format_profiles_for_injection(
             user_parts.append(f"沟通偏好: {user_profile.communication_style}")
         if user_profile.emotional_baseline:
             user_parts.append(f"情感: {user_profile.emotional_baseline}")
-        # 好感度（数值/等级）永不注入 prompt（DESIGN §12：prompt 中不出现数值评分），
-        # 与 profile.favorability_enable 无关；画像内部照常记录。
+        if (
+            get_config().get("profile.favorability_enable", True)
+            and user_profile.favorability > 0
+        ):
+            level = favorability_level(user_profile.favorability)
+            user_parts.append(f"好感度: {int(user_profile.favorability)}({level})")
         if user_profile.bot_relationship:
             user_parts.append(f"称呼: {user_profile.bot_relationship}")
         if user_profile.important_dates:
