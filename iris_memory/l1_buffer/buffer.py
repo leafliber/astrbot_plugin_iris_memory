@@ -671,6 +671,7 @@ class L1Buffer(Component):
             group_should_long = group_manager.should_update_long(group_profile_obj)
             from ..llm import LLMManager
             from ..profile import ProfileAnalyzer
+            from ..profile.analyzer import ProfileAnalysisError
             from ..profile.models import profile_to_dict
 
             llm_manager = self._component_manager.get_component("llm_manager")
@@ -729,25 +730,23 @@ class L1Buffer(Component):
                     {key: value for key, value in spec.items() if key != "profile_obj"}
                     for spec in chunk
                 ]
-                result = await analyzer.analyze_profiles_batch(
-                    group=group_spec if index == 0 else None,
-                    users=prompt_users,
-                )
-                # 输入里本来就没有可更新对象时（例如私聊场景 users 为空），
-                # 模型返回空结构是合法的，不应判为失败重试（#33）
-                has_targets = bool(group_spec and index == 0) or bool(chunk)
+                try:
+                    result = await analyzer.analyze_profiles_batch(
+                        group=group_spec if index == 0 else None,
+                        users=prompt_users,
+                    )
+                except ProfileAnalysisError:
+                    if raise_errors:
+                        raise
+                    continue
                 if not result:
-                    if raise_errors and has_targets:
+                    if raise_errors:
                         raise RuntimeError("批量画像分析返回无效 JSON")
                     continue
                 if index == 0 and group_spec:
-                    group_result = result.get("group", {})
-                    if not group_result:
-                        # group 缺失但本次仍要更新用户画像时继续处理 users，
-                        # 仅在没有用户可更新时才算失败（#33）
-                        if raise_errors and not chunk:
-                            raise RuntimeError("批量画像结果缺少 group")
-                    else:
+                    # 提示词允许模型用 null 表示群画像没有更新，这不是失败
+                    group_result = result.get("group")
+                    if group_result:
                         await self._apply_group_batch_result(
                             group_id,
                             group_tier,

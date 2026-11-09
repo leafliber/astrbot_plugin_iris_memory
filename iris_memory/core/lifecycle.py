@@ -290,15 +290,12 @@ async def _start_scheduled_tasks_deferred(component_manager: ComponentManager) -
 
     config = get_config()
 
-    l2_available = component_manager.check_component("l2_memory") == "available"
+    # L2 仍在等待 Embedding Provider 时也要注册：恢复后不会再经过这里，
+    # 任务执行时会自行检查 L2 是否可用。
+    l2 = component_manager.get_component("l2_memory")
+    l2_usable = l2 is not None and (l2.is_available or l2.should_retry_init)
 
-    # 梦境任务依赖 L2，但 L2 已改为 on_astrbot_loaded 后延迟初始化（#28），
-    # 本函数在「其余后台组件」结束时即被调用，此时 L2 尚未开始初始化。
-    # 若沿用「L2 不可用就跳过」，梦境任务会在整个进程生命周期内缺席（#28 的回归）。
-    # DreamTask.execute 自带 L2 可用性守卫（不可用只记一条告警并返回），
-    # 且周期性任务的首次执行是 0~interval 的随机延迟，届时 L2 早已就绪，
-    # 因此这里无条件注册，把「时序依赖」从注册期推迟到执行期。
-    if config.get("scheduled_tasks.enable_dream"):
+    if l2_usable and config.get("scheduled_tasks.enable_dream"):
         dream_task = DreamTask(component_manager)
         interval_hours = config.get("dream_task_interval_hours")
         scheduler.register_periodic_task(
@@ -306,10 +303,8 @@ async def _start_scheduled_tasks_deferred(component_manager: ComponentManager) -
             coro_func=dream_task.execute,
             interval_hours=interval_hours,
         )
-        if not l2_available:
-            logger.info(
-                "梦境任务已注册；L2 仍在延迟初始化，若首次执行早于 L2 就绪将自动跳过"
-            )
+    elif config.get("scheduled_tasks.enable_dream"):
+        logger.warning("L2 记忆库不可用，跳过梦境任务注册")
 
     # 学习模块周期任务：表达模式衰减 / 暗语扫描推断 / 攒批审查兜底
     # 组件仅在 learning.enable=true 时注册（create_components），

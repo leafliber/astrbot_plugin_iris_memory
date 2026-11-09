@@ -30,13 +30,14 @@ from .models import MemoryEntry, MemorySearchResult
 
 logger = get_logger("l2_memory.adapter")
 
+
+class EmbeddingProviderNotReadyError(RuntimeError):
+    """AstrBot 中还没有可用的 Embedding Provider（可能仍在启动）。"""
+
+
 # 重要度档位阈值：强化跨档时同步 importance_level
 IMPORTANCE_LEVEL_HIGH = 0.65
 IMPORTANCE_LEVEL_LOW = 0.35
-
-# 单次 Embedding 请求的最大文本条数。
-# DashScope 等厂商限制 batch size 不得超过 25，超出直接返回 HTTP 400（#27）。
-EMBED_BATCH_MAX = 25
 
 
 def importance_level_for(value: float) -> str:
@@ -121,6 +122,7 @@ class L2MemoryAdapter(Component):
         self._embedding_provider = None
         self._local_model = None
         self._actual_embedding_model: str = ""
+        self._legacy_embedding_signatures: set[str] = set()
         self._embedding_dimensions: int = 0
         self._embedding_source: str = "provider"
         self._persist_dir: Optional[Path] = None
@@ -139,10 +141,15 @@ class L2MemoryAdapter(Component):
         # 进程内调用统计，供梦境任务按执行前后快照计算本轮成本。
         self._embedding_request_count: int = 0
         self._embedded_text_count: int = 0
+        self._waiting_for_provider = False
 
     @property
     def name(self) -> str:
         return "l2_memory"
+
+    @property
+    def should_retry_init(self) -> bool:
+        return self._waiting_for_provider
 
     # ========================================================================
     # 初始化与关闭
@@ -179,6 +186,13 @@ class L2MemoryAdapter(Component):
                     await self._init_provider_embedding(config)
                 else:
                     await self._init_local_embedding(config)
+            except EmbeddingProviderNotReadyError as emb_err:
+                self._is_available = False
+                self._init_error = str(emb_err)
+                if not self._waiting_for_provider:
+                    self._waiting_for_provider = True
+                    logger.warning(f"L2 记忆库暂不可用，将在后台持续重试：{emb_err}")
+                return
             except ImportError as emb_err:
                 logger.error(
                     f"嵌入模型加载失败，L2 记忆库将不可用：{emb_err}\n"
@@ -212,7 +226,11 @@ class L2MemoryAdapter(Component):
             stored_dim = meta.get("embedding_dimensions", 0)
 
             needs_migration = False
-            if stored_model and stored_model != self._actual_embedding_model:
+            if (
+                stored_model
+                and stored_model != self._actual_embedding_model
+                and stored_model not in self._legacy_embedding_signatures
+            ):
                 needs_migration = True
                 logger.warning(
                     f"嵌入模型已变更：{stored_model} -> {self._actual_embedding_model}，"
@@ -245,8 +263,10 @@ class L2MemoryAdapter(Component):
             else:
                 # 加载已有索引和数据
                 await self._load_existing(stored_dim)
-                # 补全元数据
-                if not stored_model or (not stored_dim and self._embedding_dimensions):
+                # 补全元数据，并把旧版签名升级为当前格式
+                if stored_model != self._actual_embedding_model or (
+                    not stored_dim and self._embedding_dimensions
+                ):
                     self._save_meta()
 
             self._is_available = True
@@ -680,7 +700,9 @@ class L2MemoryAdapter(Component):
             self._embedding_provider = None
             self._local_model = None
             self._actual_embedding_model = ""
+            self._legacy_embedding_signatures = set()
             self._embedding_source = "provider"
+            self._waiting_for_provider = False
             self._reset_state()
 
     def _mark_dirty(self) -> None:
@@ -751,13 +773,14 @@ class L2MemoryAdapter(Component):
         """初始化 AstrBot Embedding Provider 嵌入源
 
         带指数退避重试：AstrBot 启动时 Embedding Provider 可能尚未注册，
-        后台初始化期间等待 Provider 就绪。
+        后台初始化期间等待 Provider 就绪。超出等待窗口后抛出
+        EmbeddingProviderNotReadyError，由 ComponentManager 接管低频重试，
+        此后每轮只探测一次。
         """
         import asyncio
 
         provider_id = config.get("l2_memory.embedding_provider", "")
-        # 冷启动时 Provider 可能尚未注册，重试窗口需覆盖整个启动期（#28）
-        max_retries = 12
+        max_retries = 1 if self._waiting_for_provider else 5
         base_interval = 2.0
 
         for attempt in range(1, max_retries + 1):
@@ -768,32 +791,32 @@ class L2MemoryAdapter(Component):
 
             if not provider:
                 provider = self._get_first_embedding_provider()
-                # 回退成功时回填真实 id，供嵌入签名使用（#32）
-                if provider:
-                    resolved = getattr(provider, "provider_config", {})
-                    if isinstance(resolved, dict) and resolved.get("id"):
-                        provider_id = resolved["id"]
+                if provider and provider_id:
+                    logger.warning(
+                        f"指定的 Embedding Provider '{provider_id}' 不可用，"
+                        f"已回退到第一个可用的 Embedding Provider"
+                    )
 
             if provider:
                 break
 
             if attempt < max_retries:
-                delay = min(base_interval * (2 ** (attempt - 1)), 30.0)
+                delay = min(base_interval * (2 ** (attempt - 1)), 16.0)
                 logger.info(
                     f"Embedding Provider 未就绪，"
                     f"{delay:.0f}s 后重试 ({attempt}/{max_retries})"
                 )
                 await asyncio.sleep(delay)
             else:
-                raise ImportError(
-                    "未找到可用的 AstrBot Embedding Provider\n"
-                    "  → 建议：在 AstrBot「模型」页面添加 Embedding 类型的 Provider"
+                raise EmbeddingProviderNotReadyError(
+                    "未找到可用的 AstrBot Embedding Provider。AstrBot 启动期间这是正常现象；"
+                    "如果长期如此，请在「模型」页面添加 Embedding 类型的 Provider"
                 )
 
-        model_name = getattr(provider, "model_name", None)
-        if not model_name and hasattr(provider, "meta"):
-            model_name = getattr(provider.meta, "model_name", None)
-        model_name = model_name or provider_id
+        self._waiting_for_provider = False
+
+        resolved_id = self._resolve_provider_id(provider, provider_id)
+        model_name = self._resolve_provider_model(provider) or resolved_id
 
         dim = 0
         try:
@@ -802,19 +825,20 @@ class L2MemoryAdapter(Component):
             pass
 
         logger.info(
-            f"使用 AstrBot Embedding Provider: {provider_id}，"
+            f"使用 AstrBot Embedding Provider: {resolved_id}，"
             f"模型: {model_name}，维度: {dim}"
         )
 
         self._embedding_provider = provider
-        # 用实际解析到的 provider id 生成签名，避免配置留空时退化成
-        # provider:/model，导致「空 <-> 显式」切换误触发全量重嵌入（#32）
-        resolved_pid = (
-            getattr(provider, "provider_config", {}).get("id")
-            if isinstance(getattr(provider, "provider_config", {}), dict)
-            else None
-        ) or provider_id or "auto"
-        self._actual_embedding_model = f"provider:{resolved_pid}/{model_name}"
+        self._actual_embedding_model = f"provider:{resolved_id}/{model_name}"
+        # 旧版本在信息缺失时写入的签名，无法与当前签名逐字比较：
+        # 配置留空且 Provider 未暴露模型名、配置留空、未暴露模型名时用 ID 占位。
+        # 这些签名都没有记录不同的模型，维度仍由后续检查把关。
+        self._legacy_embedding_signatures = {
+            "provider:/",
+            f"provider:/{model_name}",
+            f"provider:{resolved_id}/{resolved_id}",
+        }
         self._embedding_dimensions = dim
 
     async def _init_local_embedding(self, config) -> None:
@@ -879,6 +903,27 @@ class L2MemoryAdapter(Component):
         self._actual_embedding_model = model_name
         self._embedding_dimensions = dim
 
+    @staticmethod
+    def _resolve_provider_id(provider: Any, configured_id: str) -> str:
+        """返回实际使用的 Provider ID，配置留空时也能得到稳定的模型签名。"""
+        provider_config = getattr(provider, "provider_config", None)
+        if isinstance(provider_config, dict) and provider_config.get("id"):
+            return str(provider_config["id"])
+        return configured_id
+
+    @staticmethod
+    def _resolve_provider_model(provider: Any) -> str:
+        """返回 Provider 使用的模型名
+
+        AstrBot 的部分 Embedding Provider（如 openai_embedding）只设置
+        ``model``，不调用 ``set_model``，``model_name`` 为空串。
+        """
+        for attribute in ("model_name", "model"):
+            value = getattr(provider, attribute, None)
+            if isinstance(value, str) and value:
+                return value
+        return ""
+
     def _get_embedding_provider_by_id(self, provider_id: str):
         try:
             if hasattr(self._context, "get_provider_by_id"):
@@ -901,9 +946,12 @@ class L2MemoryAdapter(Component):
             if hasattr(self._context, "provider_manager"):
                 pm = self._context.provider_manager
                 if hasattr(pm, "embedding_provider_insts"):
-                    providers = pm.embedding_provider_insts
-                    if providers:
-                        return providers[0]
+                    # AstrBot 更新 Provider 时不会把旧实例移出该列表，旧实例的连接
+                    # 已关闭，这里按 ID 换成 inst_map 中的当前实例。
+                    for listed in pm.embedding_provider_insts:
+                        current = pm.inst_map.get(self._resolve_provider_id(listed, ""))
+                        if current is not None:
+                            return current
                 if hasattr(pm, "inst_map"):
                     for pid, p in pm.inst_map.items():
                         if hasattr(p, "get_embeddings"):
@@ -955,18 +1003,11 @@ class L2MemoryAdapter(Component):
         """计算文本嵌入向量并 L2 归一化"""
         if not texts:
             return []
-        self._embedding_request_count += 1
         self._embedded_text_count += len(texts)
         if self._embedding_source == "provider" and self._embedding_provider:
-            # DashScope 等厂商限制单次批量大小（上限 25），超出会直接 400（#27）。
-            # 这里统一按 EMBED_BATCH_MAX 切批，保证任意批量都能成功。
-            vectors: list[list[float]] = []
-            for start in range(0, len(texts), EMBED_BATCH_MAX):
-                chunk = texts[start : start + EMBED_BATCH_MAX]
-                vectors.extend(
-                    await self._embedding_provider.get_embeddings(chunk)
-                )
+            vectors = await self._embed_in_batches(texts)
         elif self._local_model:
+            self._embedding_request_count += 1
             loop = asyncio.get_event_loop()
             vectors = await loop.run_in_executor(
                 None, lambda: self._local_model.encode(texts).tolist()
@@ -984,6 +1025,19 @@ class L2MemoryAdapter(Component):
             normalized.append(arr.tolist())
 
         return normalized
+
+    async def _embed_in_batches(self, texts: list[str]) -> list[list[float]]:
+        """按批次上限调用 Embedding Provider，返回顺序与输入一致。"""
+        batch_size = max(1, int(get_config().get("l2_embedding_batch_size") or 25))
+        vectors: list[list[float]] = []
+        for start in range(0, len(texts), batch_size):
+            self._embedding_request_count += 1
+            vectors.extend(
+                await self._embedding_provider.get_embeddings(
+                    texts[start : start + batch_size]
+                )
+            )
+        return vectors
 
     def get_embedding_stats(self) -> Dict[str, int]:
         """返回进程内 Embedding 请求/文本累计数。"""

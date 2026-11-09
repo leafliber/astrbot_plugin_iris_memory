@@ -20,14 +20,13 @@ logger = get_logger("profile")
 
 
 class ProfileAnalysisError(RuntimeError):
-    """画像分析调用或解析失败（携带真实原因，避免被误报为无效 JSON）"""
+    """批量画像分析失败，消息中保留真实原因（超时、熔断、无法解析等）。"""
 
 
 def _profile_timeout_seconds() -> float | None:
-    """读取画像分析专用超时；未配置时沿用全局 Provider 超时。"""
+    """画像分析专用超时；未配置时返回 None，沿用全局 Provider 超时。"""
     try:
-        raw = get_config().get("profile.timeout_ms", 0) or 0
-        timeout_ms = int(raw)
+        timeout_ms = int(get_config().get("profile.timeout_ms", 0) or 0)
     except (RuntimeError, TypeError, ValueError):
         return None
     return timeout_ms / 1000 if timeout_ms > 0 else None
@@ -166,9 +165,9 @@ class ProfileAnalyzer:
         """
 
         allowed_ids = {str(item.get("id", "")) for item in users}
-        # 既没有群画像也没有用户画像要更新时，直接返回，不浪费一次 LLM 调用（#33）
         if not group and not allowed_ids:
             return {"group": {}, "users": {}}
+
         max_chars = _get_max_chars()
         try:
             per_user_messages = max(
@@ -206,10 +205,10 @@ class ProfileAnalyzer:
                 }
             )
 
-        # users 为空时不拼接 users 模板，避免模型照抄「原样用户ID」占位符（#33）
-        users_block = ""
+        # 没有用户要分析时不给出 users 模板，否则模型面对的是自相矛盾的要求
+        users_template = ""
         if allowed_ids:
-            users_block = """,
+            users_template = """,
   "users": {
     "<输入中的用户id>": {
       "personality_tags": [], "interests": [], "occupation": "", "language_style": "",
@@ -227,7 +226,7 @@ tier=mid 只更新中期字段，tier=long 只更新长期字段，tier=combined
 
 仅返回以下 JSON：
 {{
-  "group": {{"interests": [], "atmosphere_tags": [], "long_term_tags": [], "blacklist_topics": [], "custom_fields": {{}}}} 或 null{users_block}
+  "group": {{"interests": [], "atmosphere_tags": [], "long_term_tags": [], "blacklist_topics": [], "custom_fields": {{}}}} 或 null{users_template}
 }}
 不确定的字段返回空值；users 只能包含输入中给出的 id。"""
 
@@ -238,6 +237,8 @@ tier=mid 只更新中期字段，tier=long 只更新长期字段，tier=combined
                 timeout=_profile_timeout_seconds(),
             )
             parsed = self._parse_json_response(response)
+            if not parsed:
+                raise ValueError("模型未返回可解析的 JSON")
             raw_users = parsed.get("users", {})
             safe_users = {
                 str(user_id): result
@@ -250,15 +251,10 @@ tier=mid 只更新中期字段，tier=long 只更新长期字段，tier=combined
                 "users": safe_users,
             }
         except Exception as e:
-            # 补全异常类型与栈，并把真实原因抛给调用方：
-            # 超时/熔断不能被上层误报成「返回无效 JSON」（#33 后续）
-            logger.error(
-                f"批量画像分析失败: {type(e).__name__}: {e!r}",
-                exc_info=True,
-            )
-            raise ProfileAnalysisError(
-                f"批量画像分析失败: {type(e).__name__}: {e}"
-            ) from e
+            # TimeoutError 等异常的 str() 为空，必须带上类型才能定位
+            reason = f"{type(e).__name__}: {e}"
+            logger.error(f"批量画像分析失败: {reason}", exc_info=True)
+            raise ProfileAnalysisError(f"批量画像分析失败: {reason}") from e
 
     def _build_group_analysis_prompt(
         self,

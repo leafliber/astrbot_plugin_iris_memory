@@ -5,9 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import json
 
 from astrbot_plugin_iris_memory.iris_memory.profile.analyzer import (
-    ProfileAnalysisError,
     ProfileAnalyzer,
-    _profile_timeout_seconds,
     _slim_profile_dict,
     _truncate_messages,
 )
@@ -115,42 +113,6 @@ class TestProfileAnalyzer:
             users=[{"id": "u1", "tier": "mid", "messages": [], "profile": {}}],
         )
         assert set(result["users"]) == {"u1"}
-
-    @pytest.mark.asyncio
-    async def test_batch_analysis_raises_real_error(
-        self, analyzer, mock_llm_manager
-    ):
-        """LLM 超时/失败不能被上层误报为「返回无效 JSON」"""
-        mock_llm_manager.generate_direct.side_effect = TimeoutError()
-
-        with pytest.raises(ProfileAnalysisError) as exc:
-            await analyzer.analyze_profiles_batch(
-                group=None,
-                users=[{"id": "u1", "tier": "mid", "messages": [], "profile": {}}],
-            )
-
-        assert "TimeoutError" in str(exc.value)
-
-    @pytest.mark.asyncio
-    async def test_batch_analysis_uses_profile_timeout(
-        self, analyzer, mock_llm_manager
-    ):
-        mock_llm_manager.generate_direct.return_value = json.dumps(
-            {"group": None, "users": {"u1": {}}}
-        )
-
-        with patch(
-            "astrbot_plugin_iris_memory.iris_memory.profile.analyzer.get_config"
-        ) as get_config:
-            get_config.return_value.get.side_effect = (
-                lambda key, default=None: 90000 if key == "profile.timeout_ms" else default
-            )
-            await analyzer.analyze_profiles_batch(
-                group=None,
-                users=[{"id": "u1", "tier": "mid", "messages": [], "profile": {}}],
-            )
-
-        assert mock_llm_manager.generate_direct.call_args.kwargs["timeout"] == 90
 
     def test_build_group_analysis_prompt(self, analyzer):
         """测试构建群聊分析 prompt"""

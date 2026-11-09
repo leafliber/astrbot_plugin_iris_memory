@@ -53,60 +53,40 @@ USER_PROFILE_WRITABLE_FIELDS: Set[str] = {
     "custom_fields",
 }
 
-# 「全局」用户画像的 group 维度哨兵值
+
+# 用户画像「全局」命名空间的 group_id
 GLOBAL_GROUP_ID = "default"
 
 
 def effective_group_id(group_id: Optional[str]) -> str:
-    """把 group_id 归一化为唯一表示（#29）
+    """归一化用户画像的 group_id
 
-    「群画像隔离」开启后，私聊链路算出的 group_id 是空串（见
-    core/message_hook.py 与 l1_buffer/buffer.py 的 effective_group_id），
-    而 UserProfileManager / Web 路由的默认值是哨兵 ``"default"``。
-    存储层若照原样拼键，同一个人会落到::
-
-        user_profile:{persona}::{uid}
-        user_profile:{persona}:default:{uid}
-
-    两个互不相干的命名空间：画像被拆成两份、列表里显示成两个人，
-    后续分析只写其中一条，另一条永远是空壳。
+    开启群画像隔离后私聊链路传入空串，管理器和 Web 路由使用 ``default``，
+    两者指的是同一个命名空间，必须落到同一个存储键。
     """
-    gid = (group_id or "").strip()
-    return gid or GLOBAL_GROUP_ID
+    return (group_id or "").strip() or GLOBAL_GROUP_ID
 
 
-def _merge_profile_dicts(primary: dict, secondary: Optional[dict]) -> dict:
-    """合并两份画像数据，primary 优先，primary 的空值由 secondary 补齐
-
-    列表取并集，字典逐键补齐（primary 已有的键不被覆盖）。
-    用于把空 group 的历史画像并入 default 命名空间，避免任一侧的有效字段丢失。
-    """
-    if not secondary:
-        return dict(primary)
-
+def _merge_profile_dicts(primary: dict, secondary: dict) -> dict:
+    """合并同一用户的两份画像：primary 优先，空字段由 secondary 补齐，列表取并集"""
     merged = dict(primary)
     for key, value in secondary.items():
         current = merged.get(key)
         if isinstance(current, dict) and isinstance(value, dict):
-            filled = dict(value)
-            filled.update(current)  # primary 优先
-            merged[key] = filled
-            continue
-        if isinstance(current, list) and isinstance(value, list):
+            merged[key] = {**value, **current}
+        elif isinstance(current, list) and isinstance(value, list):
             merged[key] = current + [item for item in value if item not in current]
-            continue
-        if current in (None, "", 0, 0.0) and value not in (None, ""):
+        elif current in (None, "", 0, 0.0) and value not in (None, ""):
             merged[key] = value
 
     versions = [
-        int(item.get("version") or 0)
+        int(item["version"])
         for item in (primary, secondary)
-        if isinstance(item, dict) and str(item.get("version") or "").isdigit()
+        if str(item.get("version", "")).isdigit()
     ]
     if versions:
         merged["version"] = max(versions)
     return merged
-
 
 
 def profile_lock(kind: str):
@@ -185,11 +165,10 @@ class ProfileStorage(Component):
         self._is_available = True
 
         try:
-            await self.migrate_empty_group_keys()
-            await self.migrate_alias_profiles()
+            await self._run_profile_migrations()
         except Exception as e:
-            # 迁移失败不能阻断启动：新写入路径已归一化，旧键最多留着不影响读写
-            logger.warning(f"画像键归一化迁移失败（不影响启动）：{e}")
+            # 新写入路径已经归一化，旧键留到下次启动再迁移，不影响读写
+            logger.warning(f"画像迁移失败（不影响启动）：{e}")
 
         logger.info("画像存储组件初始化完成")
 
@@ -273,7 +252,7 @@ class ProfileStorage(Component):
             return None
 
         persona_id = self._effective_persona(persona_id)
-        group_id = self._effective_group(group_id)
+        group_id = effective_group_id(group_id)
         key = f"user_profile:{persona_id}:{group_id}:{user_id}"
 
         try:
@@ -305,7 +284,7 @@ class ProfileStorage(Component):
             profile.version += 1
 
         persona_id = self._effective_persona(persona_id)
-        group_id = self._effective_group(group_id)
+        group_id = effective_group_id(group_id)
         key = f"user_profile:{persona_id}:{group_id}:{profile.user_id}"
 
         try:
@@ -333,10 +312,6 @@ class ProfileStorage(Component):
             return "default"
         return persona_id
 
-    def _effective_group(self, group_id: Optional[str]) -> str:
-        """规范化 group_id，保证「全局」只有一种键表示（#29）"""
-        return effective_group_id(group_id)
-
     async def _get_lock(self, key: str) -> asyncio.Lock:
         """获取（或创建）指定命名空间的 RMW 锁。"""
         async with self._locks_guard:
@@ -360,7 +335,7 @@ class ProfileStorage(Component):
     ):
         """用户画像 RMW 串行化锁。同一 (persona, group, user) 的读-改-写不会被并发交错。"""
         persona_id = self._effective_persona(persona_id)
-        group_id = self._effective_group(group_id)
+        group_id = effective_group_id(group_id)
         lock = await self._get_lock(f"user:{persona_id}:{group_id}:{user_id}")
         async with lock:
             yield
@@ -419,7 +394,6 @@ class ProfileStorage(Component):
             # 读-改-写必须持锁，否则与消息驱动 update_from_analysis 并发时
             # 互相覆盖（lost update）。Web 路由 /profile/*/update 直接调此方法，
             # 此前未加锁，而管理器同类更新都持命名空间锁。
-            group_id = self._effective_group(group_id)
             async with self.lock_user(user_id, group_id, persona_id):
                 profile = await self.get_user_profile(user_id, group_id, persona_id)
 
@@ -479,11 +453,13 @@ class ProfileStorage(Component):
         self, group_id: str = "default", persona_id: str = "default"
     ) -> list:
         persona_id = self._effective_persona(persona_id)
-        group_id = self._effective_group(group_id)
+        group_id = effective_group_id(group_id)
         index_key = f"user_index:{persona_id}:{group_id}"
 
         try:
-            user_ids = await self._storage.get_kv_data(index_key, [])
+            user_ids = list(
+                dict.fromkeys(await self._storage.get_kv_data(index_key, []) or [])
+            )
 
             if not user_ids:
                 return []
@@ -495,16 +471,11 @@ class ProfileStorage(Component):
             profiles = await asyncio.gather(*tasks, return_exceptions=True)
 
             users = []
-            seen_user_ids: Set[str] = set()
             for user_id, profile in zip(user_ids, profiles):
                 if isinstance(profile, Exception):
                     logger.warning(f"获取用户画像失败: {user_id}, 错误: {profile}")
                     continue
                 if profile and isinstance(profile, UserProfile):
-                    # 历史索引可能残留重复项，按 user_id 去重（#29）
-                    if user_id in seen_user_ids:
-                        continue
-                    seen_user_ids.add(user_id)
                     users.append(
                         {
                             "user_id": user_id,
@@ -540,22 +511,9 @@ class ProfileStorage(Component):
                 return []
 
             all_users = []
-            seen_groups: Set[str] = set()
-            seen_keys: Set[tuple] = set()
-            for gid in group_ids:
-                # 索引里可能同时残留 "" 与 "default"（#29 迁移前后），归一化后去重
-                gid = self._effective_group(gid)
-                if gid in seen_groups:
-                    continue
-                seen_groups.add(gid)
-
+            for gid in dict.fromkeys(effective_group_id(g) for g in group_ids):
                 users = await self.list_users(gid, persona_id)
-                for user in users:
-                    signature = (user.get("user_id"), user.get("group_id"))
-                    if signature in seen_keys:
-                        continue
-                    seen_keys.add(signature)
-                    all_users.append(user)
+                all_users.extend(users)
 
             return all_users
 
@@ -577,7 +535,7 @@ class ProfileStorage(Component):
     async def _add_to_user_index(
         self, user_id: str, group_id: str, persona_id: str
     ) -> None:
-        group_id = self._effective_group(group_id)
+        group_id = effective_group_id(group_id)
         index_key = f"user_index:{persona_id}:{group_id}"
         try:
             async with self._index_lock:
@@ -617,28 +575,88 @@ class ProfileStorage(Component):
             personas = ["default", *personas]
         return personas
 
-    async def migrate_empty_group_keys(self) -> int:
-        """把 group_id 为空串的用户画像并入 "default" 命名空间（#29 一次性迁移）
+    async def _run_profile_migrations(self) -> None:
+        await self.migrate_empty_group_keys()
+        await self.migrate_alias_profiles()
 
-        历史上「群画像隔离」开启时私聊写入的键是 ``user_profile:{p}::{uid}``，
-        与 ``user_profile:{p}:default:{uid}`` 并存，于是同一用户在画像列表里
-        出现两条，其中一条永远是空壳。KV 没有枚举能力，只能沿
-        ``user_group_index -> user_index`` 索引遍历，因此依赖空串 group 曾被
-        写入索引（_add_to_user_index 一直会写）。
+    async def migrate_alias_profiles(self) -> int:
+        """按 ``identity.user_id_aliases`` 把历史画像并入目标用户
 
-        幂等：索引里不再有空串 group 时直接跳过。
+        幂等：源用户已不在索引中时跳过。删除前保留备份键。
 
         Returns:
             合并的画像条数
         """
-        if not self._is_available:
+        from ..identity import parse_user_id_aliases
+
+        aliases = parse_user_id_aliases(get_config().get("identity.user_id_aliases", ""))
+        if not aliases:
             return 0
 
         merged_count = 0
         for persona_id in await self._get_known_personas():
+            group_ids = await self._storage.get_kv_data(
+                f"user_group_index:{persona_id}", []
+            )
+            for group_id in dict.fromkeys(
+                [GLOBAL_GROUP_ID, *(effective_group_id(g) for g in group_ids or [])]
+            ):
+                merged_count += await self._merge_aliases_in_group(
+                    persona_id, group_id, aliases
+                )
+
+        if merged_count:
+            logger.info(f"画像别名合并完成：{merged_count} 条画像已并入目标用户")
+        return merged_count
+
+    async def _merge_aliases_in_group(
+        self, persona_id: str, group_id: str, aliases: dict
+    ) -> int:
+        index_key = f"user_index:{persona_id}:{group_id}"
+        user_ids = list(await self._storage.get_kv_data(index_key, []) or [])
+        prefix = f"user_profile:{persona_id}:{group_id}"
+
+        merged_count = 0
+        for source_id, target_id in aliases.items():
+            if source_id == target_id or source_id not in user_ids:
+                continue
+            source_data = await self._storage.get_kv_data(f"{prefix}:{source_id}", None)
+            if not source_data:
+                continue
+
+            target_data = await self._storage.get_kv_data(f"{prefix}:{target_id}", None)
+            merged = _merge_profile_dicts(target_data or {}, source_data)
+            merged["user_id"] = target_id
+            await self._storage.put_kv_data(
+                f"user_profile_backup:{persona_id}:{group_id}:{source_id}", source_data
+            )
+            await self._storage.put_kv_data(f"{prefix}:{target_id}", merged)
+            await self._storage.delete_kv_data(f"{prefix}:{source_id}")
+
+            user_ids = [uid for uid in user_ids if uid != source_id]
+            if target_id not in user_ids:
+                user_ids.append(target_id)
+            merged_count += 1
+
+        if merged_count:
+            await self._storage.put_kv_data(index_key, user_ids)
+        return merged_count
+
+    async def migrate_empty_group_keys(self) -> int:
+        """把 group_id 为空串的历史画像并入 ``default`` 命名空间
+
+        幂等：索引中不再有空串 group 时直接跳过。索引最后才更新，中途失败时
+        下次启动会重新处理，合并结果不变。删除前保留
+        ``user_profile_backup:*`` 备份键，便于人工回滚。
+
+        Returns:
+            合并的画像条数
+        """
+        merged_count = 0
+        for persona_id in await self._get_known_personas():
             ug_index_key = f"user_group_index:{persona_id}"
-            group_ids = await self._storage.get_kv_data(ug_index_key, [])
-            if "" not in (group_ids or []):
+            group_ids = await self._storage.get_kv_data(ug_index_key, []) or []
+            if "" not in group_ids:
                 continue
 
             empty_index_key = f"user_index:{persona_id}:"
@@ -650,28 +668,24 @@ class ProfileStorage(Component):
 
             for user_id in user_ids:
                 old_key = f"user_profile:{persona_id}::{user_id}"
-                new_key = f"user_profile:{persona_id}:{GLOBAL_GROUP_ID}:{user_id}"
                 old_data = await self._storage.get_kv_data(old_key, None)
-                if old_data:
-                    await self._storage.put_kv_data(
-                        f"user_profile_backup:{persona_id}:__empty__:{user_id}",
-                        old_data,
-                    )
-                    new_data = await self._storage.get_kv_data(new_key, None)
-                    # default 侧优先，空字段由空串侧的旧数据补齐，避免迁移丢字段
-                    await self._storage.put_kv_data(
-                        new_key, _merge_profile_dicts(new_data or {}, old_data)
-                    )
-                    await self._storage.delete_kv_data(old_key)
-                    merged_count += 1
-                    logger.info(f"画像键归一化：{old_key} -> {new_key}")
-
+                if not old_data:
+                    continue
+                new_key = f"user_profile:{persona_id}:{GLOBAL_GROUP_ID}:{user_id}"
+                new_data = await self._storage.get_kv_data(new_key, None) or {}
+                await self._storage.put_kv_data(
+                    f"user_profile_backup:{persona_id}:__empty__:{user_id}", old_data
+                )
+                await self._storage.put_kv_data(
+                    new_key, _merge_profile_dicts(new_data, old_data)
+                )
+                await self._storage.delete_kv_data(old_key)
                 if user_id not in default_ids:
                     default_ids.append(user_id)
+                merged_count += 1
 
-            if user_ids:
-                await self._storage.put_kv_data(default_index_key, default_ids)
-                await self._storage.delete_kv_data(empty_index_key)
+            await self._storage.put_kv_data(default_index_key, default_ids)
+            await self._storage.delete_kv_data(empty_index_key)
 
             cleaned_groups = [gid for gid in group_ids if gid]
             if GLOBAL_GROUP_ID not in cleaned_groups:
@@ -680,86 +694,6 @@ class ProfileStorage(Component):
 
         if merged_count:
             logger.info(f"画像键归一化完成：合并 {merged_count} 条空 group 画像")
-        return merged_count
-
-    async def migrate_alias_profiles(self) -> int:
-        """按 ``identity.user_id_aliases`` 把旧画像并入目标 user_id（#31）
-
-        webchat 之类把显示名当 user_id 的平台，会在启用映射之前就写出
-        ``user_profile:{p}:default:柠 夏`` 这类记录。只改新写入路径不够，
-        旧记录会一直挂在画像列表里。这里在启动时按映射做一次合并：
-        显示名侧的字段并入真实 ID，删除旧键并从索引里摘掉。
-
-        幂等：映射中没有源 ID 时直接跳过。
-
-        Returns:
-            合并的画像条数
-        """
-        if not self._is_available:
-            return 0
-
-        try:
-            from ..identity import parse_aliases
-
-            aliases = parse_aliases(get_config().get("identity.user_id_aliases", ""))
-        except Exception as e:
-            logger.warning(f"读取身份映射失败，跳过画像别名合并：{e}")
-            return 0
-
-        if not aliases:
-            return 0
-
-        merged_count = 0
-        for persona_id in await self._get_known_personas():
-            ug_index_key = f"user_group_index:{persona_id}"
-            group_ids = list(
-                await self._storage.get_kv_data(ug_index_key, []) or []
-            )
-            if GLOBAL_GROUP_ID not in group_ids:
-                group_ids.append(GLOBAL_GROUP_ID)
-
-            for group_id in {self._effective_group(gid) for gid in group_ids}:
-                index_key = f"user_index:{persona_id}:{group_id}"
-                user_ids = list(await self._storage.get_kv_data(index_key, []) or [])
-                changed = False
-
-                for source_id, target_id in aliases.items():
-                    if source_id == target_id or source_id not in user_ids:
-                        continue
-
-                    source_key = (
-                        f"user_profile:{persona_id}:{group_id}:{source_id}"
-                    )
-                    target_key = (
-                        f"user_profile:{persona_id}:{group_id}:{target_id}"
-                    )
-                    source_data = await self._storage.get_kv_data(source_key, None)
-                    if not source_data:
-                        continue
-
-                    await self._storage.put_kv_data(
-                        f"user_profile_backup:{persona_id}:{group_id}:{source_id}",
-                        source_data,
-                    )
-                    target_data = await self._storage.get_kv_data(target_key, None)
-                    await self._storage.put_kv_data(
-                        target_key,
-                        _merge_profile_dicts(target_data or {}, source_data),
-                    )
-                    await self._storage.delete_kv_data(source_key)
-
-                    user_ids = [uid for uid in user_ids if uid != source_id]
-                    if target_id not in user_ids:
-                        user_ids.append(target_id)
-                    changed = True
-                    merged_count += 1
-                    logger.info(f"画像按别名合并：{source_key} -> {target_key}")
-
-                if changed:
-                    await self._storage.put_kv_data(index_key, user_ids)
-
-        if merged_count:
-            logger.info(f"画像别名合并完成：{merged_count} 条画像已并入真实用户")
         return merged_count
 
     async def delete_user_profile(
@@ -779,7 +713,7 @@ class ProfileStorage(Component):
             return False
 
         persona_id = self._effective_persona(persona_id)
-        group_id = self._effective_group(group_id)
+        group_id = effective_group_id(group_id)
         key = f"user_profile:{persona_id}:{group_id}:{user_id}"
 
         try:
@@ -832,7 +766,7 @@ class ProfileStorage(Component):
         if not self._is_available:
             return 0
 
-        group_id = self._effective_group(group_id)
+        group_id = effective_group_id(group_id)
         deleted = 0
         try:
             for persona_id in await self._get_known_personas():

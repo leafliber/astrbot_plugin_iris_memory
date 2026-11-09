@@ -286,38 +286,14 @@
   },
   "identity": {
     "type": "object",
-    "description": "用户身份归一化",
-    "hint": "部分平台适配器没有真实用户ID（内置 webchat 直接用显示名占位），会导致同一个人的画像被拆成多份。这里按映射把入口归到同一个人",
+    "description": "用户身份映射",
+    "hint": "AstrBot 网页对话用登录名作为用户 ID，同一个人在网页和聊天平台上会被当成两个用户。在这里声明对应关系即可合并",
     "items": {
-      "enable": {
-        "type": "bool",
-        "default": true,
-        "description": "启用用户身份归一化",
-        "hint": "关闭后完全按平台原始 user_id 分桶（保持旧行为）"
-      },
       "user_id_aliases": {
         "type": "string",
         "default": "",
-        "description": "显示名到真实ID的映射（JSON）",
-        "hint": "例如 {\"柠 夏\": \"8495766039\"}。显示名可从画像管理页的重复条目里看到；留空表示不做映射"
-      },
-      "fallback_user_id": {
-        "type": "string",
-        "default": "",
-        "description": "兜底用户ID",
-        "hint": "未命中映射、且 user_id 明显是显示名（与昵称相同或不含数字）时使用的 ID。留空表示不改写，避免把不同用户并成一个人"
-      },
-      "only_when_no_digits": {
-        "type": "bool",
-        "default": true,
-        "description": "仅在 user_id 不含数字时才用兜底",
-        "hint": "防止误伤本来就有数字ID的平台（Telegram、QQ 等）"
-      },
-      "fallback_platforms": {
-        "type": "string",
-        "default": "webchat",
-        "description": "兜底生效的平台（逗号分隔）",
-        "hint": "默认只对 webchat 生效。WeCom、飞书等用字符串 userid 的平台若纳入，会把所有用户并成一个人；填 * 表示不限制"
+        "description": "用户 ID 映射（JSON）",
+        "hint": "格式为 {\"原用户ID\": \"目标用户ID\"}，例如 {\"admin\": \"123456789\"}。留空表示不做映射；启动时会把原用户 ID 的画像并入目标用户"
       }
     }
   },

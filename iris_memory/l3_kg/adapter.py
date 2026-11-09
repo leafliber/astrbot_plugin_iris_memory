@@ -501,39 +501,34 @@ class L3KGAdapter(Component):
     ) -> tuple[list[dict], list[dict]]:
         """路径扩展检索核心（供线程池执行）。"""
         try:
-            ordered_node_ids = list(
-                dict.fromkeys(node_id for node_id in node_ids if node_id)
-            )
-            if not ordered_node_ids or max_nodes <= 0:
+            ordered_ids = list(dict.fromkeys(node_id for node_id in node_ids if node_id))
+            if not ordered_ids or max_nodes <= 0:
                 return [], []
 
-            visited = set(ordered_node_ids)
-            nodes_map: dict[str, dict] = {}
+            visited = set(ordered_ids)
             edges_list: list[dict] = []
 
             # 种子节点也必须按 group_id 过滤，否则跨群节点作为种子泄漏
-            seed_conditions = [
-                f"id IN ({','.join('?' * len(ordered_node_ids))})"
-            ]
-            seed_params: list = [*ordered_node_ids]
+            seed_conditions = [f"id IN ({','.join('?' * len(ordered_ids))})"]
+            seed_params: list = [*ordered_ids]
             if group_id:
                 seed_conditions.append("group_id = ?")
                 seed_params.append(group_id)
             if persona_id is not None:
                 seed_conditions.append("persona_id = ?")
                 seed_params.append(persona_id)
-            seed_params.append(max_nodes)
             seed_rows = self._db_fetchall(
-                f"SELECT * FROM nodes WHERE {' AND '.join(seed_conditions)} LIMIT ?",
+                f"SELECT * FROM nodes WHERE {' AND '.join(seed_conditions)}",
                 seed_params,
             )
-            seed_by_id = {row["id"]: dict(row) for row in seed_rows}
-            frontier = [
-                node_id
-                for node_id in ordered_node_ids
-                if node_id in seed_by_id
-            ][:max_nodes]
-            nodes_map = {node_id: seed_by_id[node_id] for node_id in frontier}
+            # 取舍在内存中按调用方给定的顺序完成：SQL 的 LIMIT 不保证保留排名靠前的种子
+            seeds_by_id = {row["id"]: dict(row) for row in seed_rows}
+            frontier = [node_id for node_id in ordered_ids if node_id in seeds_by_id][
+                :max_nodes
+            ]
+            nodes_map: dict[str, dict] = {
+                node_id: seeds_by_id[node_id] for node_id in frontier
+            }
 
             for _ in range(max_depth):
                 if (
@@ -627,7 +622,10 @@ class L3KGAdapter(Component):
                     )
 
                     neighbor_id = target_id if source_id in frontier_set else source_id
-                    if neighbor_id not in visited and len(nodes_map) < max_nodes:
+                    if (
+                        neighbor_id not in visited
+                        and len(nodes_map) + len(next_frontier) < max_nodes
+                    ):
                         visited.add(neighbor_id)
                         next_frontier.append(neighbor_id)
 

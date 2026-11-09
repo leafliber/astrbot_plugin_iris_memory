@@ -61,7 +61,6 @@ class ProfileConfig:
     analysis_provider: str = ""
     enable_auto_injection: bool = True
     favorability_enable: bool = True
-    # 画像分析专用超时(ms)；0 表示沿用全局 Provider 超时
     timeout_ms: int = 0
 
 
@@ -76,19 +75,9 @@ class IsolationConfig:
 
 @dataclass
 class IdentityConfig:
-    """用户身份归一化配置
+    """用户身份映射配置"""
 
-    部分平台适配器没有真实 user_id（内置 webchat 用显示名占位），
-    这里按映射/兜底把画像归到同一个人（#31）。
-    """
-
-    enable: bool = True
-    # 显示名 -> 真实 ID 的映射，JSON 字符串（配置面板）或 dict（代码注入）
     user_id_aliases: str = ""
-    fallback_user_id: str = ""
-    only_when_no_digits: bool = True
-    # 兜底生效的平台，逗号分隔；默认仅 webchat，防止字符串 userid 的平台被误并
-    fallback_platforms: str = "webchat"
 
 
 @dataclass
@@ -304,6 +293,13 @@ class HiddenConfig:
     l2_timeout_ms: int = field(
         default=4000,
         metadata={"description": "L2 检索超时(ms)", "group": "L2 记忆"},
+    )
+    l2_embedding_batch_size: int = field(
+        default=25,
+        metadata={
+            "description": "单次 Embedding 请求的最大文本条数，超过厂商上限时请求会被拒绝",
+            "group": "L2 记忆",
+        },
     )
     l2_hybrid_rrf_k: int = field(
         default=60,

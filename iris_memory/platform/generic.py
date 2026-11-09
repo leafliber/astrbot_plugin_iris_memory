@@ -42,20 +42,10 @@ class GenericAdapter(PlatformAdapter):
 
     def get_user_id(self, event: Any) -> str:
         try:
-            raw_id = str(event.message_obj.sender.user_id)
+            return resolve_user_id(str(event.message_obj.sender.user_id))
         except AttributeError:
             logger.error("无法获取用户ID：event.message_obj.sender.user_id 不存在")
             raise
-
-        # 部分平台没有真实用户 ID，直接把显示名填进 user_id（内置 webchat 即
-        # MessageMember(username, username)）。按配置归一化，避免同一人被拆成
-        # 多份画像 / 记忆（#31）。
-        nickname = str(getattr(event.message_obj.sender, "nickname", "") or "")
-        try:
-            platform_name = str(event.get_platform_name() or "")
-        except Exception:  # 事件对象缺该方法时不影响取 ID
-            platform_name = ""
-        return resolve_user_id(raw_id, nickname=nickname, platform=platform_name)
 
     def get_user_name(self, event: Any) -> str:
         try:

@@ -370,17 +370,6 @@ class IrisMemoryPlugin(Star):
     # 生命周期
     # ========================================================================
 
-    @filter.on_astrbot_loaded()
-    async def _init_deferred_components(self) -> None:
-        """AstrBot 全部 Provider 注册完成后再初始化 L2（#28）。
-
-        避免 L2 在 Provider 就绪前反复重试空转。
-        """
-        try:
-            await self.component_manager.init_deferred_components()
-        except Exception as e:
-            logger.error(f"延迟组件初始化失败：{e}", exc_info=True)
-
     async def initialize(self) -> None:
         # 0. 后台预热 tiktoken 编码器：首次运行需联网下载 BPE 文件，
         #    放线程池执行，预热期间 token 计数临时走字符估算
@@ -391,10 +380,6 @@ class IrisMemoryPlugin(Star):
 
         # 1. 记忆组件初始化
         try:
-            # L2 依赖 AstrBot 的 Embedding Provider，而 Provider 在插件加载完成后
-            # 才注册。若此刻就初始化，只会在重试中空转数十秒（#28）。
-            # 因此延迟到 on_astrbot_loaded 钩子后再初始化。
-            self.component_manager._deferred_components.add("l2_memory")
             await initialize_components(self.component_manager)
         except Exception as e:
             logger.error(f"记忆组件初始化失败：{e}", exc_info=True)

@@ -46,6 +46,22 @@ class IrisMemoryLoggerAdapter(logging.LoggerAdapter):
 _logger_cache: Dict[str, IrisMemoryLoggerAdapter] = {}
 _cache_lock = threading.Lock()
 
+_PLUGIN_NAME = "astrbot_plugin_iris_memory"
+
+
+def _get_base_logger() -> logging.Logger:
+    """取得插件的底层日志器
+
+    AstrBot 面板的「日志级别」只作用于按插件分配的日志器，写到全局
+    ``astrbot`` 日志器的输出不受其控制。旧版 AstrBot 没有该接口时回退到全局日志器。
+    """
+    try:
+        from astrbot.core.log import LogManager
+
+        return LogManager.get_plugin_logger(_PLUGIN_NAME)
+    except (ImportError, AttributeError):
+        return logging.getLogger("astrbot")
+
 
 def get_logger(submodule: str) -> IrisMemoryLoggerAdapter:
     """获取带模块前缀的日志器
@@ -67,7 +83,7 @@ def get_logger(submodule: str) -> IrisMemoryLoggerAdapter:
         # 输出: [iris-memory:config] 配置加载完成
 
     Notes:
-        - 内部使用 AstrBot 日志系统 (logging.getLogger("astrbot"))
+        - 内部使用 AstrBot 为本插件分配的日志器，遵循面板上的插件日志级别
         - 推荐在各模块顶部调用一次，避免重复获取
     """
     if not submodule:
@@ -79,7 +95,7 @@ def get_logger(submodule: str) -> IrisMemoryLoggerAdapter:
             return _logger_cache[submodule]
 
         # 创建新的日志适配器
-        base_logger = logging.getLogger("astrbot")
+        base_logger = _get_base_logger()
         prefix = f"[iris-memory:{submodule}]"
         adapter = IrisMemoryLoggerAdapter(base_logger, {"prefix": prefix})
 

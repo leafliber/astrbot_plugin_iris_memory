@@ -422,6 +422,11 @@ class Component(ABC):
         return self._status == ComponentStatus.INITIALIZING
 
     @property
+    def should_retry_init(self) -> bool:
+        """初始化失败的原因是否可能自行消失，需要在后台继续重试"""
+        return False
+
+    @property
     def is_disabled(self) -> bool:
         """组件是否被禁用（配置未启用）
 
@@ -483,6 +488,12 @@ class Component(ABC):
 # ============================================================================
 
 
+# 后台组件初始化失败后的重试间隔（秒）。重试只做内存探测，上限取一分钟，
+# 让依赖就绪后的恢复时间保持在可感知的范围内。
+_INIT_RETRY_BASE_SECONDS = 15.0
+_INIT_RETRY_MAX_SECONDS = 60.0
+
+
 class ComponentManager:
     """组件生命周期管理器
 
@@ -527,8 +538,7 @@ class ComponentManager:
         self._status = SystemStatus()
         self._background_tasks: Dict[str, asyncio.Task] = {}
         self._background_results: Dict[str, ComponentInitResult] = {}
-        # 需要延迟到 AstrBot 加载完成后再初始化的组件名（#28）
-        self._deferred_components: set = set()
+        self._init_retry_tasks: Dict[str, asyncio.Task] = {}
 
         for component in components:
             self._status.register_module(component.name, default_available=False)
@@ -598,10 +608,6 @@ class ComponentManager:
                     eager_results.append(result)
 
             for component in background_components:
-                if component.name in getattr(self, "_deferred_components", set()):
-                    # 延迟到 on_astrbot_loaded 后再初始化，避免在 Provider 注册前空转重试（#28）
-                    logger.info(f"组件 {component.name} 延迟到 AstrBot 加载完成后再初始化")
-                    continue
                 task = asyncio.create_task(
                     self._init_background_component(component),
                     name=f"init_{component.name}",
@@ -623,31 +629,6 @@ class ComponentManager:
             )
 
             return eager_results
-
-    async def init_deferred_components(self) -> None:
-        """初始化此前被延迟的组件（在 on_astrbot_loaded 后调用）。
-
-        背景：AstrBot 在插件加载完成后才注册 Provider。若 L2 在插件初始化阶段
-        就开始查找 Embedding Provider，必然找不到，只能在重试中空转数十秒。
-        延迟到该钩子后初始化，可一次命中（#28）。
-        """
-        deferred = getattr(self, "_deferred_components", set())
-        if not deferred:
-            return
-        for name in list(deferred):
-            component = self.get_component(name)
-            if component is None:
-                continue
-            existing = self._background_tasks.get(name)
-            if existing is not None and not existing.done():
-                continue
-            task = asyncio.create_task(
-                self._init_background_component(component),
-                name=f"init_{name}",
-            )
-            self._background_tasks[name] = task
-            logger.info(f"组件 {name} 延迟初始化已启动")
-        deferred.clear()
 
     async def _init_background_component(
         self, component: Component
@@ -674,8 +655,42 @@ class ComponentManager:
             logger.warning(
                 f"后台组件 {component.name} 初始化失败：{result.error_message}"
             )
+            if component.should_retry_init:
+                self._init_retry_tasks[component.name] = asyncio.create_task(
+                    self._retry_component_init(component),
+                    name=f"retry_init_{component.name}",
+                )
 
         return result
+
+    async def _retry_component_init(self, component: Component) -> None:
+        """在后台重试初始化，直到组件可用或失败原因不再可恢复
+
+        等待期间的失败属于预期内状态，只记 DEBUG，避免长期刷告警。
+        """
+        delay = _INIT_RETRY_BASE_SECONDS
+        while component.should_retry_init:
+            await asyncio.sleep(delay)
+            delay = min(delay * 2, _INIT_RETRY_MAX_SECONDS)
+            try:
+                await component.initialize()
+            except Exception as e:
+                component._init_error = str(e)
+                logger.debug(f"组件 {component.name} 重试初始化失败：{e}")
+
+        if component.is_available:
+            component._status = ComponentStatus.AVAILABLE
+            component._init_error = None
+            result = ComponentInitResult(component.name, True)
+            logger.info(f"组件 {component.name} 后台重试初始化成功")
+        else:
+            error_msg = component.init_error or "初始化后组件不可用"
+            component._status = ComponentStatus.UNAVAILABLE
+            result = ComponentInitResult(component.name, False, error_msg)
+            logger.warning(f"组件 {component.name} 后台重试失败：{error_msg}")
+
+        self._background_results[component.name] = result
+        self._update_status()
 
     @property
     def background_init_pending(self) -> List[str]:
@@ -786,6 +801,14 @@ class ComponentManager:
                 return
 
             logger.info("开始关闭组件...")
+
+            for task in self._init_retry_tasks.values():
+                task.cancel()
+            if self._init_retry_tasks:
+                await asyncio.gather(
+                    *self._init_retry_tasks.values(), return_exceptions=True
+                )
+            self._init_retry_tasks.clear()
 
             for name, task in self._background_tasks.items():
                 if not task.done():
