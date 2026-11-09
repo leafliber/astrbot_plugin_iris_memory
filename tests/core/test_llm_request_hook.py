@@ -1115,3 +1115,32 @@ class TestFaultIsolation:
         # L1 崩溃但函数正常返回，未抛异常即通过
         # 验证 extra_user_content_parts 被调用（L2 注入仍尝试）
         assert req.extra_user_content_parts is not None
+
+
+def test_profile_injection_tolerates_malformed_model_output():
+    """异常条目会被持久化，不能让该用户之后的画像注入一直失败"""
+    from astrbot_plugin_iris_memory.iris_memory.core.llm_request_hook import (
+        _format_profiles_for_injection,
+    )
+    from astrbot_plugin_iris_memory.iris_memory.profile.models import (
+        GroupProfile,
+        UserProfile,
+    )
+
+    user_profile = UserProfile(
+        user_id="user",
+        important_dates=[
+            "2024-01-01 生日",
+            {"date": "05-01"},
+            {"date": "12-01", "description": "纪念日"},
+        ],
+        important_events=[{"event": "升职"}, "搬家"],
+        taboo_topics=[{"topic": "前任"}],
+    )
+
+    with patch(_GET_CONFIG_PATCH, return_value=_default_config()):
+        text = _format_profiles_for_injection(GroupProfile(group_id="group"), user_profile)
+
+    assert "重要日期: 2024-01-01 生日, 05-01, 12-01(纪念日)" in text
+    assert "搬家" in text
+    assert "前任" in text

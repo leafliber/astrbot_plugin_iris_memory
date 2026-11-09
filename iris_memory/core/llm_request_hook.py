@@ -1472,7 +1472,7 @@ def _format_profiles_for_injection(
         格式化的画像文本，任一部分为空则不注入该部分
     """
     from ..config import get_config
-    from ..profile.models import favorability_level
+    from ..profile.models import favorability_level, format_important_date
 
     config = get_config()
     favorability_enabled = config.get("profile.favorability_enable", True)
@@ -1502,14 +1502,16 @@ def _format_profiles_for_injection(
     if user_profile.bot_relationship:
         user_parts.append(f"称呼: {user_profile.bot_relationship}")
     if user_profile.important_dates:
-        dates_str = ", ".join(
-            f"{d['date']}({d['description']})" for d in user_profile.important_dates
-        )
-        user_parts.append(f"重要日期: {dates_str}")
+        dates = [format_important_date(d) for d in user_profile.important_dates]
+        dates_str = ", ".join(d for d in dates if d)
+        if dates_str:
+            user_parts.append(f"重要日期: {dates_str}")
     if user_profile.important_events:
-        user_parts.append(f"重要事件: {', '.join(user_profile.important_events)}")
+        events = ", ".join(str(event) for event in user_profile.important_events)
+        user_parts.append(f"重要事件: {events}")
     if user_profile.taboo_topics:
-        user_parts.append(f"禁忌: {', '.join(user_profile.taboo_topics)}")
+        taboo_topics = ", ".join(str(topic) for topic in user_profile.taboo_topics)
+        user_parts.append(f"禁忌: {taboo_topics}")
     if user_profile.custom_fields:
         custom_str = ", ".join(
             f"{k}: {v}" for k, v in user_profile.custom_fields.items()
