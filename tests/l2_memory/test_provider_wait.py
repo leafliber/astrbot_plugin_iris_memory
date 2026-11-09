@@ -36,10 +36,19 @@ def _config(tmp_path, configured: str = "") -> Mock:
     return config
 
 
+class FakeProviderManager:
+    """与 AstrBot 一致：inst_map 只保存每个 ID 的当前实例。"""
+
+    def __init__(self, providers: list):
+        self.embedding_provider_insts = providers
+
+    @property
+    def inst_map(self) -> dict:
+        return {p.provider_config["id"]: p for p in self.embedding_provider_insts}
+
+
 def _adapter(providers: list) -> L2MemoryAdapter:
-    pm = Mock()
-    pm.embedding_provider_insts = providers
-    pm.inst_map = {}
+    pm = FakeProviderManager(providers)
     context = Mock()
     context.provider_manager = pm
     context.get_provider_by_id = Mock(return_value=None)
@@ -94,6 +103,28 @@ async def test_recovers_when_provider_appears(tmp_path):
         assert not adapter.should_retry_init
     finally:
         await adapter.shutdown()
+
+
+def test_updated_provider_resolves_to_current_instance():
+    """AstrBot 更新 Provider 后旧实例还在列表里，必须换成当前实例。"""
+    terminated, current = FakeProvider(), FakeProvider()
+    pm = Mock()
+    pm.embedding_provider_insts = [terminated, current]
+    pm.inst_map = {"embed": current}
+
+    adapter = L2MemoryAdapter(context=Mock(provider_manager=pm))
+
+    assert adapter._get_first_embedding_provider() is current
+
+
+def test_removed_provider_is_not_used():
+    pm = Mock()
+    pm.embedding_provider_insts = [FakeProvider()]
+    pm.inst_map = {}
+
+    adapter = L2MemoryAdapter(context=Mock(provider_manager=pm))
+
+    assert adapter._get_first_embedding_provider() is None
 
 
 @pytest.mark.asyncio
