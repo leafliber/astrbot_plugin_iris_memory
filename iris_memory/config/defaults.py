@@ -61,6 +61,7 @@ class ProfileConfig:
     analysis_provider: str = ""
     enable_auto_injection: bool = True
     favorability_enable: bool = True
+    timeout_ms: int = 0
 
 
 @dataclass
@@ -70,6 +71,13 @@ class IsolationConfig:
     enable_group_memory_isolation: bool = False
     enable_group_isolation: bool = False
     enable_persona_isolation: bool = False
+
+
+@dataclass
+class IdentityConfig:
+    """用户身份映射配置"""
+
+    user_id_aliases: str = ""
 
 
 @dataclass
@@ -285,6 +293,13 @@ class HiddenConfig:
     l2_timeout_ms: int = field(
         default=4000,
         metadata={"description": "L2 检索超时(ms)", "group": "L2 记忆"},
+    )
+    l2_embedding_batch_size: int = field(
+        default=25,
+        metadata={
+            "description": "单次 Embedding 请求的最大文本条数，超过厂商上限时请求会被拒绝",
+            "group": "L2 记忆",
+        },
     )
     l2_hybrid_rrf_k: int = field(
         default=60,
@@ -1247,6 +1262,7 @@ class Defaults:
     l3_kg: L3KGConfig = field(default_factory=L3KGConfig)
     profile: ProfileConfig = field(default_factory=ProfileConfig)
     isolation_config: IsolationConfig = field(default_factory=IsolationConfig)
+    identity: IdentityConfig = field(default_factory=IdentityConfig)
     scheduled_tasks: ScheduledTasksConfig = field(default_factory=ScheduledTasksConfig)
     context_control: ContextControlConfig = field(default_factory=ContextControlConfig)
     extras: ExtrasConfig = field(default_factory=ExtrasConfig)
