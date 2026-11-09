@@ -1464,17 +1464,6 @@ def _extract_kg_keywords(text: str) -> List[str]:
     return unique[:8]
 
 
-def _format_important_date(entry: object) -> str:
-    """important_dates 条目兼容 dict({date, description}) 与历史遗留的 str。"""
-    if isinstance(entry, dict):
-        date = str(entry.get("date") or "").strip()
-        desc = str(entry.get("description") or "").strip()
-        if date and desc:
-            return f"{date}({desc})"
-        return date or desc
-    return str(entry or "").strip()
-
-
 def _format_profiles_for_injection(
     group_profile: "GroupProfile",
     user_profile: "UserProfile",
@@ -1494,7 +1483,7 @@ def _format_profiles_for_injection(
         格式化的画像文本，任一部分为空则不注入该部分
     """
     from ..config import get_config
-    from ..profile.models import favorability_level
+    from ..profile.models import favorability_level, format_important_date
 
     sections = []
 
@@ -1530,7 +1519,7 @@ def _format_profiles_for_injection(
         if user_profile.bot_relationship:
             user_parts.append(f"称呼: {user_profile.bot_relationship}")
         if user_profile.important_dates:
-            dates = [_format_important_date(d) for d in user_profile.important_dates]
+            dates = [format_important_date(d) for d in user_profile.important_dates]
             dates_str = ", ".join(d for d in dates if d)
             if dates_str:
                 user_parts.append(f"重要日期: {dates_str}")
