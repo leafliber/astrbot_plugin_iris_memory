@@ -118,6 +118,32 @@ class TestL1Buffer:
             assert context[0].token_count <= 50
 
     @pytest.mark.asyncio
+    async def test_long_assistant_reply_keeps_both_ends(self, mock_config):
+        """Bot 的长回复也要留在上下文里，供后续对话和摘要使用"""
+        with patch("astrbot_plugin_iris_memory.iris_memory.l1_buffer.buffer.get_config") as mock_get_config:
+            mock_get_config.return_value.get = Mock(
+                side_effect=lambda key, default=None: {
+                    "l1_buffer.enable": True,
+                    "l1_max_single_message_tokens": 80,
+                }.get(key, default)
+            )
+
+            buffer = L1Buffer()
+            await buffer.initialize()
+
+            success = await buffer.add_message(
+                group_id="group_123",
+                role="assistant",
+                content="开头结论" + "中间展开的内容" * 200 + "结尾建议",
+                source="assistant",
+            )
+
+            assert success
+            content = buffer.get_context("group_123")[0].content
+            assert content.startswith("开头结论")
+            assert content.endswith("结尾建议")
+
+    @pytest.mark.asyncio
     async def test_add_message_disabled(self, mock_config):
         """测试禁用时添加消息"""
         with patch("astrbot_plugin_iris_memory.iris_memory.l1_buffer.buffer.get_config") as mock_get_config:

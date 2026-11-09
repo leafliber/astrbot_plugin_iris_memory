@@ -335,7 +335,7 @@ class L1Buffer(Component):
                 marker="\n…[消息过长，历史记录已截断]…\n",
             )
             token_count = count_tokens(content)
-            logger.warning(
+            logger.info(
                 f"消息 Token 数 {original_tokens} 超过限制 {max_single_tokens}，"
                 f"已截断后保留 {token_count} tokens"
             )

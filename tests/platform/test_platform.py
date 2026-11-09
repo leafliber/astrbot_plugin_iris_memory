@@ -1,5 +1,7 @@
 """平台适配器测试"""
 
+import logging
+
 import pytest
 from unittest.mock import Mock, AsyncMock
 
@@ -11,6 +13,7 @@ from astrbot_plugin_iris_memory.iris_memory.platform.base import (
     ReplyInfo,
     UnsupportedPlatformError,
 )
+from astrbot_plugin_iris_memory.iris_memory.platform import factory
 from astrbot_plugin_iris_memory.iris_memory.platform.factory import get_adapter
 from astrbot_plugin_iris_memory.iris_memory.platform.generic import GenericAdapter
 from astrbot_plugin_iris_memory.iris_memory.platform.qq import OneBot11Adapter
@@ -285,6 +288,33 @@ class TestGetAdapter:
         adapter = get_adapter(event)
 
         assert isinstance(adapter, GenericAdapter)
+
+    def test_generic_fallback_notice_logged_once_per_platform(self):
+        """一条消息会多次取适配器，降级提示每个平台只打一次，且不是 WARNING"""
+        records: list[logging.LogRecord] = []
+
+        class Capture(logging.Handler):
+            def emit(self, record):
+                records.append(record)
+
+        base_logger = factory.logger.logger
+        handler = Capture(level=logging.DEBUG)
+        previous_level = base_logger.level
+        base_logger.addHandler(handler)
+        base_logger.setLevel(logging.DEBUG)
+        factory._GENERIC_FALLBACK_NOTIFIED.clear()
+        try:
+            for platform in ("telegram", "telegram", "telegram", "discord"):
+                event = Mock()
+                event.get_platform_name = Mock(return_value=platform)
+                get_adapter(event)
+        finally:
+            base_logger.removeHandler(handler)
+            base_logger.setLevel(previous_level)
+
+        notices = [r for r in records if "无专用适配器" in r.getMessage()]
+        assert len(notices) == 2
+        assert not [r for r in records if r.levelno >= logging.WARNING]
 
     def test_adapter_is_singleton(self):
         """测试适配器是单例"""
