@@ -13,6 +13,7 @@ from typing import Any, List, TYPE_CHECKING
 
 from ..core import get_logger
 from ..platform.base import PlatformAdapter, ReplyInfo
+from ..identity import resolve_user_id
 
 if TYPE_CHECKING:
     from astrbot.api.event import AstrMessageEvent
@@ -41,7 +42,7 @@ class GenericAdapter(PlatformAdapter):
 
     def get_user_id(self, event: Any) -> str:
         try:
-            return str(event.message_obj.sender.user_id)
+            return resolve_user_id(str(event.message_obj.sender.user_id))
         except AttributeError:
             logger.error("无法获取用户ID：event.message_obj.sender.user_id 不存在")
             raise

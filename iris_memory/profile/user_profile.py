@@ -9,7 +9,12 @@ from typing import List, Optional, Dict
 
 from ..core import get_logger
 from ..config import get_config
-from .storage import ProfileStorage, profile_lock
+from .storage import (
+    GLOBAL_GROUP_ID,
+    ProfileStorage,
+    effective_group_id,
+    profile_lock,
+)
 from .models import (
     UserProfile,
     UpdateTier,
@@ -51,11 +56,12 @@ class UserProfileManager:
         Returns:
             用户画像对象
         """
+        group_id = effective_group_id(group_id)
         profile = await self._storage.get_user_profile(user_id, group_id, persona_id)
 
         if not profile:
             profile = UserProfile(user_id=user_id)
-            mode = "全局" if group_id == "default" else f"群聊{group_id}"
+            mode = "全局" if group_id == GLOBAL_GROUP_ID else f"群聊{group_id}"
             logger.info(f"创建新用户画像: {user_id} ({mode})")
 
         return profile

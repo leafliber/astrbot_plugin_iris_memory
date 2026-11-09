@@ -239,6 +239,12 @@
         "hint": "选择用于画像分析的模型，留空则使用默认 Provider",
         "_special": "select_provider"
       },
+      "timeout_ms": {
+        "type": "int",
+        "default": 0,
+        "description": "画像分析超时(ms)",
+        "hint": "0 表示沿用全局 Provider 超时；推理型模型可适当调大"
+      },
       "enable_auto_injection": {
         "type": "bool",
         "default": true,
@@ -275,6 +281,19 @@
         "default": false,
         "description": "启用bot人格隔离",
         "hint": "不同bot人格的记忆与画像按人格ID逻辑隔离（共享底层存储、命名空间互不可见）；切换人格仅改变可见数据，不删除或重建"
+      }
+    }
+  },
+  "identity": {
+    "type": "object",
+    "description": "用户身份映射",
+    "hint": "AstrBot 网页对话用登录名作为用户 ID，同一个人在网页和聊天平台上会被当成两个用户。在这里声明对应关系即可合并",
+    "items": {
+      "user_id_aliases": {
+        "type": "string",
+        "default": "",
+        "description": "用户 ID 映射（JSON）",
+        "hint": "格式为 {\"原用户ID\": \"目标用户ID\"}，例如 {\"admin\": \"123456789\"}。留空表示不做映射；启动时会把原用户 ID 的画像并入目标用户"
       }
     }
   },
