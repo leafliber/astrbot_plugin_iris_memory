@@ -10,6 +10,7 @@ from typing import Any
 
 from astrbot.api import logger
 
+from ..platform.base import PRIVATE_SESSION_PREFIX
 from .config import ConfigManager
 from .prompts import (
     BACKOFF_BASE,
@@ -742,8 +743,15 @@ class StateManager:
         data.willingness = level
         self._mark_dirty(group_id, data)
 
+    def _is_session_authorized(self, group_id: str) -> bool:
+        """私聊写入白名单后仍以当前配置为准，撤销授权要立即生效。"""
+        if not group_id.startswith(PRIVATE_SESSION_PREFIX):
+            return True
+        user_id = group_id.removeprefix(PRIVATE_SESSION_PREFIX)
+        return self._config.private_enabled and user_id in self._config.private_whitelist
+
     def is_whitelisted(self, group_id: str) -> bool:
-        return group_id in self._whitelist
+        return group_id in self._whitelist and self._is_session_authorized(group_id)
 
     def add_to_whitelist(self, group_id: str) -> None:
         self._whitelist.add(group_id)
@@ -754,7 +762,7 @@ class StateManager:
         self._whitelist_dirty = True
 
     def get_whitelist(self) -> set[str]:
-        return set(self._whitelist)
+        return {gid for gid in self._whitelist if self._is_session_authorized(gid)}
 
     async def load_all(self, load_fn) -> None:
         try:

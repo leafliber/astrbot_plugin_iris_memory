@@ -93,6 +93,7 @@ from .iris_memory.proactive.state import StateManager
 from .iris_memory.proactive.stats import StatsCollector
 from .iris_memory.proactive.tickets import DecisionTicketRegistry
 from .iris_memory.proactive.time_hint import resolve_datetime_reminder
+from .iris_memory.platform.base import PRIVATE_SESSION_PREFIX
 from .iris_memory.proactive.tools import ToolContext
 from .iris_memory.extras import ErrorFriendlyProcessor, MarkdownStripper
 
@@ -540,8 +541,9 @@ class IrisMemoryPlugin(Star):
     async def _kv_load(self, key: str) -> Any:
         return await self.get_kv_data(key, None)
 
-    def _get_session_key(self, event) -> str | None:
-        """返回会话键：群聊为群 ID，私聊为 ``private:<uid>``。
+    @staticmethod
+    def _resolve_session_key(event) -> str | None:
+        """返回会话键：群聊为群 ID，私聊为 ``private:<uid>``，都取不到时返回 None。
 
         主动回复引擎内部只把该键当作不透明字符串使用，真正发送时再通过
         ``_group_umo`` 映射到 unified_msg_origin，因此私聊无需改动引擎。
@@ -552,9 +554,15 @@ class IrisMemoryPlugin(Star):
         if event.is_private_chat():
             sender_id = event.get_sender_id()
             if sender_id:
-                return f"private:{sender_id}"
-        event.set_result("无法获取会话标识")
+                return f"{PRIVATE_SESSION_PREFIX}{sender_id}"
         return None
+
+    def _get_session_key(self, event) -> str | None:
+        """管理命令用：取不到会话键时提示用户。"""
+        session_key = self._resolve_session_key(event)
+        if not session_key:
+            event.set_result("无法获取会话标识")
+        return session_key
 
     async def _get_provider_id(self, event, preferred: str = "") -> str | None:
         if preferred:
@@ -697,7 +705,7 @@ class IrisMemoryPlugin(Star):
         if not self._gatekeeper.should_process(event):
             return
 
-        group_id = self._get_session_key(event)
+        group_id = self._resolve_session_key(event)
         if not group_id:
             return
 
@@ -918,7 +926,7 @@ class IrisMemoryPlugin(Star):
             True 表示已调用 event.stop_event()，调用方应立即返回，
             不再进行记忆注入。
         """
-        group_id = event.get_group_id()
+        group_id = self._resolve_session_key(event)
         if not group_id or group_id not in self._triggering:
             return False
 
@@ -1146,7 +1154,7 @@ class IrisMemoryPlugin(Star):
         await self._reply_on_llm_response(event, resp)
 
     async def _reply_on_llm_response(self, event: AstrMessageEvent, response: LLMResponse) -> None:
-        group_id = event.get_group_id()
+        group_id = self._resolve_session_key(event)
         if not group_id:
             return
 
@@ -1196,7 +1204,7 @@ class IrisMemoryPlugin(Star):
     @filter.after_message_sent()
     async def on_message_sent(self, event) -> None:
         """主动回复侧：bot 消息入滑动窗口 + 写 ThreadAnchor"""
-        group_id = event.get_group_id()
+        group_id = self._resolve_session_key(event)
         if not group_id:
             return
         if not self._state.is_whitelisted(group_id):
