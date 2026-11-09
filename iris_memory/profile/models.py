@@ -340,17 +340,6 @@ FAVORABILITY_LEVELS: List[Tuple[float, str]] = [
 ]
 
 
-def format_important_date(entry: object) -> str:
-    """重要日期由模型生成，条目可能是字符串或缺字段的 dict，这里统一成文本"""
-    if isinstance(entry, dict):
-        date = str(entry.get("date") or "").strip()
-        desc = str(entry.get("description") or "").strip()
-        if date and desc:
-            return f"{date}({desc})"
-        return date or desc
-    return str(entry or "").strip()
-
-
 def favorability_level(score: float) -> str:
     """根据好感度数值返回等级标签
 

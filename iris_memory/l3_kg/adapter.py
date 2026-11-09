@@ -501,16 +501,14 @@ class L3KGAdapter(Component):
     ) -> tuple[list[dict], list[dict]]:
         """路径扩展检索核心（供线程池执行）。"""
         try:
-            ordered_ids = list(dict.fromkeys(node_id for node_id in node_ids if node_id))
-            if not ordered_ids or max_nodes <= 0:
-                return [], []
-
-            visited = set(ordered_ids)
+            visited = set(node_ids)
+            frontier = list(node_ids)
+            nodes_map: dict[str, dict] = {}
             edges_list: list[dict] = []
 
             # 种子节点也必须按 group_id 过滤，否则跨群节点作为种子泄漏
-            seed_conditions = [f"id IN ({','.join('?' * len(ordered_ids))})"]
-            seed_params: list = [*ordered_ids]
+            seed_conditions = [f"id IN ({','.join('?' * len(node_ids))})"]
+            seed_params: list = [*node_ids]
             if group_id:
                 seed_conditions.append("group_id = ?")
                 seed_params.append(group_id)
@@ -521,14 +519,8 @@ class L3KGAdapter(Component):
                 f"SELECT * FROM nodes WHERE {' AND '.join(seed_conditions)}",
                 seed_params,
             )
-            # 取舍在内存中按调用方给定的顺序完成：SQL 的 LIMIT 不保证保留排名靠前的种子
-            seeds_by_id = {row["id"]: dict(row) for row in seed_rows}
-            frontier = [node_id for node_id in ordered_ids if node_id in seeds_by_id][
-                :max_nodes
-            ]
-            nodes_map: dict[str, dict] = {
-                node_id: seeds_by_id[node_id] for node_id in frontier
-            }
+            for row in seed_rows:
+                nodes_map[row["id"]] = dict(row)
 
             for _ in range(max_depth):
                 if (
@@ -622,10 +614,7 @@ class L3KGAdapter(Component):
                     )
 
                     neighbor_id = target_id if source_id in frontier_set else source_id
-                    if (
-                        neighbor_id not in visited
-                        and len(nodes_map) + len(next_frontier) < max_nodes
-                    ):
+                    if neighbor_id not in visited and len(nodes_map) < max_nodes:
                         visited.add(neighbor_id)
                         next_frontier.append(neighbor_id)
 

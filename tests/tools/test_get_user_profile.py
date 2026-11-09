@@ -88,32 +88,3 @@ async def test_get_user_profile_no_id(tool, mock_context, monkeypatch):
     result = await tool.call(mock_context, target_type="user")
 
     assert "无法获取用户ID" in result
-
-
-def test_format_tolerates_malformed_model_output(tool):
-    """这些字段由模型生成，格式不对时工具仍要能返回画像"""
-    profile = Mock(
-        user_name="测试用户",
-        user_id="user_123",
-        personality_tags=[],
-        interests=[],
-        occupation="",
-        language_style="",
-        communication_style="",
-        emotional_baseline="",
-        bot_relationship="",
-        historical_names=[],
-        taboo_topics=[{"topic": "前任"}],
-        important_dates=[
-            "2024-01-01 生日",
-            {"date": "05-01"},
-            {"date": "12-01", "description": "纪念日"},
-        ],
-        important_events=[{"event": "升职"}, "搬家"],
-    )
-
-    text = tool._format_user_profile(profile)
-
-    assert "2024-01-01 生日, 05-01, 12-01(纪念日)" in text
-    assert "搬家" in text
-    assert "前任" in text

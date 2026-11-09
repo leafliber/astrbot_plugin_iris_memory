@@ -8,7 +8,7 @@ from astrbot.core.astr_agent_context import AstrAgentContext
 from ..core import get_logger, get_component_manager
 from ..config import get_config
 from ..profile import UserProfileManager, GroupProfileManager
-from ..profile.models import UserProfile, GroupProfile, format_important_date
+from ..profile.models import UserProfile, GroupProfile
 from ..profile.storage import ProfileStorage
 
 logger = get_logger("tools")
@@ -161,18 +161,16 @@ class GetProfileTool(FunctionTool[AstrAgentContext]):
             lines.append(f"**历史曾用ID**: {', '.join(profile.historical_names)}")
 
         if profile.taboo_topics:
-            taboo_topics = ", ".join(str(topic) for topic in profile.taboo_topics)
-            lines.append(f"**⚠️ 用户禁忌话题**: {taboo_topics}")
+            lines.append(f"**⚠️ 用户禁忌话题**: {', '.join(profile.taboo_topics)}")
 
         if profile.important_dates:
-            dates = [format_important_date(d) for d in profile.important_dates]
-            dates_str = ", ".join(d for d in dates if d)
-            if dates_str:
-                lines.append(f"**重要日期**: {dates_str}")
+            dates_str = ", ".join(
+                [f"{d['date']}({d['description']})" for d in profile.important_dates]
+            )
+            lines.append(f"**重要日期**: {dates_str}")
 
         if profile.important_events:
-            events = ", ".join(str(event) for event in profile.important_events)
-            lines.append(f"**重要事件**: {events}")
+            lines.append(f"**重要事件**: {', '.join(profile.important_events)}")
 
         return "\n".join(lines)
 

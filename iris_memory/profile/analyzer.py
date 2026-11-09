@@ -19,19 +19,6 @@ if TYPE_CHECKING:
 logger = get_logger("profile")
 
 
-class ProfileAnalysisError(RuntimeError):
-    """批量画像分析失败，消息中保留真实原因（超时、熔断、无法解析等）。"""
-
-
-def _profile_timeout_seconds() -> float | None:
-    """画像分析专用超时；未配置时返回 None，沿用全局 Provider 超时。"""
-    try:
-        timeout_ms = int(get_config().get("profile.timeout_ms", 0) or 0)
-    except (RuntimeError, TypeError, ValueError):
-        return None
-    return timeout_ms / 1000 if timeout_ms > 0 else None
-
-
 # LLM 分析时从画像字典中剥离的纯元数据字段（对分析无价值，徒增 token）
 _ANALYSIS_STRIP_KEYS = frozenset({"field_meta", "update_tracker", "version"})
 
@@ -100,9 +87,7 @@ class ProfileAnalyzer:
 
         try:
             response = await self._llm_manager.generate_direct(
-                prompt=prompt,
-                module=PROFILE_ANALYSIS,
-                timeout=_profile_timeout_seconds(),
+                prompt=prompt, module=PROFILE_ANALYSIS
             )
 
             result = self._parse_json_response(response)
@@ -138,9 +123,7 @@ class ProfileAnalyzer:
 
         try:
             response = await self._llm_manager.generate_direct(
-                prompt=prompt,
-                module=PROFILE_ANALYSIS,
-                timeout=_profile_timeout_seconds(),
+                prompt=prompt, module=PROFILE_ANALYSIS
             )
 
             result = self._parse_json_response(response)
@@ -165,9 +148,6 @@ class ProfileAnalyzer:
         """
 
         allowed_ids = {str(item.get("id", "")) for item in users}
-        if not group and not allowed_ids:
-            return {"group": {}, "users": {}}
-
         max_chars = _get_max_chars()
         try:
             per_user_messages = max(
@@ -205,19 +185,6 @@ class ProfileAnalyzer:
                 }
             )
 
-        # 没有用户要分析时不给出 users 模板，否则模型面对的是自相矛盾的要求
-        users_template = ""
-        if allowed_ids:
-            users_template = """,
-  "users": {
-    "<输入中的用户id>": {
-      "personality_tags": [], "interests": [], "occupation": "", "language_style": "",
-      "communication_style": "", "emotional_baseline": "", "favorability_delta": 0,
-      "bot_relationship": "", "important_dates": [], "taboo_topics": [],
-      "important_events": [], "custom_fields": {}
-    }
-  }"""
-
         prompt = f"""批量分析群聊与用户画像。输入中的 id 是唯一合法主体，严禁新增、改写或猜测 id。
 tier=mid 只更新中期字段，tier=long 只更新长期字段，tier=combined 可同时更新。
 
@@ -226,19 +193,23 @@ tier=mid 只更新中期字段，tier=long 只更新长期字段，tier=combined
 
 仅返回以下 JSON：
 {{
-  "group": {{"interests": [], "atmosphere_tags": [], "long_term_tags": [], "blacklist_topics": [], "custom_fields": {{}}}} 或 null{users_template}
+  "group": {{"interests": [], "atmosphere_tags": [], "long_term_tags": [], "blacklist_topics": [], "custom_fields": {{}}}} 或 null,
+  "users": {{
+    "原样用户ID": {{
+      "personality_tags": [], "interests": [], "occupation": "", "language_style": "",
+      "communication_style": "", "emotional_baseline": "", "favorability_delta": 0,
+      "bot_relationship": "", "important_dates": [], "taboo_topics": [],
+      "important_events": [], "custom_fields": {{}}
+    }}
+  }}
 }}
 不确定的字段返回空值；users 只能包含输入中给出的 id。"""
 
         try:
             response = await self._llm_manager.generate_direct(
-                prompt=prompt,
-                module=PROFILE_ANALYSIS,
-                timeout=_profile_timeout_seconds(),
+                prompt=prompt, module=PROFILE_ANALYSIS
             )
             parsed = self._parse_json_response(response)
-            if not parsed:
-                raise ValueError("模型未返回可解析的 JSON")
             raw_users = parsed.get("users", {})
             safe_users = {
                 str(user_id): result
@@ -251,10 +222,8 @@ tier=mid 只更新中期字段，tier=long 只更新长期字段，tier=combined
                 "users": safe_users,
             }
         except Exception as e:
-            # TimeoutError 等异常的 str() 为空，必须带上类型才能定位
-            reason = f"{type(e).__name__}: {e}"
-            logger.error(f"批量画像分析失败: {reason}", exc_info=True)
-            raise ProfileAnalysisError(f"批量画像分析失败: {reason}") from e
+            logger.error(f"批量画像分析失败: {e}")
+            return {}
 
     def _build_group_analysis_prompt(
         self,

@@ -290,12 +290,9 @@ async def _start_scheduled_tasks_deferred(component_manager: ComponentManager) -
 
     config = get_config()
 
-    # L2 仍在等待 Embedding Provider 时也要注册：恢复后不会再经过这里，
-    # 任务执行时会自行检查 L2 是否可用。
-    l2 = component_manager.get_component("l2_memory")
-    l2_usable = l2 is not None and (l2.is_available or l2.should_retry_init)
+    l2_available = component_manager.check_component("l2_memory") == "available"
 
-    if l2_usable and config.get("scheduled_tasks.enable_dream"):
+    if l2_available and config.get("scheduled_tasks.enable_dream"):
         dream_task = DreamTask(component_manager)
         interval_hours = config.get("dream_task_interval_hours")
         scheduler.register_periodic_task(
@@ -303,7 +300,7 @@ async def _start_scheduled_tasks_deferred(component_manager: ComponentManager) -
             coro_func=dream_task.execute,
             interval_hours=interval_hours,
         )
-    elif config.get("scheduled_tasks.enable_dream"):
+    elif config.get("scheduled_tasks.enable_dream") and not l2_available:
         logger.warning("L2 记忆库不可用，跳过梦境任务注册")
 
     # 学习模块周期任务：表达模式衰减 / 暗语扫描推断 / 攒批审查兜底

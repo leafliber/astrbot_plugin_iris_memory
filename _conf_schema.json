@@ -239,12 +239,6 @@
         "hint": "选择用于画像分析的模型，留空则使用默认 Provider",
         "_special": "select_provider"
       },
-      "timeout_ms": {
-        "type": "int",
-        "default": 0,
-        "description": "画像分析超时(ms)",
-        "hint": "0 表示沿用全局 Provider 超时；推理型模型可适当调大"
-      },
       "enable_auto_injection": {
         "type": "bool",
         "default": true,
@@ -256,12 +250,6 @@
         "default": true,
         "description": "启用好感度功能",
         "hint": "记录用户与bot的好感度（0-100），随互动演化并影响回复语气"
-      },
-      "group_injection_minimal": {
-        "type": "bool",
-        "default": false,
-        "description": "群聊只注入称呼级画像",
-        "hint": "开启后，群聊请求不再注入职业、禁忌、重要事件等个人画像，避免私聊积累的信息被带进群聊"
       }
     }
   },
@@ -287,19 +275,6 @@
         "default": false,
         "description": "启用bot人格隔离",
         "hint": "不同bot人格的记忆与画像按人格ID逻辑隔离（共享底层存储、命名空间互不可见）；切换人格仅改变可见数据，不删除或重建"
-      }
-    }
-  },
-  "identity": {
-    "type": "object",
-    "description": "用户身份映射",
-    "hint": "AstrBot 网页对话用登录名作为用户 ID，同一个人在网页和聊天平台上会被当成两个用户。在这里声明对应关系即可合并",
-    "items": {
-      "user_id_aliases": {
-        "type": "string",
-        "default": "",
-        "description": "用户 ID 映射（JSON）",
-        "hint": "格式为 {\"原用户ID\": \"目标用户ID\"}，例如 {\"admin\": \"123456789\"}。留空表示不做映射；启动时会把原用户 ID 的画像并入目标用户"
       }
     }
   },
@@ -440,27 +415,6 @@
         },
         "description": "只记录不发言的会话 ID",
         "hint": "这些会话的消息仍会写入记忆与画像，但不会触发任何回复。适合 Telegram 广播频道（成员无法发言）或只想旁听的群"
-      },
-      "group_gate_enabled": {
-        "type": "bool",
-        "default": false,
-        "description": "启用主人群聊门控",
-        "hint": "开启后，私聊白名单中的用户在群里发言会交给决策层判断是否接话，其他人只在 @、回复或叫名字时触发。关闭时沿用原有的计数采样"
-      },
-      "group_initiate_enabled": {
-        "type": "bool",
-        "default": true,
-        "description": "启用群内定时主动发起",
-        "hint": "关闭后只保留私聊的定时主动发起"
-      },
-      "bot_name_keywords": {
-        "type": "list",
-        "default": [],
-        "items": {
-          "type": "string"
-        },
-        "description": "Bot 名字关键词",
-        "hint": "开启主人群聊门控后，消息包含这些词时视为叫到 Bot"
       }
     }
   },
@@ -471,7 +425,7 @@
     "items": {
       "enable": {
         "type": "bool",
-        "default": false,
+        "default": true,
         "description": "启用连续性层（总开关）",
         "hint": "关闭即软回滚：停止新增主动选题、事项抽取与注入、收尾、合批、频道采集与摘要；发送目标硬拦截、出站记账、额度与暂停恢复仍保留"
       },

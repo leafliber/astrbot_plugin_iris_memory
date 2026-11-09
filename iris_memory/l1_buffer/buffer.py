@@ -663,7 +663,6 @@ class L1Buffer(Component):
             group_should_long = group_manager.should_update_long(group_profile_obj)
             from ..llm import LLMManager
             from ..profile import ProfileAnalyzer
-            from ..profile.analyzer import ProfileAnalysisError
             from ..profile.models import profile_to_dict
 
             llm_manager = self._component_manager.get_component("llm_manager")
@@ -722,30 +721,25 @@ class L1Buffer(Component):
                     {key: value for key, value in spec.items() if key != "profile_obj"}
                     for spec in chunk
                 ]
-                try:
-                    result = await analyzer.analyze_profiles_batch(
-                        group=group_spec if index == 0 else None,
-                        users=prompt_users,
-                    )
-                except ProfileAnalysisError:
-                    if raise_errors:
-                        raise
-                    continue
+                result = await analyzer.analyze_profiles_batch(
+                    group=group_spec if index == 0 else None,
+                    users=prompt_users,
+                )
                 if not result:
                     if raise_errors:
                         raise RuntimeError("批量画像分析返回无效 JSON")
                     continue
                 if index == 0 and group_spec:
-                    # 提示词允许模型用 null 表示群画像没有更新，这不是失败
-                    group_result = result.get("group")
-                    if group_result:
-                        await self._apply_group_batch_result(
-                            group_id,
-                            group_tier,
-                            group_result,
-                            group_manager,
-                            persona_id,
-                        )
+                    group_result = result.get("group", {})
+                    if not group_result and raise_errors:
+                        raise RuntimeError("批量画像结果缺少 group")
+                    await self._apply_group_batch_result(
+                        group_id,
+                        group_tier,
+                        group_result,
+                        group_manager,
+                        persona_id,
+                    )
                 user_results = result.get("users", {})
                 expected_ids = {str(spec["id"]) for spec in chunk}
                 if raise_errors and not expected_ids.issubset(user_results):
