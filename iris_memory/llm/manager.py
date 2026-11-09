@@ -933,43 +933,17 @@ class LLMManager(Component):
         return None
 
     def _get_default_provider(self) -> Optional[str]:
-        """获取 AstrBot 默认 Provider ID
+        """获取 AstrBot 当前使用的对话 Provider ID
 
         Returns:
-            默认 Provider ID，无法获取时返回 None
+            Provider ID，没有可用的对话 Provider 时返回 None
         """
         try:
-            if hasattr(self._context, "get_config"):
-                config = self._context.get_config()
-                if config:
-                    provider_settings = config.get("provider_settings", {})
-                    default_provider_id = provider_settings.get("default_provider_id")
-                    if default_provider_id:
-                        return default_provider_id
-
-            if hasattr(self._context, "provider_manager"):
-                provider_manager = self._context.provider_manager
-                if hasattr(provider_manager, "get_default_provider"):
-                    default_provider = provider_manager.get_default_provider()
-                    if default_provider and hasattr(default_provider, "id"):
-                        return default_provider.id
-                if hasattr(provider_manager, "providers"):
-                    providers = provider_manager.providers
-                    if providers:
-                        first_provider = providers[0]
-                        if hasattr(first_provider, "id"):
-                            return first_provider.id
-
-            if hasattr(self._context, "providers"):
-                providers = self._context.providers
-                if providers:
-                    first_provider = providers[0]
-                    if hasattr(first_provider, "id"):
-                        return first_provider.id
+            provider = self._context.get_using_provider()
+            return provider.meta().id if provider else None
         except Exception as e:
             logger.debug(f"获取默认 Provider 失败: {e}")
-
-        return None
+            return None
 
     def _truncate_text(self, text: str, max_length: int) -> str:
         """截断文本
