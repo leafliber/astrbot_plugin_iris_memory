@@ -39,11 +39,20 @@ _DEFAULTS = {
     "proactive_max_streak": 2,
     "proactive_instruction": "",
     "proactive_max_message_len": 300,
+    "private_enabled": False,
+    "private_whitelist": [],
 }
 
 # _conf_schema.json 中 proactive 分组内的面板键（嵌套存储，面板管理）
 _SCHEMA_GROUP = "proactive"
-_SCHEMA_KEYS = {"enabled", "proactive_enabled", "stats_enabled", "provider_id"}
+_SCHEMA_KEYS = {
+    "enabled",
+    "proactive_enabled",
+    "stats_enabled",
+    "provider_id",
+    "private_enabled",
+    "private_whitelist",
+}
 
 # 页面管理键 → 隐藏配置键（HiddenConfig 字段名）。
 # 主动发起类键名与隐藏配置字段同名，基本参数类加 reply_ 前缀，
@@ -314,3 +323,20 @@ class ConfigManager:
     @property
     def proactive_max_message_len(self) -> int:
         return max(50, min(1000, int(self._get("proactive_max_message_len"))))
+
+    @property
+    def private_enabled(self) -> bool:
+        v = self._get("private_enabled")
+        if isinstance(v, bool):
+            return v
+        return str(v).strip().lower() in ("true", "1", "yes", "on")
+
+    @property
+    def private_whitelist(self) -> list[str]:
+        """允许私聊主动消息的用户 ID 列表（字符串形式）。"""
+        raw = self._get("private_whitelist", [])
+        if isinstance(raw, str):
+            raw = [part for part in raw.replace("，", ",").split(",")]
+        if not isinstance(raw, (list, tuple, set)):
+            return []
+        return [str(item).strip() for item in raw if str(item).strip()]

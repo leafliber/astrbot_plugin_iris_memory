@@ -438,6 +438,8 @@ class ProactiveEngine:
             return "决策期间出现了新消息"
         if not require_quiet:
             return ""
+        if not self._state.is_whitelisted(group_id):
+            return "该会话已不在主动回复白名单"
         if self._state.is_muted():
             return "当前进入静音时段"
         if data.state == GroupState.COOLDOWN:

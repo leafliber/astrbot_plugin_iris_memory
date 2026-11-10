@@ -410,6 +410,21 @@
         "description": "决策模型 Provider",
         "hint": "主动回复统一决策使用的模型，留空则使用默认 Provider",
         "_special": "select_provider"
+      },
+      "private_enabled": {
+        "type": "bool",
+        "default": false,
+        "description": "启用私聊主动消息",
+        "hint": "开启后，白名单内的私聊会话也会参与主动回复与主动发起（沿用同一套免打扰、每日上限与连发上限）"
+      },
+      "private_whitelist": {
+        "type": "list",
+        "default": [],
+        "items": {
+          "type": "string"
+        },
+        "description": "私聊白名单（用户 ID）",
+        "hint": "填写允许主动消息的用户 ID，例如 Telegram 的纯数字 ID。留空表示不启用任何私聊"
       }
     }
   },

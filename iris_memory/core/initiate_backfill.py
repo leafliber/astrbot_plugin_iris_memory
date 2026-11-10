@@ -30,9 +30,8 @@ async def handle_initiate_backfill(
     （渲染层统一显示为 "Bot: {content}"，见
     llm_request_hook._collect_l1_context 对 assistant 消息的处理）。
 
-    会话键约定：群聊的 L1 队列键即群号
-    （见 PlatformAdapter.get_session_id；私聊才使用 private:{user_id}，
-    initiate 只发生在群聊，故直接使用 group_id）。
+    会话键约定：L1 队列键群聊为群号、私聊为 private:{user_id}
+    （见 PlatformAdapter.get_session_id），与主动回复的会话键一致，故直接使用。
 
     persona_id 继承该群 L1 队列最后一条消息：直发通路无事件对象，
     resolve_persona 不可用；队列尾部消息的人格即该群当前活跃人格，
