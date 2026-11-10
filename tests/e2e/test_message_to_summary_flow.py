@@ -195,7 +195,7 @@ class TestMessageToSummaryFlow:
         """测试大消息处理
 
         端到端验证：
-        1. 超大消息被拒绝
+        1. 超大消息截断后仍可读取
         2. 正常消息正常处理
         """
         with (
@@ -232,8 +232,10 @@ class TestMessageToSummaryFlow:
                 source="user_456",
             )
 
-            # 应该被拒绝
-            assert success is False
+            context = l1_buffer.get_context("group_123")
+            assert success is True
+            assert len(context) == 1
+            assert "消息过长" in context[0].content
 
             # 正常消息
             success = await l1_buffer.add_message(

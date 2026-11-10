@@ -111,9 +111,11 @@ class ProfileCommandHandler(CommandHandler):
         if profile.bot_relationship:
             lines.append(f"与Bot关系: {profile.bot_relationship}")
         if profile.taboo_topics:
-            lines.append(f"禁忌话题: {', '.join(profile.taboo_topics)}")
+            taboo_topics = ", ".join(str(topic) for topic in profile.taboo_topics)
+            lines.append(f"禁忌话题: {taboo_topics}")
         if profile.important_events:
-            lines.append(f"重要事件: {'; '.join(profile.important_events[:3])}")
+            events = "; ".join(str(event) for event in profile.important_events[:3])
+            lines.append(f"重要事件: {events}")
         if profile.custom_fields:
             lines.append(f"自定义字段: {list(profile.custom_fields.keys())}")
 

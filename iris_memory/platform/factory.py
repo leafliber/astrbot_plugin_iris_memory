@@ -50,6 +50,8 @@ _ADAPTER_REGISTRY: dict[str, type[PlatformAdapter] | None] = {
 # 适配器实例缓存（单例）
 _ADAPTER_INSTANCES: dict[str, PlatformAdapter] = {}
 _ADAPTER_LOCK = threading.Lock()
+# 已提示过「降级到通用适配器」的平台，避免每条消息刷十几行 WARN
+_GENERIC_FALLBACK_NOTIFIED: set[str] = set()
 
 
 # ============================================================================
@@ -97,10 +99,15 @@ def get_adapter(event: "AstrMessageEvent") -> PlatformAdapter:
 
     # 检查是否支持
     if platform_key not in _ADAPTER_REGISTRY:
-        logger.warning(
-            f"未支持的平台类型: {platform_type}，使用通用适配器降级。"
-            f"当前支持: {list(_ADAPTER_REGISTRY.keys())}"
-        )
+        # get_adapter 在单条消息链路里会被调用十几次，这里按平台只提示一次
+        if platform_key not in _GENERIC_FALLBACK_NOTIFIED:
+            _GENERIC_FALLBACK_NOTIFIED.add(platform_key)
+            logger.info(
+                f"平台 {platform_type} 无专用适配器，使用通用适配器降级"
+                f"（专用支持: {list(_ADAPTER_REGISTRY.keys())}）"
+            )
+        else:
+            logger.debug(f"平台 {platform_type} 复用通用适配器")
         with _ADAPTER_LOCK:
             if "__generic__" not in _ADAPTER_INSTANCES:
                 logger.info("创建通用平台适配器实例")

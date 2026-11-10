@@ -4,7 +4,7 @@ Iris Chat Memory - 公共工具模块
 提供通用工具函数，供各模块使用。
 """
 
-from .token_counter import count_tokens, get_encoder
+from .token_counter import count_tokens, get_encoder, truncate_text_tokens
 from .forgetting import (
     calculate_recency,
     calculate_frequency,
@@ -20,6 +20,7 @@ __all__ = [
     # Token 计数
     "count_tokens",
     "get_encoder",
+    "truncate_text_tokens",
     # 遗忘权重算法
     "calculate_recency",
     "calculate_frequency",
