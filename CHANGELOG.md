@@ -3,6 +3,35 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.3.0] - 2026-11-10
+
+### ⚠️ 注意
+
+- `l1_buffer.summary_provider`、`profile.analysis_provider` 等留空时，此前的默认 Provider 回退实际不生效，相关后台任务一直报「未配置 Provider」。升级后会回退到 AstrBot 当前的对话 Provider，总结和画像分析开始运行，并产生相应的模型调用。
+- 嵌入签名现在记录真实模型名。OpenAI 兼容类型的 Provider 在同一 Provider ID 下更换模型时，会触发一次全量迁移；旧版签名升级时只更新元数据，不会重新嵌入。
+- 启动时会把空串命名空间下的用户画像合并到 `default`，删除源记录前写入备份键，迁移可重复执行。
+
+### Added
+
+- **私聊主动消息**（#36）：默认关闭。开启 `proactive.private_enabled` 并把用户加入 `proactive.private_whitelist` 后，私聊可以参与主动回复和定时发起；关闭开关或移出白名单后不再发起，重新授权后无需重新登记。
+- **用户身份映射**（#46）：新增 `identity.user_id_aliases`，把同一个人在网页对话和聊天平台上的不同用户 ID 合并到同一份画像。启动时迁移历史画像，L1/L2/L3 中已有的记忆不迁移。
+- **画像分析独立超时**（#45）：新增 `profile.timeout_ms`，0 表示沿用全局 Provider 超时。
+- **Embedding 批次上限**（#40）：新增隐藏配置 `l2_embedding_batch_size`，默认 25。
+
+### Fixed
+
+- **Embedding 批量请求**（#40）：按批次上限拆分请求，修复 DashScope 等厂商因批次过大返回 400。
+- **Embedding Provider 晚就绪**（#42）：插件先于 Provider 加载时，L2 在后台自愈，不再永久不可用；梦境任务在 L2 可恢复时照常注册。
+- **嵌入签名**（#41、#47）：签名按实际解析到的 Provider 和真实模型名生成，`embedding_provider` 在留空和显式 ID 之间切换不再触发全量重嵌入；面板更新 Provider 后不再继续使用连接已关闭的旧实例。
+- **默认 Provider 回退**（#48）：模块未配置 Provider 时回退到 AstrBot 当前的对话 Provider。
+- **L3 路径扩展**（#43）：返回的节点数严格遵守 `max_nodes`，种子节点超限时优先保留排名靠前的节点。
+- **插件日志级别**（#44）：日志遵循 AstrBot 面板为插件设置的日志级别。
+- **批量画像分析**（#45）：失败时保留真实原因，超时和熔断不再一律报成「返回无效 JSON」；模型用 null 表示群画像无更新时不再判为失败，没有分析对象时不调用 LLM。
+- **画像存储键**（#46）：开启群画像隔离后，私聊和管理页使用同一个存储键，不再把同一用户拆成两条画像。
+- **超长消息**（#34）：超过单条 Token 上限时保留开头和结尾，不再整条丢弃，Bot 的长回复也能进入 L1 和后续摘要。
+- **通用适配器日志**（#34）：降级提示按平台只打一次，并从 WARNING 降为 INFO。
+- **画像异常字段**（#34）：模型写入格式异常的重要日期、禁忌或重要事件时，画像注入、`get_profile` 和 `/iris_mem` 的画像查询仍能正常工作。
+
 ## [3.2.1] - 2026-09-08
 
 ### Fixed
